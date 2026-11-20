@@ -28,6 +28,25 @@ INSERT INTO briefs VALUES ('B-1','Old','body','[]','open',5,2,'[]','none',1000)`
 		t.Fatal(err)
 	}
 
+	autoDone := func() bool {
+		t.Helper()
+		s, err := Open(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = s.Close() }()
+		var got bool
+		err = s.View(context.Background(), func(tx store.Tx) error {
+			b, err := tx.GetBrief("B-1")
+			got = b != nil && b.AutoDoneOnMerge
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		return got
+	}
+
 	crossReview := func() bool {
 		t.Helper()
 		s, err := Open(path)
@@ -50,6 +69,9 @@ INSERT INTO briefs VALUES ('B-1','Old','body','[]','open',5,2,'[]','none',1000)`
 	if !crossReview() {
 		t.Fatal("existing brief should default to cross_review=true")
 	}
+	if autoDone() {
+		t.Fatal("existing brief should default to auto_done_on_merge=false")
+	}
 
 	s, err := Open(path)
 	if err != nil {
@@ -61,6 +83,7 @@ INSERT INTO briefs VALUES ('B-1','Old','body','[]','open',5,2,'[]','none',1000)`
 			return err
 		}
 		b.CrossReview = false
+		b.AutoDoneOnMerge = true
 		return tx.UpdateBrief(b)
 	})
 	if err != nil {
@@ -72,5 +95,8 @@ INSERT INTO briefs VALUES ('B-1','Old','body','[]','open',5,2,'[]','none',1000)`
 
 	if crossReview() {
 		t.Fatal("reopening must not reset cross_review")
+	}
+	if !autoDone() {
+		t.Fatal("reopening must not reset auto_done_on_merge")
 	}
 }

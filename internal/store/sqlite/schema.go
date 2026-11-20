@@ -15,7 +15,8 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS briefs (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, repos TEXT NOT NULL, status TEXT NOT NULL,
   max_cost_eur REAL NOT NULL, max_parallel INTEGER NOT NULL, allowed_providers TEXT NOT NULL,
-  plan_status TEXT NOT NULL, created_at INTEGER NOT NULL, cross_review INTEGER NOT NULL DEFAULT 1
+  plan_status TEXT NOT NULL, created_at INTEGER NOT NULL, cross_review INTEGER NOT NULL DEFAULT 1,
+  auto_done_on_merge INTEGER NOT NULL DEFAULT 0
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -85,13 +86,19 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 const auditNoUpdate = `CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
 func migrate(db *sql.DB) error {
-	var n int
-	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name='cross_review'`).Scan(&n)
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		if _, err := db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`); err != nil {
+	for _, c := range []struct{ name, def string }{
+		{"cross_review", "INTEGER NOT NULL DEFAULT 1"},
+		{"auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		var n int
+		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name=?`, c.name).Scan(&n)
+		if err != nil {
+			return err
+		}
+		if n > 0 {
+			continue
+		}
+		if _, err := db.Exec(`ALTER TABLE briefs ADD COLUMN ` + c.name + ` ` + c.def); err != nil {
 			return err
 		}
 	}

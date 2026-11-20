@@ -13,6 +13,8 @@ import (
 	"log/slog"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 )
 
 // MaxBodyBytes is the largest accepted request body.
@@ -31,15 +33,69 @@ type Event struct {
 	Number     int
 	HeadBranch string
 	Merged     bool
+	Closed     bool
 	URL        string
 }
 
 // Func is called for every accepted pull request event.
 type Func func(ctx context.Context, ev Event) error
 
+const (
+	replayTTL = 24 * time.Hour
+	replayMax = 10000
+)
+
 type handler struct {
+	only   string
 	secret []byte
 	fn     Func
+	seen   *deliveries
+}
+
+type delivery struct {
+	id string
+	at time.Time
+}
+
+type deliveries struct {
+	mu    sync.Mutex
+	now   func() time.Time
+	ids   map[string]time.Time
+	order []delivery
+}
+
+func (d *deliveries) claim(id string) bool {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	now := d.now()
+	for len(d.order) > 0 && (now.Sub(d.order[0].at) > replayTTL || len(d.order) >= replayMax) {
+		if at, ok := d.ids[d.order[0].id]; ok && at.Equal(d.order[0].at) {
+			delete(d.ids, d.order[0].id)
+		}
+		d.order = d.order[1:]
+	}
+	if _, dup := d.ids[id]; dup {
+		return false
+	}
+	d.ids[id] = now
+	d.order = append(d.order, delivery{id, now})
+	return true
+}
+
+func (d *deliveries) release(id string) {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	delete(d.ids, id)
+}
+
+// NewProviderHandler is like NewHandler but rejects deliveries from any other provider.
+func NewProviderHandler(provider, secret string, fn Func) (http.Handler, error) {
+	h, err := NewHandler(secret, fn)
+	if err != nil {
+		return nil, err
+	}
+	h.(*handler).only = provider
+	return h, nil
 }
 
 // NewHandler returns a handler that verifies signatures with secret and calls fn.
@@ -50,7 +106,7 @@ func NewHandler(secret string, fn Func) (http.Handler, error) {
 	if fn == nil {
 		return nil, errors.New("webhook: nil callback")
 	}
-	return &handler{secret: []byte(secret), fn: fn}, nil
+	return &handler{secret: []byte(secret), fn: fn, seen: &deliveries{now: time.Now, ids: map[string]time.Time{}}}, nil
 }
 
 func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -70,14 +126,19 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	provider, sig, eventType := identify(r.Header)
-	if provider == "" || !h.verify(sig, body) {
+	provider, sig, eventType, deliveryID := identify(r.Header)
+	if provider == "" || (h.only != "" && provider != h.only) || !h.verify(sig, body) {
 		http.Error(w, "invalid signature", http.StatusUnauthorized)
 		return
 	}
 
 	if eventType != "pull_request" && eventType != "pull_request_sync" {
 		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+
+	if deliveryID == "" {
+		http.Error(w, "missing delivery id", http.StatusBadRequest)
 		return
 	}
 
@@ -92,7 +153,12 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	if !h.seen.claim(provider + ":" + deliveryID) {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
 	if err := h.fn(r.Context(), ev); err != nil {
+		h.seen.release(provider + ":" + deliveryID)
 		slog.Error("webhook callback failed", "provider", ev.Provider, "repo", ev.Repo, "number", ev.Number, "err", err)
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -100,17 +166,17 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusOK)
 }
 
-// identify returns the provider, the raw signature header value and the event type.
-func identify(h http.Header) (provider, sig, eventType string) {
+// identify returns the provider, the raw signature header value, the event type and the delivery id.
+func identify(h http.Header) (provider, sig, eventType, delivery string) {
 	if s := h.Get("X-Hub-Signature-256"); s != "" {
-		return ProviderGitHub, s, h.Get("X-GitHub-Event")
+		return ProviderGitHub, s, h.Get("X-GitHub-Event"), h.Get("X-GitHub-Delivery")
 	}
 	for _, name := range []string{"Forgejo", "Gitea"} {
 		if s := h.Get("X-" + name + "-Signature"); s != "" {
-			return ProviderForgejo, s, h.Get("X-" + name + "-Event")
+			return ProviderForgejo, s, h.Get("X-" + name + "-Event"), h.Get("X-" + name + "-Delivery")
 		}
 	}
-	return "", "", ""
+	return "", "", "", ""
 }
 
 func (h *handler) verify(sig string, body []byte) bool {
@@ -142,14 +208,11 @@ type payload struct {
 
 // event maps the payload to an Event; ok is false for actions we ignore.
 func (p *payload) event(provider string) (Event, bool) {
-	merged := false
+	merged, closed := false, false
 	switch p.Action {
 	case "opened", "synchronize", "synchronized":
 	case "closed":
-		if !p.PullRequest.Merged {
-			return Event{}, false
-		}
-		merged = true
+		merged, closed = p.PullRequest.Merged, !p.PullRequest.Merged
 	default:
 		return Event{}, false
 	}
@@ -166,6 +229,7 @@ func (p *payload) event(provider string) (Event, bool) {
 		Number:     n,
 		HeadBranch: p.PullRequest.Head.Ref,
 		Merged:     merged,
+		Closed:     closed,
 		URL:        p.PullRequest.HTMLURL,
 	}, true
 }

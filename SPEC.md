@@ -173,7 +173,12 @@ Bootstrap: with an empty DB (no agents, no briefs) nothing breaks — `/healthz`
 
 ## 12. Deployment
 
-One Go binary (distroless/static) + Next.js standalone web + Caddy, via `docker compose`, data under `${SUBSPACE_DATA:-/data/subspace}`. Caddy provides automatic HTTPS when `SUBSPACE_DOMAIN` is set, plain `:80` otherwise; routes `/mcp`, `/healthz` to the Go server, everything else to web, which proxies `/api/v1` server-side with the owner token from an httpOnly cookie. The server backs itself up daily (`VACUUM INTO`, keep 14). `/api/v1` is not routed publicly by Caddy except through the web app. (Docker/compose/Caddy/CLI/web are built on `feat/web-cli-docker`.)
+One Go binary (distroless/static), a standalone Next.js web app, and a daily SQLite backup sidecar run via Docker Compose.
+Data lives under `${SUBSPACE_DATA:-/data/subspace}`. The default deployment joins a shared Caddy network and publishes
+web and server ports on loopback for SSH tunnels. The optional `standalone` profile runs bundled Caddy, with automatic
+HTTPS for a configured domain or plain HTTP on port 80 for an IP. Caddy routes `/mcp*` and `/healthz` to Go and the
+remaining paths to Next.js. Next validates the owner's httpOnly session cookie or REST bearer with Go. The sidecar
+keeps 14 daily `VACUUM INTO` snapshots by default. See [the deployment guide](deploy/README.md).
 
 ## 13. Phases
 

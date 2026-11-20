@@ -8,7 +8,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 )
 
 func isErr(err, target error) bool { return errors.Is(err, target) }
@@ -28,8 +27,6 @@ func slug(s string) string {
 	return s
 }
 
-func ptr[T any](v T) *T { return &v }
-
 func strp(s string) *string {
 	if s == "" {
 		return nil
@@ -43,8 +40,6 @@ func deref(s *string) string {
 	}
 	return *s
 }
-
-func tptr(t time.Time) *time.Time { return &t }
 
 func contains(xs []string, x string) bool {
 	for _, y := range xs {
@@ -62,7 +57,6 @@ func nz[T any](s []T) []T {
 	return s
 }
 
-// noopSpawner is the fallback when no spawner is configured.
 type noopSpawner struct{}
 
 func (noopSpawner) Name() string                                 { return "noop" }

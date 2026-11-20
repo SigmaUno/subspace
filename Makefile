@@ -1,8 +1,10 @@
-.PHONY: all build test vet lint fmt run loadtest loadtest-short clean
+.PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report clean
 
 GO ?= go
 BIN := bin
 LDFLAGS := -s -w
+LOADTEST_OUT ?= $(BIN)/loadtest-1000.json
+LOADTEST_PROFILE ?= $(BIN)/loadtest-1000-profile
 
 all: vet lint test build
 
@@ -32,6 +34,14 @@ loadtest:
 # Short version used in CI.
 loadtest-short:
 	$(GO) run ./cmd/loadtest -agents 50 -duration 20s -max-error-rate 0
+
+# 1000 agents ramped in over 20s, 500 SSE subscribers; JSON report and pprof profiles under bin/.
+loadtest-1000:
+	$(GO) run ./cmd/loadtest -agents 1000 -duration 90s -ramp 20s -sse-subs 500 -out $(LOADTEST_OUT) -profile $(LOADTEST_PROFILE)
+
+loadtest-report:
+	@test -f $(LOADTEST_OUT) || { echo "$(LOADTEST_OUT) not found; run make loadtest-1000 first" >&2; exit 1; }
+	@cat $(LOADTEST_OUT)
 
 clean:
 	$(GO) clean -cache -testcache

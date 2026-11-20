@@ -248,7 +248,7 @@ All tools return an object; `task` = Task object above.
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"}}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
 - `create_task {"brief_id", ...task fields}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
-- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}`
+- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
+import { BotsView } from "./bots";
 import { BriefsView } from "./board";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
@@ -69,6 +70,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "swarm", name: "Swarm", href: "/" },
     { id: "briefs", name: "Briefs", href: "/briefs" },
     { id: "agents", name: "Agents", href: "/agents" },
+    { id: "bots", name: "Bots", href: "/bots" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
   ];
 
@@ -102,6 +104,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
+            {section === "bots" && <BotsView revision={revisions.agents} openThread={setThread} />}
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}

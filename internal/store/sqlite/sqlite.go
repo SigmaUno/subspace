@@ -17,6 +17,10 @@ import (
 
 const maxBatch = 128
 
+var extraSchemas []string
+
+func RegisterSchema(ddl string) { extraSchemas = append(extraSchemas, ddl) }
+
 type wreq struct {
 	ctx  context.Context
 	fn   func(store.Tx) error
@@ -75,6 +79,13 @@ func Open(path string) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	for _, ddl := range extraSchemas {
+		if _, err := wdb.Exec(ddl); err != nil {
+			_ = wdb.Close()
+			_ = rdb.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	}
 	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)
 	go s.writer()
@@ -89,6 +100,16 @@ func (s *Store) Close() error {
 		err = errors.Join(s.wdb.Close(), s.rdb.Close())
 	})
 	return err
+}
+
+func (s *Store) Done() <-chan struct{} { return s.quit }
+
+func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
+	return t.q.ExecContext(t.ctx, q, args...)
+}
+
+func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
+	return t.q.QueryContext(t.ctx, q, args...)
 }
 
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {

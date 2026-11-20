@@ -117,3 +117,19 @@ tbody tr:last-child > * { border-bottom: 0; }
   .topbar { padding-inline: .7rem; }
   .board { grid-auto-columns: min(78vw, 15.5rem); }
 }
+
+/* Chat */
+.chat-screen { grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr); align-items: start; }
+.chat-list { display: grid; gap: .5rem; align-content: start; max-height: calc(100vh - 9rem); overflow: auto; }
+.chat-list ul { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.chat-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .5rem; width: 100%; text-align: left; }
+.chat-item[aria-current] { border-color: var(--accent); }
+.chat-item .meta { grid-column: 1 / -1; }
+.chat-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: calc(100vh - 9rem); min-height: 28rem; padding: 0; overflow: hidden; }
+.chat-head { padding: 1rem; border-bottom: 1px solid var(--border); }
+.chat-pane .messages { padding: .85rem 1rem; }
+@media (max-width: 960px) {
+  .chat-screen { grid-template-columns: minmax(0, 1fr); }
+  .chat-list { max-height: none; }
+  .chat-pane { height: auto; min-height: 24rem; }
+}

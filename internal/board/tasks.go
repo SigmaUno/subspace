@@ -192,6 +192,11 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 		if p.Status != nil {
 			switch *p.Status {
 			case model.StatusBlocked:
+				switch t.Status {
+				case model.StatusReady, model.StatusAssigned, model.StatusInProgress:
+				default:
+					return model.Conflict("cannot block a %s task", t.Status)
+				}
 				if t.Status == model.StatusInProgress {
 					b.endLease(t)
 				}

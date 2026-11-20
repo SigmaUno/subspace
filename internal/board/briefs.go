@@ -214,6 +214,7 @@ type BriefPatch struct {
 	MaxParallel      *int      `json:"max_parallel_agents"`
 	AllowedProviders *[]string `json:"allowed_providers"`
 	CrossReview      *bool     `json:"cross_review"`
+	AutoDoneOnMerge  *bool     `json:"auto_done_on_merge"`
 	Status           *string   `json:"status"`
 }
 
@@ -241,6 +242,9 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		}
 		if p.CrossReview != nil {
 			br.CrossReview = *p.CrossReview
+		}
+		if p.AutoDoneOnMerge != nil {
+			br.AutoDoneOnMerge = *p.AutoDoneOnMerge
 		}
 		if p.Status != nil {
 			if *p.Status != "open" && *p.Status != "closed" {

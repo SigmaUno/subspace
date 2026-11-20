@@ -7,6 +7,7 @@ import type { Control, Thread } from "../../../lib/types";
 import { BriefsView } from "./board";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
+import { UsageView } from "./usage";
 import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
@@ -70,6 +71,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "briefs", name: "Briefs", href: "/briefs" },
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
+    { id: "usage", name: "Usage", href: "/usage" },
   ];
 
   return (
@@ -105,6 +107,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+            {section === "usage" && <UsageView revision={revisions.capacity} />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}

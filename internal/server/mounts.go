@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"log/slog"
 	"net/http"
 
@@ -11,6 +12,7 @@ import (
 )
 
 type Deps struct {
+	Ctx   context.Context
 	Board *board.Board
 	Store store.Store
 	Hub   events.Hub

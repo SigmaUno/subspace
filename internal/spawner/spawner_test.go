@@ -232,3 +232,45 @@ func TestExecRunnerEnvAndRedaction(t *testing.T) {
 		t.Fatalf("env not passed to process: %v", err)
 	}
 }
+
+func TestExecRunnerDoesNotLeakServerEnv(t *testing.T) {
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "fakehc")
+	out := filepath.Join(dir, "env.out")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nenv >\"$FAKE_HC_OUT\"\n"), 0o700); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	t.Setenv("FAKE_HC_OUT", out)
+	t.Setenv("SUBSPACE_OWNER_TOKEN", "owner-secret-0123456789abcdef")
+	t.Setenv("SUBSPACE_OWNER_TOKEN_FILE", "/run/secrets/owner")
+	if err := (&HC{Bin: bin}).Spawn(context.Background(), testRequest()); err != nil {
+		t.Fatal(err)
+	}
+	got, err := os.ReadFile(out) //nolint:gosec
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, leak := range []string{"SUBSPACE_OWNER_TOKEN", "owner-secret"} {
+		if strings.Contains(string(got), leak) {
+			t.Errorf("child env contains %q", leak)
+		}
+	}
+	if !strings.Contains(string(got), "SUBSPACE_TOKEN="+testToken) {
+		t.Errorf("agent token missing from child env:\n%s", got)
+	}
+}
+
+func TestExecRunnerRedactsTokenAcrossTruncation(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "fakehc")
+	script := "#!/bin/sh\nhead -c 505 /dev/zero | tr '\\000' x\necho \"$SUBSPACE_TOKEN\"\nexit 3\n"
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	err := (&HC{Bin: bin}).Spawn(context.Background(), testRequest())
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), testToken[:7]) {
+		t.Fatalf("token prefix leaked: %v", err)
+	}
+}

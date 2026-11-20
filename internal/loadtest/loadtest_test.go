@@ -10,6 +10,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/client"
 )
 
 func TestHistogramQuantiles(t *testing.T) {
@@ -71,17 +73,6 @@ func TestRecorderConcurrent(t *testing.T) {
 	}
 	if len(samples) != 1 || samples[0] != "a: boom" {
 		t.Fatalf("samples %v", samples)
-	}
-}
-
-func TestReadSSE(t *testing.T) {
-	in := "id: 1\nevent: hello\ndata: {\"seq\":1}\n\n: ping\n\nid: 2\r\nevent: task.updated\r\ndata: a\r\ndata: b\r\nretry: 5\r\n\r\n"
-	var got []sseFrame
-	if err := readSSE(strings.NewReader(in), func(f sseFrame) { got = append(got, f) }); err != nil {
-		t.Fatal(err)
-	}
-	if len(got) != 2 || got[0].Event != "hello" || got[1].ID != "2" || got[1].Data != "a\nb" {
-		t.Fatalf("frames %+v", got)
 	}
 }
 
@@ -179,7 +170,7 @@ func TestRunBadOwnerToken(t *testing.T) {
 	ts := httptest.NewServer(NewFakeServer(fakeOwner))
 	defer ts.Close()
 	_, err := Run(context.Background(), Config{Agents: 1, Duration: time.Second, URL: ts.URL, OwnerToken: "wrong"})
-	var ae *APIError
+	var ae *client.Error
 	if !errors.As(err, &ae) || ae.Status != 401 {
 		t.Fatalf("want 401, got %v", err)
 	}

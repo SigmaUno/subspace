@@ -1,13 +1,13 @@
 package spawner
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
 	"os"
 	"os/exec"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 )
@@ -124,23 +124,44 @@ func shellQuote(s string) string {
 func execRunner(token string) Runner {
 	return func(ctx context.Context, name string, args ...string) error {
 		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // operator-configured binary
-		cmd.Env = append(os.Environ(), EnvFromContext(ctx)...)
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-		if err := cmd.Run(); err != nil {
-			msg := strings.TrimSpace(out.String())
-			if len(msg) > 512 {
-				msg = msg[:512]
-			}
-			if token != "" {
-				msg = strings.ReplaceAll(msg, token, "[redacted]")
-			}
-			if msg != "" {
-				return fmt.Errorf("%s: %w: %s", name, err, msg)
-			}
-			return fmt.Errorf("%s: %w", name, err)
-		}
+		cmd.Env = append(childEnv(), EnvFromContext(ctx)...)
+		return runCmd(cmd, token)
+	}
+}
+
+const maxCapture = 64 << 10
+
+func childEnv() []string {
+	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "SUBSPACE_") })
+}
+
+type headBuffer struct{ buf []byte }
+
+func (h *headBuffer) Write(p []byte) (int, error) {
+	if n := maxCapture - len(h.buf); n > 0 {
+		h.buf = append(h.buf, p[:min(n, len(p))]...)
+	}
+	return len(p), nil
+}
+
+func runCmd(cmd *exec.Cmd, token string) error {
+	var out headBuffer
+	cmd.Stdout = &out
+	cmd.Stderr = &out
+	err := cmd.Run()
+	if err == nil {
 		return nil
 	}
+	raw := out.buf
+	if len(raw) == maxCapture {
+		raw = raw[:max(len(raw)-len(token), 0)]
+	}
+	msg := strings.TrimSpace(redact(string(raw), token))
+	if len(msg) > 512 {
+		msg = msg[:512]
+	}
+	if msg != "" {
+		return fmt.Errorf("%s: %w: %s", cmd.Args[0], err, msg)
+	}
+	return fmt.Errorf("%s: %w", cmd.Args[0], err)
 }

@@ -75,27 +75,30 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data}
+	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
 
-	var delivered map[*sub]struct{}
-	if len(topics) > 0 {
-		delivered = make(map[*sub]struct{})
-	}
-	for s := range h.topics[TopicAll] {
+	all := h.topics[TopicAll]
+	for s := range all {
 		s.send(ev)
-		if delivered != nil {
-			delivered[s] = struct{}{}
-		}
 	}
-	for _, t := range topics {
+	var delivered map[*sub]struct{}
+	for i, t := range topics {
 		if t == TopicAll {
 			continue
 		}
 		for s := range h.topics[t] {
+			if _, ok := all[s]; ok {
+				continue
+			}
 			if _, ok := delivered[s]; ok {
 				continue
 			}
-			delivered[s] = struct{}{}
+			if i < len(topics)-1 {
+				if delivered == nil {
+					delivered = make(map[*sub]struct{})
+				}
+				delivered[s] = struct{}{}
+			}
 			s.send(ev)
 		}
 	}

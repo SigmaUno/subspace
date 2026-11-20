@@ -48,7 +48,7 @@ function RegistrationForm({ complete }: { complete: (items: Registration[]) => v
   );
 }
 
-function Secret({ label, value }: { label: string; value: string }) {
+export function Secret({ label, value }: { label: string; value: string }) {
   const [feedback, setFeedback] = useState("");
   async function copy() {
     try {
@@ -100,7 +100,8 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
         <div className="registry-row registry-head"><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
           <article className="registry-row">
-            <div><button className="text-button" onClick={() => openThread({ kind: "agent", id: agent.id })}>{agent.id}</button></div>
+            <div><Link href={`/agents/${encodeURIComponent(agent.id)}`}>{agent.id}</Link>
+              <div><button className="text-button meta" onClick={() => openThread({ kind: "agent", id: agent.id })}>Thread</button></div></div>
             <div>{agent.role}</div><div>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></div>
             <div><span className={`pill ${agent.status}`}>{agent.status}</span>{agent.pause_reason && <div className="meta">{agent.pause_reason}</div>}</div>
             <div>{agent.current_task_id ? <button className="text-button" onClick={() => openThread({ kind: "task", id: agent.current_task_id! })}>{agent.current_task_id}</button> : "—"}</div>

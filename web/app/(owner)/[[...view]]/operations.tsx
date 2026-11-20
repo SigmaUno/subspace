@@ -209,6 +209,16 @@ export function QuestionsView({ revision, openThread }: { revision: number; open
 type LimitInput = Pick<CapacityLimit, "provider" | "model" | "max_concurrency" | "requests_per_min">;
 type Draft = { global_max_agents: number; limits: LimitInput[] };
 
+const whole = (amount: number) => Number.isInteger(amount) && amount >= 0;
+
+function capacityProblem(draft: Draft): string | undefined {
+  if (!whole(draft.global_max_agents)) return "Global maximum agents must be a whole number of 0 or more.";
+  for (const [index, limit] of draft.limits.entries()) {
+    if (!limit.provider.trim() || !limit.model.trim()) return `Limit ${index + 1}: provider and model are required (use "*" for any model).`;
+    if (!whole(limit.max_concurrency) || !whole(limit.requests_per_min)) return `Limit ${index + 1}: concurrency and requests per minute must be whole numbers of 0 or more.`;
+  }
+}
+
 export function CapacityView({ revision }: { revision: number }) {
   const capacity = useResource<Capacity>("capacity", revision);
   const [draft, setDraft] = useState<Draft>();
@@ -229,6 +239,8 @@ export function CapacityView({ revision }: { revision: number }) {
     <div className="heading"><h1>Capacity settings</h1>{current && <span className="pill">{current.agents_in_use} agents in use</span>}</div>
     <Feedback error={capacity.error} loading={!current} />
     {settings && <form className="panel stack" onSubmit={(event) => form.submit(event, async () => {
+      const problem = capacityProblem(settings);
+      if (problem) throw new Error(problem);
       const response = await api<Capacity>("capacity", "PUT", {
         global_max_agents: settings.global_max_agents,
         limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min }) => ({

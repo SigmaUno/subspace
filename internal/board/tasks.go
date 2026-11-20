@@ -454,9 +454,17 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s, not in_progress (claim it first; the lease may have expired)", t.Status)
 		}
+		br, err := tx.GetBrief(t.BriefID)
+		if err != nil {
+			return err
+		}
+		to := model.StatusSubmitted
+		if !br.CrossReview {
+			to = model.StatusApproved
+		}
 		b.endLease(t)
 		t.PRURL, t.ProgressPct = strp(in.PRURL), 100
-		if err := b.statusChange(tx, w, a, "submit", t, model.StatusSubmitted, "PR "+in.PRURL); err != nil {
+		if err := b.statusChange(tx, w, a, "submit", t, to, "PR "+in.PRURL); err != nil {
 			return err
 		}
 		if in.Summary != "" {

@@ -117,3 +117,13 @@ tbody tr:last-child > * { border-bottom: 0; }
   .topbar { padding-inline: .7rem; }
   .board { grid-auto-columns: min(78vw, 15.5rem); }
 }
+
+/* Hillclimb loss curve */
+.hillclimb-chart { width: 100%; height: auto; overflow: visible; }
+.hillclimb-chart .axis { stroke: var(--border); }
+.hillclimb-chart .tick { fill: var(--muted); font-size: 12px; }
+.hillclimb-chart .target { stroke: var(--warn); stroke-dasharray: 6 4; }
+.hillclimb-chart .target-label { fill: var(--warn); }
+.hillclimb-chart .series { fill: none; stroke: var(--accent); stroke-width: 2; }
+.hillclimb-chart .point { fill: var(--action); }
+.hillclimb-chart .best { fill: none; stroke: var(--green); stroke-width: 2.5; }

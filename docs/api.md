@@ -73,7 +73,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 
 // AuditEvent
 {"id":7,"ts":"...","agent_id":"claude-1","role":"worker","tool":"claim_task","task_id":"T-3",
- "before":{"status":"assigned"},"after":{"status":"in_progress"},"note":null}
+ "before":{"status":"assigned"},"after":{"status":"in_progress"},"note":null,"hash":"<sha256 hex>"}
 
 // CapacityLimit
 {"provider":"anthropic","model":"*","max_concurrency":20,"requests_per_min":600,"in_use":4,"available":16}
@@ -167,6 +167,15 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 
 ### Audit
 `GET /api/v1/audit?agent_id=&task_id=&tool=&since=<id>&limit=` → `{"events":[AuditEvent]}` ascending; append-only, no write endpoint.
+
+Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `prev_hash` is the previous event's hex hash (`""` for the first event) and `canonical` is the compact JSON `{"id","ts","agent_id","role","tool","task_id","before","after","note"}` in that order, with `ts` in Unix milliseconds, absent `task_id`/`note` as `""`, absent `before`/`after` as `null`, and object keys sorted.
+
+| Method | Path | Response |
+|---|---|---|
+| GET | `/api/v1/audit/verify` | `{"ok":true,"events":n,"head":{"id":n,"hash":"..."}}`; when broken, `"ok":false` and `"broken_id":<first bad id>` with `events`/`head` covering the valid prefix. |
+| GET | `/api/v1/audit/export?since=<id>` | `application/x-ndjson`. First line `{"chain":{"since":<id>,"prev_hash":"<hash of the last event <= since>","head":{"id","hash"}}}`, then every AuditEvent with `since < id <= head.id`, ascending. |
+
+`subspace audit-verify --db <path>` checks the chain offline and exits non-zero at the first broken id.
 
 ## 4. SSE: `GET /api/v1/events`
 

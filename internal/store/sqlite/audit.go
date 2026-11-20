@@ -4,16 +4,18 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"math"
 	"strings"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
 	auditDefaultLimit = 200
-	auditCols         = `id, ts, agent_id, role, tool, task_id, before, after, note`
+	auditCols         = `id, ts, agent_id, role, tool, task_id, before, after, note, hash`
 	spawnCols         = `id, brief_id, agent_id, kind, model, provider, status, spawner, error, requested_by, created_at`
 )
 
@@ -80,18 +82,64 @@ func (t *tx) InsertAudit(e *model.AuditEvent) error {
 	if err != nil {
 		return err
 	}
-	res, err := t.q.ExecContext(t.ctx,
-		`INSERT INTO audit(ts, agent_id, role, tool, task_id, before, after, note) VALUES(?,?,?,?,?,?,?,?)`,
-		auditMillis(e.TS), e.AgentID, e.Role, e.Tool, auditStr(e.TaskID), before, after, auditStr(e.Note))
+	head, err := t.AuditHead(math.MaxInt64)
 	if err != nil {
 		return err
 	}
-	id, err := res.LastInsertId()
+	rec := audit.Record{ID: head.ID + 1, TS: auditMillis(e.TS), AgentID: e.AgentID, Role: e.Role, Tool: e.Tool,
+		TaskID: auditStr(e.TaskID), Before: before, After: after, Note: auditStr(e.Note)}
+	hash, err := audit.Link(head.Hash, rec)
 	if err != nil {
 		return err
 	}
-	e.ID = id
+	_, err = t.q.ExecContext(t.ctx,
+		`INSERT INTO audit(`+auditCols+`) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		rec.ID, rec.TS, rec.AgentID, rec.Role, rec.Tool, rec.TaskID, rec.Before, rec.After, rec.Note, hash)
+	if err != nil {
+		return err
+	}
+	e.ID, e.Hash = rec.ID, hash
 	return nil
+}
+
+func (t *tx) AuditHead(maxID int64) (model.AuditHead, error) {
+	var h model.AuditHead
+	err := t.q.QueryRowContext(t.ctx, `SELECT id, hash FROM audit WHERE id <= ? ORDER BY id DESC LIMIT 1`, maxID).Scan(&h.ID, &h.Hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return h, nil
+	}
+	return h, err
+}
+
+func (t *tx) VerifyAudit() (model.AuditCheck, error) {
+	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit ORDER BY id`)
+	if err != nil {
+		return model.AuditCheck{}, err
+	}
+	defer func() { _ = rows.Close() }()
+	return verifyRows(rows)
+}
+
+func verifyRows(rows *sql.Rows) (model.AuditCheck, error) {
+	var c audit.Chain
+	for rows.Next() {
+		var (
+			r    audit.Record
+			hash string
+		)
+		if err := rows.Scan(&r.ID, &r.TS, &r.AgentID, &r.Role, &r.Tool, &r.TaskID, &r.Before, &r.After, &r.Note, &hash); err != nil {
+			return model.AuditCheck{}, err
+		}
+		if !c.Add(r, hash) {
+			return chainCheck(c, r.ID), rows.Err()
+		}
+	}
+	return chainCheck(c, 0), rows.Err()
+}
+
+func chainCheck(c audit.Chain, broken int64) model.AuditCheck {
+	return model.AuditCheck{OK: broken == 0, Events: c.Events, BrokenID: broken,
+		Head: model.AuditHead{ID: c.HeadID, Hash: c.HeadHash}}
 }
 
 func (t *tx) ListAudit(f store.AuditFilter) ([]*model.AuditEvent, error) {
@@ -128,7 +176,7 @@ func (t *tx) ListAudit(f store.AuditFilter) ([]*model.AuditEvent, error) {
 			ts                        int64
 			taskID, before, after, nt string
 		)
-		if err := rows.Scan(&e.ID, &ts, &e.AgentID, &e.Role, &e.Tool, &taskID, &before, &after, &nt); err != nil {
+		if err := rows.Scan(&e.ID, &ts, &e.AgentID, &e.Role, &e.Tool, &taskID, &before, &after, &nt, &e.Hash); err != nil {
 			return nil, err
 		}
 		e.TS = auditTime(ts)

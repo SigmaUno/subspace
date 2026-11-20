@@ -212,6 +212,19 @@ type AuditEvent struct {
 	Before  map[string]any `json:"before"`
 	After   map[string]any `json:"after"`
 	Note    *string        `json:"note"`
+	Hash    string         `json:"hash,omitempty"`
+}
+
+type AuditHead struct {
+	ID   int64  `json:"id"`
+	Hash string `json:"hash"`
+}
+
+type AuditCheck struct {
+	OK       bool      `json:"ok"`
+	Events   int64     `json:"events"`
+	BrokenID int64     `json:"broken_id,omitempty"`
+	Head     AuditHead `json:"head"`
 }
 
 type Spawn struct {

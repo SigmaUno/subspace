@@ -75,6 +75,8 @@ type Tx interface {
 
 	InsertAudit(e *model.AuditEvent) error
 	ListAudit(f AuditFilter) ([]*model.AuditEvent, error)
+	AuditHead(maxID int64) (model.AuditHead, error)
+	VerifyAudit() (model.AuditCheck, error)
 
 	InsertSpawn(s *model.Spawn) error
 	UpdateSpawn(s *model.Spawn) error

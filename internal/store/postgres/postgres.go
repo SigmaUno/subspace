@@ -81,7 +81,38 @@ func migrate(db *sql.DB) error {
 	if _, err := t.ExecContext(ctx, schema); err != nil {
 		return err
 	}
+	if err := migrateAuditChain(ctx, t); err != nil {
+		return err
+	}
 	return t.Commit()
+}
+
+func migrateAuditChain(ctx context.Context, t *sql.Tx) error {
+	var n int
+	err := t.QueryRowContext(ctx, `SELECT count(*) FROM information_schema.columns
+  WHERE table_schema = current_schema() AND table_name = 'audit' AND column_name = 'hash'`).Scan(&n)
+	if err != nil || n > 0 {
+		return err
+	}
+	for _, q := range []string{
+		`ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE audit DISABLE TRIGGER audit_no_update`,
+	} {
+		if _, err := t.ExecContext(ctx, q); err != nil {
+			return err
+		}
+	}
+	links, err := (&tx{q: t, ctx: ctx}).chainExisting()
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		if _, err := t.ExecContext(ctx, `UPDATE audit SET hash = $1 WHERE id = $2`, l.Hash, l.ID); err != nil {
+			return err
+		}
+	}
+	_, err = t.ExecContext(ctx, `ALTER TABLE audit ENABLE TRIGGER audit_no_update`)
+	return err
 }
 
 func (s *Store) Close() error {

@@ -186,7 +186,7 @@ func TestConformancePing(t *testing.T) {
 }
 
 func toolMatrix() map[string][]string {
-	common := []string{"get_instructions", "whoami", "list_my_tasks", "get_task", "heartbeat", "update_status", "add_note", "ask_owner", "post_message", "read_thread"}
+	common := []string{"get_instructions", "whoami", "list_my_tasks", "get_task", "heartbeat", "update_status", "add_note", "ask_owner", "post_message", "read_thread", "list_artifacts", "get_artifact", "put_artifact"}
 	with := func(extra ...string) []string {
 		out := append(append([]string{}, common...), extra...)
 		sort.Strings(out)

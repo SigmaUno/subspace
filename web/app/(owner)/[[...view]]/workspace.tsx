@@ -15,6 +15,7 @@ import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
 import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
+import { KeyboardShortcuts } from "./shortcuts";
 import { Clock, Feedback } from "./components";
 
 export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
@@ -123,6 +124,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
       </main>
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}
       <CommandPalette />
+      <KeyboardShortcuts />
     </Clock.Provider>
   );
 }

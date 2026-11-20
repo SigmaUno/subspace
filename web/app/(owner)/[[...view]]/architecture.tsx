@@ -57,7 +57,7 @@ export function Architecture({ components, tasks, loading, error, openThread, op
     <div className="heading"><h2>Architecture</h2><span className="meta">{components.length} components</span></div>
     <Feedback error={error} loading={loading} />
     {!loading && !components.length && <p className="empty">No architecture published for this brief.</p>}
-    {!!components.length && <div className="graph-scroll" tabIndex={0} aria-label="Component dependency graph">
+    {!!components.length && <div className="graph-scroll" role="region" tabIndex={0} aria-label="Component dependency graph">
       <div className="graph" style={{ width: graph.width, height: graph.height }}>
         <svg width={graph.width} height={graph.height} aria-hidden="true">
           <defs><marker id="dependency-tip" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="6" markerHeight="6" orient="auto"><path d="M 0 0 L 10 5 L 0 10 z" /></marker></defs>

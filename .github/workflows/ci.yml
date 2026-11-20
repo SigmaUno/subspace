@@ -41,6 +41,35 @@ jobs:
         if: hashFiles('cmd/loadtest/*.go') != ''
         run: make loadtest-short
 
+  postgres:
+    name: Go on Postgres (store conformance, server integration)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: subspace
+          POSTGRES_PASSWORD: subspace
+          POSTGRES_DB: subspace
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U subspace -d subspace"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 20
+    env:
+      SUBSPACE_TEST_PG_DSN: postgres://subspace:subspace@localhost:5432/subspace?sslmode=disable
+      SUBSPACE_TEST_DB: postgres://subspace:subspace@localhost:5432/subspace?sslmode=disable
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: go test -race (Postgres)
+        run: go test -race -count=1 ./internal/store/... ./internal/server/...
+
   web:
     name: Web (lint, typecheck, build)
     runs-on: ubuntu-latest

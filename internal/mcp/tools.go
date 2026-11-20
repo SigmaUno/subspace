@@ -355,6 +355,12 @@ func NewRegistry(b *board.Board) *Registry {
 				return nil, err
 			}
 			sp, err := b.RequestSpawn(ctx, c.Actor, in)
+			for _, s := range sp {
+				if s.Error != nil {
+					msg := "spawn failed; the owner can see the details"
+					s.Error = &msg
+				}
+			}
 			return map[string]any{"spawns": sp}, err
 		})
 	RegisterArtifacts(r, b)

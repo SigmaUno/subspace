@@ -1,0 +1,11 @@
+.git
+.github
+.env
+.env.*
+**/*.token
+**/*.db
+**/*.db-wal
+**/*.db-shm
+bin
+data
+web

@@ -17,6 +17,10 @@ import (
 	"sync/atomic"
 	"text/tabwriter"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/client"
+	"github.com/SigmaUno/subspace/internal/model"
 )
 
 // Config configures a load test run.
@@ -129,21 +133,6 @@ func (r *Report) WriteText(w io.Writer) {
 	}
 }
 
-// wire types (subset of docs/api.md objects)
-type taskObj struct {
-	ID     string `json:"id"`
-	Status string `json:"status"`
-}
-
-type registered struct {
-	Agent struct {
-		ID string `json:"id"`
-	} `json:"agent"`
-	Connect struct {
-		Token string `json:"token"`
-	} `json:"connect"`
-}
-
 type agentCreds struct{ id, token string }
 
 type refillReq struct {
@@ -154,11 +143,11 @@ type refillReq struct {
 type runner struct {
 	cfg    Config
 	rec    *Recorder
-	owner  *ownerClient
+	owner  *client.Owner
 	mcpURL string
 	runID  string
 	brief  string
-	leader *mcpClient
+	leader *client.MCP
 	tasks  TaskCounts
 	seq    atomic.Int64
 	start  time.Time
@@ -194,14 +183,15 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	rid := make([]byte, 3)
 	_, _ = rand.Read(rid)
 	r := &runner{cfg: cfg, rec: NewRecorder(), mcpURL: base + "/mcp", runID: "lt" + hex.EncodeToString(rid), start: time.Now()}
-	r.owner = &ownerClient{hc: hc, base: base, token: cfg.OwnerToken, rec: r.rec}
+	obs := client.WithObserver(r.rec.Observe)
+	r.owner = client.NewOwner(base, cfg.OwnerToken, client.WithHTTPClient(hc), obs)
 
 	leader, workers, reviewers, err := r.setupAgents(ctx)
 	if err != nil {
 		return nil, err
 	}
-	mk := func(a agentCreds) *mcpClient {
-		return &mcpClient{hc: hc, url: r.mcpURL, agent: a.id, token: a.token, rec: r.rec}
+	mk := func(a agentCreds) *client.MCP {
+		return client.NewMCP(r.mcpURL, a.token, client.WithHTTPClient(hc), obs, client.WithClientName("subspace-loadtest"))
 	}
 	r.leader = mk(leader)
 
@@ -249,51 +239,42 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 
 // setupAgents creates the brief and registers 1 leader, N workers and the reviewers via the owner API.
 func (r *runner) setupAgents(ctx context.Context) (leader agentCreds, workers, reviewers []agentCreds, err error) {
-	var br struct {
-		ID string `json:"id"`
-	}
-	err = r.owner.do(ctx, "rest:create_brief", "POST", "/api/v1/briefs", map[string]any{
-		"title": "Load test " + r.runID, "body": "Synthetic brief created by cmd/loadtest.", "repos": []string{repo},
-		"max_cost_eur": 0, "max_parallel_agents": r.cfg.Agents, "allowed_providers": []string{},
-	}, &br)
+	br, err := r.owner.CreateBrief(ctx, board.BriefInput{
+		Title: "Load test " + r.runID, Body: "Synthetic brief created by cmd/loadtest.", Repos: []string{repo},
+		MaxParallel: r.cfg.Agents, AllowedProviders: []string{},
+	})
 	if err != nil {
 		return leader, nil, nil, fmt.Errorf("create brief: %w", err)
 	}
 	r.brief = br.ID
 
-	var l registered
-	err = r.owner.do(ctx, "rest:register_agent", "POST", "/api/v1/agents", map[string]any{
-		"id": r.runID + "-leader", "role": "leader", "kind": "other", "model": "loadtest", "provider": "loadtest",
-	}, &l)
+	l, err := r.owner.RegisterAgent(ctx, board.AgentInput{
+		ID: r.runID + "-leader", Role: model.RoleLeader, Kind: model.KindOther, Model: "loadtest", Provider: "loadtest",
+	})
 	if err != nil {
 		return leader, nil, nil, fmt.Errorf("register leader: %w", err)
 	}
 	leader = agentCreds{l.Agent.ID, l.Connect.Token}
 	// Workers use anthropic, reviewers openai: reviewer provider must differ from the worker's.
-	if workers, err = r.bulk(ctx, r.runID+"-w", "worker", "claude-code", r.cfg.Agents); err != nil {
+	if workers, err = r.bulk(ctx, r.runID+"-w", model.RoleWorker, model.KindClaudeCode, r.cfg.Agents); err != nil {
 		return leader, nil, nil, err
 	}
-	if reviewers, err = r.bulk(ctx, r.runID+"-r", "reviewer", "codex", r.cfg.Reviewers); err != nil {
+	if reviewers, err = r.bulk(ctx, r.runID+"-r", model.RoleReviewer, model.KindCodex, r.cfg.Reviewers); err != nil {
 		return leader, nil, nil, err
 	}
 	return leader, workers, reviewers, nil
 }
 
 func (r *runner) bulk(ctx context.Context, prefix, role, kind string, n int) ([]agentCreds, error) {
-	var out struct {
-		Agents []registered `json:"agents"`
-	}
-	err := r.owner.do(ctx, "rest:register_bulk", "POST", "/api/v1/agents/bulk", map[string]any{
-		"prefix": prefix, "count": n, "role": role, "kind": kind, "model": "loadtest",
-	}, &out)
+	out, err := r.owner.RegisterBulk(ctx, board.BulkInput{Prefix: prefix, Count: n, Role: role, Kind: kind, Model: "loadtest"})
 	if err != nil {
 		return nil, fmt.Errorf("register %ss: %w", role, err)
 	}
-	if len(out.Agents) != n {
-		return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out.Agents), n)
+	if len(out) != n {
+		return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out), n)
 	}
 	cs := make([]agentCreds, n)
-	for i, a := range out.Agents {
+	for i, a := range out {
 		if a.Connect.Token == "" {
 			return nil, fmt.Errorf("register %ss: agent %s has no token", role, a.Agent.ID)
 		}
@@ -302,10 +283,10 @@ func (r *runner) bulk(ctx context.Context, prefix, role, kind string, n int) ([]
 	return cs, nil
 }
 
-func (r *runner) taskSpec(i int64) map[string]any {
-	return map[string]any{
-		"title": fmt.Sprintf("Synthetic task %d", i), "spec": "Load test task; no real work.",
-		"acceptance_criteria": []string{"submitted"}, "repo": repo,
+func (r *runner) taskSpec(i int64) board.TaskInput {
+	return board.TaskInput{
+		BriefID: r.brief, Title: fmt.Sprintf("Synthetic task %d", i), Spec: "Load test task; no real work.",
+		AcceptanceCriteria: []string{"submitted"}, Repo: repo,
 	}
 }
 
@@ -314,29 +295,24 @@ func (r *runner) setupBoard(ctx context.Context, workers []agentCreds) error {
 	if err := r.leader.Initialize(ctx); err != nil {
 		return fmt.Errorf("leader initialize: %w", err)
 	}
-	if err := r.leader.Call(ctx, "get_instructions", nil, nil); err != nil {
+	if _, err := r.leader.GetInstructions(ctx); err != nil {
 		return fmt.Errorf("leader get_instructions: %w", err)
 	}
 	total := int64(len(workers) * r.cfg.TasksPerAgent)
 	planN := min(total, maxPlanSize)
-	specs := make([]map[string]any, planN)
+	specs := make([]board.TaskInput, planN)
 	for i := range specs {
 		specs[i] = r.taskSpec(r.seq.Add(1))
 	}
-	var pr struct {
-		Plan struct {
-			ID    string    `json:"id"`
-			Tasks []taskObj `json:"tasks"`
-		} `json:"plan"`
-	}
-	if err := r.leader.Call(ctx, "propose_plan", map[string]any{"brief_id": r.brief, "note": "load test plan", "tasks": specs}, &pr); err != nil {
+	plan, err := r.leader.ProposePlan(ctx, board.PlanInput{BriefID: r.brief, Note: "load test plan", Tasks: specs})
+	if err != nil {
 		return fmt.Errorf("propose_plan: %w", err)
 	}
-	if err := r.owner.do(ctx, "rest:approve_plan", "POST", "/api/v1/plans/"+pr.Plan.ID+"/approve", map[string]any{"note": "load test"}, nil); err != nil {
+	if _, err := r.owner.ApprovePlan(ctx, plan.ID, "load test"); err != nil {
 		return fmt.Errorf("approve plan: %w", err)
 	}
 	ids := make([]string, 0, total)
-	for _, t := range pr.Plan.Tasks {
+	for _, t := range plan.Tasks {
 		ids = append(ids, t.ID)
 	}
 	if int64(len(ids)) != planN {
@@ -344,15 +320,11 @@ func (r *runner) setupBoard(ctx context.Context, workers []agentCreds) error {
 	}
 	extra := make([]string, total-planN)
 	if err := r.parallel(ctx, len(extra), func(i int) error {
-		var out struct {
-			Task taskObj `json:"task"`
-		}
-		args := r.taskSpec(r.seq.Add(1))
-		args["brief_id"] = r.brief
-		if err := r.leader.Call(ctx, "create_task", args, &out); err != nil {
+		t, err := r.leader.CreateTask(ctx, r.taskSpec(r.seq.Add(1)))
+		if err != nil {
 			return fmt.Errorf("create_task: %w", err)
 		}
-		extra[i] = out.Task.ID
+		extra[i] = t.ID
 		return nil
 	}); err != nil {
 		return err
@@ -360,7 +332,7 @@ func (r *runner) setupBoard(ctx context.Context, workers []agentCreds) error {
 	ids = append(ids, extra...)
 	atomic.StoreInt64(&r.tasks.Created, int64(len(ids)))
 	return r.parallel(ctx, len(ids), func(i int) error {
-		if err := r.leader.Call(ctx, "assign", map[string]any{"task_id": ids[i], "agent_id": workers[i%len(workers)].id}, nil); err != nil {
+		if _, err := r.leader.Assign(ctx, ids[i], workers[i%len(workers)].id, ""); err != nil {
 			return fmt.Errorf("assign %s: %w", ids[i], err)
 		}
 		return nil
@@ -416,7 +388,7 @@ func shard(id string, n int) int {
 
 // workload runs workers, the leader's refill pool, reviewers and the owner until Duration has passed,
 // then drains outstanding reviews and done marks.
-func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, mk func(agentCreds) *mcpClient) {
+func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, mk func(agentCreds) *client.MCP) {
 	deadline := time.Now().Add(r.cfg.Duration)
 	hard, cancel := context.WithDeadline(ctx, deadline.Add(r.cfg.Drain))
 	defer cancel()
@@ -454,7 +426,7 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, 
 		workerWG.Add(1)
 		go func() {
 			defer workerWG.Done()
-			r.workerLoop(hard, deadline, mk(w), refill, reviewQ)
+			r.workerLoop(hard, deadline, w.id, mk(w), refill, reviewQ)
 		}()
 	}
 	workerWG.Wait()
@@ -468,25 +440,23 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, 
 	ownerWG.Wait()
 }
 
-func (r *runner) workerLoop(ctx context.Context, deadline time.Time, c *mcpClient, refill chan<- refillReq, reviewQ []chan string) {
+func (r *runner) workerLoop(ctx context.Context, deadline time.Time, agent string, c *client.MCP, refill chan<- refillReq, reviewQ []chan string) {
 	if err := c.Initialize(ctx); err != nil {
 		return
 	}
-	if err := c.Call(ctx, "get_instructions", nil, nil); err != nil {
+	if _, err := c.GetInstructions(ctx); err != nil {
 		return
 	}
 	for time.Now().Before(deadline) && ctx.Err() == nil {
-		var mine struct {
-			Tasks []taskObj `json:"tasks"`
-		}
-		if err := c.Call(ctx, "list_my_tasks", map[string]any{"status": []string{"assigned", "changes_requested"}}, &mine); err != nil {
+		mine, err := c.ListMyTasks(ctx, model.StatusAssigned, model.StatusChangesRequested)
+		if err != nil {
 			r.think(ctx)
 			continue
 		}
-		if len(mine.Tasks) == 0 {
+		if len(mine) == 0 {
 			reply := make(chan string, 1)
 			select {
-			case refill <- refillReq{agent: c.agent, reply: reply}:
+			case refill <- refillReq{agent: agent, reply: reply}:
 			case <-ctx.Done():
 				return
 			}
@@ -495,7 +465,7 @@ func (r *runner) workerLoop(ctx context.Context, deadline time.Time, c *mcpClien
 			}
 			continue
 		}
-		for _, t := range mine.Tasks {
+		for _, t := range mine {
 			if !time.Now().Before(deadline) || ctx.Err() != nil {
 				return
 			}
@@ -511,21 +481,22 @@ func (r *runner) workerLoop(ctx context.Context, deadline time.Time, c *mcpClien
 }
 
 // work runs claim → heartbeat ×m → update_status → submit; it reports whether the task was submitted.
-func (r *runner) work(ctx context.Context, c *mcpClient, id string) bool {
-	if err := c.Call(ctx, "claim_task", map[string]any{"task_id": id}, nil); err != nil {
+func (r *runner) work(ctx context.Context, c *client.MCP, id string) bool {
+	if _, err := c.ClaimTask(ctx, id); err != nil {
 		return false
 	}
 	atomic.AddInt64(&r.tasks.Claimed, 1)
 	for j := 0; j < r.cfg.Heartbeats; j++ {
 		r.think(ctx)
-		_ = c.Call(ctx, "heartbeat", map[string]any{"task_id": id}, nil)
+		_, _ = c.Heartbeat(ctx, id)
 	}
 	r.think(ctx)
-	_ = c.Call(ctx, "update_status", map[string]any{"task_id": id, "status": "in_progress", "progress_pct": 80,
-		"note": "load test progress", "cost_eur": 0.01}, nil)
+	pct, cost := 80, 0.01
+	_, _ = c.UpdateStatus(ctx, board.StatusInput{TaskID: id, Status: model.StatusInProgress, ProgressPct: &pct,
+		Note: "load test progress", CostEUR: &cost})
 	r.think(ctx)
-	err := c.Call(ctx, "submit", map[string]any{"task_id": id, "pr_url": "https://example.invalid/loadtest/pull/" + strings.TrimPrefix(id, "T-"),
-		"summary": "synthetic change"}, nil)
+	_, err := c.Submit(ctx, board.SubmitInput{TaskID: id, PRURL: "https://example.invalid/loadtest/pull/" + strings.TrimPrefix(id, "T-"),
+		Summary: "synthetic change"})
 	if err != nil {
 		return false
 	}
@@ -541,25 +512,21 @@ func (r *runner) leaderLoop(ctx context.Context, refill <-chan refillReq) {
 }
 
 func (r *runner) refillOne(ctx context.Context, agent string) string {
-	var out struct {
-		Task taskObj `json:"task"`
-	}
-	args := r.taskSpec(r.seq.Add(1))
-	args["brief_id"] = r.brief
-	if err := r.leader.Call(ctx, "create_task", args, &out); err != nil {
+	t, err := r.leader.CreateTask(ctx, r.taskSpec(r.seq.Add(1)))
+	if err != nil {
 		return ""
 	}
 	atomic.AddInt64(&r.tasks.Created, 1)
-	if err := r.leader.Call(ctx, "assign", map[string]any{"task_id": out.Task.ID, "agent_id": agent}, nil); err != nil {
+	if _, err := r.leader.Assign(ctx, t.ID, agent, ""); err != nil {
 		return ""
 	}
-	return out.Task.ID
+	return t.ID
 }
 
-func (r *runner) reviewerLoop(ctx context.Context, c *mcpClient, q <-chan string, doneQ chan<- string) {
+func (r *runner) reviewerLoop(ctx context.Context, c *client.MCP, q <-chan string, doneQ chan<- string) {
 	initErr := c.Initialize(ctx)
 	if initErr == nil {
-		_ = c.Call(ctx, "get_instructions", nil, nil)
+		_, _ = c.GetInstructions(ctx)
 	}
 	idle := time.NewTicker(2 * time.Second)
 	defer idle.Stop()
@@ -572,7 +539,7 @@ func (r *runner) reviewerLoop(ctx context.Context, c *mcpClient, q <-chan string
 			if initErr != nil || ctx.Err() != nil {
 				continue
 			}
-			if err := c.Call(ctx, "review", map[string]any{"task_id": id, "verdict": "approve", "comments": "LGTM (load test)"}, nil); err != nil {
+			if _, err := c.Review(ctx, id, "approve", "LGTM (load test)"); err != nil {
 				continue
 			}
 			atomic.AddInt64(&r.tasks.Approved, 1)
@@ -582,7 +549,7 @@ func (r *runner) reviewerLoop(ctx context.Context, c *mcpClient, q <-chan string
 			}
 		case <-idle.C:
 			if initErr == nil && ctx.Err() == nil {
-				_ = c.Call(ctx, "list_reviews", nil, nil)
+				_, _ = c.ListReviews(ctx)
 			}
 		}
 	}
@@ -593,7 +560,7 @@ func (r *runner) ownerLoop(ctx context.Context, doneQ <-chan string) {
 		if ctx.Err() != nil {
 			continue
 		}
-		if err := r.owner.do(ctx, "rest:mark_done", "POST", "/api/v1/tasks/"+id+"/done", map[string]any{"note": "merged (load test)"}, nil); err == nil {
+		if _, err := r.owner.MarkDone(ctx, id, "merged (load test)"); err == nil {
 			atomic.AddInt64(&r.tasks.Done, 1)
 		}
 	}

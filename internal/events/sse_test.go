@@ -223,3 +223,42 @@ func (s *stallWriter) WriteHeader(code int) {
 }
 
 func (s *stallWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
+
+func TestSSEEndsWithCloseEventOnShutdown(t *testing.T) {
+	h := NewHub()
+	done := make(chan struct{})
+	inner := NewSSEHandler(h, nil, time.Hour)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		inner.ServeHTTP(w, r.WithContext(WithShutdown(r.Context(), done)))
+	}))
+	defer srv.Close()
+
+	var chans []<-chan frame
+	for range 3 {
+		ch, stop := open(t, srv, "")
+		defer stop()
+		if f := next(t, ch); f.event != "hello" {
+			t.Fatalf("first frame %+v", f)
+		}
+		chans = append(chans, ch)
+	}
+	waitSubs(t, h, 3)
+
+	close(done)
+
+	for _, ch := range chans {
+		f := next(t, ch)
+		if f.event != "close" || !strings.Contains(f.data, `"reason":"shutdown"`) {
+			t.Fatalf("frame after shutdown: %+v", f)
+		}
+		select {
+		case _, ok := <-ch:
+			if ok {
+				t.Fatal("frame after close event")
+			}
+		case <-time.After(5 * time.Second):
+			t.Fatal("stream still open after close event")
+		}
+	}
+	waitSubs(t, h, 0)
+}

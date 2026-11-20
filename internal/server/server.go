@@ -6,8 +6,10 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"net"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
@@ -29,23 +31,24 @@ import (
 )
 
 type Config struct {
-	Addr           string
-	DBPath         string
-	OwnerToken     string
-	PublicURL      string
-	CapacityFile   string
-	PromptsDir     string
-	Lease          time.Duration
-	PoisonExpiries int
-	Spawner        spawner.Spawner
-	BackupInterval time.Duration
-	BackupKeep     int
-	BackupDir      string
-	FlushEvery     time.Duration
-	SweepEvery     time.Duration
-	BodyTimeout    time.Duration
-	IdleTimeout    time.Duration
-	Log            *slog.Logger
+	Addr            string
+	DBPath          string
+	OwnerToken      string
+	PublicURL       string
+	CapacityFile    string
+	PromptsDir      string
+	Lease           time.Duration
+	PoisonExpiries  int
+	Spawner         spawner.Spawner
+	BackupInterval  time.Duration
+	BackupKeep      int
+	BackupDir       string
+	FlushEvery      time.Duration
+	SweepEvery      time.Duration
+	BodyTimeout     time.Duration
+	IdleTimeout     time.Duration
+	ShutdownTimeout time.Duration
+	Log             *slog.Logger
 }
 
 type Server struct {
@@ -55,6 +58,9 @@ type Server struct {
 	Hub     events.Hub
 	handler http.Handler
 	backups *backup.Scheduler
+
+	drain     chan struct{}
+	drainOnce sync.Once
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -72,6 +78,15 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = 2 * time.Minute
+	}
+	if cfg.ShutdownTimeout <= 0 {
+		cfg.ShutdownTimeout = 20 * time.Second
+	}
+	if cfg.FlushEvery <= 0 {
+		cfg.FlushEvery = 2 * time.Second
+	}
+	if cfg.SweepEvery <= 0 {
+		cfg.SweepEvery = 5 * time.Second
 	}
 	if cfg.BackupDir == "" {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
@@ -156,7 +171,18 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, drain: make(chan struct{})}
+	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
+	context.AfterFunc(ctx, s.beginDrain)
+	return s, nil
+}
+
+func (s *Server) beginDrain() { s.drainOnce.Do(func() { close(s.drain) }) }
+
+func (s *Server) withDrain(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h.ServeHTTP(w, r.WithContext(events.WithShutdown(r.Context(), s.drain)))
+	})
 }
 
 type deadlineBody struct {
@@ -186,25 +212,85 @@ func bodyDeadline(h http.Handler, d time.Duration) http.Handler {
 
 func (s *Server) Handler() http.Handler { return s.handler }
 
-func (s *Server) Close() error { return s.Store.Close() }
+func (s *Server) Close() error {
+	s.beginDrain()
+	return s.Store.Close()
+}
 
 func (s *Server) httpServer() *http.Server {
-	return &http.Server{Addr: s.cfg.Addr, Handler: s.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: s.cfg.IdleTimeout}
+	return &http.Server{Handler: s.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: s.cfg.IdleTimeout}
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	go s.Board.Run(ctx)
-	go s.backups.Run(ctx)
+	ln, err := net.Listen("tcp", s.cfg.Addr)
+	if err != nil {
+		return err
+	}
+	return s.Serve(ctx, ln)
+}
+
+func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
+	bgCtx, stopBg := context.WithCancel(ctx)
+	defer stopBg()
+	flushCtx, stopFlush := context.WithCancel(context.WithoutCancel(ctx))
+	defer stopFlush()
+
+	var bg, flusher sync.WaitGroup
+	bg.Go(func() { s.sweepLoop(bgCtx) })
+	bg.Go(func() { s.backups.Run(bgCtx) })
+	flusher.Go(func() { s.flushLoop(flushCtx) })
+
 	srv := s.httpServer()
 	errc := make(chan error, 1)
-	go func() { errc <- srv.ListenAndServe() }()
+	go func() { errc <- srv.Serve(ln) }()
+
+	var serveErr error
 	select {
 	case <-ctx.Done():
-		sctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-		defer cancel()
-		_ = srv.Shutdown(sctx)
-		return nil
-	case err := <-errc:
-		return err
+	case serveErr = <-errc:
+	}
+	s.cfg.Log.Info("shutting down", "timeout", s.cfg.ShutdownTimeout)
+	s.beginDrain()
+	stopBg()
+	bg.Wait()
+
+	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
+	defer cancel()
+	if err := srv.Shutdown(sctx); err != nil {
+		s.cfg.Log.Warn("shutdown timed out, closing connections", "err", err)
+		_ = srv.Close()
+	}
+
+	stopFlush()
+	flusher.Wait()
+	return serveErr
+}
+
+func (s *Server) sweepLoop(ctx context.Context) {
+	t := time.NewTicker(s.cfg.SweepEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+			if err := s.Board.Sweep(ctx); err != nil && ctx.Err() == nil {
+				s.cfg.Log.Error("sweep", "err", err)
+			}
+		}
+	}
+}
+
+func (s *Server) flushLoop(ctx context.Context) {
+	t := time.NewTicker(s.cfg.FlushEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			s.Board.Flush(context.Background())
+			return
+		case <-t.C:
+			s.Board.Flush(context.Background())
+		}
 	}
 }

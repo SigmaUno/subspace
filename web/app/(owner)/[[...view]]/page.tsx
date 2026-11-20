@@ -7,6 +7,7 @@ import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
 import { PromptsPage } from "./prompts";
 import { ReportPage } from "./report";
+import { TaskDetailPage } from "./task-detail";
 import { Workspace } from "./workspace";
 
 export default async function Page({ params }: PageProps<"/[[...view]]">) {
@@ -24,6 +25,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
   if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;
+  if (root === "tasks" && id && view.length === 2) return <TaskDetailPage id={id} />;
   const architecture = subview === "architecture";
   if (root === "briefs" && id && (view.length === 2 || view.length === 3 && architecture)) {
     return <Workspace section="swarm" briefID={id} architecture={architecture} />;

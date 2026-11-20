@@ -79,6 +79,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "usage", name: "Usage", href: "/usage" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "files", name: "Files", href: "/files" },
+    { id: "audit", name: "Audit", href: "/audit" },
   ];
 
   return (

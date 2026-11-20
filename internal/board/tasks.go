@@ -387,15 +387,11 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 			return err
 		}
 		if br.Budget.MaxParallelAgent > 0 {
-			ts, err := tx.ListTasks(store.TaskFilter{BriefID: br.ID, Status: []string{model.StatusInProgress}, Limit: 100000})
+			active, err := tx.ActiveAssignees(br.ID)
 			if err != nil {
 				return err
 			}
-			active := map[string]bool{}
-			for _, x := range ts {
-				active[deref(x.Assignee)] = true
-			}
-			if !active[a.ID] && len(active) >= br.Budget.MaxParallelAgent {
+			if !contains(active, a.ID) && len(active) >= br.Budget.MaxParallelAgent {
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}

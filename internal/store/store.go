@@ -54,6 +54,7 @@ type Tx interface {
 	ListTasks(f TaskFilter) ([]*model.Task, error)
 	CountTasksByStatus() (map[string]int, error)
 	BriefCost(briefID string) (float64, error)
+	ActiveAssignees(briefID string) ([]string, error)
 
 	InsertAgent(a *model.Agent) error
 	GetAgent(id string) (*model.Agent, error)

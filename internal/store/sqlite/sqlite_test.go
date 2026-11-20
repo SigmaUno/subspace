@@ -38,13 +38,19 @@ func seqValue(t *testing.T, db *sql.DB, prefix string) int64 {
 	return n
 }
 
-func sqlTx(t store.Tx) *sql.Tx {
+func writeTx(t store.Tx) *tx {
 	x, ok := t.(*tx)
 	if !ok {
 		return nil
 	}
-	st, _ := x.q.(*sql.Tx)
-	return st
+	q, ok := x.q.(cachedQuerier)
+	if !ok {
+		return nil
+	}
+	if _, ok := q.base.(*sql.Conn); !ok {
+		return nil
+	}
+	return x
 }
 
 func blockWriter(t *testing.T, s *Store) (release func()) {
@@ -109,7 +115,7 @@ func TestGroupCommit500(t *testing.T) {
 	const n = 500
 	var (
 		mu  sync.Mutex
-		txs = map[*sql.Tx]int{}
+		txs = map[*tx]int{}
 		ids = make([]string, n)
 	)
 	var wg sync.WaitGroup
@@ -124,7 +130,7 @@ func TestGroupCommit500(t *testing.T) {
 					return err
 				}
 				mu.Lock()
-				txs[sqlTx(t)]++
+				txs[writeTx(t)]++
 				ids[i] = id
 				mu.Unlock()
 				return nil
@@ -151,7 +157,7 @@ func TestGroupCommit500(t *testing.T) {
 		}
 	}
 	if _, ok := txs[nil]; ok {
-		t.Fatal("write op did not run inside a *sql.Tx")
+		t.Fatal("write op did not run inside a write transaction")
 	}
 	maxTx := (n + maxBatch - 1) / maxBatch
 	if len(txs) > maxTx {
@@ -173,7 +179,7 @@ func TestSavepointIsolation(t *testing.T) {
 
 	var (
 		mu   sync.Mutex
-		txs  = map[*sql.Tx]bool{}
+		txs  = map[*tx]bool{}
 		got1 string
 		got2 string
 	)
@@ -182,13 +188,13 @@ func TestSavepointIsolation(t *testing.T) {
 		func(t store.Tx) error {
 			id, err := t.NextID("I")
 			mu.Lock()
-			got1, txs[sqlTx(t)] = id, true
+			got1, txs[writeTx(t)] = id, true
 			mu.Unlock()
 			return err
 		},
 		func(t store.Tx) error {
 			mu.Lock()
-			txs[sqlTx(t)] = true
+			txs[writeTx(t)] = true
 			mu.Unlock()
 			if _, err := t.NextID("I"); err != nil {
 				return err
@@ -201,7 +207,7 @@ func TestSavepointIsolation(t *testing.T) {
 		func(t store.Tx) error {
 			id, err := t.NextID("I")
 			mu.Lock()
-			got2, txs[sqlTx(t)] = id, true
+			got2, txs[writeTx(t)] = id, true
 			mu.Unlock()
 			return err
 		},
@@ -428,28 +434,28 @@ func TestPragmas(t *testing.T) {
 	if err := s.Atomic(context.Background(), func(t store.Tx) error { _, err := t.NextID("W"); return err }); err != nil {
 		t.Fatal(err)
 	}
-	for name, db := range map[string]*sql.DB{"writer": s.wdb, "reader": s.rdb} {
+	for name, db := range map[string]querier{"writer": s.wdb, "reader": s.rdb} {
 		var mode string
-		if err := db.QueryRow(`PRAGMA journal_mode`).Scan(&mode); err != nil {
+		if err := db.QueryRowContext(context.Background(), `PRAGMA journal_mode`).Scan(&mode); err != nil {
 			t.Fatal(err)
 		}
 		if mode != "wal" {
 			t.Fatalf("%s journal_mode = %q, want wal", name, mode)
 		}
 		var syncMode, fk, busy int
-		if err := db.QueryRow(`PRAGMA synchronous`).Scan(&syncMode); err != nil {
+		if err := db.QueryRowContext(context.Background(), `PRAGMA synchronous`).Scan(&syncMode); err != nil {
 			t.Fatal(err)
 		}
 		if syncMode != 1 {
 			t.Fatalf("%s synchronous = %d, want 1 (NORMAL)", name, syncMode)
 		}
-		if err := db.QueryRow(`PRAGMA foreign_keys`).Scan(&fk); err != nil {
+		if err := db.QueryRowContext(context.Background(), `PRAGMA foreign_keys`).Scan(&fk); err != nil {
 			t.Fatal(err)
 		}
 		if fk != 1 {
 			t.Fatalf("%s foreign_keys = %d, want 1", name, fk)
 		}
-		if err := db.QueryRow(`PRAGMA busy_timeout`).Scan(&busy); err != nil {
+		if err := db.QueryRowContext(context.Background(), `PRAGMA busy_timeout`).Scan(&busy); err != nil {
 			t.Fatal(err)
 		}
 		if busy <= 0 {

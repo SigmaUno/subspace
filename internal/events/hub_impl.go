@@ -75,7 +75,7 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data}
+	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
 
 	var delivered map[*sub]struct{}
 	if len(topics) > 0 {

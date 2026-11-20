@@ -1,12 +1,22 @@
 package events
 
-import "time"
+import (
+	"sync"
+	"time"
+)
 
 type Event struct {
 	Seq  int64     `json:"-"`
 	Type string    `json:"type"`
 	TS   time.Time `json:"ts"`
 	Data any       `json:"data"`
+
+	enc *encoded
+}
+
+type encoded struct {
+	once sync.Once
+	b    []byte
 }
 
 type Publisher interface {

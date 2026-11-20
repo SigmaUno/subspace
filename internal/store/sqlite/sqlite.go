@@ -24,12 +24,15 @@ type wreq struct {
 }
 
 type Store struct {
-	wdb  *sql.DB
-	rdb  *sql.DB
-	reqs chan *wreq
-	quit chan struct{}
-	wg   sync.WaitGroup
-	once sync.Once
+	wpool *sql.DB
+	wdb   *sql.Conn
+	rdb   *sql.DB
+	wst   *stmtCache
+	rst   *stmtCache
+	reqs  chan *wreq
+	quit  chan struct{}
+	wg    sync.WaitGroup
+	once  sync.Once
 }
 
 var _ store.Store = (*Store)(nil)
@@ -75,7 +78,18 @@ func Open(path string) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
+	wc, err := wdb.Conn(context.Background())
+	if err != nil {
+		_ = wdb.Close()
+		_ = rdb.Close()
+		return nil, err
+	}
+	s := &Store{
+		wpool: wdb, wdb: wc, rdb: rdb,
+		wst:  newStmtCache(wc.PrepareContext),
+		rst:  newStmtCache(rdb.PrepareContext),
+		reqs: make(chan *wreq, 1024), quit: make(chan struct{}),
+	}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
@@ -86,7 +100,7 @@ func (s *Store) Close() error {
 	s.once.Do(func() {
 		close(s.quit)
 		s.wg.Wait()
-		err = errors.Join(s.wdb.Close(), s.rdb.Close())
+		err = errors.Join(s.wst.close(), s.rst.close(), s.wdb.Close(), s.wpool.Close(), s.rdb.Close())
 	})
 	return err
 }
@@ -109,7 +123,7 @@ func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 }
 
 func (s *Store) View(ctx context.Context, fn func(store.Tx) error) error {
-	return fn(&tx{q: s.rdb, ctx: ctx})
+	return fn(&tx{q: cachedQuerier{c: s.rst, base: s.rdb}, ctx: ctx})
 }
 
 func (s *Store) Backup(ctx context.Context, path string) error {
@@ -148,13 +162,14 @@ func (s *Store) writer() {
 
 func (s *Store) runBatch(batch []*wreq) {
 	ctx := context.Background()
-	t, err := s.wdb.BeginTx(ctx, nil)
-	if err != nil {
+	q := cachedQuerier{c: s.wst, base: s.wdb}
+	if _, err := q.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
 		for _, r := range batch {
 			r.done <- err
 		}
 		return
 	}
+	t := &tx{q: q, ctx: ctx}
 	errs := make([]error, len(batch))
 	ok := make([]bool, len(batch))
 	for i, r := range batch {
@@ -162,24 +177,27 @@ func (s *Store) runBatch(batch []*wreq) {
 			errs[i] = cerr
 			continue
 		}
-		if _, e := t.ExecContext(ctx, "SAVEPOINT op"); e != nil {
+		if _, e := q.ExecContext(ctx, "SAVEPOINT op"); e != nil {
 			errs[i] = e
 			continue
 		}
-		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
+		e := safeRun(r.fn, t)
 		if e != nil {
-			_, _ = t.ExecContext(ctx, "ROLLBACK TO op")
-			_, _ = t.ExecContext(ctx, "RELEASE op")
+			_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
+			_, _ = q.ExecContext(ctx, "RELEASE op")
 			errs[i] = e
 			continue
 		}
-		if _, e := t.ExecContext(ctx, "RELEASE op"); e != nil {
+		if _, e := q.ExecContext(ctx, "RELEASE op"); e != nil {
 			errs[i] = e
 			continue
 		}
 		ok[i] = true
 	}
-	cerr := t.Commit()
+	_, cerr := q.ExecContext(ctx, "COMMIT")
+	if cerr != nil {
+		_, _ = s.wdb.ExecContext(ctx, "ROLLBACK")
+	}
 	for i, r := range batch {
 		if ok[i] && cerr != nil {
 			errs[i] = cerr

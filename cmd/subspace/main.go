@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -31,6 +32,15 @@ func dur(k, def string) time.Duration {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore}[os.Args[1]]; ok {
+			if err := run(os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
 	level := slog.LevelInfo
 	if strings.EqualFold(os.Getenv("SUBSPACE_LOG_LEVEL"), "debug") {
 		level = slog.LevelDebug

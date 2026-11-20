@@ -70,6 +70,11 @@ func Open(path string) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := migrate(wdb); err != nil {
+		_ = wdb.Close()
+		_ = rdb.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)
 	go s.writer()

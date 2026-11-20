@@ -633,7 +633,14 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 		if err != nil {
 			return err
 		}
-		prov := map[string]string{}
+		agents, err := tx.ListAgents(store.AgentFilter{Limit: 100000})
+		if err != nil {
+			return err
+		}
+		providers := make(map[string]string, len(agents))
+		for _, ag := range agents {
+			providers[ag.ID] = ag.Provider
+		}
 		allowed := map[string]bool{}
 		for _, t := range ts {
 			if t.Reviewer != nil && *t.Reviewer != a.ID {
@@ -651,14 +658,7 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 			if !ok {
 				continue
 			}
-			p, ok := prov[deref(t.Assignee)]
-			if !ok && t.Assignee != nil {
-				if wk, e := tx.GetAgent(*t.Assignee); e == nil {
-					p = wk.Provider
-				}
-				prov[*t.Assignee] = p
-			}
-			if p != "" && p == me.Provider {
+			if p := providers[deref(t.Assignee)]; p != "" && p == me.Provider {
 				continue
 			}
 			out = append(out, b.overlay(t))

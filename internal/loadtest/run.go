@@ -23,6 +23,7 @@ import (
 type Config struct {
 	Agents        int           // simulated workers
 	Duration      time.Duration // workload phase length
+	Ramp          time.Duration // workers start evenly over this part of Duration (0 = all at once)
 	URL           string        // external server; "" = start one in-process
 	OwnerToken    string        // owner token of the external server
 	SSESubs       int           // SSE subscribers
@@ -61,8 +62,10 @@ func (c *Config) Validate() error {
 		return errors.New("agents must be 1..1000")
 	case c.Duration <= 0:
 		return errors.New("duration must be > 0")
-	case c.SSESubs < 0:
-		return errors.New("sse-subs must be >= 0")
+	case c.Ramp < 0 || c.Ramp > c.Duration:
+		return errors.New("ramp must be within 0..duration")
+	case c.SSESubs < 0 || c.SSESubs > 1000:
+		return errors.New("sse-subs must be 0..1000")
 	case c.MaxErrorRate < 0 || c.MaxErrorRate > 1:
 		return errors.New("max-error-rate must be within 0..1")
 	case c.URL != "" && c.OwnerToken == "":
@@ -417,7 +420,8 @@ func shard(id string, n int) int {
 // workload runs workers, the leader's refill pool, reviewers and the owner until Duration has passed,
 // then drains outstanding reviews and done marks.
 func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, mk func(agentCreds) *mcpClient) {
-	deadline := time.Now().Add(r.cfg.Duration)
+	begin := time.Now()
+	deadline := begin.Add(r.cfg.Duration)
 	hard, cancel := context.WithDeadline(ctx, deadline.Add(r.cfg.Drain))
 	defer cancel()
 
@@ -450,10 +454,16 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, 
 			r.reviewerLoop(hard, mk(rv), reviewQ[i], doneQ)
 		}()
 	}
-	for _, w := range workers {
+	for i, w := range workers {
 		workerWG.Add(1)
+		joinAt := begin.Add(r.cfg.Ramp * time.Duration(i) / time.Duration(len(workers)))
 		go func() {
 			defer workerWG.Done()
+			select {
+			case <-time.After(time.Until(joinAt)):
+			case <-hard.Done():
+				return
+			}
 			r.workerLoop(hard, deadline, mk(w), refill, reviewQ)
 		}()
 	}

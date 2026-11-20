@@ -2,16 +2,18 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { api, useResource } from "../../../lib/client";
+import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
-import { BoardView, BriefsView } from "./board";
+import { BriefsView } from "./board";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
 import { useLive } from "./live";
 
+import { DecisionInbox, type DecisionFeed } from "./decisions";
+import { SwarmOverview } from "./overview";
 import { Clock, Feedback } from "./components";
 
-export function Workspace({ section, briefID }: { section: string; briefID?: string }) {
+export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
   const topbar = useRef<HTMLElement>(null);
   const [topbarHeight, setTopbarHeight] = useState(64);
   useEffect(() => {
@@ -28,12 +30,12 @@ export function Workspace({ section, briefID }: { section: string; briefID?: str
     return () => { clearTimeout(initial); clearInterval(interval); };
   }, []);
   const [thread, setThread] = useState<Thread | null>(null);
-  const topics = ["control", "questions", "plans"];
-  if (section === "agents" || briefID) topics.push("agents");
-  if (briefID) topics.push(`brief:${briefID}`);
-  if (thread) topics.push(`thread:${thread.kind}:${thread.id}`);
-  const { revisions, connected } = useLive(topics.join(","));
+  const [inboxOpen, setInboxOpen] = useState(section === "swarm");
+  const { revisions, recent, connected } = useLive("all");
   const state = useResource<Control>("state", revisions.control);
+  const decisions = useResource("decisions", revisions.decisions, optionalResource<DecisionFeed>);
+  const decisionCount = decisions.data?.count ?? decisions.data?.decisions?.length ??
+    ((state.data?.counts?.open_questions ?? 0) + (state.data?.counts?.proposed_plans ?? 0));
   const [pending, setPending] = useState(false);
   const [error, setError] = useState("");
 
@@ -64,42 +66,49 @@ export function Workspace({ section, briefID }: { section: string; briefID?: str
   }
 
   const nav = [
-    { id: "briefs", name: "Briefs" },
-    { id: "agents", name: "Agents" },
-    { id: "plans", name: "Plans", count: state.data?.counts?.proposed_plans },
-    { id: "questions", name: "Questions", count: state.data?.counts?.open_questions },
-    { id: "capacity", name: "Capacity" },
+    { id: "swarm", name: "Swarm", href: "/" },
+    { id: "briefs", name: "Briefs", href: "/briefs" },
+    { id: "agents", name: "Agents", href: "/agents" },
+    { id: "capacity", name: "Capacity", href: "/capacity" },
   ];
 
   return (
     <Clock.Provider value={now}>
       <header className="topbar" ref={topbar}>
-        <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
+        <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
         <nav aria-label="Workspace">
           {nav.map((item) => (
-            <Link key={item.id} href={`/${item.id}`} aria-current={section === item.id ? "page" : undefined}>
-              {item.name}{!!item.count && <span className="nav-count">{item.count}</span>}
+            <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined}>
+              {item.name}
             </Link>
           ))}
         </nav>
         <div className="top-actions">
           <span className={`connection ${connected ? "online" : ""}`} role="status">{connected ? "Live" : "Reconnecting"}</span>
+          <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
+            Decisions <span className="nav-count">{decisionCount}</span>
+          </button>
           <button className={state.data?.paused ? "primary" : "danger"} onClick={togglePause} disabled={pending || !state.data}>
             {state.data?.paused ? "Resume all" : "Pause all"}
           </button>
           <button onClick={signOut}>Sign out</button>
         </div>
       </header>
-      <main className={`workspace ${briefID ? "wide" : ""}`}>
+      <main className={`workspace ${section === "swarm" ? "wide" : ""}`}>
         <Feedback error={error || state.error} />
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
-        {section === "briefs" && (briefID
-          ? <BoardView key={briefID} id={briefID} revision={revisions.board} agentsRevision={revisions.agents} openThread={setThread} />
-          : <BriefsView revision={revisions.briefs} />)}
-        {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
-        {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
-        {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
-        {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+        <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
+          <div className="stack workspace-content">
+            {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
+            {section === "briefs" && <BriefsView revision={revisions.briefs} />}
+            {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
+            {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
+            {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
+            {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+          </div>
+          {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
+            revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}
+        </div>
       </main>
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}
     </Clock.Provider>

@@ -10,6 +10,7 @@ import { ThreadPanel } from "./thread";
 import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
+import { FilesView } from "./files";
 import { SwarmOverview } from "./overview";
 import { Clock, Feedback } from "./components";
 
@@ -70,6 +71,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "briefs", name: "Briefs", href: "/briefs" },
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
+    { id: "files", name: "Files", href: "/files" },
   ];
 
   return (
@@ -105,6 +107,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+            {section === "files" && <FilesView />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}

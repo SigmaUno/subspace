@@ -40,7 +40,7 @@ func main() {
 
 	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
 	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path
 		if err != nil {
 			log.Error("read owner token file", "err", err)
 			os.Exit(2)
@@ -61,7 +61,7 @@ func main() {
 		log.Error("start", "err", err)
 		os.Exit(1)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	log.Info("subspace listening", "addr", cfg.Addr, "db", cfg.DBPath)
 	if err := s.Run(ctx); err != nil {
 		log.Error("server", "err", err)

@@ -254,7 +254,7 @@ func (b *Board) Paused() (bool, string) {
 func (b *Board) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() {
+	go func() { //nolint:gosec // background loop, lifetime bound to ctx
 		defer wg.Done()
 		t := time.NewTicker(b.o.FlushEvery)
 		defer t.Stop()

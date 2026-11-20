@@ -34,7 +34,7 @@ func (c Config) Validate() error {
 // Load reads a JSON capacity file.
 func Load(path string) (Config, error) {
 	var c Config
-	b, err := os.ReadFile(path)
+	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
 	if err != nil {
 		return c, err
 	}

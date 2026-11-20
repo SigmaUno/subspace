@@ -48,6 +48,11 @@ func StartInProcess(ctx context.Context, log *slog.Logger) (*InProcess, error) {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
 	sctx, cancel := context.WithCancel(ctx)
+	for _, k := range []string{"SUBSPACE_RATE_MCP", "SUBSPACE_RATE_AUTHFAIL"} {
+		if _, ok := os.LookupEnv(k); !ok {
+			_ = os.Setenv(k, "off")
+		}
+	}
 	s, err := server.New(sctx, server.Config{Addr: addr, DBPath: filepath.Join(dir, "subspace.db"), OwnerToken: token, PublicURL: url, Log: log})
 	if err != nil {
 		cancel()

@@ -45,10 +45,11 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "status":"in_progress",
  "progress_pct":40,"last_heartbeat_at":"...","lease_expires_at":"...","pr_url":null,
  "budget":{"max_minutes":120,"max_cost_eur":5.0},"cost_used":0.4,"minutes_used":12,
- "review_rounds":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
+ "review_rounds":0,"lease_expiries":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
  "created_at":"...","updated_at":"..."}
 // status: backlog|ready|assigned|in_progress|submitted|in_review|changes_requested|approved|done|blocked|needs_owner|cancelled
-// Task.blocked_reason (string|null) is set when status is blocked/needs_owner.
+// Task.blocked_reason (string|null) is set when status is blocked/needs_owner; `poison_task: ...` once `lease_expiries` reaches the poison threshold (default 3). Owner reopen resets `lease_expiries`.
+// Agent.pause_reason `flapping`: 3 lease expiries within 30 minutes; the owner resumes.
 
 // Plan
 {"id":"P-1","brief_id":"B-1","status":"proposed",   // proposed|approved|rejected|superseded

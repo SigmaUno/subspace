@@ -28,6 +28,7 @@ CREATE TABLE IF NOT EXISTS tasks (
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at BIGINT NOT NULL DEFAULT 0,
   blocked_reason TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expiries INTEGER NOT NULL DEFAULT 0;
 CREATE INDEX IF NOT EXISTS tasks_brief ON tasks(brief_id, status);
 CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee, status);
 CREATE INDEX IF NOT EXISTS tasks_reviewer ON tasks(reviewer, status);

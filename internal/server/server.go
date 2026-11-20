@@ -36,6 +36,7 @@ type Config struct {
 	CapacityFile   string
 	PromptsDir     string
 	Lease          time.Duration
+	PoisonExpiries int
 	Spawner        spawner.Spawner
 	BackupInterval time.Duration
 	BackupKeep     int
@@ -81,7 +82,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	hub := events.NewHub()
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
-		PublicURL: cfg.PublicURL, Lease: cfg.Lease, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
+		PublicURL: cfg.PublicURL, Lease: cfg.Lease, PoisonExpiries: cfg.PoisonExpiries, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
 		Invalidate: func(id string) {
 			if cache != nil {
 				cache.Invalidate(id)

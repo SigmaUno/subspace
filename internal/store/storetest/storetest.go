@@ -221,6 +221,7 @@ func taskFull(id string) *model.Task {
 	x.CostUsed = 0.4
 	x.MinutesUsed = 12
 	x.ReviewRounds = 2
+	x.LeaseExpiries = 2
 	x.Tests = &model.TestResult{Passed: 10, Failed: 1, ReportedAt: hb}
 	x.BlockedReason = ptr("budget_exceeded")
 	return x

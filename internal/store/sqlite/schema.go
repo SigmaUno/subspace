@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_url TEXT NOT NULL DEFAULT '', max_minutes INTEGER NOT NULL DEFAULT 0, max_cost_eur REAL NOT NULL DEFAULT 0,
   cost_used REAL NOT NULL DEFAULT 0, minutes_used INTEGER NOT NULL DEFAULT 0, review_rounds INTEGER NOT NULL DEFAULT 0,
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at INTEGER NOT NULL DEFAULT 0,
-  blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  lease_expiries INTEGER NOT NULL DEFAULT 0
 );
 DROP INDEX IF EXISTS tasks_brief;
 CREATE INDEX IF NOT EXISTS tasks_brief_status ON tasks(brief_id, status, assignee);
@@ -76,13 +77,20 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 `
 
 func migrate(db *sql.DB) error {
-	var n int
-	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name='cross_review'`).Scan(&n)
-	if err != nil {
-		return err
+	for _, c := range []struct{ table, column, ddl string }{
+		{"briefs", "cross_review", "INTEGER NOT NULL DEFAULT 1"},
+		{"tasks", "lease_expiries", "INTEGER NOT NULL DEFAULT 0"},
+	} {
+		var n int
+		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name=?`, c.table, c.column).Scan(&n)
+		if err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(`ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.ddl); err != nil {
+				return err
+			}
+		}
 	}
-	if n == 0 {
-		_, err = db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`)
-	}
-	return err
+	return nil
 }

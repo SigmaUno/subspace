@@ -144,6 +144,7 @@ type Task struct {
 	ReviewRounds       int         `json:"review_rounds"`
 	Tests              *TestResult `json:"tests"`
 	BlockedReason      *string     `json:"blocked_reason"`
+	LeaseExpiries      int         `json:"lease_expiries"`
 	CreatedAt          time.Time   `json:"created_at"`
 	UpdatedAt          time.Time   `json:"updated_at"`
 

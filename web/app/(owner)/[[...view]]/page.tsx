@@ -1,6 +1,7 @@
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { ownerCookie, ownerStatus } from "../../../lib/upstream";
+import { AgentDetailPage } from "./agent-detail";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
@@ -22,6 +23,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
+  if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;
   const architecture = subview === "architecture";
   if (root === "briefs" && id && (view.length === 2 || view.length === 3 && architecture)) {
     return <Workspace section="swarm" briefID={id} architecture={architecture} />;

@@ -36,7 +36,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 {"id":"B-1","title":"...","body":"markdown brief","repos":["SigmaUno/foo"],"status":"open",   // open|closed
  "budget":{"max_cost_eur":50.0,"max_parallel_agents":10},
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
- "cross_review":true,
+ "cross_review":true,"auto_done_on_merge":false,
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected
  "created_at":"..."}
 
@@ -47,7 +47,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "status":"in_progress",
  "progress_pct":40,"last_heartbeat_at":"...","lease_expires_at":"...","pr_url":null,
  "budget":{"max_minutes":120,"max_cost_eur":5.0},"cost_used":0.4,"minutes_used":12,
- "review_rounds":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
+ "review_rounds":0,"priority":0,"component_id":"","tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
  "blocked_reason":null,                                // string when status is blocked or needs_owner
  "created_at":"...","updated_at":"..."}
 // status: backlog|ready|assigned|in_progress|submitted|in_review|changes_requested|approved|done|blocked|needs_owner|cancelled

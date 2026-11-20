@@ -13,6 +13,7 @@ import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
+import { Onboarding } from "./onboarding";
 import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
 import { Clock, Feedback } from "./components";
@@ -107,6 +108,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
         <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
           <div className="stack workspace-content">
+            {section === "swarm" && !briefID && <Onboarding revisions={revisions} />}
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}

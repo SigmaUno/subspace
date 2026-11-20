@@ -15,7 +15,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
-// ProtocolVersion is the MCP protocol version we speak.
 const ProtocolVersion = "2025-06-18"
 
 const (
@@ -43,7 +42,6 @@ type rpcErr struct {
 	Message string `json:"message"`
 }
 
-// Hooks are the side effects the transport needs from the board.
 type Hooks interface {
 	PauseAgent(ctx context.Context, id, reason string) error
 	Touch(agentID string)
@@ -54,13 +52,12 @@ type session struct {
 	created time.Time
 }
 
-// Server is the /mcp HTTP handler.
 type Server struct {
 	Auth       auth.AgentLookup
 	Registry   *Registry
-	Guard      audit.LoopGuard // optional
-	Hooks      Hooks           // optional
-	OwnerToken string          // presented owner tokens get 403 instead of 401
+	Guard      audit.LoopGuard
+	Hooks      Hooks
+	OwnerToken string
 	Now        func() time.Time
 
 	mu       sync.Mutex
@@ -68,7 +65,6 @@ type Server struct {
 	byAgent  map[string][]string
 }
 
-// NewServer builds a transport server.
 func NewServer(a auth.AgentLookup, r *Registry) *Server {
 	return &Server{Auth: a, Registry: r, Now: time.Now, sessions: map[string]session{}, byAgent: map[string][]string{}}
 }
@@ -121,7 +117,6 @@ func unauthorized(w http.ResponseWriter) {
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
-// ServeHTTP implements http.Handler.
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
 		w.Header().Set("Allow", "POST, DELETE")
@@ -169,7 +164,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}
-	if len(req.ID) == 0 || req.Method == "" { // notification or response
+	if len(req.ID) == 0 || req.Method == "" {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}

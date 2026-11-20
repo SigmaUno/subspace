@@ -4,12 +4,15 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/chat"
 	"github.com/SigmaUno/subspace/internal/components"
+	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -122,3 +125,16 @@ var errNoRunner = errors.New("hillclimb runner is not configured")
 type noRunner struct{}
 
 func (noRunner) Run(context.Context, string, string, string) (string, error) { return "", errNoRunner }
+
+func newHillclimb(st store.Store, b *board.Board, reg *mcp.Registry, log *slog.Logger) *hillclimb.Measurer {
+	r, err := hillclimb.RunnerFromEnv()
+	if err != nil {
+		log.Error("hillclimb runner disabled", "err", err)
+	}
+	if r == nil {
+		return hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), noRunner{})
+	}
+	m := hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), r)
+	mcp.RegisterHillclimb(reg, b, m)
+	return m
+}

@@ -6,6 +6,7 @@ import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
 import { BotsView } from "./bots";
 import { BriefsView } from "./board";
+import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
 import { UsageView } from "./usage";
@@ -75,6 +76,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "bots", name: "Bots", href: "/bots" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
+    { id: "charter", name: "Charter", href: "/charter" },
     { id: "usage", name: "Usage", href: "/usage" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "files", name: "Files", href: "/files" },
@@ -114,6 +116,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+            {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}
             {section === "files" && <FilesView />}
           </div>

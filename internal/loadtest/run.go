@@ -411,7 +411,7 @@ func (r *runner) think(ctx context.Context) {
 func shard(id string, n int) int {
 	h := fnv.New32a()
 	_, _ = h.Write([]byte(id))
-	return int(h.Sum32() % uint32(n))
+	return int(h.Sum32() % uint32(n)) //nolint:gosec
 }
 
 // workload runs workers, the leader's refill pool, reviewers and the owner until Duration has passed,

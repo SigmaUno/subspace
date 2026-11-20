@@ -1,5 +1,16 @@
-# web/
+# Subspace owner web app
 
-Placeholder. The Next.js (App Router, React, TypeScript) owner UI lives here (built on branch `feat/web-cli-docker`).
+```sh
+pnpm install --frozen-lockfile
+SUBSPACE_API_URL=http://localhost:8080 pnpm dev
+```
 
-It talks to the Go server only through the contract in [`../docs/api.md`](../docs/api.md), server-side (the owner token is kept in an httpOnly cookie and never reaches browser JS).
+Open http://localhost:3000 and use the Go server's owner token. All owner calls target the Next.js origin, where the route handlers authenticate upstream using the httpOnly session cookie. The production standalone build runs without an API at compile time.
+
+```sh
+pnpm lint
+pnpm typecheck
+pnpm build
+```
+
+See [the API contract](../docs/api.md) and [Compose deployment](../deploy/README.md).

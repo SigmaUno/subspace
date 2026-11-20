@@ -32,10 +32,12 @@ func decode(c *Call, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(c.Args, v); err != nil {
-		return model.BadRequest("invalid arguments: %v", err)
+		return model.BadRequest("invalid arguments")
 	}
 	return nil
 }
+
+const maxReadThreadLimit = 1000
 
 var (
 	taskIDSchema = obj(map[string]any{"task_id": str("Task id, e.g. T-3")}, "task_id")
@@ -47,7 +49,6 @@ var (
 	}
 )
 
-// NewRegistry registers every tool with exact schemas and real handlers bound to the board.
 func NewRegistry(b *board.Board) *Registry {
 	r := NewRegistry0()
 	add := func(name, desc string, roles []string, ro bool, schema map[string]any, h Handler) {
@@ -56,7 +57,7 @@ func NewRegistry(b *board.Board) *Registry {
 		}
 		r.Register(&Tool{Name: name, Description: desc, Roles: roles, ReadOnly: ro, Schema: schema, Handler: h})
 	}
-	// ---- common ----
+
 	add("get_instructions", "Return your rules and role instructions. Call this first.", AllRoles, true, nil,
 		func(ctx context.Context, c *Call) (any, error) {
 			s, err := b.Instructions(ctx, c.Actor)
@@ -154,10 +155,13 @@ func NewRegistry(b *board.Board) *Registry {
 			if err := decode(c, &in); err != nil {
 				return nil, err
 			}
+			if in.Limit > maxReadThreadLimit {
+				in.Limit = maxReadThreadLimit
+			}
 			ms, err := b.ReadThread(ctx, c.Actor, in.Thread, in.Since, in.Limit)
 			return map[string]any{"messages": ms}, err
 		})
-	// ---- worker / tester ----
+
 	add("claim_task", "Claim a task assigned to you; grants a lease (heartbeat to keep it).", WorkTester, false, taskIDSchema,
 		func(ctx context.Context, c *Call) (any, error) {
 			var in struct {
@@ -209,7 +213,7 @@ func NewRegistry(b *board.Board) *Registry {
 			t, err := b.ReportTests(ctx, c.Actor, in.TaskID, in.Passed, in.Failed, in.LogExcerpt)
 			return map[string]any{"task": t}, err
 		})
-	// ---- reviewer ----
+
 	add("list_reviews", "List submitted tasks awaiting your review.", ReviewOnly, true, nil, func(ctx context.Context, c *Call) (any, error) {
 		ts, err := b.ListReviews(ctx, c.Actor)
 		return map[string]any{"tasks": ts}, err
@@ -230,7 +234,7 @@ func NewRegistry(b *board.Board) *Registry {
 			t, err := b.Review(ctx, c.Actor, raw.TaskID, raw.Verdict, raw.Comments)
 			return map[string]any{"task": t}, err
 		})
-	// ---- leader ----
+
 	add("get_brief", "Get a brief.", LeaderOnly, true, obj(map[string]any{"brief_id": str("brief")}, "brief_id"), func(ctx context.Context, c *Call) (any, error) {
 		var in struct {
 			BriefID string `json:"brief_id"`
@@ -356,5 +360,4 @@ func NewRegistry(b *board.Board) *Registry {
 	return r
 }
 
-// DefaultRegistry returns the full registry without a backing board (listing/role tests only; calls panic).
 func DefaultRegistry() *Registry { return NewRegistry(nil) }

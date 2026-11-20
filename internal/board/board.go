@@ -1,5 +1,3 @@
-// Package board is the business-logic service: briefs, plans, tasks, agents,
-// leases, questions, control, spawns. It depends only on store interfaces.
 package board
 
 import (
@@ -16,31 +14,29 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-// Options configures a Board.
 type Options struct {
 	PublicURL  string
 	Lease      time.Duration
 	Capacity   capacity.Config
 	Spawner    spawner.Spawner
 	Hub        events.Publisher
-	Invalidate func(agentID string) // drops cached token lookups for an agent
+	Invalidate func(agentID string)
 	Now        func() time.Time
 	Log        *slog.Logger
 	BackupDir  string
-	// FlushEvery is the heartbeat flush interval (default 2s); SweepEvery the lease sweep interval (default 5s).
+
 	FlushEvery time.Duration
 	SweepEvery time.Duration
 }
 
 type hotTask struct{ hb, lease time.Time }
 
-// Board is the service.
 type Board struct {
 	st  store.Store
 	o   Options
 	log *slog.Logger
 
-	mu     sync.Mutex // guards hot state and capCfg
+	mu     sync.Mutex
 	seen   map[string]time.Time
 	tasks  map[string]hotTask
 	dirtyA map[string]struct{}
@@ -52,7 +48,6 @@ type Board struct {
 	pauseWhy string
 }
 
-// New builds a Board and loads persisted control state.
 func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 	if o.Now == nil {
 		o.Now = func() time.Time { return time.Now().UTC() }
@@ -98,7 +93,6 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 
 func (b *Board) now() time.Time { return b.o.Now() }
 
-// wctx collects side effects (events, cache invalidations) to run after a successful commit.
 type wctx struct {
 	b      *Board
 	events []pending
@@ -130,7 +124,6 @@ func (w *wctx) agent(a *model.Agent) {
 	w.inval = append(w.inval, a.ID)
 }
 
-// post appends a message to a thread and queues its event.
 func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body string) error {
 	m := &model.Message{ThreadKind: kind, ThreadID: id, AuthorID: author.ID, AuthorRole: author.Role, Kind: mk, Body: body, CreatedAt: w.b.now()}
 	if err := tx.InsertMessage(m); err != nil {
@@ -155,7 +148,6 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 	return tx.InsertAudit(e)
 }
 
-// write runs fn in a serialized write transaction and publishes its side effects after commit.
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
 	w := &wctx{b: b}
 	if err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval = nil, nil; return fn(tx, w) }); err != nil {
@@ -190,9 +182,6 @@ func mapStoreErr(err error) error {
 	return err
 }
 
-// ---- hot state (heartbeats) ----
-
-// overlay applies in-memory heartbeat data to a task copy.
 func (b *Board) overlay(t *model.Task) *model.Task {
 	if t.Status != model.StatusInProgress {
 		return t
@@ -234,7 +223,6 @@ func (b *Board) forget(taskID string) {
 	b.mu.Unlock()
 }
 
-// Touch records agent activity in memory (flushed in batches).
 func (b *Board) Touch(agentID string) {
 	now := b.now()
 	b.mu.Lock()
@@ -243,18 +231,16 @@ func (b *Board) Touch(agentID string) {
 	b.mu.Unlock()
 }
 
-// Paused reports the global pause flag.
 func (b *Board) Paused() (bool, string) {
 	b.pausedMu.RLock()
 	defer b.pausedMu.RUnlock()
 	return b.paused, b.pauseWhy
 }
 
-// Run starts the heartbeat flusher and lease sweeper until ctx is cancelled.
 func (b *Board) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(2)
-	go func() {
+	go func() { //nolint:gosec // background loop, lifetime bound to ctx
 		defer wg.Done()
 		t := time.NewTicker(b.o.FlushEvery)
 		defer t.Stop()
@@ -286,7 +272,6 @@ func (b *Board) Run(ctx context.Context) {
 	wg.Wait()
 }
 
-// Flush writes pending heartbeat data in one transaction and emits coalesced events.
 func (b *Board) Flush(ctx context.Context) {
 	b.mu.Lock()
 	seen := map[string]int64{}
@@ -307,7 +292,7 @@ func (b *Board) Flush(ctx context.Context) {
 		return
 	}
 	err := b.st.Atomic(ctx, func(tx store.Tx) error {
-		// Assignee is checked against the live row so a reassigned task is not extended.
+
 		for i := range rows {
 			t, err := tx.GetTask(rows[i].TaskID)
 			if err != nil {

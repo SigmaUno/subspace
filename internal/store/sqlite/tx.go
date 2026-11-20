@@ -3,13 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
-	"errors"
 
 	"github.com/SigmaUno/subspace/internal/store"
 )
-
-// errNotImplemented marks store methods still to be written (see split.md).
-var errNotImplemented = errors.New("sqlite: not implemented")
 
 type querier interface {
 	ExecContext(ctx context.Context, q string, args ...any) (sql.Result, error)

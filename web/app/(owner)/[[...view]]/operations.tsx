@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, money, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { VirtualList } from "./virtual";
 
 function RegistrationForm({ complete }: { complete: (items: Registration[]) => void }) {
   const [bulk, setBulk] = useState(false);
@@ -95,19 +96,18 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
     <Feedback error={agents.error} loading={!agents.data} />
     {agents.data && !agents.data.agents?.length && <p className="empty">No agents registered.</p>}
     {!!agents.data?.agents?.length && <div className="table-wrap">
-      <table>
-        <thead><tr><th>Agent</th><th>Role</th><th>Kind / model</th><th>Status</th><th>Current task</th><th>Load</th><th>Last heartbeat</th></tr></thead>
-        <tbody>{agents.data.agents.map((agent) => (
-          <tr key={agent.id}>
-            <th scope="row"><button className="text-button" onClick={() => openThread({ kind: "agent", id: agent.id })}>{agent.id}</button></th>
-            <td>{agent.role}</td><td>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></td>
-            <td><span className={`pill ${agent.status}`}>{agent.status}</span>{agent.pause_reason && <div className="meta">{agent.pause_reason}</div>}</td>
-            <td>{agent.current_task_id ? <button className="text-button" onClick={() => openThread({ kind: "task", id: agent.current_task_id! })}>{agent.current_task_id}</button> : "—"}</td>
-            <td>{agent.assigned_count} assigned</td>
-            <td><Heartbeat time={agent.last_seen_at} watch={agent.status === "active"} /></td>
-          </tr>
-        ))}</tbody>
-      </table>
+      <div className="registry-table">
+        <div className="registry-row registry-head"><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
+        <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
+          <article className="registry-row">
+            <div><button className="text-button" onClick={() => openThread({ kind: "agent", id: agent.id })}>{agent.id}</button></div>
+            <div>{agent.role}</div><div>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></div>
+            <div><span className={`pill ${agent.status}`}>{agent.status}</span>{agent.pause_reason && <div className="meta">{agent.pause_reason}</div>}</div>
+            <div>{agent.current_task_id ? <button className="text-button" onClick={() => openThread({ kind: "task", id: agent.current_task_id! })}>{agent.current_task_id}</button> : "—"}</div>
+            <div>{agent.assigned_count} assigned</div><div><Heartbeat time={agent.last_seen_at} watch={agent.status === "active"} /></div>
+          </article>
+        )} />
+      </div>
     </div>}
   </>;
 }

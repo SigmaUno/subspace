@@ -1,0 +1,8 @@
+{
+  "title": "Web: board kanban page",
+  "body": "Build the board page in the Next.js web app (`web/`). The page lists open briefs on the left and renders the selected brief's kanban board on the right, with one column per status (backlog through done). It reads `GET /api/v1/briefs/{id}/board` through the Next.js server-side proxy (owner token from the httpOnly cookie) and follows live updates over `GET /api/v1/events?topics=board` via SSE.\n\nAcceptance criteria:\n- The page renders one column per status for the selected brief.\n- Live task moves appear without a full page reload.\n- Empty and error states (no brief selected, 404, unauthenticated) are handled.\n\nNotes for the leader:\n- Reuse the existing proxy/route helpers; never call `/api/v1` directly from the browser.\n- Column order follows the 12 statuses in docs/api.md §2.\n- Handle the `lagged` SSE event by refetching the board.",
+  "repos": ["SigmaUno/subspace"],
+  "max_cost_eur": 60,
+  "max_parallel_agents": 4,
+  "allowed_providers": ["openai", "anthropic"]
+}

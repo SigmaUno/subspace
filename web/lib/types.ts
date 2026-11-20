@@ -17,6 +17,7 @@ export interface Brief {
   allowed_providers: string[] | null;
   cost_used: number;
   plan_status: string;
+  hillclimb_jobs?: import("./swarm").HillclimbJob[];
 }
 
 export interface Task {
@@ -28,6 +29,7 @@ export interface Task {
   branch: string;
   role: string;
   assignee: string | null;
+  component_id?: string | null;
   depends_on: string[] | null;
   status: TaskStatus;
   progress_pct: number;
@@ -51,6 +53,7 @@ export interface Agent {
   current_task_id: string | null;
   assigned_count: number;
   last_seen_at: string | null;
+  last_message?: Message | null;
 }
 
 export interface Board {
@@ -85,6 +88,8 @@ export interface Thread {
 
 export interface Message {
   id: number;
+  thread_kind?: Thread["kind"];
+  thread_id?: string;
   author_id: string;
   author_role: string;
   kind: string;

@@ -32,10 +32,12 @@ func decode(c *Call, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(c.Args, v); err != nil {
-		return model.BadRequest("invalid arguments: %v", err)
+		return model.BadRequest("invalid arguments")
 	}
 	return nil
 }
+
+const maxReadThreadLimit = 1000
 
 var (
 	taskIDSchema = obj(map[string]any{"task_id": str("Task id, e.g. T-3")}, "task_id")
@@ -152,6 +154,9 @@ func NewRegistry(b *board.Board) *Registry {
 			}
 			if err := decode(c, &in); err != nil {
 				return nil, err
+			}
+			if in.Limit > maxReadThreadLimit {
+				in.Limit = maxReadThreadLimit
 			}
 			ms, err := b.ReadThread(ctx, c.Actor, in.Thread, in.Since, in.Limit)
 			return map[string]any{"messages": ms}, err

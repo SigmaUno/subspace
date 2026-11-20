@@ -6,11 +6,12 @@ import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { EmptyState, ResourceState } from "./states";
 import { VirtualList } from "./virtual";
 
 export function BriefsView({ revision }: { revision: number }) {
   const [creating, setCreating] = useState(false);
-  const { data, error } = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revision);
+  const { data, error, refresh } = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revision);
   const form = useSubmit();
   const router = useRouter();
 
@@ -41,8 +42,8 @@ export function BriefsView({ revision }: { revision: number }) {
           <div><button type="submit" className="primary" disabled={form.busy}>Create brief</button></div>
         </form>
       )}
-      <Feedback error={error} loading={!data} />
-      {data && !(data.briefs?.length) && <p className="empty">No briefs yet. Create a brief to start a board.</p>}
+      <ResourceState error={error} loading={!data} retry={refresh} rows={4} />
+      {data && !(data.briefs?.length) && <EmptyState>No briefs yet. Create a brief to start a board.</EmptyState>}
       <div className="brief-list">
         {data?.briefs?.map((brief) => (
           <Link key={brief.id} href={`/briefs/${encodeURIComponent(brief.id)}`} className="panel brief-link">

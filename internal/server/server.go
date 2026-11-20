@@ -46,11 +46,12 @@ type Config struct {
 }
 
 type Server struct {
-	cfg   Config
-	Store store.Store
-	Board *board.Board
-	Hub   events.Hub
-	mux   *http.ServeMux
+	cfg     Config
+	Store   store.Store
+	Board   *board.Board
+	Hub     events.Hub
+	mux     *http.ServeMux
+	handler http.Handler
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -129,14 +130,18 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
-	deps := Deps{Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux}
+	deps := Deps{Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache}
 	for _, m := range extraMounts {
 		m(deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, mux: mux}, nil
+	var h http.Handler = mux
+	for _, w := range wraps {
+		h = w(h, deps)
+	}
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, mux: mux, handler: h}, nil
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+func (s *Server) Handler() http.Handler { return s.handler }
 
 func (s *Server) Close() error { return s.Store.Close() }
 
@@ -145,7 +150,7 @@ func (s *Server) Run(ctx context.Context) error {
 	if s.cfg.BackupInterval > 0 {
 		go s.backupLoop(ctx)
 	}
-	srv := &http.Server{Addr: s.cfg.Addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := &http.Server{Addr: s.cfg.Addr, Handler: s.handler, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

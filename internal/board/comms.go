@@ -9,7 +9,10 @@ import (
 	"github.com/SigmaUno/subspace/internal/threads"
 )
 
-const maxBody = 16 << 10
+const (
+	maxBody = 16 << 10
+	MaxPage = 1000
+)
 
 func checkBody(s string) error {
 	if s == "" {
@@ -105,6 +108,9 @@ func (b *Board) ReadThread(ctx context.Context, a model.Actor, thread string, si
 }
 
 func (b *Board) readRef(ctx context.Context, a model.Actor, ref threads.Ref, since int64, limit int) ([]*model.Message, error) {
+	if limit > MaxPage {
+		limit = MaxPage
+	}
 	var out []*model.Message
 	err := b.read(ctx, func(tx store.Tx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {

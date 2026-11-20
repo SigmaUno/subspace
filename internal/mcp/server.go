@@ -1,12 +1,14 @@
 package mcp
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
 
@@ -218,7 +220,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		return toolResult(errBody("agent_paused", why+"; ask the owner to resume you"), true), nil
 	}
 	if !t.ReadOnly && s.Guard != nil {
-		if s.Guard.Hit(a.ID, t.Name, audit.ArgsHash(p.Arguments), s.Now()) {
+		if s.Guard.Hit(a.ID, t.Name, audit.ArgsHash(schemaArgs(t.Schema, p.Arguments)), s.Now()) {
 			if s.Hooks != nil {
 				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop: same call repeated too often")
 			}
@@ -231,6 +233,41 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		return toolResult(errBody(e.Code, e.Message), true), nil
 	}
 	return toolResult(res, false), nil
+}
+
+func schemaArgs(schema map[string]any, raw json.RawMessage) json.RawMessage {
+	props, _ := schema["properties"].(map[string]any)
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	if tok, err := dec.Token(); err != nil || tok != json.Delim('{') {
+		return raw
+	}
+	out := map[string]json.RawMessage{}
+	for dec.More() {
+		tok, err := dec.Token()
+		if err != nil {
+			return raw
+		}
+		key, _ := tok.(string)
+		var v json.RawMessage
+		if err := dec.Decode(&v); err != nil {
+			return raw
+		}
+		if _, ok := props[key]; ok {
+			out[key] = v
+			continue
+		}
+		for p := range props {
+			if strings.EqualFold(p, key) {
+				out[p] = v
+				break
+			}
+		}
+	}
+	b, err := json.Marshal(out)
+	if err != nil {
+		return raw
+	}
+	return b
 }
 
 func errBody(code, msg string) map[string]any {

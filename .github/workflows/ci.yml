@@ -1,0 +1,80 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  go:
+    name: Go (vet, lint, test, loadtest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: gofmt
+        if: hashFiles('**/*.go') != ''
+        run: |
+          test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: go vet
+        if: hashFiles('**/*.go') != ''
+        run: go vet ./...
+      - name: golangci-lint
+        if: hashFiles('**/*.go') != ''
+        uses: golangci/golangci-lint-action@v8
+        with:
+          version: latest
+      - name: go test -race
+        if: hashFiles('**/*.go') != ''
+        run: go test -race -count=1 ./...
+      - name: short loadtest (50 agents, 20s)
+        if: hashFiles('cmd/loadtest/*.go') != ''
+        run: make loadtest-short
+
+  web:
+    name: Web (lint, typecheck, build)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    if: hashFiles('web/package.json') != ''
+    defaults:
+      run:
+        working-directory: web
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  docker:
+    name: Docker build
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    if: hashFiles('Dockerfile') != '' || hashFiles('web/Dockerfile') != ''
+    steps:
+      - uses: actions/checkout@v4
+      - uses: docker/setup-buildx-action@v3
+      - name: Build server image
+        if: hashFiles('Dockerfile') != ''
+        run: docker build -t subspace-server:ci -f Dockerfile .
+      - name: Build web image
+        if: hashFiles('web/Dockerfile') != ''
+        run: docker build -t subspace-web:ci -f web/Dockerfile web

@@ -43,8 +43,11 @@ func sqlTx(t store.Tx) *sql.Tx {
 	if !ok {
 		return nil
 	}
-	st, _ := x.q.(*sql.Tx)
-	return st
+	w, ok := x.q.(*writeQ)
+	if !ok {
+		return nil
+	}
+	return w.tx
 }
 
 func blockWriter(t *testing.T, s *Store) (release func()) {

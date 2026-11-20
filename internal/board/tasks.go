@@ -357,6 +357,26 @@ func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
 	return nil
 }
 
+type activeLister interface {
+	ActiveAssignees(briefID string) ([]string, error)
+}
+
+func activeAssignees(tx store.Tx, briefID string) (map[string]bool, error) {
+	active := map[string]bool{}
+	if l, ok := tx.(activeLister); ok {
+		ids, err := l.ActiveAssignees(briefID)
+		for _, id := range ids {
+			active[id] = true
+		}
+		return active, err
+	}
+	ts, err := tx.ListTasks(store.TaskFilter{BriefID: briefID, Status: []string{model.StatusInProgress}, Limit: 100000})
+	for _, x := range ts {
+		active[deref(x.Assignee)] = true
+	}
+	return active, err
+}
+
 func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*model.Task, error) {
 	if p, why := b.Paused(); p {
 		return nil, model.Errf("paused", "Subspace is paused: %s", why)
@@ -387,13 +407,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 			return err
 		}
 		if br.Budget.MaxParallelAgent > 0 {
-			ts, err := tx.ListTasks(store.TaskFilter{BriefID: br.ID, Status: []string{model.StatusInProgress}, Limit: 100000})
+			active, err := activeAssignees(tx, br.ID)
 			if err != nil {
 				return err
-			}
-			active := map[string]bool{}
-			for _, x := range ts {
-				active[deref(x.Assignee)] = true
 			}
 			if !active[a.ID] && len(active) >= br.Budget.MaxParallelAgent {
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
@@ -560,7 +576,7 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease}
+		b.tasks[t.ID] = hotTask{hb: now, lease: lease, assignee: a.ID}
 		b.dirtyT[t.ID] = struct{}{}
 		l := lease
 		res.LeaseExpiresAt = &l

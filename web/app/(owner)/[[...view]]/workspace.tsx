@@ -11,6 +11,7 @@ import { UsageView } from "./usage";
 import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
+import { FilesView } from "./files";
 import { SwarmOverview } from "./overview";
 import { Clock, Feedback } from "./components";
 
@@ -73,6 +74,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "capacity", name: "Capacity", href: "/capacity" },
     { id: "usage", name: "Usage", href: "/usage" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
+    { id: "files", name: "Files", href: "/files" },
   ];
 
   return (
@@ -109,6 +111,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}
+            {section === "files" && <FilesView />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}

@@ -25,5 +25,6 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
     return <Workspace section="swarm" briefID={id} architecture={architecture} />;
   }
   if (view.length > 1 || root && !["briefs", "agents", "plans", "questions", "capacity", "usage"].includes(root)) notFound();
+  if (view.length > 1 || root && !["briefs", "agents", "plans", "questions", "capacity", "files"].includes(root)) notFound();
   return <Workspace section={root || "swarm"} architecture={false} />;
 }

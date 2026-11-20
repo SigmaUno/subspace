@@ -17,7 +17,9 @@ import (
 
 const restoreChunk = 500
 
-var tables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns"}
+var coreTables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns"}
+
+func tables() []string { return append(slices.Clip(coreTables), extraTables...) }
 
 var identityTables = []string{"messages", "audit"}
 
@@ -49,7 +51,7 @@ func (s *Store) Backup(ctx context.Context, path string) (err error) {
 	defer func() { _ = t.Rollback() }()
 	w := bufio.NewWriter(f)
 	enc := json.NewEncoder(w)
-	for _, name := range tables {
+	for _, name := range tables() {
 		if err := dumpTable(ctx, t, enc, name); err != nil {
 			return fmt.Errorf("backup %s: %w", name, err)
 		}
@@ -61,7 +63,7 @@ func (s *Store) Backup(ctx context.Context, path string) (err error) {
 }
 
 func dumpTable(ctx context.Context, t *sql.Tx, enc *json.Encoder, name string) error {
-	rows, err := t.QueryContext(ctx, `SELECT row_to_json(x)::text FROM `+name+` x`) //nolint:gosec // name is from the fixed tables list
+	rows, err := t.QueryContext(ctx, `SELECT row_to_json(x)::text FROM `+name+` x`) //nolint:gosec // name is from the registered tables list
 	if err != nil {
 		return err
 	}
@@ -89,7 +91,8 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		if !ok {
 			return errors.New("restore: unexpected tx type")
 		}
-		for _, name := range tables {
+		all := tables()
+		for _, name := range all {
 			var exists bool
 			if err := t.q.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM `+name+`)`).Scan(&exists); err != nil {
 				return err
@@ -123,7 +126,7 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 			if err != nil {
 				return fmt.Errorf("restore: %w", err)
 			}
-			if !slices.Contains(tables, r.Table) {
+			if !slices.Contains(all, r.Table) {
 				return fmt.Errorf("restore: unknown table %q", r.Table)
 			}
 			if r.Table != cur || len(chunk) >= restoreChunk {

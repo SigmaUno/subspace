@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -43,6 +44,8 @@ var scenarios = []struct {
 	{"next id", scenarioNextID},
 	{"concurrent writes", scenarioConcurrent},
 	{"batch isolation", scenarioBatchIsolation},
+	{"search", scenarioSearch},
+	{"extension sql", scenarioExtensionSQL},
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -1065,6 +1068,124 @@ func scenarioBatchIsolation(t *testing.T, s store.Store) {
 		}
 		if len(briefs) != committed {
 			t.Errorf("briefs %d, want %d", len(briefs), committed)
+		}
+		return nil
+	})
+}
+
+func scenarioSearch(t *testing.T, s store.Store) {
+	t0 := time.UnixMilli(1760000000000).UTC()
+	at := func(sec int) time.Time { return t0.Add(time.Duration(sec) * time.Second) }
+	var msgID, pctID int64
+	write(t, s, func(tx store.Tx) error {
+		b := testBrief("B-1", at(0))
+		b.Title = "Login revamp"
+		if err := tx.InsertBrief(b); err != nil {
+			return err
+		}
+		for i, x := range []struct{ title, spec string }{{"Add LOGIN form", "spec"}, {"other", "fix login bug"}, {"unrelated", "nope"}} {
+			k := taskMin(fmt.Sprintf("T-%d", i+1), "B-1")
+			k.Title, k.Spec, k.UpdatedAt = x.title, x.spec, at(i+1)
+			if err := tx.InsertTask(k); err != nil {
+				return err
+			}
+		}
+		for i, a := range []*model.Agent{
+			{ID: "login-bot", Role: "worker", Kind: "other", Model: "m", Provider: "openai", Status: "active", TokenHash: "s1"},
+			{ID: "x", Role: "worker", Kind: "other", Model: "sonnet-login", Provider: "openai", Status: "active", TokenHash: "s2"},
+		} {
+			a.CreatedAt = at(i + 3)
+			if err := tx.InsertAgent(a); err != nil {
+				return err
+			}
+		}
+		m := &model.Message{ThreadKind: "task", ThreadID: "T-1", AuthorID: "a", AuthorRole: "worker", Kind: "note", Body: "about login", CreatedAt: at(5)}
+		if err := tx.InsertMessage(m); err != nil {
+			return err
+		}
+		msgID = m.ID
+		p := &model.Message{ThreadKind: "task", ThreadID: "T-1", AuthorID: "a", AuthorRole: "worker", Kind: "note", Body: "100% done", CreatedAt: at(6)}
+		if err := tx.InsertMessage(p); err != nil {
+			return err
+		}
+		pctID = p.ID
+		return nil
+	})
+	search := func(q store.SearchQuery) []store.SearchHit {
+		t.Helper()
+		var hits []store.SearchHit
+		read(t, s, func(tx store.Tx) error {
+			st, ok := tx.(store.SearchTx)
+			if !ok {
+				t.Fatal("store does not implement search")
+			}
+			var err error
+			hits, err = st.Search(q)
+			return err
+		})
+		return hits
+	}
+	all := []store.SearchHit{
+		{Kind: "message", ID: fmt.Sprint(msgID), Field: "body", Text: "about login", Weight: 1, At: at(5)},
+		{Kind: "agent", ID: "x", Field: "model", Text: "sonnet-login", Weight: 1, At: at(4)},
+		{Kind: "agent", ID: "login-bot", Field: "id", Text: "login-bot", Weight: 3, At: at(3)},
+		{Kind: "task", ID: "T-2", Field: "spec", Text: "fix login bug", Weight: 1, At: at(2)},
+		{Kind: "task", ID: "T-1", Field: "title", Text: "Add LOGIN form", Weight: 3, At: at(1)},
+		{Kind: "brief", ID: "B-1", Field: "title", Text: "Login revamp", Weight: 3, At: at(0)},
+	}
+	same(t, all, search(store.SearchQuery{Text: "login", Limit: 10}))
+	same(t, all[:2], search(store.SearchQuery{Text: "LOGIN", Limit: 2}))
+	same(t, all[3:5], search(store.SearchQuery{Text: "login", Kind: "task", Limit: 10}))
+	same(t, []store.SearchHit{{Kind: "message", ID: fmt.Sprint(pctID), Field: "body", Text: "100% done", Weight: 1, At: at(6)}},
+		search(store.SearchQuery{Text: "100%", Limit: 10}))
+	if hits := search(store.SearchQuery{Text: "_", Limit: 10}); len(hits) != 0 {
+		t.Fatalf("underscore must match literally: %+v", hits)
+	}
+}
+
+type extensionSQL interface {
+	Exec(q string, args ...any) (sql.Result, error)
+	Query(q string, args ...any) (*sql.Rows, error)
+}
+
+func scenarioExtensionSQL(t *testing.T, s store.Store) {
+	upsert := func(k, v string) {
+		write(t, s, func(tx store.Tx) error {
+			x, ok := tx.(extensionSQL)
+			if !ok {
+				t.Fatal("write tx does not expose SQL")
+			}
+			_, err := x.Exec(`INSERT INTO kv(k, v) VALUES(?, ? || '?') ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, v)
+			return err
+		})
+	}
+	upsert("ext", "one")
+	upsert("ext", "two")
+	read(t, s, func(tx store.Tx) error {
+		x, ok := tx.(extensionSQL)
+		if !ok {
+			t.Fatal("read tx does not expose SQL")
+		}
+		rows, err := x.Query(`SELECT k, v FROM kv WHERE k = ? AND v <> '?'`, "ext")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		var got []string
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err != nil {
+				return err
+			}
+			got = append(got, k+"="+v)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		same(t, []string{"ext=two?"}, got)
+		v, ok, err := tx.GetKV("ext")
+		if err != nil || !ok || v != "two?" {
+			t.Fatalf("kv: %q %v %v", v, ok, err)
 		}
 		return nil
 	})

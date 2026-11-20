@@ -37,6 +37,8 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
+var extraSchemas []string
+
 var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 
 func dsn(path string, immediate bool) string {
@@ -80,6 +82,13 @@ func Open(path string) (*Store, error) {
 		_ = wdb.Close()
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	for _, ddl := range extraSchemas {
+		if _, err := wdb.Exec(ddl); err != nil {
+			_ = wdb.Close()
+			_ = rdb.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
 	}
 	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)

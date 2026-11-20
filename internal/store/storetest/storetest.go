@@ -82,14 +82,14 @@ func testBrief(id string, created time.Time) *model.Brief {
 	return &model.Brief{
 		ID: id, Title: "Title " + id, Body: "# body\nline", Repos: []string{"SigmaUno/foo", "SigmaUno/bar"},
 		Status: "open", Budget: model.BriefBudget{MaxCostEUR: 12.5, MaxParallelAgent: 7},
-		AllowedProviders: []string{"anthropic", "deepseek"}, PlanStatus: "none", CreatedAt: created,
+		AllowedProviders: []string{"anthropic", "deepseek"}, CrossReview: true, PlanStatus: "none", CreatedAt: created,
 	}
 }
 
 func scenarioBriefs(t *testing.T, s store.Store) {
 	b1 := testBrief("B-1", time.UnixMilli(1760000000123).UTC())
 	b2 := testBrief("B-2", time.UnixMilli(1000).UTC())
-	b2.Repos, b2.AllowedProviders, b2.Status = nil, nil, "closed"
+	b2.Repos, b2.AllowedProviders, b2.Status, b2.CrossReview = nil, nil, "closed", false
 	b10 := testBrief("B-10", time.UnixMilli(1000).UTC())
 	write(t, s, func(tx store.Tx) error {
 		for _, b := range []*model.Brief{b1, b2, b10} {

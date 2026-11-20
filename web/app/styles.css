@@ -127,3 +127,10 @@ tbody tr:last-child > * { border-bottom: 0; }
 .hillclimb-chart .series { fill: none; stroke: var(--accent); stroke-width: 2; }
 .hillclimb-chart .point { fill: var(--action); }
 .hillclimb-chart .best { fill: none; stroke: var(--green); stroke-width: 2.5; }
+.decision-list { display: grid; gap: .8rem; }
+.decision { display: grid; gap: .65rem; }
+.decision.selected { border-color: var(--accent); }
+.decision.old { border-left: .25rem solid var(--warn); }
+.decision h2 button { color: var(--text); font: inherit; text-align: left; }
+.decision-meta { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+.decision-actions { display: grid; gap: .8rem; padding-top: .65rem; border-top: 1px solid var(--border); }

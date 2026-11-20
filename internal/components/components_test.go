@@ -219,3 +219,75 @@ func TestSetPlanRejectsInvalidAndKeepsPrevious(t *testing.T) {
 		t.Fatalf("stored plan changed: %+v %v", got, err)
 	}
 }
+
+func TestPutComponentsThenArchitecture(t *testing.T) {
+	svc := components.NewService(components.NewMemory(), &fakeSource{}, nil)
+	srv := httptest.NewServer(http.StripPrefix("/api/v1", components.Handler(svc)))
+	defer srv.Close()
+
+	do := func(method, path, body string) (int, []byte) {
+		t.Helper()
+		req, err := http.NewRequest(method, srv.URL+path, strings.NewReader(body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = resp.Body.Close() }()
+		out, err := io.ReadAll(resp.Body)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return resp.StatusCode, out
+	}
+
+	status, body := do(http.MethodPut, "/api/v1/briefs/B-1/components",
+		`{"components":[{"name":"core","paths":["internal/core/"]},{"name":"api","depends_on":["core"]}]}`)
+	if status != http.StatusOK {
+		t.Fatalf("put: %d %s", status, body)
+	}
+	var put struct {
+		Components []components.Component `json:"components"`
+	}
+	if err := json.Unmarshal(body, &put); err != nil {
+		t.Fatal(err)
+	}
+	if len(put.Components) != 2 || put.Components[1].ID != "C-2" || put.Components[1].DependsOn[0] != "C-1" ||
+		put.Components[0].Paths[0] != "internal/core" {
+		t.Fatalf("components: %+v", put.Components)
+	}
+
+	status, body = do(http.MethodGet, "/api/v1/briefs/B-1/architecture", "")
+	if status != http.StatusOK {
+		t.Fatalf("get: %d %s", status, body)
+	}
+	var g components.Graph
+	if err := json.Unmarshal(body, &g); err != nil {
+		t.Fatal(err)
+	}
+	if len(g.Nodes) != 2 || len(g.Edges) != 1 || g.Edges[0] != (components.Edge{From: "C-2", To: "C-1"}) {
+		t.Fatalf("graph: %+v", g)
+	}
+
+	for name, tc := range map[string]struct {
+		path, body, code string
+		status           int
+	}{
+		"cycle":         {"/api/v1/briefs/B-1/components", `{"components":[{"name":"a","depends_on":["b"]},{"name":"b","depends_on":["a"]}]}`, "bad_request", http.StatusBadRequest},
+		"empty":         {"/api/v1/briefs/B-1/components", `{"components":[]}`, "bad_request", http.StatusBadRequest},
+		"malformed":     {"/api/v1/briefs/B-1/components", `{`, "bad_request", http.StatusBadRequest},
+		"unknown brief": {"/api/v1/briefs/B-9/components", `{"components":[{"name":"a"}]}`, "not_found", http.StatusNotFound},
+	} {
+		status, body = do(http.MethodPut, tc.path, tc.body)
+		if status != tc.status || !strings.Contains(string(body), `"`+tc.code+`"`) {
+			t.Fatalf("%s: %d %s", name, status, body)
+		}
+	}
+
+	_, body = do(http.MethodGet, "/api/v1/briefs/B-1/architecture", "")
+	if err := json.Unmarshal(body, &g); err != nil || len(g.Nodes) != 2 {
+		t.Fatalf("plan changed after rejected puts: %s", body)
+	}
+}

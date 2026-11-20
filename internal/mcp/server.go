@@ -170,6 +170,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
+	if !validID(req.ID) {
+		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
+		return
+	}
 	actor := model.Actor{ID: agent.ID, Role: agent.Role}
 	resp := rpcResp{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
@@ -268,6 +272,11 @@ func schemaArgs(schema map[string]any, raw json.RawMessage) json.RawMessage {
 		return raw
 	}
 	return b
+}
+
+func validID(id json.RawMessage) bool {
+	c := id[0]
+	return c == '"' || c == '-' || (c >= '0' && c <= '9')
 }
 
 func errBody(code, msg string) map[string]any {

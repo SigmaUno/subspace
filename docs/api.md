@@ -112,6 +112,8 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, status` → Brief (set_budget) |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}` |
+| GET | `/api/v1/briefs/{id}/architecture` | → `{"brief_id","nodes":[{"id":"C-1","brief_id","name","description","paths":[],"depends_on":["C-2"],"owners":[{"agent_id","role","agent_status","task_ids":[]}],"status":{"counts":{status:n},"total","progress_avg","blocked","stale","last_activity"}}],"edges":[{"from":"C-1","to":"C-2"}]}` |
+| PUT | `/api/v1/briefs/{id}/components` | `{"components":[{"name","description","paths":[],"depends_on":["<component name>"]}]}` → `{"components":[Component]}`. Replaces the plan; ids `C-<n>` follow list order. 400 on an empty plan, duplicate names, unknown/self/cyclic dependencies or paths that are absolute or escape the repository. |
 
 ### Plans
 | Method | Path | Body → Response |
@@ -260,3 +262,22 @@ All tools return an object; `task` = Task object above.
 
 ### Threads scoping summary
 Agent thread `agent:<id>`: leader messages to the agent, owner replies, answers, system notices. Task thread `task:<id>`: status changes (auto), notes, questions/answers, reviews, tests. Brief thread `brief:<id>`: plan decisions, leader notes.
+
+## 6. Swarm overview extensions
+
+| Method | Path | Response or body |
+|---|---|---|
+| GET | `/api/v1/decisions` | `{"decisions":[Decision],"count":n}`, ordered by impact descending, creation time ascending |
+| GET | `/api/v1/decisions/next` | `{"decision":Decision|null,"count":n}` |
+| POST | `/api/v1/decisions/{id}` | `{"action":"approve|reject|answer|unblock","answer":"...","note":"..."}` |
+| GET | `/api/v1/briefs/{id}/architecture` | `{"components":[Component]}` |
+| POST | `/api/v1/messages` | `{"to":"agent:ID|component:ID|brief:ID|leader","body":"..."}` → `{"conversation_id":"ID"}` |
+| GET | `/api/v1/conversations/{id}` | `{"id":"ID","messages":[Message]}` |
+| GET | `/api/v1/hillclimb/jobs?brief_id={id}` | `{"jobs":[Job]}` |
+| GET | `/api/v1/hillclimb/jobs/{id}/series` | `{"job":Job,"attempts":[Attempt]}`, oldest attempt first |
+
+- Decision fields are `id`, `kind` (`plan|question|merge|unblock`), `title`, `body`, `brief_id`, `task_id`, `agent_id`, `pr_url`, `options`, `impact` and `created_at`. Approving a merge decision records owner approval.
+- Component fields are `id`, `name`, `description`, `depends_on`, `paths`, `owner_agent_ids`, `task_ids`, and optional `status_counts`, `progress_pct`, `stale_count` and `last_activity_at`. Tasks may carry `component_id`.
+- `GET /api/v1/agents?include=last_message` may include an agent's latest `Message` across the agent thread and current task thread.
+- Job fields are `id`, `title`, `metric`, `direction` (`min|max`), `status`, and optional `target` and `stop_reason`. Attempt fields are `id`, `value` (null if failed or pending), `branch`, `branch_url` and `created_at`.
+- The owner overview accepts `decision.created`, `decision.updated`, `decision.resolved`, `architecture.updated`, `conversation.message`, `hillclimb.updated` and `hillclimb.attempt` on the SSE stream. Existing plan, question, task and message events also refresh their associated panels.

@@ -9,10 +9,14 @@ export function Feedback({ error, loading }: { error?: string; loading?: boolean
   return loading ? <p className="muted" role="status">Loading…</p> : null;
 }
 
+export function staleAt(time: string | null, now: number, expires?: string | null) {
+  return expires ? Date.parse(expires) <= now : !!time && now - Date.parse(time) > 15 * 60_000;
+}
+
 export function Heartbeat({ time, watch = true, expires }: { time: string | null; watch?: boolean; expires?: string | null }) {
   const date = time ? new Date(time) : null;
   const now = useContext(Clock);
-  const stale = watch && (expires ? Date.parse(expires) <= now : !!date && now - date.getTime() > 15 * 60_000);
+  const stale = watch && staleAt(time, now, expires);
   return (
     <span className={stale ? "stale" : "meta"}>
       {date ? <time dateTime={time ?? undefined} title={time ?? undefined}>{date.toLocaleString([], { dateStyle: "short", timeStyle: "medium" })}</time> : "No heartbeat"}

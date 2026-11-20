@@ -296,6 +296,8 @@ func (a *API) Register(mux *http.ServeMux) {
 		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: limitq(r)})
 		return map[string]any{"events": ev}, err
 	}))
+	m("GET /api/v1/audit/verify", a.do(200, func(r *http.Request) (any, error) { return B.VerifyAudit(r.Context()) }))
+	m("GET /api/v1/audit/export", a.guard(a.exportAudit))
 
 	m("GET /api/v1/events", a.guard(events.NewSSEHandler(a.Hub, events.TopicsFromQuery, a.PingEvery).ServeHTTP))
 

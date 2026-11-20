@@ -1,6 +1,12 @@
 package sqlite
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+
+	"github.com/SigmaUno/subspace/internal/audit"
+	"github.com/SigmaUno/subspace/internal/model"
+)
 
 const schema = `
 CREATE TABLE IF NOT EXISTS seq (name TEXT PRIMARY KEY, n INTEGER NOT NULL);
@@ -58,7 +64,8 @@ CREATE INDEX IF NOT EXISTS questions_status ON questions(status);
 
 CREATE TABLE IF NOT EXISTS audit (
   id INTEGER PRIMARY KEY AUTOINCREMENT, ts INTEGER NOT NULL, agent_id TEXT NOT NULL, role TEXT NOT NULL, tool TEXT NOT NULL,
-  task_id TEXT NOT NULL DEFAULT '', before TEXT NOT NULL DEFAULT '', after TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT ''
+  task_id TEXT NOT NULL DEFAULT '', before TEXT NOT NULL DEFAULT '', after TEXT NOT NULL DEFAULT '', note TEXT NOT NULL DEFAULT '',
+  hash TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS audit_agent ON audit(agent_id, id);
 CREATE INDEX IF NOT EXISTS audit_task ON audit(task_id, id);
@@ -71,9 +78,11 @@ CREATE TABLE IF NOT EXISTS spawns (
 CREATE INDEX IF NOT EXISTS spawns_brief ON spawns(brief_id);
 
 -- Append-only audit: refuse updates and deletes.
-CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
+` + auditNoUpdate + `
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
 `
+
+const auditNoUpdate = `CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
 func migrate(db *sql.DB) error {
 	var n int
@@ -82,7 +91,68 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	if n == 0 {
-		_, err = db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`)
+		if _, err := db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`); err != nil {
+			return err
+		}
 	}
-	return err
+	return migrateAuditChain(db)
+}
+
+func migrateAuditChain(db *sql.DB) error {
+	t, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = t.Rollback() }()
+	var n int
+	if err := t.QueryRow(`SELECT count(*) FROM pragma_table_info('audit') WHERE name='hash'`).Scan(&n); err != nil {
+		return err
+	}
+	if n > 0 {
+		return nil
+	}
+	if _, err := t.Exec(`ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`); err != nil {
+		return err
+	}
+	if _, err := t.Exec(`DROP TRIGGER IF EXISTS audit_no_update`); err != nil {
+		return err
+	}
+	links, err := chainExisting(t)
+	if err != nil {
+		return err
+	}
+	for _, l := range links {
+		if _, err := t.Exec(`UPDATE audit SET hash = ? WHERE id = ?`, l.Hash, l.ID); err != nil {
+			return err
+		}
+	}
+	if _, err := t.Exec(auditNoUpdate); err != nil {
+		return err
+	}
+	return t.Commit()
+}
+
+func chainExisting(t *sql.Tx) ([]model.AuditHead, error) {
+	rows, err := t.Query(`SELECT id, ts, agent_id, role, tool, task_id, before, after, note FROM audit ORDER BY id`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var (
+		out  []model.AuditHead
+		prev string
+	)
+	for rows.Next() {
+		var r audit.Record
+		if err := rows.Scan(&r.ID, &r.TS, &r.AgentID, &r.Role, &r.Tool, &r.TaskID, &r.Before, &r.After, &r.Note); err != nil {
+			return nil, err
+		}
+		h, err := audit.Link(prev, r)
+		if err != nil {
+			return nil, fmt.Errorf("audit %d: %w", r.ID, err)
+		}
+		out = append(out, model.AuditHead{ID: r.ID, Hash: h})
+		prev = h
+	}
+	return out, rows.Err()
 }

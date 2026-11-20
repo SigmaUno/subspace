@@ -1,0 +1,10 @@
+{
+  "mcp": {
+    "subspace": {
+      "type": "remote",
+      "url": "<SUBSPACE_URL>/mcp",
+      "headers": { "Authorization": "Bearer <TOKEN>" },
+      "enabled": true
+    }
+  }
+}

@@ -104,7 +104,13 @@ func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	case err := <-r.done:
 		return err
 	case <-s.quit:
-		return errors.New("store closed")
+		s.wg.Wait()
+		select {
+		case err := <-r.done:
+			return err
+		default:
+			return errors.New("store closed")
+		}
 	}
 }
 

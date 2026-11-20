@@ -72,6 +72,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
     { id: "usage", name: "Usage", href: "/usage" },
+    { id: "instructions", name: "Instructions", href: "/instructions" },
   ];
 
   return (

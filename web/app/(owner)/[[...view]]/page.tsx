@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ownerCookie, ownerStatus } from "../../../lib/upstream";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
+import { InstructionsPage } from "./instructions";
 import { PromptsPage } from "./prompts";
 import { Workspace } from "./workspace";
 
@@ -18,6 +19,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "prompts" && view.length === 1) return <PromptsPage />;
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;
+  if (root === "instructions" && view.length === 1) return <InstructionsPage />;
   const architecture = subview === "architecture";
   if (root === "briefs" && id && (view.length === 2 || view.length === 3 && architecture)) {
     return <Workspace section="swarm" briefID={id} architecture={architecture} />;

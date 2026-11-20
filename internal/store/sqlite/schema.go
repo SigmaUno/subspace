@@ -1,5 +1,7 @@
 package sqlite
 
+import "database/sql"
+
 const schema = `
 CREATE TABLE IF NOT EXISTS seq (name TEXT PRIMARY KEY, n INTEGER NOT NULL);
 CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
@@ -7,7 +9,7 @@ CREATE TABLE IF NOT EXISTS kv (k TEXT PRIMARY KEY, v TEXT NOT NULL);
 CREATE TABLE IF NOT EXISTS briefs (
   id TEXT PRIMARY KEY, title TEXT NOT NULL, body TEXT NOT NULL, repos TEXT NOT NULL, status TEXT NOT NULL,
   max_cost_eur REAL NOT NULL, max_parallel INTEGER NOT NULL, allowed_providers TEXT NOT NULL,
-  plan_status TEXT NOT NULL, created_at INTEGER NOT NULL
+  plan_status TEXT NOT NULL, created_at INTEGER NOT NULL, cross_review INTEGER NOT NULL DEFAULT 1
 );
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -71,3 +73,15 @@ CREATE INDEX IF NOT EXISTS spawns_brief ON spawns(brief_id);
 CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
 CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
 `
+
+func migrate(db *sql.DB) error {
+	var n int
+	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name='cross_review'`).Scan(&n)
+	if err != nil {
+		return err
+	}
+	if n == 0 {
+		_, err = db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`)
+	}
+	return err
+}

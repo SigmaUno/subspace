@@ -50,7 +50,7 @@ func (e *env) rest(method, path string, body any) (int, map[string]any) {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return resp.StatusCode, out
@@ -86,7 +86,7 @@ func (e *env) rpc(tok, method string, params any) map[string]any {
 	if err != nil {
 		e.t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	var out map[string]any
 	_ = json.NewDecoder(resp.Body).Decode(&out)
 	return out
@@ -270,7 +270,7 @@ func TestLeaseExpiryAndRevoke(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	go s.Board.Run(ctx)
 	ts := httptest.NewServer(s.Handler())
 	defer ts.Close()
@@ -310,7 +310,7 @@ func TestSSEReceivesTaskEvents(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	sc := bufio.NewScanner(resp.Body)
 	lines := make(chan string, 100)
 	go func() {

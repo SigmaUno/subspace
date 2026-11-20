@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -365,6 +366,10 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if br.Status != "open" {
 			return model.Conflict("brief %s is closed", br.ID)
 		}
+		errs, warns := planlint.Split(planlint.Lint(*br, lintTasks(in.Tasks)))
+		if len(errs) > 0 {
+			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
+		}
 		old, err := tx.ListPlans(br.ID, model.PlanProposed)
 		if err != nil {
 			return err
@@ -390,7 +395,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err != nil {
 			return err
 		}
-		p := &model.Plan{ID: pid, BriefID: br.ID, Status: model.PlanProposed, ProposedBy: a.ID, Note: strp(in.Note), CreatedAt: b.now()}
+		p := &model.Plan{ID: pid, BriefID: br.ID, Status: model.PlanProposed, ProposedBy: a.ID, Note: strp(in.Note), Warnings: nz(warns), CreatedAt: b.now()}
 		if err := tx.InsertPlan(p); err != nil {
 			return err
 		}
@@ -403,9 +408,6 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				return err
 			}
 			if ti.Ref != "" {
-				if _, dup := refs[ti.Ref]; dup {
-					return model.BadRequest("duplicate ref %q", ti.Ref)
-				}
 				refs[ti.Ref] = t.ID
 			}
 			tasks = append(tasks, t)
@@ -422,9 +424,6 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				}
 				tasks[i].DependsOn = append(tasks[i].DependsOn, d)
 			}
-		}
-		if hasCycle(tasks) {
-			return model.BadRequest("dependency cycle in plan")
 		}
 		for _, t := range tasks {
 			if err := tx.InsertTask(t); err != nil {
@@ -448,35 +447,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 	return out, err
 }
 
-func hasCycle(ts []*model.Task) bool {
-	deps := map[string][]string{}
-	for _, t := range ts {
-		deps[t.ID] = t.DependsOn
+func lintTasks(in []TaskInput) []planlint.Task {
+	out := make([]planlint.Task, len(in))
+	for i, t := range in {
+		out[i] = planlint.Task{Ref: t.Ref, Title: t.Title, Spec: t.Spec, AcceptanceCriteria: t.AcceptanceCriteria,
+			Repo: t.Repo, Role: t.Role, DependsOn: t.DependsOn, Budget: t.Budget}
 	}
-	state := map[string]int{}
-	var visit func(string) bool
-	visit = func(id string) bool {
-		switch state[id] {
-		case 1:
-			return true
-		case 2:
-			return false
-		}
-		state[id] = 1
-		for _, d := range deps[id] {
-			if visit(d) {
-				return true
-			}
-		}
-		state[id] = 2
-		return false
-	}
-	for id := range deps {
-		if visit(id) {
-			return true
-		}
-	}
-	return false
+	return out
 }
 
 func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
@@ -489,6 +466,7 @@ func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
 		return nil, err
 	}
 	p.Tasks = nz(ts)
+	p.Warnings = nz(p.Warnings)
 	return p, nil
 }
 

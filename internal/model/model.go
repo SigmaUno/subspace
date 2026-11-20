@@ -151,14 +151,22 @@ type Task struct {
 }
 
 type Plan struct {
-	ID         string     `json:"id"`
-	BriefID    string     `json:"brief_id"`
-	Status     string     `json:"status"`
-	ProposedBy string     `json:"proposed_by"`
-	Note       *string    `json:"note"`
-	Tasks      []*Task    `json:"tasks"`
-	CreatedAt  time.Time  `json:"created_at"`
-	DecidedAt  *time.Time `json:"decided_at"`
+	ID         string        `json:"id"`
+	BriefID    string        `json:"brief_id"`
+	Status     string        `json:"status"`
+	ProposedBy string        `json:"proposed_by"`
+	Note       *string       `json:"note"`
+	Tasks      []*Task       `json:"tasks"`
+	Warnings   []PlanFinding `json:"warnings"`
+	CreatedAt  time.Time     `json:"created_at"`
+	DecidedAt  *time.Time    `json:"decided_at"`
+}
+
+type PlanFinding struct {
+	Severity string `json:"severity"`
+	Rule     string `json:"rule"`
+	Task     string `json:"task,omitempty"`
+	Message  string `json:"message"`
 }
 
 type Agent struct {

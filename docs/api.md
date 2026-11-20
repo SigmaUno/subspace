@@ -52,7 +52,9 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 
 // Plan
 {"id":"P-1","brief_id":"B-1","status":"proposed",   // proposed|approved|rejected|superseded
- "proposed_by":"rex","note":null,"tasks":[/* Task, status backlog */],"created_at":"...","decided_at":null}
+ "proposed_by":"rex","note":null,"tasks":[/* Task, status backlog */],
+ "warnings":[{"severity":"warning","rule":"no_tester","task":"a","message":"..."}],   // lint warnings, [] when none; task omitted for plan-wide findings
+ "created_at":"...","decided_at":null}
 
 // Agent
 {"id":"claude-1","role":"worker",                  // leader|worker|tester|reviewer
@@ -250,7 +252,7 @@ All tools return an object; `task` = Task object above.
 
 **Leader**
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
-- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"}}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
+- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"}}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
 - `create_task {"brief_id", ...task fields}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.

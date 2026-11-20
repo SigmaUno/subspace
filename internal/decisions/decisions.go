@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
 )
 
 const (
@@ -284,6 +285,9 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 		}
 		if p.Note != nil && *p.Note != "" {
 			d.Summary += ": " + *p.Note
+		}
+		if len(p.Warnings) > 0 {
+			d.Summary += fmt.Sprintf(" (%d lint warnings: %s)", len(p.Warnings), planlint.Format(p.Warnings))
 		}
 		add(d, 0)
 	}

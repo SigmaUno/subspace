@@ -142,6 +142,7 @@ func scenarioPlans(t *testing.T, s store.Store) {
 	decided := created.Add(time.Hour)
 	p1 := &model.Plan{ID: "P-1", BriefID: "B-1", Status: model.PlanProposed, ProposedBy: "rex", CreatedAt: created}
 	p2 := &model.Plan{ID: "P-2", BriefID: "B-1", Status: model.PlanApproved, ProposedBy: "rex", Note: ptr("ok"),
+		Warnings:  []model.PlanFinding{{Severity: "warning", Rule: "budget_missing", Task: "a", Message: "no task budget"}},
 		CreatedAt: created.Add(time.Second), DecidedAt: &decided}
 	p3 := &model.Plan{ID: "P-3", BriefID: "B-2", Status: model.PlanProposed, ProposedBy: "rex", Note: ptr(""), CreatedAt: created}
 	write(t, s, func(tx store.Tx) error {

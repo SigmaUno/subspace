@@ -14,7 +14,8 @@ CREATE TABLE IF NOT EXISTS briefs (
 
 CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY, brief_id TEXT NOT NULL, status TEXT NOT NULL, proposed_by TEXT NOT NULL,
-  note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER NOT NULL DEFAULT 0
+  note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER NOT NULL DEFAULT 0,
+  warnings TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS plans_brief ON plans(brief_id, status);
 
@@ -76,13 +77,19 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 `
 
 func migrate(db *sql.DB) error {
-	var n int
-	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name='cross_review'`).Scan(&n)
-	if err != nil {
-		return err
+	for _, c := range []struct{ table, column, ddl string }{
+		{"briefs", "cross_review", `ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`},
+		{"plans", "warnings", `ALTER TABLE plans ADD COLUMN warnings TEXT NOT NULL DEFAULT '[]'`},
+	} {
+		var n int
+		if err := db.QueryRow(`SELECT count(*) FROM pragma_table_info(?) WHERE name=?`, c.table, c.column).Scan(&n); err != nil {
+			return err
+		}
+		if n == 0 {
+			if _, err := db.Exec(c.ddl); err != nil {
+				return err
+			}
+		}
 	}
-	if n == 0 {
-		_, err = db.Exec(`ALTER TABLE briefs ADD COLUMN cross_review INTEGER NOT NULL DEFAULT 1`)
-	}
-	return err
+	return nil
 }

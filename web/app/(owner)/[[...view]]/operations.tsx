@@ -2,9 +2,10 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { api, money, useResource, useSubmit, value } from "../../../lib/client";
+import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { PlanEditor } from "./plan-edit";
 import { VirtualList } from "./virtual";
 
 function RegistrationForm({ complete }: { complete: (items: Registration[]) => void }) {
@@ -113,24 +114,16 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
   </>;
 }
 
-function PlanCard({ plan, decided, openThread }: { plan: Plan; decided: (id: string) => void; openThread: (thread: Thread) => void }) {
+function PlanCard({ plan, decided, changed, openThread }: { plan: Plan; decided: (id: string) => void; changed: () => void; openThread: (thread: Thread) => void }) {
   const form = useSubmit();
+  const count = plan.tasks?.filter((task) => task.status !== "cancelled").length ?? 0;
   return <article className="panel stack">
     <div className="heading">
       <div><h2>Plan {plan.id}</h2><p className="meta">Proposed by {plan.proposed_by} · <Link href={`/briefs/${encodeURIComponent(plan.brief_id)}`}>{plan.brief_id}</Link></p></div>
-      <div className="actions"><span className="pill">{plan.tasks?.length ?? 0} tasks</span><button onClick={() => openThread({ kind: "brief", id: plan.brief_id })}>Brief thread</button></div>
+      <div className="actions"><span className="pill">{count} tasks</span><button onClick={() => openThread({ kind: "brief", id: plan.brief_id })}>Brief thread</button></div>
     </div>
     {plan.note && <p className="preserve">{plan.note}</p>}
-    <ol className="plan-tasks">
-      {plan.tasks?.map((task) => <li key={task.id}>
-        <details><summary>{task.title} <span className="meta">{task.id} · {task.role}</span></summary>
-          <p className="meta">{task.repo} · {money(task.budget.max_cost_eur)} · {task.budget.max_minutes} min</p>
-          <p className="preserve">{task.spec}</p>
-          {!!task.acceptance_criteria?.length && <ul>{task.acceptance_criteria.map((criterion, index) => <li key={index}>{criterion}</li>)}</ul>}
-          {!!task.depends_on?.length && <p className="meta">Depends on {task.depends_on.join(", ")}</p>}
-        </details>
-      </li>)}
-    </ol>
+    <PlanEditor plan={plan} changed={changed} />
     <form className="stack" onSubmit={(event) => {
       const button = (event.nativeEvent as SubmitEvent).submitter;
       const reject = button instanceof HTMLButtonElement && button.value === "reject";
@@ -144,7 +137,7 @@ function PlanCard({ plan, decided, openThread }: { plan: Plan; decided: (id: str
     }}>
       <label>Decision note or rejection reason<textarea name="note" rows={2} /></label>
       <Feedback error={form.error} />
-      <div className="actions"><button className="primary" disabled={form.busy}>Approve plan</button>
+      <div className="actions"><button className="primary" disabled={form.busy || !count}>Approve plan</button>
         <button className="danger" type="submit" value="reject" disabled={form.busy}>Reject plan</button></div>
     </form>
   </article>;
@@ -158,7 +151,7 @@ export function PlansView({ revision, openThread }: { revision: number; openThre
     <div className="heading"><h1>Plan approvals</h1></div>
     <Feedback error={plans.error} loading={!plans.data} />
     {plans.data && !items.length && <p className="empty">No plans awaiting approval.</p>}
-    {items.map((plan) => <PlanCard key={plan.id} plan={plan} openThread={openThread} decided={(id) => {
+    {items.map((plan) => <PlanCard key={plan.id} plan={plan} openThread={openThread} changed={plans.refresh} decided={(id) => {
       setDecided((current) => [...current, id]);
       plans.refresh();
     }} />)}

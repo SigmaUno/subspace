@@ -34,7 +34,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_url TEXT NOT NULL DEFAULT '', max_minutes INTEGER NOT NULL DEFAULT 0, max_cost_eur REAL NOT NULL DEFAULT 0,
   cost_used REAL NOT NULL DEFAULT 0, minutes_used INTEGER NOT NULL DEFAULT 0, review_rounds INTEGER NOT NULL DEFAULT 0,
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at INTEGER NOT NULL DEFAULT 0,
-  blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
+  priority INTEGER NOT NULL DEFAULT 0, component_id TEXT NOT NULL DEFAULT ''
 );
 DROP INDEX IF EXISTS tasks_brief;
 CREATE INDEX IF NOT EXISTS tasks_brief_status ON tasks(brief_id, status, assignee);
@@ -86,19 +87,13 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 const auditNoUpdate = `CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
 func migrate(db *sql.DB) error {
-	for _, c := range []struct{ name, def string }{
-		{"cross_review", "INTEGER NOT NULL DEFAULT 1"},
-		{"auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
+	for _, c := range []struct{ table, column, def string }{
+		{"briefs", "cross_review", "INTEGER NOT NULL DEFAULT 1"},
+		{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
+		{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
+		{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
 	} {
-		var n int
-		err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('briefs') WHERE name=?`, c.name).Scan(&n)
-		if err != nil {
-			return err
-		}
-		if n > 0 {
-			continue
-		}
-		if _, err := db.Exec(`ALTER TABLE briefs ADD COLUMN ` + c.name + ` ` + c.def); err != nil {
+		if err := addColumn(db, c.table, c.column, c.def); err != nil {
 			return err
 		}
 	}
@@ -162,4 +157,14 @@ func chainExisting(t *sql.Tx) ([]model.AuditHead, error) {
 		prev = h
 	}
 	return out, rows.Err()
+}
+
+func addColumn(db *sql.DB, table, column, def string) error {
+	var n int
+	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('`+table+`') WHERE name=?`, column).Scan(&n)
+	if err != nil || n > 0 {
+		return err
+	}
+	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
+	return err
 }

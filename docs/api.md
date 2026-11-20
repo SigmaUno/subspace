@@ -113,7 +113,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status` → Brief (set_budget) |
-| GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}` |
+| GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
 | GET | `/api/v1/briefs/{id}/architecture` | → `{"brief_id","nodes":[{"id":"C-1","brief_id","name","description","paths":[],"depends_on":["C-2"],"owners":[{"agent_id","role","agent_status","task_ids":[]}],"status":{"counts":{status:n},"total","progress_avg","blocked","stale","last_activity"}}],"edges":[{"from":"C-1","to":"C-2"}]}` |
 | PUT | `/api/v1/briefs/{id}/components` | `{"components":[{"name","description","paths":[],"depends_on":["<component name>"]}]}` → `{"components":[Component]}`. Replaces the plan; ids `C-<n>` follow list order. 400 on an empty plan, duplicate names, unknown/self/cyclic dependencies or paths that are absolute or escape the repository. |
 
@@ -442,8 +442,8 @@ All tools return an object; `task` = Task object above.
 
 **Leader**
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
-- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"}}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
-- `create_task {"brief_id", ...task fields}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
+- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
+- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)

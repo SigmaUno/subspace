@@ -134,6 +134,8 @@ type Task struct {
 	Assignee           *string     `json:"assignee"`
 	Reviewer           *string     `json:"reviewer"`
 	DependsOn          []string    `json:"depends_on"`
+	Priority           int         `json:"priority"`
+	ComponentID        *string     `json:"component_id"`
 	Status             string      `json:"status"`
 	ProgressPct        int         `json:"progress_pct"`
 	LastHeartbeatAt    *time.Time  `json:"last_heartbeat_at"`

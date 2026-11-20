@@ -29,7 +29,10 @@ type Options struct {
 	SweepEvery time.Duration
 }
 
-type hotTask struct{ hb, lease time.Time }
+type hotTask struct {
+	hb, lease time.Time
+	assignee  string
+}
 
 type Board struct {
 	st  store.Store
@@ -296,7 +299,7 @@ func (b *Board) Flush(ctx context.Context) {
 	ids := make([]string, 0, len(b.dirtyT))
 	for id := range b.dirtyT {
 		h := b.tasks[id]
-		rows = append(rows, store.LeaseRow{TaskID: id, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
+		rows = append(rows, store.LeaseRow{TaskID: id, Assignee: h.assignee, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
 		ids = append(ids, id)
 	}
 	b.dirtyA = map[string]struct{}{}
@@ -306,16 +309,6 @@ func (b *Board) Flush(ctx context.Context) {
 		return
 	}
 	err := b.st.Atomic(ctx, func(tx store.Tx) error {
-
-		for i := range rows {
-			t, err := tx.GetTask(rows[i].TaskID)
-			if err != nil {
-				continue
-			}
-			if t.Assignee != nil {
-				rows[i].Assignee = *t.Assignee
-			}
-		}
 		if len(seen) > 0 {
 			if err := tx.TouchAgents(seen); err != nil {
 				return err

@@ -275,10 +275,14 @@ func errBody(code, msg string) map[string]any {
 }
 
 func toolResult(v any, isErr bool) map[string]any {
-	b, _ := json.Marshal(v)
+	b, err := json.Marshal(v)
+	var sc any = json.RawMessage(b)
+	if err != nil {
+		sc = v
+	}
 	return map[string]any{
 		"content":           []map[string]any{{"type": "text", "text": string(b)}},
-		"structuredContent": v,
+		"structuredContent": sc,
 		"isError":           isErr,
 	}
 }

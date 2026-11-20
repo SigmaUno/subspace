@@ -13,8 +13,10 @@ CREATE INDEX IF NOT EXISTS briefs_status ON briefs(status, created_at);
 
 CREATE TABLE IF NOT EXISTS plans (
   id TEXT COLLATE "C" PRIMARY KEY, brief_id TEXT COLLATE "C" NOT NULL, status TEXT NOT NULL, proposed_by TEXT NOT NULL,
-  note TEXT, created_at BIGINT NOT NULL, decided_at BIGINT NOT NULL DEFAULT 0
+  note TEXT, created_at BIGINT NOT NULL, decided_at BIGINT NOT NULL DEFAULT 0,
+  warnings JSONB NOT NULL DEFAULT '[]'
 );
+ALTER TABLE plans ADD COLUMN IF NOT EXISTS warnings JSONB NOT NULL DEFAULT '[]';
 CREATE INDEX IF NOT EXISTS plans_brief ON plans(brief_id, status);
 
 CREATE TABLE IF NOT EXISTS tasks (

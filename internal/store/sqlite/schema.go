@@ -21,7 +21,8 @@ CREATE TABLE IF NOT EXISTS briefs (
 
 CREATE TABLE IF NOT EXISTS plans (
   id TEXT PRIMARY KEY, brief_id TEXT NOT NULL, status TEXT NOT NULL, proposed_by TEXT NOT NULL,
-  note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER NOT NULL DEFAULT 0
+  note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER NOT NULL DEFAULT 0,
+  warnings TEXT NOT NULL DEFAULT '[]'
 );
 CREATE INDEX IF NOT EXISTS plans_brief ON plans(brief_id, status);
 
@@ -92,6 +93,7 @@ func migrate(db *sql.DB) error {
 		{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
+		{"plans", "warnings", "TEXT NOT NULL DEFAULT '[]'"},
 	} {
 		if err := addColumn(db, c.table, c.column, c.def); err != nil {
 			return err

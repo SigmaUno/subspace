@@ -205,3 +205,53 @@ func TestListTasksOrdersByPriorityThenID(t *testing.T) {
 		t.Fatalf("order %v want %v", got, want)
 	}
 }
+
+func TestOpenMigratesPlansWithoutWarnings(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "old.db")
+	old, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = old.Exec(`CREATE TABLE plans (
+  id TEXT PRIMARY KEY, brief_id TEXT NOT NULL, status TEXT NOT NULL, proposed_by TEXT NOT NULL,
+  note TEXT, created_at INTEGER NOT NULL, decided_at INTEGER NOT NULL DEFAULT 0
+);
+INSERT INTO plans(id, brief_id, status, proposed_by, created_at) VALUES ('P-1','B-1','proposed','rex',1000)`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := old.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+	findings := []model.PlanFinding{{Severity: "warning", Rule: "no_tester", Message: "m"}}
+	err = s.Atomic(context.Background(), func(tx store.Tx) error {
+		p, err := tx.GetPlan("P-1")
+		if err != nil {
+			return err
+		}
+		if p.Warnings != nil {
+			t.Fatalf("existing plan should have no warnings: %v", p.Warnings)
+		}
+		p.Warnings = findings
+		return tx.UpdatePlan(p)
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	err = s.View(context.Background(), func(tx store.Tx) error {
+		p, err := tx.GetPlan("P-1")
+		if err == nil && (len(p.Warnings) != 1 || p.Warnings[0] != findings[0]) {
+			t.Fatalf("warnings not persisted: %v", p.Warnings)
+		}
+		return err
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}

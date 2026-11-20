@@ -106,8 +106,8 @@ export function Kanban({ board, agents, openThread }: {
       {visibleStatuses.map(([status, name]) => {
         const tasks = (board.columns[status] ?? []).filter((task) =>
           !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle)));
-        return <section className="column" aria-label={name} key={status}>
-          <h3><span>{name}</span><span className="meta">{tasks.length}</span></h3>
+        return <section className="column" aria-label={name} key={status} data-status={status}>
+          <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
           <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"
             render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} openThread={openThread} />} />
         </section>;

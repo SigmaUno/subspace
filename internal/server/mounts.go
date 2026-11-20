@@ -22,4 +22,4 @@ type Deps struct {
 
 var extraMounts []func(Deps)
 
-func registerMount(f func(Deps)) { extraMounts = append(extraMounts, f) }
+func registerMount(f func(Deps)) { extraMounts = append(extraMounts, f) } //nolint:unused

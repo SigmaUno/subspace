@@ -95,7 +95,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	cache = auth.NewCache(b.LoadByTokenHash, 30*time.Second)
 
-	m := mcp.NewServer(cache, mcp.NewRegistry(b))
+	reg := mcp.NewRegistry(b)
+	climber := newHillclimb(st, b, reg, cfg.Log)
+	m := mcp.NewServer(cache, reg)
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
 	m.Hooks = b
 	m.OwnerToken = cfg.OwnerToken
@@ -122,8 +124,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
 	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())
 
-	climb := hillclimb.NewHandler(hillclimb.NewMeasurer(hillclimb.NewMemStore(), noRunner{}))
-	rest.Mount(mux, "/api/v1/hillclimb/", climb)
+	rest.Mount(mux, "/api/v1/hillclimb/", hillclimb.NewHandler(climber))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := b.Paused()
 		w.Header().Set("Content-Type", "application/json")

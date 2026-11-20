@@ -42,6 +42,7 @@ type Config struct {
 	BackupDir      string
 	FlushEvery     time.Duration
 	SweepEvery     time.Duration
+	Now            func() time.Time
 	Log            *slog.Logger
 }
 
@@ -87,7 +88,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 				cache.Invalidate(id)
 			}
 		},
-		Log: cfg.Log, BackupDir: cfg.BackupDir, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
+		Log: cfg.Log, BackupDir: cfg.BackupDir, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery, Now: cfg.Now,
 	})
 	if err != nil {
 		_ = st.Close()

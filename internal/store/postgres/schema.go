@@ -42,6 +42,7 @@ CREATE TABLE IF NOT EXISTS agents (
   status TEXT NOT NULL, pause_reason TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL,
   last_seen_at BIGINT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, spawned BOOLEAN NOT NULL DEFAULT FALSE
 );
+ALTER TABLE agents ADD COLUMN IF NOT EXISTS token_expires_at BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS agents_token ON agents(token_hash);
 CREATE INDEX IF NOT EXISTS agents_role ON agents(role, status);
 

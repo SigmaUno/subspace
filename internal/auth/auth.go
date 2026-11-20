@@ -6,11 +6,14 @@ import (
 	"crypto/subtle"
 	"encoding/base64"
 	"encoding/hex"
+	"errors"
 
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
 const TokenPrefix = "ssp_"
+
+var ErrTokenExpired = errors.New("auth: token expired")
 
 func NewToken() (string, error) {
 	b := make([]byte, 32)

@@ -187,6 +187,8 @@ type Agent struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	Spawned       bool       `json:"spawned"`
 
+	TokenExpiresAt *time.Time `json:"token_expires_at"`
+
 	TokenHash string `json:"-"`
 }
 
@@ -271,7 +273,7 @@ func (e *Error) HTTPStatus() int {
 	switch e.Code {
 	case "bad_request":
 		return http.StatusBadRequest
-	case "unauthorized":
+	case "unauthorized", "token_expired":
 		return http.StatusUnauthorized
 	case "forbidden", "not_assigned":
 		return http.StatusForbidden

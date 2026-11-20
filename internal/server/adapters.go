@@ -39,6 +39,10 @@ func (d decisionActions) Unblock(ctx context.Context, taskID, to, note string) (
 	return d.b.Reopen(ctx, taskID, to, note)
 }
 
+func (d decisionActions) RotateToken(ctx context.Context, agentID string, expiresIn time.Duration) (any, error) {
+	return d.b.RotateTokenFor(ctx, agentID, expiresIn)
+}
+
 func (decisionActions) Skip(context.Context, string, time.Time) error { return nil }
 
 type chatDirectory struct{ b *board.Board }

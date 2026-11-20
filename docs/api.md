@@ -25,9 +25,9 @@ Errors (REST): HTTP status + body
 ```json
 {"error": {"code": "not_found", "message": "task T-9 not found"}}
 ```
-Codes: `bad_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded` 507 (artifact uploads). Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
+Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded` 507 (artifact uploads). Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
 
-Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`.
+Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
 In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s owner state endpoint before forwarding requests to protected handlers. Go also authenticates each protected request.
 
@@ -68,7 +68,8 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "model":"claude-sonnet-5-5","provider":"anthropic",
  "status":"active",                                // active|paused|revoked
  "pause_reason":null,"current_task_id":"T-3","assigned_count":2,
- "last_seen_at":"...","created_at":"...","spawned":false}
+ "last_seen_at":"...","created_at":"...","spawned":false,
+ "token_expires_at":null}                          // RFC 3339 when the token expires, null = never
 
 // Message
 {"id":42,"thread_kind":"task","thread_id":"T-3","author_id":"claude-1","author_role":"worker",
@@ -193,10 +194,10 @@ Plan edits post a system message to the brief thread and append an audit event (
 |---|---|---|
 | GET | `/api/v1/agents?role=&status=` | → `{"agents":[Agent]}` |
 | GET | `/api/v1/agents/{id}` | → Agent |
-| POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). |
-| POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic. |
+| POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
+| POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":"","expires_in":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic; `expires_in` applies to every agent. |
 | GET | `/api/v1/agents/{id}/connect` | → Connect without token (snippets keep `<token>`). |
-| POST | `/api/v1/agents/{id}/rotate-token` | `{}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead) |
+| POST | `/api/v1/agents/{id}/rotate-token` | `{"expires_in":""}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead). Without `expires_in` the current `token_expires_at` is kept (400 when it has already passed); with it the expiry is set to now plus the duration. |
 | POST | `/api/v1/agents/{id}/revoke` | `{"reason":""}` → Agent. Token dead immediately, leases released. |
 | POST | `/api/v1/agents/{id}/resume` | `{}` → Agent (clears loop-protection pause) |
 
@@ -253,7 +254,7 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
 
 ### Decisions
-The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks and stale agents (an active agent with a current task not seen for 10 minutes).
+The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes) and active agents whose token expires in less than 24 hours (or already has).
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -263,13 +264,13 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 ```jsonc
 // Decision
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
 ```
 
-Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -278,6 +279,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
+| `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
 

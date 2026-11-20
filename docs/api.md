@@ -122,13 +122,17 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET | `/api/v1/plans/{id}` | → Plan |
 | POST | `/api/v1/plans/{id}/approve` | `{"note":""}` → Plan. Tasks `backlog → ready`. 409 if not `proposed`. |
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
+| POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{}}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
+| DELETE | `/api/v1/plans/{id}/tasks/{taskId}` | → Plan. Drops a `backlog` task of a `proposed` plan: the task becomes `cancelled` and stays in `tasks`. 409 while a non-cancelled task still lists it in `depends_on` (edit those first, the message names them) or if the plan is not `proposed`; 404 if the task is not part of the plan. |
+
+Plan edits post a system message to the brief thread and append an audit event (`add_plan_task`, `drop_plan_task`).
 
 ### Tasks
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=` | → `{"tasks":[Task]}` |
 | GET | `/api/v1/tasks/{id}` | → Task |
-| PATCH | `/api/v1/tasks/{id}` | `{"budget":{"max_minutes","max_cost_eur"}}` → Task (set_budget); unblocks a budget-blocked task if now within budget |
+| PATCH | `/api/v1/tasks/{id}` | any of `title, spec, acceptance_criteria, depends_on, repo, role, budget` → Task. A body with only `budget` is set_budget (any status; unblocks a budget-blocked task if now within budget). Any other field edits the task and requires status `backlog` or `ready` (409 otherwise). 400 on an empty body, empty title/spec, a repo outside the brief, a role other than `worker|tester`, a role change on an assigned task (409), or a dependency that is unknown, itself, cancelled, in another brief or forms a cycle. A title change regenerates `branch`. Effective edits post a system message to the brief thread and append an `edit_task` audit event with before/after of the changed fields. |
 | POST | `/api/v1/tasks/{id}/done` | `{"note":"merged in #123"}` → Task. Only from `approved` (or `needs_owner`). Sets `done`. |
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |

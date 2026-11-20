@@ -187,6 +187,17 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.RejectPlan(r.Context(), r.PathValue("id"), in.Reason)
 	}))
 
+	m("POST /api/v1/plans/{id}/tasks", a.do(201, func(r *http.Request) (any, error) {
+		var in board.TaskInput
+		if err := decode(r, &in); err != nil {
+			return nil, err
+		}
+		return B.AddPlanTask(r.Context(), r.PathValue("id"), in)
+	}))
+	m("DELETE /api/v1/plans/{id}/tasks/{taskId}", a.do(200, func(r *http.Request) (any, error) {
+		return B.DropPlanTask(r.Context(), r.PathValue("id"), r.PathValue("taskId"))
+	}))
+
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
 		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: limitq(r)})
@@ -194,13 +205,11 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 	m("GET /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetTask(r.Context(), model.Owner, r.PathValue("id")) }))
 	m("PATCH /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) {
-		var in struct {
-			Budget model.Budget `json:"budget"`
-		}
+		var in board.TaskEdit
 		if err := decode(r, &in); err != nil {
 			return nil, err
 		}
-		return B.SetTaskBudget(r.Context(), r.PathValue("id"), in.Budget)
+		return B.EditTask(r.Context(), r.PathValue("id"), in)
 	}))
 	m("POST /api/v1/tasks/{id}/done", a.do(200, func(r *http.Request) (any, error) {
 		var in struct{ Note string }

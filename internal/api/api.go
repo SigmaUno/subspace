@@ -300,7 +300,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 
 	// SSE
-	m("GET /api/v1/events", a.guard(events.SSEHandler(a.Hub, a.PingEvery).ServeHTTP))
+	m("GET /api/v1/events", a.guard(events.NewSSEHandler(a.Hub, events.TopicsFromQuery, a.PingEvery).ServeHTTP))
 
 	mux.HandleFunc("/api/v1/", a.guard(func(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, model.NotFound("no such endpoint"))

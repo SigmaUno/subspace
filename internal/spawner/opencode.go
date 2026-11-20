@@ -178,23 +178,8 @@ func openCodeEnv(r Request) ([]byte, error) {
 func execStdin(token string) Exec {
 	return func(ctx context.Context, stdin []byte, name string, args ...string) error {
 		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // operator-configured host and fixed script
+		cmd.Env = childEnv()
 		cmd.Stdin = bytes.NewReader(stdin)
-		var out bytes.Buffer
-		cmd.Stdout = &out
-		cmd.Stderr = &out
-		if err := cmd.Run(); err != nil {
-			msg := strings.TrimSpace(out.String())
-			if len(msg) > 512 {
-				msg = msg[:512]
-			}
-			if token != "" {
-				msg = strings.ReplaceAll(msg, token, "[redacted]")
-			}
-			if msg != "" {
-				return fmt.Errorf("%s: %w: %s", name, err, msg)
-			}
-			return fmt.Errorf("%s: %w", name, err)
-		}
-		return nil
+		return runCmd(cmd, token)
 	}
 }

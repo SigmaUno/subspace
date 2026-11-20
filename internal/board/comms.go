@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/threads"
@@ -241,8 +242,19 @@ func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error)
 	if err != nil {
 		return "", err
 	}
-	s := fmt.Sprintf(baseInstructions, a.ID, a.Role) + roleInstructions[a.Role] + "\n--- Owner charter ---\n" + c.Text
-	return s, nil
+	brief, err := instructions.StoreProjects{Store: b.st}.ProjectOf(ctx, a.ID)
+	if err != nil {
+		return "", err
+	}
+	e, err := instructions.New(b.st, nil, nil).Effective(ctx, brief)
+	if err != nil {
+		return "", err
+	}
+	s := fmt.Sprintf(baseInstructions, a.ID, a.Role) + roleInstructions[a.Role]
+	if e.Text != "" {
+		s += "\n--- Owner instructions (" + e.Version + ") ---\n" + e.Text
+	}
+	return s + "\n--- Owner charter ---\n" + c.Text, nil
 }
 
 func (b *Board) AppendMessage(ctx context.Context, kind, id string, m model.Message) (model.Message, error) {

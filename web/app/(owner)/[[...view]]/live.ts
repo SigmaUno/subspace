@@ -1,35 +1,51 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import type { Message } from "../../../lib/types";
+
+const scopes = [
+  "board", "agents", "thread", "questions", "plans", "briefs", "control", "capacity",
+  "decisions", "architecture", "chat", "metrics",
+] as const;
+type Scope = typeof scopes[number];
+export type Revisions = Record<Scope, number>;
 
 const eventScopes = {
-  "task.created": ["board"],
-  "task.updated": ["board"],
-  "agent.updated": ["agents"],
-  "spawn.updated": ["agents"],
-  "message.created": ["thread"],
-  "question.created": ["questions", "control"],
-  "question.answered": ["questions", "control"],
-  "plan.proposed": ["plans", "briefs", "board", "control"],
-  "plan.approved": ["plans", "briefs", "board", "control"],
-  "plan.rejected": ["plans", "briefs", "board", "control"],
+  "task.created": ["board", "decisions"],
+  "agent.updated": ["agents", "capacity"],
+  "spawn.updated": ["agents", "capacity"],
+  "question.created": ["questions", "control", "decisions"],
+  "question.answered": ["questions", "control", "decisions"],
+  "plan.proposed": ["plans", "briefs", "board", "control", "decisions", "architecture"],
+  "plan.approved": ["plans", "briefs", "board", "control", "decisions", "architecture"],
+  "plan.rejected": ["plans", "briefs", "board", "control", "decisions", "architecture"],
   "control.paused": ["control", "board", "agents"],
   "control.resumed": ["control", "board", "agents"],
   "capacity.changed": ["capacity"],
+  "decision.created": ["decisions"],
+  "decision.updated": ["decisions"],
+  "decision.resolved": ["decisions"],
+  "decisions.updated": ["decisions"],
+  "architecture.updated": ["architecture"],
+  "conversation.message": ["chat"],
+  "conversation.updated": ["chat"],
+  "hillclimb.updated": ["metrics"],
+  "hillclimb.attempt": ["metrics"],
 } as const;
 
-const scopes = ["board", "agents", "thread", "questions", "plans", "briefs", "control", "capacity"] as const;
-type Scope = typeof scopes[number];
-
 export function useLive(topics: string) {
-  const [revisions, setRevisions] = useState<Record<Scope, number>>({
+  const [revisions, setRevisions] = useState<Revisions>({
     board: 0, agents: 0, thread: 0, questions: 0, plans: 0, briefs: 0, control: 0, capacity: 0,
+    decisions: 0, architecture: 0, chat: 0, metrics: 0,
   });
+  const [recent, setRecent] = useState<Record<string, Message>>({});
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
     const stream = new EventSource(`/api/v1/events?${new URLSearchParams({ topics })}`);
     const pending = new Set<Scope>();
+    const messages = new Map<string, Message>();
+    const taskStatuses = new Map<string, string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
 
     function invalidate(changed: readonly Scope[]) {
@@ -37,19 +53,39 @@ export function useLive(topics: string) {
       if (timer) return;
       timer = setTimeout(() => {
         const refreshed = Array.from(pending);
+        const updates = Object.fromEntries(messages);
         pending.clear();
+        messages.clear();
         timer = undefined;
         setRevisions((current) => {
           const next = { ...current };
           refreshed.forEach((scope) => { next[scope] += 1; });
           return next;
         });
+        if (Object.keys(updates).length) setRecent((current) => ({ ...current, ...updates }));
       }, 650);
     }
 
     stream.addEventListener("hello", () => { setConnected(true); invalidate(scopes); });
     stream.addEventListener("lagged", () => invalidate(scopes));
     stream.onerror = () => setConnected(false);
+    stream.addEventListener("message.created", (event: MessageEvent<string>) => {
+      try {
+        const { data } = JSON.parse(event.data) as { data?: Message };
+        if (data?.thread_kind && data.thread_id) messages.set(`${data.thread_kind}:${data.thread_id}`, data);
+      } catch {}
+      invalidate(["thread", "chat"]);
+    });
+    stream.addEventListener("task.updated", (event: MessageEvent<string>) => {
+      invalidate(["board"]);
+      try {
+        const { data } = JSON.parse(event.data) as { data?: { id: string; status: string } };
+        if (data && taskStatuses.get(data.id) !== data.status) {
+          taskStatuses.set(data.id, data.status);
+          invalidate(["capacity", "decisions"]);
+        }
+      } catch {}
+    });
     Object.entries(eventScopes).forEach(([event, changed]) => {
       stream.addEventListener(event, () => invalidate(changed));
     });
@@ -59,5 +95,5 @@ export function useLive(topics: string) {
     };
   }, [topics]);
 
-  return { revisions, connected };
+  return { revisions, recent, connected };
 }

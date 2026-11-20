@@ -2,10 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
-import { Feedback, Heartbeat } from "./components";
+import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { VirtualList } from "./virtual";
 
 export function BriefsView({ revision }: { revision: number }) {
   const [creating, setCreating] = useState(false);
@@ -58,8 +59,11 @@ export function BriefsView({ revision }: { revision: number }) {
 
 function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; openThread: (thread: Thread) => void }) {
   const pr = safeURL(task.pr_url);
+  const now = useContext(Clock);
+  const attention = ["blocked", "needs_owner"].includes(task.status) ||
+    task.status === "in_progress" && staleAt(task.last_heartbeat_at, now, task.lease_expires_at);
   return (
-    <article className="task">
+    <article className={`task ${attention ? "needs-attention" : ""}`}>
       <button className="text-button task-title" onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button>
       <div className="meta">{task.id} · {task.role}</div>
       <div>
@@ -77,37 +81,37 @@ function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; open
   );
 }
 
-export function BoardView({ id, revision, agentsRevision, openThread }: {
-  id: string; revision: number; agentsRevision: number; openThread: (thread: Thread) => void;
+export function Kanban({ board, agents, openThread }: {
+  board: Board; agents: Agent[]; openThread: (thread: Thread) => void;
 }) {
-  const { data, error } = useResource<Board>(`briefs/${encodeURIComponent(id)}/board`, revision);
-  const agents = useResource<{ agents: Agent[] }>("agents?limit=1000", agentsRevision);
-  const byID = new Map(agents.data?.agents?.map((agent) => [agent.id, agent]));
-  return (
-    <>
-      <Link href="/briefs" className="back">All briefs</Link>
-      <Feedback error={error || agents.error} loading={!data} />
-      {data && (
-        <>
-          <div className="heading">
-            <div><div className="meta">{id} · {data.brief.status} · plan {data.brief.plan_status}</div><h1>{data.brief.title}</h1></div>
-            <button onClick={() => openThread({ kind: "brief", id, title: data.brief.title })}>Brief thread</button>
-          </div>
-          <details className="panel brief-details"><summary>Brief details</summary>
-            <p className="preserve">{data.brief.body}</p>
-            <p className="meta">{data.brief.repos?.join(", ")} · {money(data.brief.cost_used)} / {money(data.brief.budget.max_cost_eur)} · {data.brief.budget.max_parallel_agents} parallel agents</p>
-          </details>
-          <section className="board" aria-label="Kanban board" tabIndex={0}>
-            {statuses.map(([status, name]) => {
-              const tasks = data.columns[status] ?? [];
-              return <section className="column" aria-label={name} key={status}>
-                <h2><span>{name}</span><span className="meta">{tasks.length}</span></h2>
-                {tasks.map((task) => <TaskCard key={task.id} task={task} agent={byID.get(task.assignee || "")} openThread={openThread} />)}
-              </section>;
-            })}
-          </section>
-        </>
-      )}
-    </>
-  );
+  const [filter, setFilter] = useState("");
+  const [statusFilter, setStatus] = useState("");
+  const byID = new Map(agents.map((agent) => [agent.id, agent]));
+  const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
+  const needle = filter.toLowerCase().trim();
+
+  return <section className="stack">
+    <div className="heading">
+      <h2>Kanban</h2>
+      <div className="actions">
+        <input className="filter-input" type="search" aria-label="Filter tasks" placeholder="Filter tasks"
+          value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <select className="filter-input" aria-label="Task status" value={statusFilter} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">All statuses</option>
+          {statuses.map(([status, name]) => <option key={status} value={status}>{name}</option>)}
+        </select>
+      </div>
+    </div>
+    <section className="board" aria-label="Kanban board" tabIndex={0}>
+      {visibleStatuses.map(([status, name]) => {
+        const tasks = (board.columns[status] ?? []).filter((task) =>
+          !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle)));
+        return <section className="column" aria-label={name} key={status} data-status={status}>
+          <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
+          <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"
+            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} openThread={openThread} />} />
+        </section>;
+      })}
+    </section>
+  </section>;
 }

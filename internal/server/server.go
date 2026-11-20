@@ -116,6 +116,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	comps := components.NewService(components.NewMemory(), componentSource{b, st}, nil)
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
+	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
 	lib := prompts.New(cfg.PromptsDir)
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())

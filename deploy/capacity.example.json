@@ -1,0 +1,12 @@
+{
+  "global_max_agents": 300,
+  "limits": [
+    { "provider": "anthropic", "model": "claude-opus-*", "max_concurrency": 40, "requests_per_min": 50 },
+    { "provider": "anthropic", "model": "claude-sonnet-*", "max_concurrency": 120, "requests_per_min": 200 },
+    { "provider": "anthropic", "model": "claude-haiku-*", "max_concurrency": 80, "requests_per_min": 400 },
+    { "provider": "deepseek", "model": "deepseek-v4-pro", "max_concurrency": 60, "requests_per_min": 120 },
+    { "provider": "deepseek", "model": "deepseek-flash", "max_concurrency": 100, "requests_per_min": 300 },
+    { "provider": "openai", "model": "codex", "max_concurrency": 40, "requests_per_min": 60 },
+    { "provider": "openai", "model": "gpt-*", "max_concurrency": 60, "requests_per_min": 120 }
+  ]
+}

@@ -23,3 +23,5 @@ web/out/
 !.env.example
 *.token
 .DS_Store
+web/next-env.d.ts
+web/*.tsbuildinfo

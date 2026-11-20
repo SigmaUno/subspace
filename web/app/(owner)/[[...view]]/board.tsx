@@ -65,7 +65,7 @@ function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; open
   return (
     <article className={`task ${attention ? "needs-attention" : ""}`}>
       <button className="text-button task-title" onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button>
-      <div className="meta">{task.id} · {task.role}</div>
+      <div className="meta"><Link href={`/tasks/${encodeURIComponent(task.id)}`}>{task.id}</Link> · {task.role}</div>
       <div>
         {task.assignee
           ? <button className="text-button" onClick={() => openThread({ kind: "agent", id: task.assignee! })}>{task.assignee}</button>

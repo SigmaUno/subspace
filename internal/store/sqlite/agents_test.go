@@ -116,7 +116,7 @@ func TestAgentByTokenHashAndUpdate(t *testing.T) {
 		if _, err := tx.GetAgentByTokenHash("zzz"); !errors.Is(err, store.ErrNotFound) {
 			t.Errorf("want ErrNotFound, got %v", err)
 		}
-		// empty hash keeps the stored one
+
 		reason := "loop"
 		got.Status, got.PauseReason, got.TokenHash = "paused", &reason, ""
 		if err := tx.UpdateAgent(got); err != nil {
@@ -129,7 +129,7 @@ func TestAgentByTokenHashAndUpdate(t *testing.T) {
 		if got.Status != "paused" || got.PauseReason == nil || *got.PauseReason != "loop" || got.TokenHash != "h1" {
 			t.Errorf("update mismatch: %+v", got)
 		}
-		// rotate
+
 		got.TokenHash, got.PauseReason, got.Status = "h2", nil, "active"
 		if err := tx.UpdateAgent(got); err != nil {
 			return err

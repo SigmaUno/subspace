@@ -8,20 +8,16 @@ import (
 	"time"
 )
 
-// DefaultPingInterval is how often a ": ping" comment is written to idle SSE streams.
 const DefaultPingInterval = 15 * time.Second
 
-// seqer is implemented by hubs that expose the last published sequence number.
 type seqer interface{ Seq() int64 }
 
-// wireEvent is the JSON payload of an SSE "data:" line (docs/api.md §4).
 type wireEvent struct {
 	Type string `json:"type"`
 	TS   string `json:"ts"`
 	Data any    `json:"data"`
 }
 
-// TopicsFromQuery parses the comma separated "topics" query parameter (default "all").
 func TopicsFromQuery(r *http.Request) []string {
 	var out []string
 	for _, v := range r.URL.Query()["topics"] {
@@ -37,14 +33,10 @@ func TopicsFromQuery(r *http.Request) []string {
 	return out
 }
 
-// SSEHandler streams hub events as text/event-stream with the default ping interval.
-// topics selects the subscription topics per request (nil = TopicsFromQuery).
-// Authentication is the caller's responsibility.
 func SSEHandler(h Hub, topics func(*http.Request) []string) http.Handler {
 	return NewSSEHandler(h, topics, DefaultPingInterval)
 }
 
-// NewSSEHandler is SSEHandler with a configurable ping interval.
 func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duration) http.Handler {
 	if topics == nil {
 		topics = TopicsFromQuery
@@ -84,7 +76,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			}
 			return rc.Flush()
 		}
-		// lagged carries no id: it is not part of the hub sequence.
+
 		lagged := func() error {
 			if n := sub.TakeDropped(); n > 0 {
 				return write(-1, "lagged", time.Now(), map[string]int{"dropped": n})

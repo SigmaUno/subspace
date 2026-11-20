@@ -65,7 +65,6 @@ func (e *env) register(id, role, kind string) string {
 	return out["connect"].(map[string]any)["token"].(string)
 }
 
-// call performs an MCP tools/call; returns (structured result, isError).
 func (e *env) call(tok, tool string, args any) (map[string]any, bool) {
 	e.t.Helper()
 	res := e.rpc(tok, "tools/call", map[string]any{"name": tool, "arguments": args})
@@ -120,7 +119,6 @@ func status(m map[string]any) string { return m["task"].(map[string]any)["status
 func TestEndToEnd(t *testing.T) {
 	e := newEnv(t)
 
-	// bootstrap: empty server works
 	if code, out := e.rest("GET", "/api/v1/state", nil); code != 200 || out["paused"] != false {
 		t.Fatalf("state: %d %v", code, out)
 	}
@@ -135,7 +133,6 @@ func TestEndToEnd(t *testing.T) {
 	_, br := e.rest("POST", "/api/v1/briefs", map[string]any{"title": "Demo", "body": "do it", "repos": []string{"o/r"}, "max_cost_eur": 10, "max_parallel_agents": 5})
 	bid := br["id"].(string)
 
-	// role-filtered tools
 	tools := func(tok string) map[string]bool {
 		res := e.rpc(tok, "tools/list", nil)["result"].(map[string]any)["tools"].([]any)
 		m := map[string]bool{}
@@ -149,7 +146,6 @@ func TestEndToEnd(t *testing.T) {
 	}
 	e.mustFail(wk, "assign", map[string]any{"task_id": "T-1", "agent_id": "x"}, "")
 
-	// leader proposes; owner approves
 	plan := e.must(lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": []any{
 		map[string]any{"ref": "a", "title": "Add login", "spec": "build it", "repo": "o/r", "acceptance_criteria": []string{"works"}},
 		map[string]any{"ref": "b", "title": "Docs", "spec": "docs", "repo": "o/r", "depends_on": []string{"a"}},
@@ -161,14 +157,13 @@ func TestEndToEnd(t *testing.T) {
 	if !strings.HasPrefix(tasks[0].(map[string]any)["branch"].(string), "sub/t-1-add-login") {
 		t.Fatalf("branch: %v", tasks[0])
 	}
-	e.mustFail(lead, "assign", map[string]any{"task_id": t1, "agent_id": "claude-1"}, "conflict") // still backlog
+	e.mustFail(lead, "assign", map[string]any{"task_id": t1, "agent_id": "claude-1"}, "conflict")
 	if code, _ := e.rest("POST", "/api/v1/plans/"+pid+"/approve", map[string]any{}); code != 200 {
 		t.Fatal("approve")
 	}
 	e.must(lead, "assign", map[string]any{"task_id": t1, "agent_id": "claude-1"})
 	e.mustFail(wk, "claim_task", map[string]any{"task_id": t2}, "not_assigned")
 
-	// worker flow
 	claimed := e.must(wk, "claim_task", map[string]any{"task_id": t1})
 	if status(claimed) != "in_progress" || claimed["lease_expires_at"] == nil {
 		t.Fatalf("claim: %v", claimed)
@@ -178,13 +173,12 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatal("heartbeat")
 	}
 	e.must(wk, "update_status", map[string]any{"task_id": t1, "status": "in_progress", "progress_pct": 50, "note": "half", "cost_eur": 0.5})
-	e.mustFail(wk, "submit", map[string]any{"task_id": t1, "summary": "x"}, "bad_request") // needs pr_url
+	e.mustFail(wk, "submit", map[string]any{"task_id": t1, "summary": "x"}, "bad_request")
 	sub := e.must(wk, "submit", map[string]any{"task_id": t1, "pr_url": "https://git.example/o/r/pulls/1", "summary": "done"})
 	if status(sub) != "submitted" {
 		t.Fatal(sub)
 	}
 
-	// reviewer (different provider) reviews; worker cannot
 	if lr := e.must(rev, "list_reviews", nil)["tasks"].([]any); len(lr) != 1 {
 		t.Fatalf("list_reviews: %v", lr)
 	}
@@ -192,7 +186,7 @@ func TestEndToEnd(t *testing.T) {
 	if r := e.must(rev, "review", map[string]any{"task_id": t1, "verdict": "approve", "comments": "lgtm"}); status(r) != "approved" {
 		t.Fatal(r)
 	}
-	// dependency blocks t2 until owner marks t1 done
+
 	e.must(lead, "assign", map[string]any{"task_id": t2, "agent_id": "claude-1"})
 	e.mustFail(wk, "claim_task", map[string]any{"task_id": t2}, "conflict")
 	if code, _ := e.rest("POST", "/api/v1/tasks/"+t1+"/done", map[string]any{"note": "merged"}); code != 200 {
@@ -200,7 +194,6 @@ func TestEndToEnd(t *testing.T) {
 	}
 	e.must(wk, "claim_task", map[string]any{"task_id": t2})
 
-	// thread + audit
 	if code, out := e.rest("GET", "/api/v1/threads/task/"+t1+"/messages", nil); code != 200 || len(out["messages"].([]any)) < 5 {
 		t.Fatalf("thread: %d %v", code, out)
 	}
@@ -208,7 +201,6 @@ func TestEndToEnd(t *testing.T) {
 		t.Fatalf("audit: %v", out)
 	}
 
-	// ask_owner → answer
 	q := e.must(wk, "ask_owner", map[string]any{"task_id": t2, "question": "which db?", "options": []string{"a", "b"}})["question"].(map[string]any)
 	if code, _ := e.rest("POST", "/api/v1/questions/"+q["id"].(string)+"/answer", map[string]any{"answer": "a"}); code != 200 {
 		t.Fatal("answer")
@@ -217,10 +209,9 @@ func TestEndToEnd(t *testing.T) {
 	if last := ms[len(ms)-1].(map[string]any); last["kind"] != "answer" {
 		t.Fatalf("answer not in thread: %v", ms)
 	}
-	// thread scoping: reviewer cannot read t2's thread
+
 	e.mustFail(rev, "read_thread", map[string]any{"thread": "task:" + t2}, "not_found")
 
-	// pause_all revokes leases and blocks claims
 	e.rest("POST", "/api/v1/pause-all", map[string]any{"reason": "test"})
 	_, tk := e.rest("GET", "/api/v1/tasks/"+t2, nil)
 	if tk["status"] != "assigned" {
@@ -230,7 +221,6 @@ func TestEndToEnd(t *testing.T) {
 	e.rest("POST", "/api/v1/resume-all", nil)
 	e.must(wk, "claim_task", map[string]any{"task_id": t2})
 
-	// auth boundaries
 	if code, _ := e.rest("GET", "/api/v1/state", nil); code != 200 {
 		t.Fatal()
 	}

@@ -129,19 +129,18 @@ func TestConformanceInitialize(t *testing.T) {
 		t.Fatal("no Mcp-Session-Id")
 	}
 
-	// The session works for its agent after initialize.
 	if w := post(t, s, "tok-worker", `{"jsonrpc":"2.0","id":8,"method":"ping"}`, "Mcp-Session-Id", sid); w.Code != http.StatusOK {
 		t.Errorf("ping with session = %d", w.Code)
 	}
-	// ...but is bound to the agent: another agent gets 404.
+
 	if w := post(t, s, "tok-tester", `{"jsonrpc":"2.0","id":9,"method":"ping"}`, "Mcp-Session-Id", sid); w.Code != http.StatusNotFound {
 		t.Errorf("foreign session = %d, want 404", w.Code)
 	}
-	// Unknown session -> 404.
+
 	if w := post(t, s, "tok-worker", `{"jsonrpc":"2.0","id":9,"method":"ping"}`, "Mcp-Session-Id", "nope"); w.Code != http.StatusNotFound {
 		t.Errorf("unknown session = %d, want 404", w.Code)
 	}
-	// Session header is optional.
+
 	if w := post(t, s, "tok-worker", `{"jsonrpc":"2.0","id":9,"method":"ping"}`); w.Code != http.StatusOK {
 		t.Errorf("ping without session = %d", w.Code)
 	}
@@ -186,7 +185,6 @@ func TestConformancePing(t *testing.T) {
 	}
 }
 
-// toolMatrix is the table in docs/api.md §5 (owner is never on MCP).
 func toolMatrix() map[string][]string {
 	common := []string{"get_instructions", "whoami", "list_my_tasks", "get_task", "heartbeat", "update_status", "add_note", "ask_owner", "post_message", "read_thread"}
 	with := func(extra ...string) []string {
@@ -228,7 +226,7 @@ func TestConformanceToolsCallRecheckedPerRole(t *testing.T) {
 			all[n] = true
 		}
 	}
-	// Every tool outside the role's list must be refused, and owner-only actions must not exist.
+
 	for role, tok := range map[string]string{
 		model.RoleLeader: "tok-leader", model.RoleWorker: "tok-worker",
 		model.RoleTester: "tok-tester", model.RoleReviewer: "tok-reviewer",
@@ -278,7 +276,7 @@ func TestConformanceNotificationsAccepted(t *testing.T) {
 	for _, body := range []string{
 		`{"jsonrpc":"2.0","method":"notifications/initialized"}`,
 		`{"jsonrpc":"2.0","method":"notifications/cancelled","params":{"requestId":1}}`,
-		`{"jsonrpc":"2.0","id":5,"result":{}}`, // a response from the client
+		`{"jsonrpc":"2.0","id":5,"result":{}}`,
 	} {
 		w := post(t, s, "tok-worker", body)
 		if w.Code != http.StatusAccepted {
@@ -339,7 +337,6 @@ func TestConformanceAuth(t *testing.T) {
 		t.Errorf("owner token: %d, want 403", w.Code)
 	}
 
-	// Non-bearer schemes and an empty bearer are treated as missing credentials.
 	for _, h := range []string{"Basic dXNlcjpwdw==", "Bearer ", "Bearer", "tok-worker"} {
 		r := httptest.NewRequest(http.MethodPost, "/mcp", strings.NewReader(ping))
 		r.Header.Set("Authorization", h)
@@ -350,7 +347,6 @@ func TestConformanceAuth(t *testing.T) {
 		}
 	}
 
-	// Auth is checked before the body is parsed.
 	if w = post(t, s, "", `garbage`); w.Code != http.StatusUnauthorized {
 		t.Errorf("garbage without token: %d", w.Code)
 	}
@@ -364,7 +360,6 @@ func TestConformanceOversizeBody(t *testing.T) {
 		t.Errorf("oversize = %d, want 413", w.Code)
 	}
 
-	// A body just under the limit is accepted.
 	pad := strings.Repeat("a", maxBody-200)
 	ok := `{"jsonrpc":"2.0","id":1,"method":"ping","params":{"pad":"` + pad + `"}}`
 	if len(ok) >= maxBody {

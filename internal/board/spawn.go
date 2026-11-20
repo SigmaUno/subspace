@@ -13,7 +13,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-// CapacityView is GET /api/v1/capacity.
 type CapacityView struct {
 	GlobalMaxAgents int               `json:"global_max_agents"`
 	Limits          []capacity.Report `json:"limits"`
@@ -23,7 +22,6 @@ type CapacityView struct {
 
 const spawnGrace = 10 * time.Minute
 
-// usage counts agents holding inference: those with in_progress work plus spawned agents that are new or recently seen.
 func (b *Board) usage(tx store.Tx) (capacity.Usage, map[string]bool, error) {
 	ag, err := tx.ListAgents(store.AgentFilter{Limit: 100000})
 	if err != nil {
@@ -58,7 +56,6 @@ func (b *Board) capConfig() capacity.Config {
 	return b.capCfg
 }
 
-// Capacity returns the configured limits with usage.
 func (b *Board) Capacity(ctx context.Context) (*CapacityView, error) {
 	cfg := b.capConfig()
 	v := &CapacityView{GlobalMaxAgents: cfg.GlobalMaxAgents}
@@ -77,7 +74,6 @@ func (b *Board) Capacity(ctx context.Context) (*CapacityView, error) {
 	return v, err
 }
 
-// SetCapacity replaces the capacity config (owner); persisted in the DB.
 func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*CapacityView, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, model.BadRequest("%v", err)
@@ -105,7 +101,6 @@ func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*Capacity
 	return v, err
 }
 
-// SpawnInput is request_spawn's input.
 type SpawnInput struct {
 	BriefID  string `json:"brief_id"`
 	Kind     string `json:"worker_kind"`
@@ -115,7 +110,6 @@ type SpawnInput struct {
 	Provider string `json:"provider"`
 }
 
-// RequestSpawn registers N ephemeral agents and launches them via the Spawner (leader).
 func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) ([]*model.Spawn, error) {
 	if p, why := b.Paused(); p {
 		return nil, model.Errf("paused", "Subspace is paused: %s", why)
@@ -254,7 +248,6 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	return out, nil
 }
 
-// ListSpawns lists spawns (briefID "" = all).
 func (b *Board) ListSpawns(ctx context.Context, briefID string) ([]*model.Spawn, error) {
 	var out []*model.Spawn
 	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListSpawns(briefID); return })

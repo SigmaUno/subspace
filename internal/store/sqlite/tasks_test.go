@@ -69,7 +69,7 @@ func TestTaskRoundTrip(t *testing.T) {
 	s := taskTestStore(t)
 	ctx := context.Background()
 	full, minimal := taskTestFull("T-1"), taskTestMin("T-2", "B-1")
-	// Zero-value tests (passed=0) must not be confused with nil.
+
 	zeroTests := taskTestMin("T-3", "B-1")
 	zeroTests.Tests = &model.TestResult{Passed: 0, Failed: 0, ReportedAt: time.UnixMilli(5).UTC()}
 	nilSlices := taskTestMin("T-4", "B-1")
@@ -127,7 +127,6 @@ func TestTaskUpdate(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	// nil -> set
 	full := taskTestFull("T-1")
 	full.CreatedAt = x.CreatedAt
 	if err := s.Atomic(ctx, func(tx store.Tx) error { return tx.UpdateTask(full) }); err != nil {
@@ -143,7 +142,6 @@ func TestTaskUpdate(t *testing.T) {
 	view()
 	taskTestEqual(t, full, got)
 
-	// set -> nil
 	if err := s.Atomic(ctx, func(tx store.Tx) error { return tx.UpdateTask(x) }); err != nil {
 		t.Fatal(err)
 	}
@@ -160,7 +158,7 @@ func TestTaskListCountCost(t *testing.T) {
 	s := taskTestStore(t)
 	ctx := context.Background()
 	err := s.Atomic(ctx, func(tx store.Tx) error {
-		// Insert out of order to check numeric id ordering (T-2 < T-10).
+
 		for _, n := range []int{10, 2, 1, 11, 3} {
 			x := taskTestMin(fmt.Sprintf("T-%d", n), "B-1")
 			x.CostUsed = float64(n)
@@ -233,7 +231,7 @@ func TestTaskListCountCost(t *testing.T) {
 		if !reflect.DeepEqual(counts, wantCounts) {
 			t.Errorf("counts: want %v got %v", wantCounts, counts)
 		}
-		// B-1: 1 + 2 + 10 (T-3 cancelled excluded).
+
 		if c, err := tx.BriefCost("B-1"); err != nil || c != 13 {
 			t.Errorf("brief cost B-1: %v %v", c, err)
 		}
@@ -282,11 +280,11 @@ func TestTaskExtendLeases(t *testing.T) {
 	earlier := lease.Add(-5 * time.Minute).UnixMilli()
 	err = s.Atomic(ctx, func(tx store.Tx) error {
 		return tx.ExtendLeases([]store.LeaseRow{
-			{TaskID: "T-1", Assignee: "a1", Heartbeat: hb, Lease: later},   // extended
-			{TaskID: "T-2", Assignee: "a1", Heartbeat: hb, Lease: earlier}, // not monotonic: ignored
-			{TaskID: "T-3", Assignee: "a1", Heartbeat: hb, Lease: later},   // not in_progress: ignored
-			{TaskID: "T-4", Assignee: "a1", Heartbeat: hb, Lease: later},   // wrong assignee: ignored
-			{TaskID: "T-404", Assignee: "a1", Heartbeat: hb, Lease: later}, // missing: ignored
+			{TaskID: "T-1", Assignee: "a1", Heartbeat: hb, Lease: later},
+			{TaskID: "T-2", Assignee: "a1", Heartbeat: hb, Lease: earlier},
+			{TaskID: "T-3", Assignee: "a1", Heartbeat: hb, Lease: later},
+			{TaskID: "T-4", Assignee: "a1", Heartbeat: hb, Lease: later},
+			{TaskID: "T-404", Assignee: "a1", Heartbeat: hb, Lease: later},
 		})
 	})
 	if err != nil {

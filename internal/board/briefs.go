@@ -9,9 +9,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-// ---- control ----
-
-// StateInfo is the GET /api/v1/state payload.
 type StateInfo struct {
 	Paused      bool           `json:"paused"`
 	PauseReason *string        `json:"pause_reason"`
@@ -19,10 +16,8 @@ type StateInfo struct {
 	Version     string         `json:"version"`
 }
 
-// Version is set by the server at startup.
 var Version = "dev"
 
-// State returns global state and counters.
 func (b *Board) State(ctx context.Context) (*StateInfo, error) {
 	p, why := b.Paused()
 	out := &StateInfo{Paused: p, Counts: map[string]any{}, Version: Version}
@@ -58,7 +53,6 @@ func (b *Board) State(ctx context.Context) (*StateInfo, error) {
 	return out, err
 }
 
-// PauseAll pauses everything: all leases are revoked and claims blocked.
 func (b *Board) PauseAll(ctx context.Context, reason string) error {
 	if reason == "" {
 		reason = "paused by owner"
@@ -88,7 +82,6 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 	return nil
 }
 
-// ResumeAll clears the pause flag.
 func (b *Board) ResumeAll(ctx context.Context) error {
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := tx.SetKV("paused", ""); err != nil {
@@ -106,13 +99,11 @@ func (b *Board) ResumeAll(ctx context.Context) error {
 	return nil
 }
 
-// Charter is the owner charter text.
 type Charter struct {
 	Text      string `json:"text"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 }
 
-// GetCharter returns the charter.
 func (b *Board) GetCharter(ctx context.Context) (Charter, error) {
 	var c Charter
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -125,7 +116,6 @@ func (b *Board) GetCharter(ctx context.Context) (Charter, error) {
 	return c, err
 }
 
-// SetCharter edits the charter (owner only).
 func (b *Board) SetCharter(ctx context.Context, text string) (Charter, error) {
 	at := b.now().Format("2006-01-02T15:04:05Z")
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -140,7 +130,6 @@ func (b *Board) SetCharter(ctx context.Context, text string) (Charter, error) {
 	return Charter{Text: text, UpdatedAt: at}, err
 }
 
-// Backup writes a consistent DB copy into the backup dir and returns its path and size.
 func (b *Board) Backup(ctx context.Context) (string, int64, error) {
 	if b.o.BackupDir == "" {
 		return "", 0, model.BadRequest("backups are not configured")
@@ -152,9 +141,6 @@ func (b *Board) Backup(ctx context.Context) (string, int64, error) {
 	return path, fileSize(path), nil
 }
 
-// ---- briefs ----
-
-// BriefInput creates a brief.
 type BriefInput struct {
 	Title            string   `json:"title"`
 	Body             string   `json:"body"`
@@ -164,7 +150,6 @@ type BriefInput struct {
 	AllowedProviders []string `json:"allowed_providers"`
 }
 
-// CreateBrief creates a brief (owner).
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
 	if strings.TrimSpace(in.Title) == "" {
 		return nil, model.BadRequest("title is required")
@@ -193,7 +178,6 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 	return out, err
 }
 
-// ListBriefs lists briefs with computed cost.
 func (b *Board) ListBriefs(ctx context.Context, status string) ([]*model.Brief, error) {
 	var out []*model.Brief
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -212,7 +196,6 @@ func (b *Board) ListBriefs(ctx context.Context, status string) ([]*model.Brief, 
 	return nz(out), err
 }
 
-// GetBrief returns one brief.
 func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
 	var out *model.Brief
 	err := b.read(ctx, func(tx store.Tx) (e error) {
@@ -225,7 +208,6 @@ func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
 	return out, err
 }
 
-// BriefPatch updates a brief (owner set_budget).
 type BriefPatch struct {
 	MaxCostEUR       *float64  `json:"max_cost_eur"`
 	MaxParallel      *int      `json:"max_parallel_agents"`
@@ -233,7 +215,6 @@ type BriefPatch struct {
 	Status           *string   `json:"status"`
 }
 
-// UpdateBrief applies a patch.
 func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*model.Brief, error) {
 	var out *model.Brief
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -274,13 +255,11 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 	return out, err
 }
 
-// BoardView is a brief's kanban columns.
 type BoardView struct {
 	Brief   *model.Brief             `json:"brief,omitempty"`
 	Columns map[string][]*model.Task `json:"columns"`
 }
 
-// Board returns tasks grouped by status for a brief ("" = all briefs).
 func (b *Board) Board(ctx context.Context, briefID string) (*BoardView, error) {
 	v := &BoardView{Columns: map[string][]*model.Task{}}
 	for _, s := range model.AllStatuses {
@@ -309,9 +288,6 @@ func (b *Board) Board(ctx context.Context, briefID string) (*BoardView, error) {
 	return v, err
 }
 
-// ---- plans ----
-
-// TaskInput describes a task in propose_plan / create_task.
 type TaskInput struct {
 	Ref                string       `json:"ref"`
 	BriefID            string       `json:"brief_id"`
@@ -324,7 +300,6 @@ type TaskInput struct {
 	Budget             model.Budget `json:"budget"`
 }
 
-// PlanInput is a leader plan proposal.
 type PlanInput struct {
 	BriefID string      `json:"brief_id"`
 	Note    string      `json:"note"`
@@ -372,7 +347,6 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, CreatedAt: now, UpdatedAt: now}, nil
 }
 
-// ProposePlan creates a plan with backlog tasks (leader).
 func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*model.Plan, error) {
 	if len(in.Tasks) == 0 || len(in.Tasks) > maxPlanTasks {
 		return nil, model.BadRequest("a plan needs 1..%d tasks", maxPlanTasks)
@@ -416,7 +390,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 			return err
 		}
 		refs := map[string]string{}
-		// first pass allocates ids so refs can point forward
+
 		var tasks []*model.Task
 		for _, ti := range in.Tasks {
 			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria}, pid, model.StatusBacklog, nil)
@@ -513,7 +487,6 @@ func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
 	return p, nil
 }
 
-// ListPlans lists plans with tasks.
 func (b *Board) ListPlans(ctx context.Context, briefID, status string) ([]*model.Plan, error) {
 	var out []*model.Plan
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -532,19 +505,16 @@ func (b *Board) ListPlans(ctx context.Context, briefID, status string) ([]*model
 	return nz(out), err
 }
 
-// GetPlan returns one plan with tasks.
 func (b *Board) GetPlan(ctx context.Context, id string) (*model.Plan, error) {
 	var out *model.Plan
 	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = b.loadPlan(tx, id); return })
 	return out, err
 }
 
-// ApprovePlan approves a proposed plan: tasks backlog → ready.
 func (b *Board) ApprovePlan(ctx context.Context, id, note string) (*model.Plan, error) {
 	return b.decidePlan(ctx, id, true, note)
 }
 
-// RejectPlan rejects a proposed plan.
 func (b *Board) RejectPlan(ctx context.Context, id, reason string) (*model.Plan, error) {
 	return b.decidePlan(ctx, id, false, reason)
 }

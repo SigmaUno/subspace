@@ -27,18 +27,18 @@ func TestWindowExpiry(t *testing.T) {
 	for i := 0; i < 5; i++ {
 		g.Hit("a", "t", "h", t0.Add(time.Duration(i)*time.Minute))
 	}
-	// calls at 0..4 min; at 10m30s only calls from 1..4 + new remain -> 5, no trip
+
 	if g.Hit("a", "t", "h", t0.Add(10*time.Minute+30*time.Second)) {
 		t.Fatal("should not trip once oldest call left window")
 	}
-	// at 11m30s only 2,3,4,10.5 + new = 5 -> no trip; then another trips (6 within window)
+
 	if g.Hit("a", "t", "h", t0.Add(11*time.Minute+30*time.Second)) {
 		t.Fatal("unexpected trip")
 	}
 	if !g.Hit("a", "t", "h", t0.Add(11*time.Minute+31*time.Second)) {
 		t.Fatal("expected trip")
 	}
-	// long after, everything expired
+
 	if g.Hit("a", "t", "h", t0.Add(time.Hour)) {
 		t.Fatal("should reset after window")
 	}
@@ -97,7 +97,7 @@ func TestEvictionKeepsLoopingKey(t *testing.T) {
 	for i := 0; i < maxKeysPerAgent+10; i++ {
 		g.Hit("a", "t", fmt.Sprint("n", i), t0.Add(time.Minute+time.Duration(i)*time.Millisecond))
 	}
-	g.Hit("a", "t", "loop", t0.Add(2*time.Minute)) // refresh as most recent
+	g.Hit("a", "t", "loop", t0.Add(2*time.Minute))
 	for i := 0; i < maxKeysPerAgent-1; i++ {
 		g.Hit("a", "t", fmt.Sprint("m", i), t0.Add(3*time.Minute))
 	}
@@ -143,7 +143,7 @@ func TestArgsHash(t *testing.T) {
 	if ArgsHash(json.RawMessage(`{"n":12345678901234567890}`)) == ArgsHash(json.RawMessage(`{"n":12345678901234567891}`)) {
 		t.Fatal("big numbers must keep precision")
 	}
-	// empty, invalid and trailing-garbage inputs don't panic and are stable
+
 	for _, raw := range []string{``, `not json`, `{"a":1} x`} {
 		h1 := ArgsHash(json.RawMessage(raw))
 		if h1 != ArgsHash(json.RawMessage(raw)) {

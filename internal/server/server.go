@@ -1,4 +1,3 @@
-// Package server wires store, board, MCP, REST and SSE into one http.Handler.
 package server
 
 import (
@@ -17,23 +16,28 @@ import (
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/capacity"
+	"github.com/SigmaUno/subspace/internal/chat"
+	"github.com/SigmaUno/subspace/internal/components"
+	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/mcp"
+	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
-// Config is the server configuration.
 type Config struct {
 	Addr           string
 	DBPath         string
 	OwnerToken     string
 	PublicURL      string
 	CapacityFile   string
+	PromptsDir     string
 	Lease          time.Duration
 	Spawner        spawner.Spawner
-	BackupInterval time.Duration // 0 = off
+	BackupInterval time.Duration
 	BackupKeep     int
 	BackupDir      string
 	FlushEvery     time.Duration
@@ -41,7 +45,6 @@ type Config struct {
 	Log            *slog.Logger
 }
 
-// Server is a running Subspace instance.
 type Server struct {
 	cfg   Config
 	Store store.Store
@@ -50,7 +53,6 @@ type Server struct {
 	mux   *http.ServeMux
 }
 
-// New opens the store and builds the handler. The owner token must be at least 24 chars.
 func New(ctx context.Context, cfg Config) (*Server, error) {
 	if len(cfg.OwnerToken) < 24 {
 		return nil, errors.New("owner token must be at least 24 characters (SUBSPACE_OWNER_TOKEN or SUBSPACE_OWNER_TOKEN_FILE)")
@@ -100,7 +102,27 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", m)
-	(&api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}).Register(mux)
+	rest := &api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}
+	rest.Register(mux)
+
+	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{})
+	rest.Mount(mux, "/api/v1/decisions", decisions.Handler(feed, cfg.Log))
+	rest.Mount(mux, "/api/v1/decisions/", decisions.Handler(feed, cfg.Log))
+
+	router := chat.NewRouter(chat.Config{Directory: chatDirectory{b}, Threads: chatThreads{b}})
+	rest.Mount(mux, "/api/v1/messages", router.Handler())
+	rest.Mount(mux, "/api/v1/conversations", router.Handler())
+	rest.Mount(mux, "/api/v1/conversations/", router.Handler())
+
+	comps := components.NewService(components.NewMemory(), componentSource{b, st}, nil)
+	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
+
+	lib := prompts.New(cfg.PromptsDir)
+	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
+	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())
+
+	climb := hillclimb.NewHandler(hillclimb.NewMeasurer(hillclimb.NewMemStore(), noRunner{}))
+	rest.Mount(mux, "/api/v1/hillclimb/", climb)
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := b.Paused()
 		w.Header().Set("Content-Type", "application/json")
@@ -109,13 +131,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, mux: mux}, nil
 }
 
-// Handler returns the HTTP handler.
 func (s *Server) Handler() http.Handler { return s.mux }
 
-// Close closes the store.
 func (s *Server) Close() error { return s.Store.Close() }
 
-// Run serves until ctx is cancelled, running the board background loops and backups.
 func (s *Server) Run(ctx context.Context) error {
 	go s.Board.Run(ctx)
 	if s.cfg.BackupInterval > 0 {
@@ -168,7 +187,7 @@ func (s *Server) pruneBackups() {
 			names = append(names, e.Name())
 		}
 	}
-	for i := 0; i < len(names)-keep; i++ { // ReadDir is sorted by name = by timestamp
+	for i := 0; i < len(names)-keep; i++ {
 		_ = os.Remove(filepath.Join(s.cfg.BackupDir, names[i]))
 	}
 }

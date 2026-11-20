@@ -12,8 +12,6 @@ import (
 	"strings"
 )
 
-// DefaultHCCommand is used when HC.CommandTmpl is empty. It is split on
-// whitespace before substitution, so each placeholder value stays one argument.
 const DefaultHCCommand = "--name {agent_id} -- {kind} {join_line}"
 
 var (
@@ -21,36 +19,24 @@ var (
 	envKeyRe  = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 )
 
-// Runner executes a command. The process environment (SUBSPACE_TOKEN,
-// SUBSPACE_URL, ...) is carried in ctx; see EnvFromContext.
 type Runner func(ctx context.Context, name string, args ...string) error
 
 type envCtxKey struct{}
 
-// EnvFromContext returns the KEY=VALUE environment entries a Runner must pass
-// to the started process. They are kept out of argv so tokens never show up in
-// process listings.
 func EnvFromContext(ctx context.Context) []string {
 	e, _ := ctx.Value(envCtxKey{}).([]string)
 	return e
 }
 
-// HC starts agents with `hc run --bg`, locally or over ssh when Host is set.
-//
-// Placeholders in CommandTmpl: {agent_id} {kind} {model} {join_line}.
-// SUBSPACE_TOKEN and SUBSPACE_URL are passed through the environment; with ssh
-// they are forwarded via SendEnv, so the remote sshd needs AcceptEnv for them.
 type HC struct {
-	Bin         string // default "hc"
-	Host        string // ssh destination; empty = run locally
+	Bin         string
+	Host        string
 	CommandTmpl string
-	Runner      Runner // default runs the command with os/exec
+	Runner      Runner
 }
 
-// Name implements Spawner.
 func (*HC) Name() string { return "hc" }
 
-// Spawn implements Spawner.
 func (h *HC) Spawn(ctx context.Context, r Request) error {
 	if !agentIDRe.MatchString(r.AgentID) {
 		return fmt.Errorf("spawner hc: invalid agent id %q", r.AgentID)
@@ -100,7 +86,6 @@ func hcEnv(r Request) ([]string, error) {
 	return env, nil
 }
 
-// command builds the executable and argv. No secret appears in either.
 func (h *HC) command(r Request, env []string) (string, []string) {
 	bin := h.Bin
 	if bin == "" {
@@ -136,11 +121,9 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
-// execRunner runs the command with the context environment and returns an
-// error whose text has the token scrubbed.
 func execRunner(token string) Runner {
 	return func(ctx context.Context, name string, args ...string) error {
-		cmd := exec.CommandContext(ctx, name, args...) // #nosec G204 -- binary and template are owner configuration
+		cmd := exec.CommandContext(ctx, name, args...) //nolint:gosec // operator-configured binary
 		cmd.Env = append(os.Environ(), EnvFromContext(ctx)...)
 		var out bytes.Buffer
 		cmd.Stdout = &out

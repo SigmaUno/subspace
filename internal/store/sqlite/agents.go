@@ -108,8 +108,6 @@ func (t *tx) GetAgentByTokenHash(hash string) (*model.Agent, error) {
 	return a, nil
 }
 
-// UpdateAgent writes the mutable columns. created_at is immutable; an empty
-// TokenHash keeps the stored one.
 func (t *tx) UpdateAgent(a *model.Agent) error {
 	pause := ""
 	if a.PauseReason != nil {
@@ -177,7 +175,6 @@ func (t *tx) ListAgents(f store.AgentFilter) ([]*model.Agent, error) {
 	return out, rows.Err()
 }
 
-// TouchAgents only moves last_seen_at forward.
 func (t *tx) TouchAgents(seen map[string]int64) error {
 	for id, ms := range seen {
 		if _, err := t.q.ExecContext(t.ctx,

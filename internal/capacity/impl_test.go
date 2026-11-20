@@ -72,7 +72,7 @@ func TestCheck(t *testing.T) {
 			{Provider: "anthropic", Model: "sonnet", MaxConcurrency: 3},
 			{Provider: "anthropic", Model: "*", MaxConcurrency: 5},
 			{Provider: "*", Model: "*", MaxConcurrency: 8},
-			{Provider: "openai", Model: "gpt", MaxConcurrency: 0}, // unlimited
+			{Provider: "openai", Model: "gpt", MaxConcurrency: 0},
 		},
 	}
 	tests := []struct {
@@ -81,7 +81,7 @@ func TestCheck(t *testing.T) {
 		model    string
 		n        int
 		usage    Usage
-		wantDeny string // substring of message; "" = allowed
+		wantDeny string
 	}{
 		{name: "empty usage", provider: "anthropic", model: "sonnet", n: 1, usage: Usage{}},
 		{name: "nil usage", provider: "anthropic", model: "sonnet", n: 1},
@@ -143,7 +143,7 @@ func TestReport(t *testing.T) {
 	u := Usage{
 		{"anthropic", "sonnet"}: 3,
 		{"anthropic", "opus"}:   1,
-		{"openai", "gpt"}:       5, // over limit
+		{"openai", "gpt"}:       5,
 	}
 	got := cfg.Report(u)
 	want := []struct{ inUse, avail int }{{4, 16}, {5, 0}, {9, -1}}

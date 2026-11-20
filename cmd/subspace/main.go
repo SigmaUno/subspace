@@ -1,4 +1,3 @@
-// Command subspace is the Subspace server.
 package main
 
 import (
@@ -50,7 +49,7 @@ func main() {
 	board.Version = env("SUBSPACE_VERSION", "dev")
 	cfg := server.Config{
 		Addr: env("SUBSPACE_ADDR", ":8080"), DBPath: env("SUBSPACE_DB", "/data/subspace.db"), OwnerToken: tok,
-		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"),
+		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
 		Lease: dur("SUBSPACE_LEASE", "15m"), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: 14, Log: log,
 	}

@@ -28,7 +28,6 @@ func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool strin
 	return w.audit(tx, actor, tool, t.ID, map[string]any{"status": from}, map[string]any{"status": to}, note)
 }
 
-// endLease accounts minutes and clears lease fields.
 func (b *Board) endLease(t *model.Task) {
 	now := b.now()
 	if t.ClaimedAt != nil {
@@ -38,7 +37,6 @@ func (b *Board) endLease(t *model.Task) {
 	b.forget(t.ID)
 }
 
-// releaseLease ends the lease of an in_progress task and moves it to `to`.
 func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, to, note string) error {
 	b.endLease(t)
 	return b.statusChange(tx, w, actor, "lease_release", t, to, note)
@@ -58,7 +56,6 @@ func canSee(a model.Actor, t *model.Task) bool {
 	return deref(t.Assignee) == a.ID || deref(t.Reviewer) == a.ID
 }
 
-// GetTask returns a task visible to the actor.
 func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.Task, error) {
 	var out *model.Task
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -75,13 +72,11 @@ func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.T
 	return out, err
 }
 
-// TaskQuery filters ListTasks.
 type TaskQuery struct {
 	BriefID, Status, Assignee, Role string
 	Limit                           int
 }
 
-// ListTasks lists tasks (owner/leader view).
 func (b *Board) ListTasks(ctx context.Context, q TaskQuery) ([]*model.Task, error) {
 	f := store.TaskFilter{BriefID: q.BriefID, Assignee: q.Assignee, Role: q.Role, Limit: q.Limit}
 	if q.Status != "" {
@@ -98,7 +93,6 @@ func (b *Board) ListTasks(ctx context.Context, q TaskQuery) ([]*model.Task, erro
 	return nz(out), err
 }
 
-// ListMyTasks lists tasks where the actor is assignee or reviewer.
 func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []string) ([]*model.Task, error) {
 	var out []*model.Task
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -120,7 +114,6 @@ func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []strin
 	return nz(out), err
 }
 
-// CreateTask adds a task to a brief (leader).
 func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*model.Task, error) {
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -149,7 +142,6 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 	return out, err
 }
 
-// TaskPatch is update_task input.
 type TaskPatch struct {
 	Title              *string       `json:"title"`
 	Spec               *string       `json:"spec"`
@@ -159,7 +151,6 @@ type TaskPatch struct {
 	Status             *string       `json:"status"`
 }
 
-// UpdateTask edits a task (leader). Status may be blocked|ready|cancelled; "ready" unblocks (→ assigned if it has an assignee).
 func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p TaskPatch) (*model.Task, error) {
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -220,7 +211,7 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 					to = model.StatusAssigned
 				}
 				if t.Status == model.StatusBacklog {
-					// only owner plan approval moves backlog → ready
+
 					return model.Forbidden("backlog tasks become ready through owner plan approval")
 				}
 				t.BlockedReason = nil
@@ -251,12 +242,10 @@ func (b *Board) providerAllowed(br *model.Brief, provider string) bool {
 	return len(br.AllowedProviders) == 0 || contains(br.AllowedProviders, provider)
 }
 
-// Assign assigns a ready task to an agent, or a submitted task to a reviewer (as="reviewer").
 func (b *Board) Assign(ctx context.Context, a model.Actor, taskID, agentID, as string) (*model.Task, error) {
 	return b.assign(ctx, a, "assign", taskID, agentID, as, "")
 }
 
-// Reassign moves a task to another agent, releasing any lease.
 func (b *Board) Reassign(ctx context.Context, a model.Actor, taskID, agentID, reason string) (*model.Task, error) {
 	return b.assign(ctx, a, "reassign", taskID, agentID, "assignee", reason)
 }
@@ -326,7 +315,7 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 		}
 		t.Assignee, t.BlockedReason = &agentID, nil
 		if from == model.StatusChangesRequested {
-			// stays changes_requested; new assignee claims it
+
 			t.UpdatedAt = b.now()
 			if err := tx.UpdateTask(t); err != nil {
 				return err
@@ -368,7 +357,6 @@ func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
 	return nil
 }
 
-// ClaimTask grants a lease on an assigned task.
 func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*model.Task, error) {
 	if p, why := b.Paused(); p {
 		return nil, model.Errf("paused", "Subspace is paused: %s", why)
@@ -423,7 +411,6 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 	return out, err
 }
 
-// ReleaseTask gives a claimed task back (→ assigned).
 func (b *Board) ReleaseTask(ctx context.Context, a model.Actor, taskID, reason string) (*model.Task, error) {
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -443,14 +430,12 @@ func (b *Board) ReleaseTask(ctx context.Context, a model.Actor, taskID, reason s
 	return out, err
 }
 
-// SubmitInput is submit's input.
 type SubmitInput struct {
 	TaskID  string `json:"task_id"`
 	PRURL   string `json:"pr_url"`
 	Summary string `json:"summary"`
 }
 
-// Submit marks work done and reviewable.
 func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*model.Task, error) {
 	if in.PRURL != "" {
 		u, err := url.Parse(in.PRURL)
@@ -485,7 +470,6 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	return out, err
 }
 
-// StatusInput is update_status's input.
 type StatusInput struct {
 	TaskID      string   `json:"task_id"`
 	Status      string   `json:"status"`
@@ -494,7 +478,6 @@ type StatusInput struct {
 	CostEUR     *float64 `json:"cost_eur"`
 }
 
-// UpdateStatus lets the assignee report progress, cost, or block.
 func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput) (*model.Task, error) {
 	if in.Status != model.StatusInProgress && in.Status != model.StatusBlocked {
 		return nil, model.BadRequest("status must be in_progress or blocked")
@@ -549,14 +532,12 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	return out, err
 }
 
-// HeartbeatResult is the heartbeat reply.
 type HeartbeatResult struct {
 	OK             bool       `json:"ok"`
 	Paused         bool       `json:"paused"`
 	LeaseExpiresAt *time.Time `json:"lease_expires_at"`
 }
 
-// Heartbeat extends leases (in memory; flushed in batches).
 func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*HeartbeatResult, error) {
 	b.Touch(a.ID)
 	if p, _ := b.Paused(); p {
@@ -591,7 +572,6 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 	return res, nil
 }
 
-// ReportTests records tester results.
 func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, passed, failed int, log string) (*model.Task, error) {
 	if passed < 0 || failed < 0 {
 		return nil, model.BadRequest("counts must be >= 0")
@@ -624,10 +604,8 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	return out, err
 }
 
-// MaxReviewRounds is the number of changes_requested rounds before the owner is needed.
 const MaxReviewRounds = 3
 
-// ListReviews lists tasks awaiting this reviewer.
 func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, error) {
 	var out []*model.Task
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -661,7 +639,6 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 	return nz(out), err
 }
 
-// Review records a review verdict.
 func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comments string) (*model.Task, error) {
 	if verdict != "approve" && verdict != "changes_requested" {
 		return nil, model.BadRequest("verdict must be approve or changes_requested")
@@ -710,12 +687,10 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 	return out, err
 }
 
-// MarkDone is the owner's "merged" action.
 func (b *Board) MarkDone(ctx context.Context, id, note string) (*model.Task, error) {
 	return b.ownerMove(ctx, "mark_done", id, note, model.StatusDone, model.StatusApproved, model.StatusNeedsOwner)
 }
 
-// Cancel cancels a task (owner).
 func (b *Board) Cancel(ctx context.Context, id, reason string) (*model.Task, error) {
 	return b.ownerMove(ctx, "cancel", id, reason, model.StatusCancelled)
 }
@@ -742,7 +717,6 @@ func (b *Board) ownerMove(ctx context.Context, tool, id, note, to string, from .
 	return out, err
 }
 
-// Reopen moves needs_owner/blocked/cancelled tasks back to ready or assigned.
 func (b *Board) Reopen(ctx context.Context, id, to, note string) (*model.Task, error) {
 	if to == "" {
 		to = model.StatusReady
@@ -774,7 +748,6 @@ func (b *Board) Reopen(ctx context.Context, id, to, note string) (*model.Task, e
 	return out, err
 }
 
-// SetTaskBudget changes a task budget (owner) and unblocks a budget-blocked task if it now fits.
 func (b *Board) SetTaskBudget(ctx context.Context, id string, bud model.Budget) (*model.Task, error) {
 	if bud.MaxMinutes < 0 || bud.MaxCostEUR < 0 {
 		return nil, model.BadRequest("budget must be >= 0")
@@ -811,7 +784,6 @@ func (b *Board) SetTaskBudget(ctx context.Context, id string, bud model.Budget) 
 	return out, err
 }
 
-// Sweep returns expired leases to assigned and blocks tasks over their time budget.
 func (b *Board) Sweep(ctx context.Context) error {
 	var ts []*model.Task
 	if err := b.read(ctx, func(tx store.Tx) (e error) {
@@ -840,7 +812,7 @@ func (b *Board) Sweep(ctx context.Context) error {
 				return b.block(tx, w, sys, cur, "budget_exceeded: task time budget exhausted")
 			}
 			if ov.LeaseExpiresAt != nil && !ov.LeaseExpiresAt.Before(b.now()) {
-				return nil // heartbeat raced the sweep
+				return nil
 			}
 			return b.releaseLease(tx, w, sys, cur, model.StatusAssigned, "lease expired")
 		})

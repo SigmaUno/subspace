@@ -14,7 +14,7 @@ import (
 
 type fakeDB struct {
 	mu     sync.Mutex
-	agents map[string]model.Agent // by token hash
+	agents map[string]model.Agent
 	calls  atomic.Int64
 }
 
@@ -164,7 +164,6 @@ func TestCacheInvalidate(t *testing.T) {
 		t.Fatal("setup")
 	}
 
-	// revoke a1 in the DB; cache still serves until invalidated
 	db.put("t1", model.Agent{ID: "a1", Status: model.AgentRevoked})
 	db.put("t1b", model.Agent{ID: "a1", Status: model.AgentRevoked})
 	if a, _ := c.LookupToken("t1"); a == nil {

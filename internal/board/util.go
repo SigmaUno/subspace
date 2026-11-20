@@ -57,7 +57,6 @@ func nz[T any](s []T) []T {
 	return s
 }
 
-// noopSpawner is the fallback when no spawner is configured.
 type noopSpawner struct{}
 
 func (noopSpawner) Name() string                                 { return "noop" }

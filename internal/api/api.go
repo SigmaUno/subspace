@@ -1,4 +1,3 @@
-// Package api implements the owner REST API under /api/v1 (see docs/api.md §3).
 package api
 
 import (
@@ -17,12 +16,11 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-// API serves /api/v1.
 type API struct {
 	B          *board.Board
 	Hub        events.Hub
 	OwnerToken string
-	Agents     auth.AgentLookup // to give agents a clear 403 instead of 401 (optional)
+	Agents     auth.AgentLookup
 	Log        *slog.Logger
 	PingEvery  time.Duration
 }
@@ -74,7 +72,6 @@ func qint64(r *http.Request, name string) int64 {
 	return n
 }
 
-// guard authenticates the owner token.
 func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const p = "Bearer "
@@ -100,7 +97,6 @@ func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
-// ok wraps a handler returning (value, error) as 200 JSON (or the given status).
 func (a *API) do(status int, f func(r *http.Request) (any, error)) http.HandlerFunc {
 	return a.guard(func(w http.ResponseWriter, r *http.Request) {
 		v, err := f(r)
@@ -112,7 +108,6 @@ func (a *API) do(status int, f func(r *http.Request) (any, error)) http.HandlerF
 	})
 }
 
-// Register mounts the routes on mux.
 func (a *API) Register(mux *http.ServeMux) {
 	B := a.B
 	m := func(p string, h http.HandlerFunc) { mux.HandleFunc(p, h) }
@@ -141,7 +136,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		return map[string]any{"path": p, "bytes": n}, err
 	}))
 
-	// briefs
 	m("POST /api/v1/briefs", a.do(201, func(r *http.Request) (any, error) {
 		var in board.BriefInput
 		if err := decode(r, &in); err != nil {
@@ -163,7 +157,6 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 	m("GET /api/v1/briefs/{id}/board", a.do(200, func(r *http.Request) (any, error) { return B.Board(r.Context(), r.PathValue("id")) }))
 
-	// plans
 	m("GET /api/v1/plans", a.do(200, func(r *http.Request) (any, error) {
 		ps, err := B.ListPlans(r.Context(), r.URL.Query().Get("brief_id"), r.URL.Query().Get("status"))
 		return map[string]any{"plans": ps}, err
@@ -184,7 +177,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.RejectPlan(r.Context(), r.PathValue("id"), in.Reason)
 	}))
 
-	// tasks
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
 		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: qint(r, "limit")})
@@ -222,7 +214,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.Reopen(r.Context(), r.PathValue("id"), in.Status, in.Note)
 	}))
 
-	// agents
 	m("GET /api/v1/agents", a.do(200, func(r *http.Request) (any, error) {
 		as, err := B.ListAgents(r.Context(), r.URL.Query().Get("role"), r.URL.Query().Get("status"))
 		return map[string]any{"agents": as}, err
@@ -254,7 +245,6 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 	m("POST /api/v1/agents/{id}/resume", a.do(200, func(r *http.Request) (any, error) { return B.ResumeAgent(r.Context(), r.PathValue("id")) }))
 
-	// questions
 	m("GET /api/v1/questions", a.do(200, func(r *http.Request) (any, error) {
 		qs, err := B.ListQuestions(r.Context(), r.URL.Query().Get("status"))
 		return map[string]any{"questions": qs}, err
@@ -267,7 +257,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.Answer(r.Context(), r.PathValue("id"), in.Answer)
 	}))
 
-	// threads
 	m("GET /api/v1/threads/{kind}/{id}/messages", a.do(200, func(r *http.Request) (any, error) {
 		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), qint(r, "limit"))
 		return map[string]any{"messages": ms}, err
@@ -280,7 +269,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.OwnerReply(r.Context(), r.PathValue("kind"), r.PathValue("id"), in.Body)
 	}))
 
-	// capacity, spawns, audit
 	m("GET /api/v1/capacity", a.do(200, func(r *http.Request) (any, error) { return B.Capacity(r.Context()) }))
 	m("PUT /api/v1/capacity", a.do(200, func(r *http.Request) (any, error) {
 		var in capacity.Config
@@ -299,10 +287,13 @@ func (a *API) Register(mux *http.ServeMux) {
 		return map[string]any{"events": ev}, err
 	}))
 
-	// SSE
 	m("GET /api/v1/events", a.guard(events.NewSSEHandler(a.Hub, events.TopicsFromQuery, a.PingEvery).ServeHTTP))
 
 	mux.HandleFunc("/api/v1/", a.guard(func(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, model.NotFound("no such endpoint"))
 	}))
+}
+
+func (a *API) Mount(mux *http.ServeMux, pattern string, h http.Handler) {
+	mux.HandleFunc(pattern, a.guard(http.StripPrefix("/api/v1", h).ServeHTTP))
 }

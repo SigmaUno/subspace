@@ -60,7 +60,7 @@ func TestTopicFiltering(t *testing.T) {
 	if ev := recvN(t, board, 1)[0]; ev.Type != "task.updated" {
 		t.Fatalf("board got %+v", ev)
 	}
-	// matched twice (board + task:T-1) but delivered once
+
 	if ev := recvN(t, task, 1)[0]; ev.Type != "task.updated" {
 		t.Fatalf("task got %+v", ev)
 	}
@@ -73,14 +73,14 @@ func TestCloseUnsubscribes(t *testing.T) {
 	h := NewHub()
 	s := h.Subscribe([]string{"board"})
 	s.Close()
-	s.Close() // idempotent
+	s.Close()
 	if h.Subscribers() != 0 {
 		t.Fatalf("subscribers = %d", h.Subscribers())
 	}
 	if _, ok := <-s.C(); ok {
 		t.Fatal("channel not closed")
 	}
-	h.Publish([]string{"board"}, "x", nil) // must not panic
+	h.Publish([]string{"board"}, "x", nil)
 }
 
 func TestSlowSubscriberDropsOldest(t *testing.T) {
@@ -126,7 +126,7 @@ func TestManySubscribersConcurrent(t *testing.T) {
 		perPub     = 100
 		total      = publishers * perPub
 	)
-	// one slow subscriber that never reads
+
 	slow := h.Subscribe([]string{"all"})
 	defer slow.Close()
 

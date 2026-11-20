@@ -217,7 +217,7 @@ func TestNew(t *testing.T) {
 func TestExecRunnerEnvAndRedaction(t *testing.T) {
 	bin := filepath.Join(t.TempDir(), "fakehc")
 	script := "#!/bin/sh\necho \"token=$SUBSPACE_TOKEN extra=$EXTRA\"\nexit 3\n"
-	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil { // #nosec G306
+	if err := os.WriteFile(bin, []byte(script), 0o700); err != nil { //nolint:gosec
 		t.Fatal(err)
 	}
 	h := &HC{Bin: bin}

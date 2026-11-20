@@ -10,7 +10,6 @@ import (
 	"time"
 )
 
-// maxKeysPerAgent caps distinct (tool,args) entries tracked per agent.
 const maxKeysPerAgent = 256
 
 type callKey struct{ tool, args string }
@@ -23,7 +22,6 @@ type guard struct {
 	sweep  time.Time
 }
 
-// NewLoopGuard returns a guard that trips on the (max+1)th identical call within window.
 func NewLoopGuard(max int, window time.Duration) LoopGuard {
 	return &guard{max: max, window: window, agents: map[string]map[callKey][]time.Time{}}
 }
@@ -50,7 +48,7 @@ func (g *guard) Hit(agentID, tool, argsHash string, now time.Time) bool {
 		cut++
 	}
 	ts = append(ts[cut:], now)
-	// Only the newest max+1 timestamps matter for the decision.
+
 	if len(ts) > g.max+1 {
 		ts = append([]time.Time(nil), ts[len(ts)-(g.max+1):]...)
 	}
@@ -71,7 +69,6 @@ func (g *guard) sweepLocked(now time.Time) {
 	}
 }
 
-// evictLocked drops expired keys, or the least recently used one if none expired.
 func (g *guard) evictLocked(keys map[callKey][]time.Time, now time.Time) {
 	var oldest callKey
 	var oldestAt time.Time
@@ -91,7 +88,6 @@ func (g *guard) evictLocked(keys map[callKey][]time.Time, now time.Time) {
 	}
 }
 
-// ArgsHash canonicalises JSON (sorted keys) and hashes it.
 func ArgsHash(raw json.RawMessage) string {
 	var v any
 	dec := json.NewDecoder(bytes.NewReader(raw))
@@ -100,7 +96,7 @@ func ArgsHash(raw json.RawMessage) string {
 		h := sha256.Sum256(raw)
 		return hex.EncodeToString(h[:8])
 	}
-	b, _ := json.Marshal(canon(v)) // map keys are sorted by encoding/json
+	b, _ := json.Marshal(canon(v))
 	h := sha256.Sum256(b)
 	return hex.EncodeToString(h[:8])
 }

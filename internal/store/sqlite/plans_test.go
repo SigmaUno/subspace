@@ -84,7 +84,6 @@ func TestPlansRoundTrip(t *testing.T) {
 		return nil
 	})
 
-	// Update: decide P-1 and clear its note.
 	if err := s.Atomic(ctx, func(tx store.Tx) error {
 		p, err := tx.GetPlan("P-1")
 		if err != nil {

@@ -6,10 +6,8 @@ import (
 	"time"
 )
 
-// TopicAll matches every event.
 const TopicAll = "all"
 
-// SubscriberBuffer is the per-subscriber channel capacity.
 const SubscriberBuffer = 256
 
 type hub struct {
@@ -27,13 +25,10 @@ type sub struct {
 	once    sync.Once
 }
 
-// NewHub returns an in-memory Hub. Publishing never blocks: when a subscriber's
-// buffer is full the oldest queued event is dropped and counted (see TakeDropped).
 func NewHub() Hub {
 	return &hub{topics: make(map[string]map[*sub]struct{})}
 }
 
-// Seq returns the sequence number of the last published event.
 func (h *hub) Seq() int64 {
 	h.mu.Lock()
 	defer h.mu.Unlock()
@@ -81,7 +76,7 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	defer h.mu.Unlock()
 	h.seq++
 	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data}
-	// Each subscriber gets an event at most once even if several topics match.
+
 	var delivered map[*sub]struct{}
 	if len(topics) > 0 {
 		delivered = make(map[*sub]struct{})
@@ -106,7 +101,6 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	}
 }
 
-// send is called with h.mu held, so only one sender exists per subscriber.
 func (s *sub) send(ev Event) {
 	for {
 		select {

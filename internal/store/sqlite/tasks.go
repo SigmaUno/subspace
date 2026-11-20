@@ -17,7 +17,6 @@ const taskCols = `id, brief_id, plan_id, title, spec, acceptance, repo, branch, 
   status, progress_pct, last_heartbeat_at, lease_expires_at, claimed_at, pr_url, max_minutes, max_cost_eur,
   cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at`
 
-// taskOrder sorts by the numeric part of "T-<n>" ids, falling back to the raw id.
 const taskOrder = ` ORDER BY CAST(SUBSTR(id, INSTR(id, '-') + 1) AS INTEGER), id`
 
 func taskMs(tm time.Time) int64 {
@@ -89,7 +88,6 @@ func taskErr(err error) error {
 	return err
 }
 
-// taskArgs returns column values in taskCols order.
 func taskArgs(x *model.Task) ([]any, error) {
 	acc, err := taskJSON(x.AcceptanceCriteria)
 	if err != nil {

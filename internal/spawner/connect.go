@@ -7,18 +7,14 @@ import (
 	"strings"
 )
 
-// MCPURL returns the MCP endpoint for a public base URL.
 func MCPURL(publicURL string) string {
 	return strings.TrimRight(publicURL, "/") + "/mcp"
 }
 
-// JoinLine is the one-line prompt every agent starts with.
 func JoinLine(publicURL, agentID string) string {
 	return "Join Subspace at " + strings.TrimRight(publicURL, "/") + " as " + agentID + ". Call get_instructions and follow them."
 }
 
-// Snippets returns the MCP client configuration for Claude Code, Codex and
-// OpenCode. An empty token is rendered as the placeholder <token>.
 func Snippets(publicURL, token string) (claudeCode, codexTOML, opencodeJSON string) {
 	if token == "" {
 		token = "<token>"

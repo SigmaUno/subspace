@@ -8,14 +8,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
-// Report is one limit with its current usage.
 type Report struct {
 	Limit
 	InUse     int `json:"in_use"`
 	Available int `json:"available"`
 }
 
-// Validate checks the configuration.
 func (c Config) Validate() error {
 	if c.GlobalMaxAgents < 0 {
 		return fmt.Errorf("global_max_agents must be >= 0")
@@ -31,7 +29,6 @@ func (c Config) Validate() error {
 	return nil
 }
 
-// Load reads a JSON capacity file.
 func Load(path string) (Config, error) {
 	var c Config
 	b, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
@@ -64,7 +61,6 @@ func (u Usage) total() int {
 	return n
 }
 
-// Check verifies that n more agents of provider/model fit. MaxConcurrency 0 means unlimited.
 func (c Config) Check(provider, mdl string, n int, u Usage) error {
 	if c.GlobalMaxAgents > 0 && u.total()+n > c.GlobalMaxAgents {
 		return model.Errf("capacity", "global limit of %d agents reached (%d in use)", c.GlobalMaxAgents, u.total())
@@ -80,14 +76,13 @@ func (c Config) Check(provider, mdl string, n int, u Usage) error {
 	return nil
 }
 
-// Report lists every limit with usage and remaining room.
 func (c Config) Report(u Usage) []Report {
 	out := make([]Report, 0, len(c.Limits))
 	for _, l := range c.Limits {
 		used := u.used(l)
 		avail := l.MaxConcurrency - used
 		if l.MaxConcurrency == 0 {
-			avail = -1 // unlimited
+			avail = -1
 		} else if avail < 0 {
 			avail = 0
 		}

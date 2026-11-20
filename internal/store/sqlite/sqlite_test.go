@@ -25,7 +25,6 @@ func openTest(t *testing.T) *Store {
 	return s
 }
 
-// seqValue reads the current counter of prefix directly (0 when absent).
 func seqValue(t *testing.T, db *sql.DB, prefix string) int64 {
 	t.Helper()
 	var n int64
@@ -39,8 +38,6 @@ func seqValue(t *testing.T, db *sql.DB, prefix string) int64 {
 	return n
 }
 
-// sqlTx returns the underlying *sql.Tx of a write transaction; ops that share
-// it were group-committed in the same transaction.
 func sqlTx(t store.Tx) *sql.Tx {
 	x, ok := t.(*tx)
 	if !ok {
@@ -50,8 +47,6 @@ func sqlTx(t store.Tx) *sql.Tx {
 	return st
 }
 
-// blockWriter occupies the writer goroutine until the returned release func
-// is called, so that subsequent Atomic calls queue up and form one batch.
 func blockWriter(t *testing.T, s *Store) (release func()) {
 	t.Helper()
 	started := make(chan struct{})
@@ -82,7 +77,6 @@ func blockWriter(t *testing.T, s *Store) (release func()) {
 	return release
 }
 
-// waitQueued waits until the writer queue holds n requests.
 func waitQueued(t *testing.T, s *Store, n int) {
 	t.Helper()
 	deadline := time.Now().Add(10 * time.Second)
@@ -94,8 +88,6 @@ func waitQueued(t *testing.T, s *Store, n int) {
 	}
 }
 
-// enqueueInOrder submits fns one at a time (each waits until queued) so they
-// land in the queue in order; returns a channel per fn with its result.
 func enqueueInOrder(t *testing.T, s *Store, fns ...func(store.Tx) error) []chan error {
 	t.Helper()
 	res := make([]chan error, len(fns))
@@ -294,7 +286,6 @@ func TestPanicRecovery(t *testing.T) {
 		t.Fatalf("seq P = %d, want 2 (panicking op rolled back)", v)
 	}
 
-	// The writer keeps working after a panic.
 	var id string
 	if err := s.Atomic(context.Background(), func(t store.Tx) (err error) { id, err = t.NextID("P"); return }); err != nil {
 		t.Fatal(err)
@@ -341,7 +332,7 @@ func TestNextIDConcurrentUnique(t *testing.T) {
 			}
 		}()
 	}
-	// Concurrent readers must not disturb the writer.
+
 	stop := make(chan struct{})
 	var rwg sync.WaitGroup
 	for r := 0; r < 4; r++ {
@@ -402,7 +393,6 @@ func TestBackupOpenable(t *testing.T) {
 		t.Fatal("backup over an existing file should fail")
 	}
 
-	// Writes after the backup must not appear in it.
 	if err := s.Atomic(ctx, func(t store.Tx) error { _, err := t.NextID("B"); return err }); err != nil {
 		t.Fatal(err)
 	}

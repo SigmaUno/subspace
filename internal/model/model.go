@@ -1,5 +1,3 @@
-// Package model holds the shared domain types of Subspace. JSON tags are the
-// public API contract described in docs/api.md.
 package model
 
 import (
@@ -9,7 +7,6 @@ import (
 	"time"
 )
 
-// Roles.
 const (
 	RoleOwner    = "owner"
 	RoleLeader   = "leader"
@@ -18,7 +15,6 @@ const (
 	RoleReviewer = "reviewer"
 )
 
-// ValidAgentRole reports whether r is a role an agent may have.
 func ValidAgentRole(r string) bool {
 	switch r {
 	case RoleLeader, RoleWorker, RoleTester, RoleReviewer:
@@ -27,7 +23,6 @@ func ValidAgentRole(r string) bool {
 	return false
 }
 
-// Task statuses.
 const (
 	StatusBacklog          = "backlog"
 	StatusReady            = "ready"
@@ -43,20 +38,17 @@ const (
 	StatusCancelled        = "cancelled"
 )
 
-// AllStatuses lists every task status in board order.
 var AllStatuses = []string{
 	StatusBacklog, StatusReady, StatusAssigned, StatusInProgress, StatusSubmitted, StatusInReview,
 	StatusChangesRequested, StatusApproved, StatusDone, StatusBlocked, StatusNeedsOwner, StatusCancelled,
 }
 
-// Agent statuses.
 const (
 	AgentActive  = "active"
 	AgentPaused  = "paused"
 	AgentRevoked = "revoked"
 )
 
-// Worker kinds.
 const (
 	KindClaudeCode = "claude-code"
 	KindCodex      = "codex"
@@ -64,7 +56,6 @@ const (
 	KindOther      = "other"
 )
 
-// ProviderForKind returns the default model provider of a worker kind.
 func ProviderForKind(kind string) string {
 	switch kind {
 	case KindClaudeCode:
@@ -77,14 +68,12 @@ func ProviderForKind(kind string) string {
 	return "other"
 }
 
-// Thread kinds.
 const (
 	ThreadAgent = "agent"
 	ThreadTask  = "task"
 	ThreadBrief = "brief"
 )
 
-// Message kinds.
 const (
 	MsgMessage  = "message"
 	MsgStatus   = "status"
@@ -94,7 +83,6 @@ const (
 	MsgSystem   = "system"
 )
 
-// Plan statuses.
 const (
 	PlanProposed   = "proposed"
 	PlanApproved   = "approved"
@@ -102,19 +90,16 @@ const (
 	PlanSuperseded = "superseded"
 )
 
-// Budget is a per-task budget.
 type Budget struct {
 	MaxMinutes int     `json:"max_minutes"`
 	MaxCostEUR float64 `json:"max_cost_eur"`
 }
 
-// BriefBudget is a per-brief budget.
 type BriefBudget struct {
 	MaxCostEUR       float64 `json:"max_cost_eur"`
 	MaxParallelAgent int     `json:"max_parallel_agents"`
 }
 
-// Brief is an owner-written goal.
 type Brief struct {
 	ID               string      `json:"id"`
 	Title            string      `json:"title"`
@@ -128,14 +113,12 @@ type Brief struct {
 	CreatedAt        time.Time   `json:"created_at"`
 }
 
-// TestResult is the latest tester report.
 type TestResult struct {
 	Passed     int       `json:"passed"`
 	Failed     int       `json:"failed"`
 	ReportedAt time.Time `json:"reported_at"`
 }
 
-// Task is a unit of work on the board.
 type Task struct {
 	ID                 string      `json:"id"`
 	BriefID            string      `json:"brief_id"`
@@ -163,11 +146,9 @@ type Task struct {
 	CreatedAt          time.Time   `json:"created_at"`
 	UpdatedAt          time.Time   `json:"updated_at"`
 
-	// ClaimedAt is when the current lease started (internal, for minutes accounting).
 	ClaimedAt *time.Time `json:"-"`
 }
 
-// Plan is a leader-proposed breakdown of a brief awaiting owner approval.
 type Plan struct {
 	ID         string     `json:"id"`
 	BriefID    string     `json:"brief_id"`
@@ -179,7 +160,6 @@ type Plan struct {
 	DecidedAt  *time.Time `json:"decided_at"`
 }
 
-// Agent is a registered participant.
 type Agent struct {
 	ID            string     `json:"id"`
 	Role          string     `json:"role"`
@@ -194,11 +174,9 @@ type Agent struct {
 	CreatedAt     time.Time  `json:"created_at"`
 	Spawned       bool       `json:"spawned"`
 
-	// TokenHash is never serialized.
 	TokenHash string `json:"-"`
 }
 
-// Message is one entry in a thread.
 type Message struct {
 	ID         int64     `json:"id"`
 	ThreadKind string    `json:"thread_kind"`
@@ -210,7 +188,6 @@ type Message struct {
 	CreatedAt  time.Time `json:"created_at"`
 }
 
-// Question is an ask_owner request.
 type Question struct {
 	ID         string     `json:"id"`
 	BriefID    *string    `json:"brief_id"`
@@ -224,7 +201,6 @@ type Question struct {
 	CreatedAt  time.Time  `json:"created_at"`
 }
 
-// AuditEvent is an append-only record of a state-changing call.
 type AuditEvent struct {
 	ID      int64          `json:"id"`
 	TS      time.Time      `json:"ts"`
@@ -237,7 +213,6 @@ type AuditEvent struct {
 	Note    *string        `json:"note"`
 }
 
-// Spawn is a leader-requested agent launch.
 type Spawn struct {
 	ID          string    `json:"id"`
 	BriefID     string    `json:"brief_id"`
@@ -252,16 +227,13 @@ type Spawn struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-// Actor is the authenticated caller of a service method.
 type Actor struct {
 	ID   string
 	Role string
 }
 
-// Owner is the owner actor.
 var Owner = Actor{ID: "owner", Role: RoleOwner}
 
-// Error is a typed service error mapped to REST/MCP error codes.
 type Error struct {
 	Code    string
 	Message string
@@ -269,7 +241,6 @@ type Error struct {
 
 func (e *Error) Error() string { return e.Message }
 
-// HTTPStatus maps the error code to an HTTP status.
 func (e *Error) HTTPStatus() int {
 	switch e.Code {
 	case "bad_request":
@@ -290,18 +261,15 @@ func (e *Error) HTTPStatus() int {
 	return http.StatusInternalServerError
 }
 
-// Errf builds an Error.
 func Errf(code, format string, args ...any) *Error {
 	return &Error{Code: code, Message: fmt.Sprintf(format, args...)}
 }
 
-// Common sentinel-style constructors.
 func BadRequest(format string, a ...any) *Error { return Errf("bad_request", format, a...) }
 func NotFound(format string, a ...any) *Error   { return Errf("not_found", format, a...) }
 func Conflict(format string, a ...any) *Error   { return Errf("conflict", format, a...) }
 func Forbidden(format string, a ...any) *Error  { return Errf("forbidden", format, a...) }
 
-// AsError converts any error to *Error (internal if unknown).
 func AsError(err error) *Error {
 	var e *Error
 	if errors.As(err, &e) {

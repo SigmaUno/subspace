@@ -97,7 +97,7 @@ func waitSubs(t *testing.T, h Hub, n int) {
 
 func TestSSEFrames(t *testing.T) {
 	h := NewHub()
-	h.Publish([]string{"board"}, "task.created", nil) // seq 1 before connect
+	h.Publish([]string{"board"}, "task.created", nil)
 	srv := httptest.NewServer(NewSSEHandler(h, nil, 50*time.Millisecond))
 	defer srv.Close()
 
@@ -115,7 +115,7 @@ func TestSSEFrames(t *testing.T) {
 		t.Fatalf("hello data %q err %v", f.data, err)
 	}
 
-	h.Publish([]string{"board", "task:T-9"}, "task.updated", map[string]string{"id": "T-9"}) // filtered out
+	h.Publish([]string{"board", "task:T-9"}, "task.updated", map[string]string{"id": "T-9"})
 	h.Publish([]string{"board", "task:T-3"}, "task.updated", map[string]string{"id": "T-3"})
 
 	for {
@@ -143,7 +143,6 @@ func TestSSEFrames(t *testing.T) {
 		t.Fatalf("ts %q", ev.TS)
 	}
 
-	// idle stream gets pings
 	sawPing := false
 	for i := 0; i < 5 && !sawPing; i++ {
 		f = next(t, ch)
@@ -160,7 +159,7 @@ func TestSSEFrames(t *testing.T) {
 func TestSSELagged(t *testing.T) {
 	h := NewHub()
 	block := make(chan struct{})
-	// Subscribe through the handler, but stall it until the buffer has overflowed.
+
 	topics := func(r *http.Request) []string {
 		return []string{"board"}
 	}
@@ -213,7 +212,6 @@ func TestSSELagged(t *testing.T) {
 	}
 }
 
-// stallWriter blocks the first write until block is closed.
 type stallWriter struct {
 	http.ResponseWriter
 	block chan struct{}

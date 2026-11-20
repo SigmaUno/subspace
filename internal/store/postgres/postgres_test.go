@@ -14,10 +14,15 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-func TestPGAuditTruncateRefused(t *testing.T) {
-	_, db := openPG(t)
-	if _, err := db.Exec(`TRUNCATE audit`); err == nil || !strings.Contains(err.Error(), "append-only") {
-		t.Fatalf("truncate: want append-only failure, got %v", err)
+func TestPGAuditAppendOnly(t *testing.T) {
+	s, db := openPG(t)
+	write(t, s, func(tx store.Tx) error {
+		return tx.InsertAudit(&model.AuditEvent{TS: time.Now(), AgentID: "a", Role: "worker", Tool: "x"})
+	})
+	for _, stmt := range []string{`UPDATE audit SET note='tampered'`, `DELETE FROM audit WHERE id=1`, `DELETE FROM audit`, `TRUNCATE audit`} {
+		if _, err := db.Exec(stmt); err == nil || !strings.Contains(err.Error(), "append-only") {
+			t.Fatalf("%q: want append-only failure, got %v", stmt, err)
+		}
 	}
 }
 

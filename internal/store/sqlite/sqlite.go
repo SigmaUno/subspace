@@ -17,6 +17,8 @@ import (
 
 const maxBatch = 128
 
+var extraSchemas []string
+
 type wreq struct {
 	ctx  context.Context
 	fn   func(store.Tx) error
@@ -69,6 +71,13 @@ func Open(path string) (*Store, error) {
 		_ = wdb.Close()
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	for _, ddl := range extraSchemas {
+		if _, err := wdb.Exec(ddl); err != nil {
+			_ = wdb.Close()
+			_ = rdb.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
 	}
 	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)

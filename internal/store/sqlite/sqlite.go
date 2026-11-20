@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -34,6 +35,8 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
+var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
 func dsn(path string, immediate bool) string {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(10000)")
@@ -43,7 +46,7 @@ func dsn(path string, immediate bool) string {
 	if immediate {
 		q.Set("_txlock", "immediate")
 	}
-	return "file:" + path + "?" + q.Encode()
+	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
 
 func Open(path string) (*Store, error) {

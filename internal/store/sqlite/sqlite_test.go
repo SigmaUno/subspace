@@ -487,3 +487,19 @@ func TestAtomicContextAndClose(t *testing.T) {
 		t.Fatal("Atomic after Close: want error")
 	}
 }
+
+func TestOpenPathWithURISpecialChars(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a#b?c%20d.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database not created at %s: %v", path, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a")); !os.IsNotExist(err) {
+		t.Fatalf("database truncated at '#': stat err %v", err)
+	}
+}

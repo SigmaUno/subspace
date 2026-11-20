@@ -43,7 +43,7 @@ func TestGetPR(t *testing.T) {
 			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 				gotPath, gotAuth = r.URL.Path, r.Header.Get("Authorization")
 				w.WriteHeader(tc.status)
-				w.Write([]byte(tc.body))
+				_, _ = w.Write([]byte(tc.body))
 			}))
 			defer srv.Close()
 			c := New(srv.URL+"/", "tok", srv.Client())

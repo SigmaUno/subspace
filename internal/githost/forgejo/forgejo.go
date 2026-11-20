@@ -77,12 +77,12 @@ func (c *Client) GetPR(ctx context.Context, repo string, number int64) (githost.
 	if err != nil {
 		return githost.PR{}, fmt.Errorf("forgejo: get pr: %w", err)
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return githost.PR{}, fmt.Errorf("%w: %s#%d", githost.ErrNotFound, repo, number)
 	case resp.StatusCode != http.StatusOK:
-		io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return githost.PR{}, fmt.Errorf("forgejo: get pr %s#%d: unexpected status %d", repo, number, resp.StatusCode)
 	}
 	var p apiPR

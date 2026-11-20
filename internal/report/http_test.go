@@ -147,7 +147,7 @@ func TestReportOverHTTP(t *testing.T) {
 	for _, s := range r.Tasks[0].Timeline {
 		tools = append(tools, s.Tool)
 	}
-	wantTools := []string{"update_task", "claim_task", "submit", "review", "claim_task", "submit", "review", "mark_done"}
+	wantTools := []string{"assign", "claim_task", "submit", "review", "claim_task", "submit", "review", "mark_done"}
 	if r.Tasks[0].ID != t1 || !reflect.DeepEqual(tools, wantTools) {
 		t.Fatalf("timeline tools: %v", tools)
 	}

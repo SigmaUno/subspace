@@ -26,6 +26,8 @@ Codes: `bad_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, 
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`.
 
+In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s owner state endpoint before forwarding requests to protected handlers. Go also authenticates each protected request.
+
 ## 2. Objects
 
 ```jsonc

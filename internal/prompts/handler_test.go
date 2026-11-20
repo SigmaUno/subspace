@@ -6,6 +6,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/SigmaUno/subspace/internal/prompts"
@@ -87,6 +88,30 @@ func TestRenderRejectsMissingVariables(t *testing.T) {
 	out, err := lib.Render("subspace-task-basics", map[string]string{"agent_id": "claude-1", "task_id": "T-3"})
 	if err != nil || out == "" {
 		t.Fatalf("render: %v", err)
+	}
+}
+
+func TestRenderThroughHandler(t *testing.T) {
+	h := prompts.New("").Handler()
+
+	var out struct {
+		ID   string `json:"id"`
+		Text string `json:"text"`
+	}
+	path := "/prompts/subspace-task-basics/render?agent_id=claude-1&task_id=T-3"
+	if code := get(t, h, path, &out); code != http.StatusOK {
+		t.Fatalf("render: %d", code)
+	}
+	if out.ID != "subspace-task-basics" || !strings.HasPrefix(out.Text, "You are claude-1. Your task is T-3.") {
+		t.Fatalf("render: %+v", out)
+	}
+
+	var errBody struct{ Error struct{ Code string } }
+	if code := get(t, h, "/prompts/subspace-task-basics/render?agent_id=claude-1", &errBody); code != http.StatusBadRequest || errBody.Error.Code != "bad_request" {
+		t.Fatalf("missing variable: %d %+v", code, errBody)
+	}
+	if code := get(t, h, "/prompts/nope/render", &errBody); code != http.StatusNotFound {
+		t.Fatalf("unknown id: %d", code)
 	}
 }
 

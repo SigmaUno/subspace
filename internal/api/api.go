@@ -245,7 +245,19 @@ func (a *API) Register(mux *http.ServeMux) {
 		return map[string]any{"agents": rs}, err
 	}))
 	m("GET /api/v1/agents/{id}/connect", a.do(200, func(r *http.Request) (any, error) { return B.Connect(r.Context(), r.PathValue("id")) }))
-	m("POST /api/v1/agents/{id}/rotate-token", a.do(200, func(r *http.Request) (any, error) { return B.RotateToken(r.Context(), r.PathValue("id")) }))
+	m("POST /api/v1/agents/{id}/rotate-token", a.do(200, func(r *http.Request) (any, error) {
+		var in struct {
+			ExpiresIn string `json:"expires_in"`
+		}
+		if err := decode(r, &in); err != nil {
+			return nil, err
+		}
+		d, err := board.ParseExpiresIn(in.ExpiresIn)
+		if err != nil {
+			return nil, err
+		}
+		return B.RotateTokenFor(r.Context(), r.PathValue("id"), d)
+	}))
 	m("POST /api/v1/agents/{id}/revoke", a.do(200, func(r *http.Request) (any, error) {
 		var in struct{ Reason string }
 		if err := decode(r, &in); err != nil {

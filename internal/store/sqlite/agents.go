@@ -11,7 +11,7 @@ import (
 )
 
 const agentSelect = `SELECT a.id, a.role, a.kind, a.model, a.provider, a.status, a.pause_reason, a.token_hash,
-  a.last_seen_at, a.created_at, a.spawned,
+  a.last_seen_at, a.created_at, a.spawned, a.token_expires_at,
   (SELECT COUNT(*) FROM tasks t WHERE t.assignee = a.id AND t.status IN ('assigned','in_progress','changes_requested')),
   (SELECT t.id FROM tasks t WHERE t.assignee = a.id AND t.status = 'in_progress' ORDER BY t.id LIMIT 1)
   FROM agents a`
@@ -27,12 +27,12 @@ func agentScan(r agentRowScanner) (*model.Agent, error) {
 		a                 model.Agent
 		pause             string
 		lastSeen, created int64
-		spawned           int64
+		spawned, expires  int64
 		current           sql.NullString
 		assigned          int
 	)
 	if err := r.Scan(&a.ID, &a.Role, &a.Kind, &a.Model, &a.Provider, &a.Status, &pause, &a.TokenHash,
-		&lastSeen, &created, &spawned, &assigned, &current); err != nil {
+		&lastSeen, &created, &spawned, &expires, &assigned, &current); err != nil {
 		return nil, err
 	}
 	if pause != "" {
@@ -41,6 +41,10 @@ func agentScan(r agentRowScanner) (*model.Agent, error) {
 	if lastSeen != 0 {
 		ts := time.UnixMilli(lastSeen).UTC()
 		a.LastSeenAt = &ts
+	}
+	if expires != 0 {
+		ts := time.UnixMilli(expires).UTC()
+		a.TokenExpiresAt = &ts
 	}
 	a.CreatedAt = time.UnixMilli(created).UTC()
 	a.Spawned = spawned != 0
@@ -85,10 +89,10 @@ func (t *tx) InsertAgent(a *model.Agent) error {
 		spawned = 1
 	}
 	_, err := t.q.ExecContext(t.ctx,
-		`INSERT INTO agents(id, role, kind, model, provider, status, pause_reason, token_hash, last_seen_at, created_at, spawned)
-		 VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO agents(id, role, kind, model, provider, status, pause_reason, token_hash, last_seen_at, created_at, spawned, token_expires_at)
+		 VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 		a.ID, a.Role, a.Kind, a.Model, a.Provider, a.Status, pause, a.TokenHash,
-		agentMillis(a.LastSeenAt), created.UnixMilli(), spawned)
+		agentMillis(a.LastSeenAt), created.UnixMilli(), spawned, agentMillis(a.TokenExpiresAt))
 	return agentErr(err)
 }
 
@@ -119,9 +123,9 @@ func (t *tx) UpdateAgent(a *model.Agent) error {
 	}
 	res, err := t.q.ExecContext(t.ctx,
 		`UPDATE agents SET role=?, kind=?, model=?, provider=?, status=?, pause_reason=?,
-		   token_hash=CASE WHEN ?='' THEN token_hash ELSE ? END, last_seen_at=?, spawned=? WHERE id=?`,
+		   token_hash=CASE WHEN ?='' THEN token_hash ELSE ? END, last_seen_at=?, spawned=?, token_expires_at=? WHERE id=?`,
 		a.Role, a.Kind, a.Model, a.Provider, a.Status, pause, a.TokenHash, a.TokenHash,
-		agentMillis(a.LastSeenAt), spawned, a.ID)
+		agentMillis(a.LastSeenAt), spawned, agentMillis(a.TokenExpiresAt), a.ID)
 	if err != nil {
 		return agentErr(err)
 	}

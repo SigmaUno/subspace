@@ -44,6 +44,7 @@ type Config struct {
 	FlushEvery     time.Duration
 	SweepEvery     time.Duration
 	BodyTimeout    time.Duration
+	Now            func() time.Time
 	IdleTimeout    time.Duration
 	Log            *slog.Logger
 }
@@ -72,6 +73,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = 2 * time.Minute
 	}
+	if cfg.Now == nil {
+		cfg.Now = func() time.Time { return time.Now().UTC() }
+	}
 	if cfg.BackupDir == "" {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
 	}
@@ -90,7 +94,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	hub := events.NewHub()
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
-		PublicURL: cfg.PublicURL, Lease: cfg.Lease, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
+		PublicURL: cfg.PublicURL, Lease: cfg.Lease, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub, Now: cfg.Now,
 		Invalidate: func(id string) {
 			if cache != nil {
 				cache.Invalidate(id)
@@ -102,7 +106,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	cache = auth.NewCache(b.LoadByTokenHash, 30*time.Second)
+	cache = auth.NewCacheClock(b.LoadByTokenHash, 30*time.Second, cfg.Now)
 
 	m := mcp.NewServer(cache, mcp.NewRegistry(b))
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
@@ -114,7 +118,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest := &api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}
 	rest.Register(mux)
 
-	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{})
+	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{Now: cfg.Now})
 	rest.Mount(mux, "/api/v1/decisions", decisions.Handler(feed, cfg.Log))
 	rest.Mount(mux, "/api/v1/decisions/", decisions.Handler(feed, cfg.Log))
 

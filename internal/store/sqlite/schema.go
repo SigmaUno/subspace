@@ -47,7 +47,8 @@ CREATE INDEX IF NOT EXISTS tasks_plan ON tasks(plan_id);
 CREATE TABLE IF NOT EXISTS agents (
   id TEXT PRIMARY KEY, role TEXT NOT NULL, kind TEXT NOT NULL, model TEXT NOT NULL, provider TEXT NOT NULL,
   status TEXT NOT NULL, pause_reason TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL,
-  last_seen_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, spawned INTEGER NOT NULL DEFAULT 0
+  last_seen_at INTEGER NOT NULL DEFAULT 0, created_at INTEGER NOT NULL, spawned INTEGER NOT NULL DEFAULT 0,
+  token_expires_at INTEGER NOT NULL DEFAULT 0
 );
 CREATE UNIQUE INDEX IF NOT EXISTS agents_token ON agents(token_hash);
 
@@ -92,6 +93,7 @@ func migrate(db *sql.DB) error {
 		{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
+		{"agents", "token_expires_at", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumn(db, c.table, c.column, c.def); err != nil {
 			return err

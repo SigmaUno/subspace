@@ -409,8 +409,9 @@ func scenarioExtendLeases(t *testing.T, s store.Store) {
 func scenarioAgents(t *testing.T, s store.Store) {
 	created := time.UnixMilli(1700000000123).UTC()
 	seen := time.UnixMilli(1700000005000).UTC()
+	expires := time.UnixMilli(1700086400456).UTC()
 	full := &model.Agent{ID: "claude-1", Role: "worker", Kind: "claude-code", Model: "m", Provider: "anthropic",
-		Status: "paused", PauseReason: ptr("loop"), LastSeenAt: &seen, CreatedAt: created, Spawned: true, TokenHash: "h1"}
+		Status: "paused", PauseReason: ptr("loop"), LastSeenAt: &seen, CreatedAt: created, Spawned: true, TokenExpiresAt: &expires, TokenHash: "h1"}
 	bare := &model.Agent{ID: "rex", Role: "leader", Kind: "other", Model: "m2", Provider: "openai",
 		Status: "active", CreatedAt: created, TokenHash: "h2"}
 	write(t, s, func(tx store.Tx) error {
@@ -470,6 +471,16 @@ func scenarioAgents(t *testing.T, s store.Store) {
 		}
 		if a.PauseReason != nil || !a.Spawned {
 			t.Errorf("update 2: %+v", a)
+		}
+		a.TokenExpiresAt = &expires
+		if err := tx.UpdateAgent(a); err != nil {
+			return err
+		}
+		if a, err = tx.GetAgent("rex"); err != nil {
+			return err
+		}
+		if a.TokenExpiresAt == nil || !a.TokenExpiresAt.Equal(expires) {
+			t.Errorf("update expiry: %v", a.TokenExpiresAt)
 		}
 		return tx.UpdateAgent(&model.Agent{ID: "ghost", Status: "active"})
 	})

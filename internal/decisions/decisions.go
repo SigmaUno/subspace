@@ -18,6 +18,7 @@ const (
 	KindMerge    = "merge"
 	KindUnblock  = "unblock"
 	KindStale    = "stale_agent"
+	KindExpiry   = "token_expiry"
 )
 
 const (
@@ -26,6 +27,7 @@ const (
 	ActionReject  = "reject"
 	ActionMerge   = "merge"
 	ActionUnblock = "unblock"
+	ActionRotate  = "rotate"
 	ActionSkip    = "skip"
 )
 
@@ -36,6 +38,8 @@ const (
 	maxAgeBonus       = 60
 	agePerPoint       = 5 * time.Minute
 	needsOwnerBonus   = 15
+	tokenWarnWindow   = 24 * time.Hour
+	defaultTokenTTL   = 30 * 24 * time.Hour
 )
 
 var impact = map[string]int{
@@ -44,6 +48,7 @@ var impact = map[string]int{
 	KindMerge:    60,
 	KindUnblock:  50,
 	KindStale:    40,
+	KindExpiry:   55,
 }
 
 type Links struct {
@@ -82,6 +87,7 @@ type Actions interface {
 	RejectPlan(ctx context.Context, id, reason string) (*model.Plan, error)
 	ApproveMerge(ctx context.Context, taskID, note string) (*model.Task, error)
 	Unblock(ctx context.Context, taskID, to, note string) (*model.Task, error)
+	RotateToken(ctx context.Context, agentID string, expiresIn time.Duration) (any, error)
 	Skip(ctx context.Context, decisionID string, until time.Time) error
 }
 
@@ -154,6 +160,8 @@ type payload struct {
 	Reason string `json:"reason"`
 	Status string `json:"status"`
 	Snooze string `json:"snooze"`
+
+	ExpiresIn string `json:"expires_in"`
 }
 
 func (f *Feed) Act(ctx context.Context, id, action string, raw json.RawMessage) (*Outcome, error) {
@@ -218,6 +226,16 @@ func (f *Feed) dispatch(ctx context.Context, d *Decision, action string, p paylo
 			}
 		}
 		return f.act.Unblock(ctx, ref, to, p.Note)
+	case ActionRotate:
+		ttl := defaultTokenTTL
+		if p.ExpiresIn != "" {
+			v, err := time.ParseDuration(p.ExpiresIn)
+			if err != nil || v <= 0 {
+				return nil, model.BadRequest("expires_in must be a positive duration such as 720h")
+			}
+			ttl = v
+		}
+		return f.act.RotateToken(ctx, ref, ttl)
 	case ActionSkip:
 		dur := defaultSnooze
 		if p.Snooze != "" {
@@ -314,6 +332,9 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 		add(d, extra)
 	}
 	for _, a := range s.Agents {
+		if a.Status == model.AgentActive && a.TokenExpiresAt != nil && a.TokenExpiresAt.Sub(now) < tokenWarnWindow {
+			add(tokenDecision(a, now), 0)
+		}
 		if a.Status != model.AgentActive || a.CurrentTaskID == nil {
 			continue
 		}
@@ -348,6 +369,22 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 		return a.ID < b.ID
 	})
 	return out, nil
+}
+
+func tokenDecision(a *model.Agent, now time.Time) *Decision {
+	left := a.TokenExpiresAt.Sub(now)
+	d := &Decision{
+		ID: "token:" + a.ID, Kind: KindExpiry, AgentID: a.ID, CreatedAt: a.TokenExpiresAt.Add(-tokenWarnWindow),
+		Links: Links{Thread: model.ThreadAgent + ":" + a.ID}, Actions: []string{ActionRotate},
+	}
+	if left <= 0 {
+		d.Title = fmt.Sprintf("Token of %s has expired", a.ID)
+		d.Summary = "expired " + (-left).Truncate(time.Second).String() + " ago"
+		return d
+	}
+	d.Title = fmt.Sprintf("Token of %s expires soon", a.ID)
+	d.Summary = "expires in " + left.Truncate(time.Second).String()
+	return d
 }
 
 func mergeSummary(t *model.Task) string {

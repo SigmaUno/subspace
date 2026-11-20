@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -44,6 +45,21 @@ type AgentInput struct {
 	Kind     string `json:"kind"`
 	Model    string `json:"model"`
 	Provider string `json:"provider"`
+
+	ExpiresIn string `json:"expires_in"`
+
+	expiresIn time.Duration
+}
+
+func ParseExpiresIn(s string) (time.Duration, error) {
+	if s == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(s)
+	if err != nil || d <= 0 {
+		return 0, model.BadRequest("expires_in must be a positive duration such as 720h")
+	}
+	return d, nil
 }
 
 type Registered struct {
@@ -64,7 +80,9 @@ func (in *AgentInput) validate() error {
 	if in.Provider == "" {
 		in.Provider = model.ProviderForKind(in.Kind)
 	}
-	return nil
+	var err error
+	in.expiresIn, err = ParseExpiresIn(in.ExpiresIn)
+	return err
 }
 
 func (b *Board) newAgent(in AgentInput, spawned bool) (*model.Agent, string, error) {
@@ -72,8 +90,13 @@ func (b *Board) newAgent(in AgentInput, spawned bool) (*model.Agent, string, err
 	if err != nil {
 		return nil, "", err
 	}
-	return &model.Agent{ID: in.ID, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider,
-		Status: model.AgentActive, CreatedAt: b.now(), Spawned: spawned, TokenHash: auth.Hash(tok)}, tok, nil
+	a := &model.Agent{ID: in.ID, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider,
+		Status: model.AgentActive, CreatedAt: b.now(), Spawned: spawned, TokenHash: auth.Hash(tok)}
+	if in.expiresIn > 0 {
+		exp := b.now().Add(in.expiresIn)
+		a.TokenExpiresAt = &exp
+	}
+	return a, tok, nil
 }
 
 func (b *Board) RegisterAgent(ctx context.Context, in AgentInput) (*Registered, error) {
@@ -91,6 +114,8 @@ type BulkInput struct {
 	Kind     string `json:"kind"`
 	Model    string `json:"model"`
 	Provider string `json:"provider"`
+
+	ExpiresIn string `json:"expires_in"`
 }
 
 const MaxBulk = 1000
@@ -105,7 +130,7 @@ func (b *Board) RegisterBulk(ctx context.Context, in BulkInput) ([]*Registered, 
 	}
 	ins := make([]AgentInput, in.Count)
 	for i := range ins {
-		ins[i] = AgentInput{ID: fmt.Sprintf("%s-%0*d", in.Prefix, width, i+1), Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider}
+		ins[i] = AgentInput{ID: fmt.Sprintf("%s-%0*d", in.Prefix, width, i+1), Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider, ExpiresIn: in.ExpiresIn}
 	}
 	return b.registerMany(ctx, ins)
 }
@@ -237,10 +262,21 @@ func (b *Board) PauseAgent(ctx context.Context, id, reason string) error {
 }
 
 func (b *Board) RotateToken(ctx context.Context, id string) (*Registered, error) {
+	return b.RotateTokenFor(ctx, id, 0)
+}
+
+func (b *Board) RotateTokenFor(ctx context.Context, id string, expiresIn time.Duration) (*Registered, error) {
 	var tok string
 	a, err := b.setAgent(ctx, model.Owner, "rotate_token", id, func(tx store.Tx, w *wctx, a *model.Agent) error {
 		if a.Status == model.AgentRevoked {
 			return model.Conflict("agent is revoked")
+		}
+		switch {
+		case expiresIn > 0:
+			exp := b.now().Add(expiresIn)
+			a.TokenExpiresAt = &exp
+		case a.TokenExpiresAt != nil && !a.TokenExpiresAt.After(b.now()):
+			return model.BadRequest("token already expired; set expires_in")
 		}
 		var err error
 		tok, err = auth.NewToken()

@@ -2,6 +2,12 @@
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
 
+export class ApiError extends Error {
+  constructor(readonly status: number, message: string) {
+    super(message);
+  }
+}
+
 export async function api<T>(path: string, method = "GET", body?: unknown, signal?: AbortSignal): Promise<T> {
   const response = await fetch(`/api/v1/${path}`, {
     method, signal,
@@ -12,9 +18,19 @@ export async function api<T>(path: string, method = "GET", body?: unknown, signa
   if (response.status === 401) window.location.replace("/login");
   if (!response.ok) {
     const payload = await response.json().catch(() => null);
-    throw new Error(payload?.error?.message || `Request failed (HTTP ${response.status}).`);
+    throw new ApiError(response.status, payload?.error?.message || `Request failed (HTTP ${response.status}).`);
   }
+  if (response.status === 204) return undefined as T;
   return response.json() as Promise<T>;
+}
+
+export async function optionalResource<T>(path: string, signal: AbortSignal): Promise<T | null> {
+  try {
+    return await api<T>(path, "GET", undefined, signal);
+  } catch (error) {
+    if (error instanceof ApiError && [404, 501].includes(error.status)) return null;
+    throw error;
+  }
 }
 
 function loadResource<T>(path: string, signal: AbortSignal) {
@@ -27,8 +43,6 @@ export function useResource<T>(path: string | null, revision: number, load = loa
   const [manual, setManual] = useState(0);
   const refresh = useCallback(() => setManual((count) => count + 1), []);
 
-  // Finish an in-flight snapshot before starting another. Under sustained SSE
-  // traffic, aborting on every invalidation could prevent a slow read completing.
   const [request, setRequest] = useState({ path, revision, manual });
   const [completed, setCompleted] = useState<typeof request>();
   if (completed === request &&
@@ -90,12 +104,11 @@ const euro = new Intl.NumberFormat("en", { style: "currency", currency: "EUR" })
 export const money = (amount: number) => euro.format(amount);
 export const label = (status: string) => status.replaceAll("_", " ");
 
-export function safeURL(input: string | null): string | undefined {
+export function safeURL(input?: string | null): string | undefined {
   if (!input) return undefined;
   try {
     const url = new URL(input);
     if (url.protocol === "https:" || url.protocol === "http:") return url.href;
   } catch {
-    // Treat an invalid link as plain data.
   }
 }

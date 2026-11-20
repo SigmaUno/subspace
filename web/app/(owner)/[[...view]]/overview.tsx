@@ -1,225 +1,208 @@
 "use client";
 
 import Link from "next/link";
-import { useContext, useEffect, useRef, useState, type ReactNode } from "react";
-import { api, label, money, useResource } from "../../../lib/client";
-import type { AuditEvent, BriefProgress, DecisionInbox, SwarmBoards, SwarmState } from "../../../lib/overview-types";
-import { statuses, type Agent, type Board, type Brief, type Capacity } from "../../../lib/types";
-import { Clock, Feedback } from "./components";
-import { useLive } from "./live";
-import { Workspace } from "./workspace";
+import { useContext, useMemo, useState } from "react";
+import { useRouter } from "next/navigation";
+import { api, label, money, optionalResource, useResource } from "../../../lib/client";
+import type { Agent, Board, Brief, Capacity, Message, Task, Thread } from "../../../lib/types";
+import type { Component } from "../../../lib/swarm";
+import { Architecture } from "./architecture";
+import { Kanban } from "./board";
+import { OwnerChat } from "./chat";
+import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import type { Revisions } from "./live";
+import { Metrics } from "./metrics";
+import { VirtualList } from "./virtual";
 
-const staleAfter = 5 * 60_000;
-const feedSize = 50;
-const auditPage = 1000;
+const emptyComponents: Component[] = [];
 
-async function loadBoards(path: string, signal: AbortSignal): Promise<SwarmBoards> {
-  const { briefs } = await api<{ briefs: Brief[] | null }>(path, "GET", undefined, signal);
-  const boards = await Promise.all((briefs ?? []).map((brief) =>
-    api<Board>(`briefs/${encodeURIComponent(brief.id)}/board`, "GET", undefined, signal)));
-  const titles: Record<string, string> = {};
-  const progress = boards.map((board): BriefProgress => {
-    const counts: BriefProgress["counts"] = {};
-    let total = 0;
-    for (const [status] of statuses) {
-      const tasks = board.columns[status] ?? [];
-      counts[status] = tasks.length;
-      total += tasks.length;
-      tasks.forEach((task) => { titles[task.id] = task.title; });
-    }
-    return { brief: board.brief, counts, total };
-  });
-  return { briefs: progress, titles };
+function elapsed(minutes: number) {
+  const rounded = Math.floor(minutes);
+  const hours = Math.floor(rounded / 60);
+  return hours ? `${hours}h ${rounded % 60}m` : `${rounded}m`;
 }
 
-function useAudit(revision: number) {
-  const [events, setEvents] = useState<AuditEvent[]>([]);
-  const [error, setError] = useState("");
-  const cursor = useRef(0);
-
-  useEffect(() => {
-    const controller = new AbortController();
-    (async () => {
-      for (;;) {
-        const { events: page } = await api<{ events: AuditEvent[] | null }>(
-          `audit?since=${cursor.current}&limit=${auditPage}`, "GET", undefined, controller.signal);
-        if (controller.signal.aborted) return;
-        const batch = page ?? [];
-        if (batch.length) {
-          cursor.current = batch[batch.length - 1].id;
-          setEvents((current) => [...current, ...batch].slice(-feedSize));
-        }
-        setError("");
-        if (batch.length < auditPage) return;
-      }
-    })().catch((cause: Error) => { if (!controller.signal.aborted) setError(cause.message); });
-    return () => controller.abort();
-  }, [revision]);
-
-  return { events, error };
-}
-
-function age(milliseconds: number) {
-  const seconds = Math.max(0, Math.floor(milliseconds / 1000));
-  if (seconds < 60) return `${seconds}s`;
-  const minutes = Math.floor(seconds / 60);
-  return minutes < 60 ? `${minutes}m` : `${Math.floor(minutes / 60)}h`;
-}
-
-function Stat({ name, children }: { name: string; children: ReactNode }) {
-  return <div className="panel stat"><span className="meta">{name}</span>{children}</div>;
-}
-
-function BriefRow({ progress }: { progress: BriefProgress }) {
-  const { brief, counts, total } = progress;
-  const scope = total - (counts.cancelled ?? 0);
-  const done = counts.done ?? 0;
-  const review = (counts.submitted ?? 0) + (counts.in_review ?? 0) + (counts.changes_requested ?? 0);
-  const stuck = (counts.blocked ?? 0) + (counts.needs_owner ?? 0);
-  return (
-    <Link href={`/briefs/${encodeURIComponent(brief.id)}`} className="panel brief-link">
-      <div className="heading"><h2>{brief.title}</h2><span className="meta">{brief.id}</span></div>
-      <div className="progress">
-        <progress aria-label={`${brief.title} progress`} value={done} max={Math.max(scope, 1)} />
-        <span>{done}/{scope}</span>
-      </div>
-      <span className="meta">
-        {counts.in_progress ?? 0} in progress · {review} in review · {counts.ready ?? 0} ready
-        {stuck > 0 && <span className="stale"> · {stuck} blocked</span>}
-        {" · "}{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)}
-      </span>
-    </Link>
-  );
-}
-
-function AgentCard({ agent, titles }: { agent: Agent; titles: Record<string, string> }) {
-  const now = useContext(Clock);
-  const seen = agent.last_seen_at ? Date.parse(agent.last_seen_at) : null;
-  const watch = agent.status === "active";
-  const stale = watch && (seen === null ? !!agent.current_task_id : now - seen > staleAfter);
-  const task = agent.current_task_id;
-  return (
-    <article className={`panel agent-card ${stale ? "stale-agent" : ""}`}>
-      <div className="heading"><strong className="break">{agent.id}</strong><span className={`pill ${agent.status}`}>{agent.status}</span></div>
-      <span className="meta break">{agent.role} · {agent.kind} · {agent.model}</span>
-      <span className={stale ? "stale" : "meta"}>
-        {seen === null || !now ? "No heartbeat" : `Heartbeat ${age(now - seen)} ago`}{stale && " · stale"}
-      </span>
-      <span className="break">{task ? <>{task} <span className="muted">{titles[task]}</span></> : <span className="muted">Idle</span>}</span>
-      {agent.pause_reason && <span className="stale">{label(agent.pause_reason)}</span>}
-    </article>
-  );
-}
-
-function FeedItem({ event, titles }: { event: AuditEvent; titles: Record<string, string> }) {
-  const from = event.before?.status;
-  const to = event.after?.status;
-  return (
-    <li>
-      <time className="meta" dateTime={event.ts}>{new Date(event.ts).toLocaleTimeString([], { timeStyle: "medium" })}</time>
-      <span className="break">
-        <strong>{event.agent_id}</strong> {label(event.tool)}
-        {event.task_id && <> <span className="muted">{event.task_id}{titles[event.task_id] && ` ${titles[event.task_id]}`}</span></>}
-        {to && <span className="meta"> {from ? `${label(from)} → ` : "→ "}{label(to)}</span>}
-      </span>
-    </li>
-  );
-}
-
-export function Overview() {
-  const [now, setNow] = useState(0);
-  useEffect(() => {
-    const initial = setTimeout(() => setNow(Date.now()), 0);
-    const interval = setInterval(() => setNow(Date.now()), 5_000);
-    return () => { clearTimeout(initial); clearInterval(interval); };
-  }, []);
-
-  const { revisions } = useLive("board,agents,control,questions,plans");
-  const activity = revisions.board + revisions.agents + revisions.control + revisions.questions + revisions.plans;
-  const state = useResource<SwarmState>("state", revisions.control);
-  const capacity = useResource<Capacity>("capacity", activity);
-  const boards = useResource<SwarmBoards>("briefs?status=open&limit=1000", activity, loadBoards);
-  const agents = useResource<{ agents: Agent[] | null }>("agents?limit=1000", revisions.agents);
-  const inbox = useResource<DecisionInbox>("decisions?limit=1000", activity);
-  const audit = useAudit(activity);
-  const [resuming, setResuming] = useState(false);
-  const [resumeError, setResumeError] = useState("");
-
-  async function resume() {
-    setResuming(true);
-    setResumeError("");
-    try {
-      await api<{ paused: boolean }>("resume-all", "POST", {});
-      state.refresh();
-    } catch (cause) {
-      setResumeError(cause instanceof Error ? cause.message : "Resume failed.");
-    } finally {
-      setResuming(false);
-    }
+async function loadLatest(path: string, signal: AbortSignal) {
+  let latest: Message | undefined;
+  for (;;) {
+    const page = await api<{ messages: Message[] }>(`${path}?limit=1000&since=${latest?.id ?? 0}`, "GET", undefined, signal);
+    const messages = page.messages ?? [];
+    latest = messages.at(-1) ?? latest;
+    if (messages.length < 1000) return latest ?? null;
   }
+}
 
-  const counts = state.data?.counts;
-  const titles = boards.data?.titles ?? {};
-  const roster = agents.data?.agents?.filter((agent) => agent.status !== "revoked") ?? [];
-  const limits = capacity.data?.limits ?? [];
+function latestMessage(messages: (Message | undefined | null)[]) {
+  return messages.reduce<Message | undefined>((newest, current) => current && (!newest || current.id > newest.id) ? current : newest, undefined);
+}
 
-  return (
-    <div className="overview-root">
-      <Workspace section="overview" />
-      <Clock.Provider value={now}>
-        <main className="workspace overview">
-          <div className="heading"><h1>Swarm overview</h1></div>
-          <Feedback error={state.error || capacity.error || boards.error || agents.error || inbox.error || audit.error || resumeError} />
-          {state.data?.paused && (
-            <div className="notice paused-banner" role="status">
-              <span>All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</span>
-              <button className="primary" onClick={resume} disabled={resuming}>Resume all</button>
-            </div>
-          )}
-          <section className="stat-grid" aria-label="Swarm status">
-            <Stat name="Agents active">
-              <strong>{counts?.agents_active ?? "—"}<span className="muted"> / {counts?.agents ?? "—"}</span></strong>
-            </Stat>
-            <Stat name="In use / capacity">
-              <strong>{capacity.data?.agents_in_use ?? "—"}<span className="muted"> / {capacity.data?.global_max_agents ?? "—"}</span></strong>
-              {capacity.data && <progress aria-label="Agents in use" value={capacity.data.agents_in_use} max={Math.max(capacity.data.global_max_agents, 1)} />}
-              {limits.map((limit) => (
-                <span className="meta" key={`${limit.provider}/${limit.model}`}>{limit.provider}/{limit.model} · {limit.in_use} / {limit.max_concurrency}</span>
-              ))}
-            </Stat>
-            <Stat name="Tasks in progress">
-              <strong>{counts ? counts.tasks?.in_progress ?? 0 : "—"}</strong>
-            </Stat>
-            <Link href="/decisions" className="panel stat stat-link">
-              <span className="meta">Decision inbox</span>
-              <strong className={inbox.data?.decisions?.length ? "stale" : ""}>{inbox.data ? inbox.data.decisions?.length ?? 0 : "—"}</strong>
-            </Link>
-          </section>
-          <div className="overview-layout">
-            <div className="stack">
-              <section className="stack" aria-label="Brief progress">
-                <h2>Briefs</h2>
-                <Feedback loading={!boards.data} />
-                {boards.data && !boards.data.briefs.length && <p className="empty">No open briefs.</p>}
-                <div className="brief-list">{boards.data?.briefs.map((progress) => <BriefRow key={progress.brief.id} progress={progress} />)}</div>
-              </section>
-              <section className="stack" aria-label="Agents">
-                <h2>Agents</h2>
-                <Feedback loading={!agents.data} />
-                {agents.data && !roster.length && <p className="empty">No agents registered.</p>}
-                <div className="agent-grid">{roster.map((agent) => <AgentCard key={agent.id} agent={agent} titles={titles} />)}</div>
-              </section>
-            </div>
-            <section className="panel stack feed-panel" aria-label="Activity">
-              <h2>Activity</h2>
-              {!audit.events.length && <p className="muted">No activity yet.</p>}
-              <ol className="feed">
-                {[...audit.events].reverse().map((event) => <FeedItem key={event.id} event={event} titles={titles} />)}
-              </ol>
-            </section>
-          </div>
-        </main>
-      </Clock.Provider>
+function AgentRow({ agent, task, recent, openThread, openChat }: {
+  agent: Agent; task?: Task; recent: Record<string, Message>;
+  openThread: (thread: Thread) => void; openChat: (target: string) => void;
+}) {
+  const now = useContext(Clock);
+  const live = latestMessage([agent.last_message, recent[`agent:${agent.id}`], task && recent[`task:${task.id}`]]);
+  const fallback = useResource(agent.last_message === undefined
+    ? `threads/agent/${encodeURIComponent(agent.id)}/messages` : null, 0, loadLatest);
+  const last = latestMessage([live, fallback.data]);
+  const heartbeat = task?.last_heartbeat_at ?? agent.last_seen_at;
+  const stale = agent.status === "active" && staleAt(heartbeat, now, task?.lease_expires_at);
+  const blocked = task?.status === "blocked" || task?.status === "needs_owner";
+  const line = last?.body.split("\n").find((part) => part.trim());
+  return <article className={`agent-row ${stale || blocked ? "needs-attention" : ""}`}>
+    <div><button className="text-button" type="button" onClick={() => openThread({ kind: "agent", id: agent.id })}>{agent.id}</button>
+      <div className="meta ellipsis" title={agent.model}>{agent.kind} · {agent.model}</div></div>
+    <div>{task ? <button className="text-button ellipsis" type="button" title={task.title}
+      onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button> : <span className="meta">No current task</span>}
+      <div className={blocked ? "stale" : "meta"}>{task ? `${label(task.status)} · ${task.progress_pct}% · ${elapsed(task.minutes_used)}` : `${agent.role} · ${agent.status}`}</div>
     </div>
-  );
+    <div><Heartbeat time={heartbeat} watch={agent.status === "active"} expires={task?.lease_expires_at} />
+      <div className="meta">{agent.assigned_count} assigned</div></div>
+    <div className="activity"><p className="ellipsis" title={line}>{line || "No recent messages"}</p>
+      <button className="text-button" type="button" onClick={() => openChat(`agent:${agent.id}`)}>Message agent</button></div>
+  </article>;
+}
+
+function Workload({ agents, tasks, recent, openThread, openChat }: {
+  agents: Agent[]; tasks: Task[]; recent: Record<string, Message>;
+  openThread: (thread: Thread) => void; openChat: (target: string) => void;
+}) {
+  const [filter, setFilter] = useState("");
+  const [scope, setScope] = useState("project");
+  const activeTasks = useMemo(() => {
+    const active = new Map<string, Task>();
+    for (const task of tasks) {
+      if (!task.assignee || ["done", "cancelled"].includes(task.status)) continue;
+      if (!active.has(task.assignee) || ["in_progress", "blocked", "needs_owner"].includes(task.status)) active.set(task.assignee, task);
+    }
+    return active;
+  }, [tasks]);
+  const byID = new Map(tasks.map((task) => [task.id, task]));
+  const now = useContext(Clock);
+  const needle = filter.trim().toLowerCase();
+  const taskFor = (agent: Agent) => (agent.current_task_id && byID.get(agent.current_task_id)) || activeTasks.get(agent.id);
+  const attention = (agent: Agent) => {
+    const task = taskFor(agent);
+    return Number(task?.status === "blocked" || task?.status === "needs_owner") * 2 +
+      Number(agent.status === "active" && staleAt(task?.last_heartbeat_at ?? agent.last_seen_at, now, task?.lease_expires_at));
+  };
+  const items = agents.filter((agent) => {
+    if (agent.status === "revoked") return false;
+    if (scope === "project" && !taskFor(agent) && agent.role !== "leader") return false;
+    return !needle || [agent.id, agent.kind, agent.model, agent.provider, taskFor(agent)?.title]
+      .some((item) => item?.toLowerCase().includes(needle));
+  }).sort((a, b) => attention(b) - attention(a) || a.id.localeCompare(b.id));
+
+  return <section className="panel stack">
+    <div className="heading">
+      <h2>Agent workload <span className="pill">{items.length}</span></h2>
+      <div className="actions">
+        <input className="filter-input" type="search" aria-label="Filter workload" placeholder="Filter workload"
+          value={filter} onChange={(event) => setFilter(event.target.value)} />
+        <select className="filter-input" aria-label="Agent scope" value={scope} onChange={(event) => setScope(event.target.value)}>
+          <option value="project">Project agents</option><option value="all">All active and paused agents</option>
+        </select>
+      </div>
+    </div>
+    {items.length ? <VirtualList name="Agent workload" items={items} estimate={78} className="agent-list"
+      render={(agent) => <AgentRow agent={agent} task={taskFor(agent)} recent={recent} openThread={openThread} openChat={openChat} />} />
+      : <p className="empty">No agents match this view.</p>}
+  </section>;
+}
+
+function CapacitySummary({ revision }: { revision: number }) {
+  const capacity = useResource<Capacity>("capacity", revision);
+  const items = (capacity.data?.limits ?? []).map((item) => ({ ...item, id: `${item.provider}:${item.model}` }));
+  return <section className="panel stack">
+    <div className="heading"><h2>Inference capacity</h2><Link href="/capacity">Settings</Link></div>
+    <Feedback error={capacity.error} loading={!capacity.data} />
+    {capacity.data && <p className="meta">{capacity.data.agents_in_use} / {capacity.data.global_max_agents} agents in use</p>}
+    {items.length ? <VirtualList name="Provider and model capacity" estimate={56} items={items} className="capacity-list"
+      render={(item) => <div className="capacity-usage">
+        <strong>{item.provider} · {item.model}</strong>
+        <progress max={Math.max(1, item.max_concurrency)} value={item.in_use} aria-label={`${item.provider} ${item.model} in use`} />
+        <span className={item.available <= 0 ? "stale" : "meta"}>{item.in_use} / {item.max_concurrency} · {item.available} free</span>
+      </div>} /> : capacity.data && <p className="empty">No provider or model limits.</p>}
+  </section>;
+}
+
+function SwarmProject({ id, architecture, revisions, recent, openThread }: {
+  id: string; architecture: boolean; revisions: Revisions; recent: Record<string, Message>;
+  openThread: (thread: Thread) => void;
+}) {
+  const board = useResource<Board>(`briefs/${encodeURIComponent(id)}/board`, revisions.board);
+  const registry = useResource<{ agents: Agent[] }>("agents?limit=1000&include=last_message", revisions.agents);
+  const [chat, setChat] = useState<string | null>(null);
+  const componentFeed = useResource((architecture || chat) ? `briefs/${encodeURIComponent(id)}/architecture` : null,
+    revisions.architecture, optionalResource<{ components: Component[] }>);
+  const components = componentFeed.data?.components ?? emptyComponents;
+  const agents = registry.data?.agents ?? [];
+  const taskList = useMemo(() => Object.values(board.data?.columns ?? {}).flatMap((column) => column ?? []), [board.data]);
+  const scope = taskList.filter((task) => task.status !== "cancelled");
+  const complete = scope.filter((task) => task.status === "done").length;
+  const progress = scope.length ? Math.round(scope.reduce((sum, task) => sum + (task.status === "done" ? 100 : task.progress_pct), 0) / scope.length) : 0;
+  const now = useContext(Clock);
+  const blocked = scope.filter((task) => ["blocked", "needs_owner"].includes(task.status)).length;
+  const stale = scope.filter((task) => task.status === "in_progress" && staleAt(task.last_heartbeat_at, now, task.lease_expires_at)).length;
+  const brief = board.data?.brief;
+  const path = `/briefs/${encodeURIComponent(id)}`;
+
+  return <section className="stack project-view">
+    <Feedback error={board.error || registry.error} loading={!board.data} />
+    {brief && <>
+      <div className="heading">
+        <div><div className="meta">{brief.id} · {brief.status} · plan {brief.plan_status}</div><h2 className="project-name">{brief.title}</h2></div>
+        <div className="actions">
+          <button type="button" onClick={() => openThread({ kind: "brief", id, title: brief.title })}>Brief thread</button>
+          <button type="button" className="primary" onClick={() => setChat("leader")}>Owner chat</button>
+        </div>
+      </div>
+      <div className="project-stats">
+        <div className="panel"><span>Project progress</span><strong>{progress}%</strong><progress max={100} value={progress} aria-label="Project progress" /></div>
+        <div className="panel"><span>Tasks done</span><strong>{complete} / {scope.length}</strong></div>
+        <div className={`panel ${blocked || stale ? "needs-attention" : ""}`}><span>Needs attention</span><strong>{blocked} blocked · {stale} stale</strong></div>
+        <div className={`panel ${brief.budget.max_cost_eur > 0 && brief.cost_used >= brief.budget.max_cost_eur ? "needs-attention" : ""}`}><span>Spend / budget</span><strong>{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)}</strong></div>
+      </div>
+      <nav className="view-tabs" aria-label="Project view">
+        <Link href={path} aria-current={architecture ? undefined : "page"}>Overview</Link>
+        <Link href={path + "/architecture"} aria-current={architecture ? "page" : undefined}>Architecture</Link>
+      </nav>
+      <div className={`project-layout ${chat ? "has-chat" : ""}`}>
+        <div className="stack project-body">
+          {architecture ? <Architecture components={components} tasks={taskList} loading={componentFeed.data === undefined}
+            error={componentFeed.error} openThread={openThread} openChat={setChat} /> : <>
+            <Kanban board={board.data!} agents={agents} openThread={openThread} />
+            <Workload agents={agents} tasks={taskList} recent={recent} openThread={openThread} openChat={setChat} />
+            <div className="project-detail-grid">
+              <CapacitySummary revision={revisions.capacity} />
+              <Metrics briefID={id} knownJobs={brief.hillclimb_jobs} revision={revisions.metrics} />
+            </div>
+          </>}
+        </div>
+        {chat && <OwnerChat briefID={id} agents={agents} components={components} target={chat} select={setChat}
+          revision={revisions.chat} close={() => setChat(null)} />}
+      </div>
+    </>}
+  </section>;
+}
+
+export function SwarmOverview({ id, architecture, revisions, recent, openThread }: {
+  id?: string; architecture: boolean; revisions: Revisions; recent: Record<string, Message>;
+  openThread: (thread: Thread) => void;
+}) {
+  const briefs = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revisions.briefs);
+  const router = useRouter();
+  const items = briefs.data?.briefs ?? [];
+  const selected = id ?? (items.find((item) => item.status === "open") ?? items[0])?.id;
+  return <>
+    <div className="heading">
+      <h1>Swarm overview</h1>
+      {!!items.length && <label className="project-picker">Project<select value={selected} onChange={(event) => router.push(`/briefs/${encodeURIComponent(event.target.value)}`)}>
+        {items.map((brief) => <option key={brief.id} value={brief.id}>{brief.title}</option>)}
+      </select></label>}
+    </div>
+    <Feedback error={briefs.error} loading={!briefs.data && !selected} />
+    {!selected && briefs.data && <div className="panel stack"><p>No briefs yet.</p><Link href="/briefs">Create a brief</Link></div>}
+    {selected && <SwarmProject key={selected} id={selected} architecture={architecture} revisions={revisions} recent={recent} openThread={openThread} />}
+  </>;
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -43,6 +44,15 @@ func ownerToken() (string, error) {
 	return tok, os.Unsetenv("SUBSPACE_OWNER_TOKEN")
 }
 
+func count(k string, def int) int {
+	n, err := strconv.Atoi(env(k, strconv.Itoa(def)))
+	if err != nil || n < 1 {
+		fmt.Fprintf(os.Stderr, "invalid count in %s\n", k)
+		os.Exit(2)
+	}
+	return n
+}
+
 func main() {
 	if len(os.Args) > 1 {
 		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore, "audit-verify": runAuditVerify}[os.Args[1]]; ok {
@@ -68,7 +78,7 @@ func main() {
 	cfg := server.Config{
 		Addr: env("SUBSPACE_ADDR", ":8080"), DBPath: env("SUBSPACE_DB", "/data/subspace.db"), OwnerToken: tok,
 		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
-		Lease: dur("SUBSPACE_LEASE", "15m"), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
+		Lease: dur("SUBSPACE_LEASE", "15m"), PoisonExpiries: count("SUBSPACE_POISON_EXPIRIES", board.DefaultPoisonExpiries), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: 14, Log: log,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)

@@ -35,7 +35,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   cost_used REAL NOT NULL DEFAULT 0, minutes_used INTEGER NOT NULL DEFAULT 0, review_rounds INTEGER NOT NULL DEFAULT 0,
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at INTEGER NOT NULL DEFAULT 0,
   blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL,
-  priority INTEGER NOT NULL DEFAULT 0, component_id TEXT NOT NULL DEFAULT ''
+  priority INTEGER NOT NULL DEFAULT 0, component_id TEXT NOT NULL DEFAULT '',
+  lease_expiries INTEGER NOT NULL DEFAULT 0
 );
 DROP INDEX IF EXISTS tasks_brief;
 CREATE INDEX IF NOT EXISTS tasks_brief_status ON tasks(brief_id, status, assignee);
@@ -92,6 +93,7 @@ func migrate(db *sql.DB) error {
 		{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
 		{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
+		{"tasks", "lease_expiries", "INTEGER NOT NULL DEFAULT 0"},
 	} {
 		if err := addColumn(db, c.table, c.column, c.def); err != nil {
 			return err

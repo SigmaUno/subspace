@@ -108,6 +108,7 @@ WHEN UNSURE: ask_owner with a specific question and options; keep working on oth
 - **Budgets**: brief `max_cost_eur`, `max_parallel_agents`; task `max_minutes`, `max_cost_eur`. Exceeding → task `blocked` (reason `budget_exceeded`), new claims/spawns for an exceeded brief denied. `minutes_used` accumulates while leased; `cost_used` from `update_status cost_eur`.
 - **Loop protection**: same agent + same tool + same canonical args more than 5 times in 10 minutes (the 6th call) → agent `paused` (`pause_reason: loop`), call fails `agent_paused`, system message in agent thread; owner resumes. Read-only/heartbeat tools are exempt.
 - **Leases**: `claim_task` grants a lease (default 15 min, `SUBSPACE_LEASE`). `heartbeat` extends it. A sweeper (every 5s) returns expired tasks to `assigned`, with a system message.
+- **Poison and flapping protection**: each lease expiry increments the task's `lease_expiries`; at 3 (`SUBSPACE_POISON_EXPIRIES`) the task becomes `blocked` (`blocked_reason` `poison_task`), a system message is posted to its thread and it surfaces as an owner unblock decision; owner `reopen` resets the counter. An agent whose leases expire 3 times within 30 minutes is `paused` (`pause_reason: flapping`); the owner resumes.
 - **pause_all**: sets a global flag, revokes all leases (in_progress → assigned) and blocks claims/spawns; agents' `heartbeat` returns `paused:true`. `resume_all` clears it (agents re-claim).
 - **Allowed providers** per brief, enforced at assign and spawn.
 - **Audit log**: every state-changing call (MCP and REST) appends `(ts, agent_id, role, tool, task_id, before, after, note)`. No update/delete path. Owner readable via `/api/v1/audit`.
@@ -158,6 +159,7 @@ Returned by `GET /api/v1/agents/{id}/connect` and on register/rotate; shown in t
 | `SUBSPACE_PUBLIC_URL` | `http://localhost:8080` | used in join lines / snippets |
 | `SUBSPACE_CAPACITY_FILE` | – | JSON capacity config |
 | `SUBSPACE_LEASE` | `15m` | lease duration |
+| `SUBSPACE_POISON_EXPIRIES` | `3` | lease expiries before a task is blocked as `poison_task` |
 | `SUBSPACE_SPAWNER` | `noop` | `noop`, `hc`, `docker` |
 | `SUBSPACE_HC_*` | – | hc spawner settings |
 | `SUBSPACE_BACKUP_DIR` | `<db dir>/backups` | `VACUUM INTO` backups |

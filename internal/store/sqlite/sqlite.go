@@ -9,13 +9,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const maxBatch = 128
+const (
+	maxBatch        = 128
+	checkpointEvery = time.Second
+)
 
 type wreq struct {
 	ctx  context.Context
@@ -37,13 +41,16 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
-func dsn(path string, immediate bool) string {
+func dsn(path string, writer bool) string {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(10000)")
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", "foreign_keys(ON)")
-	if immediate {
+	q.Add("_pragma", "temp_store(MEMORY)")
+	q.Add("_pragma", "cache_size(-16384)")
+	if writer {
+		q.Add("_pragma", "wal_autocheckpoint(10000)")
 		q.Set("_txlock", "immediate")
 	}
 	return "file:" + path + "?" + q.Encode()
@@ -90,8 +97,9 @@ func Open(path string) (*Store, error) {
 		rst:  newStmtCache(rdb.PrepareContext),
 		reqs: make(chan *wreq, 1024), quit: make(chan struct{}),
 	}
-	s.wg.Add(1)
+	s.wg.Add(2)
 	go s.writer()
+	go s.checkpointer()
 	return s, nil
 }
 
@@ -157,6 +165,20 @@ func (s *Store) writer() {
 			}
 		}
 		s.runBatch(batch)
+	}
+}
+
+func (s *Store) checkpointer() {
+	defer s.wg.Done()
+	t := time.NewTicker(checkpointEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-s.quit:
+			return
+		case <-t.C:
+			_, _ = s.rdb.Exec("PRAGMA wal_checkpoint(PASSIVE)")
+		}
 	}
 }
 

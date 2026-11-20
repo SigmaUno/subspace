@@ -21,6 +21,7 @@ type sub struct {
 	h       *hub
 	ch      chan Event
 	topics  []string
+	last    int64
 	dropped atomic.Int64
 	once    sync.Once
 }
@@ -77,28 +78,25 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	h.seq++
 	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
 
-	var delivered map[*sub]struct{}
-	if len(topics) > 0 {
-		delivered = make(map[*sub]struct{})
-	}
 	for s := range h.topics[TopicAll] {
-		s.send(ev)
-		if delivered != nil {
-			delivered[s] = struct{}{}
-		}
+		s.deliver(ev)
 	}
 	for _, t := range topics {
 		if t == TopicAll {
 			continue
 		}
 		for s := range h.topics[t] {
-			if _, ok := delivered[s]; ok {
-				continue
-			}
-			delivered[s] = struct{}{}
-			s.send(ev)
+			s.deliver(ev)
 		}
 	}
+}
+
+func (s *sub) deliver(ev Event) {
+	if s.last == ev.Seq {
+		return
+	}
+	s.last = ev.Seq
+	s.send(ev)
 }
 
 func (s *sub) send(ev Event) {

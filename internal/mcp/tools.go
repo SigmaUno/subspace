@@ -352,6 +352,7 @@ func NewRegistry(b *board.Board) *Registry {
 			sp, err := b.RequestSpawn(ctx, c.Actor, in)
 			return map[string]any{"spawns": sp}, err
 		})
+	RegisterUsage(r, b)
 	return r
 }
 

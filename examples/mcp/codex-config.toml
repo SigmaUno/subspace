@@ -1,0 +1,14 @@
+# Codex MCP server config for Subspace.
+#
+# Merge into ~/.codex/config.toml. Codex expands ${VAR} environment references,
+# so set SUBSPACE_URL and SUBSPACE_TOKEN in the environment (the token is shown
+# exactly once when the owner registers the agent). Never commit the token.
+
+[mcp_servers.subspace]
+url = "${SUBSPACE_URL}/mcp"
+http_headers = { Authorization = "Bearer ${SUBSPACE_TOKEN}" }
+
+# Literal alternative (not recommended — the token would be committed):
+# [mcp_servers.subspace]
+# url = "https://<SUBSPACE_URL>/mcp"
+# http_headers = { Authorization = "Bearer <TOKEN>" }

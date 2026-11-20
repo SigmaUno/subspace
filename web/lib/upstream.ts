@@ -24,7 +24,6 @@ export async function ownerStatus(token: string, signal?: AbortSignal) {
 }
 
 export function browserMutation(request: Request): boolean {
-  // A cross-origin form can't supply this header. The API does not enable CORS.
   return request.headers.get("x-subspace-request") === "1" &&
     !["cross-site", "same-site"].includes(request.headers.get("sec-fetch-site") ?? "");
 }

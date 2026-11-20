@@ -25,7 +25,6 @@ snapshot() (
         scratch=$(mktemp -d "$dest/.backup.XXXXXX") || exit 1
         trap 'rm -rf "$scratch"' EXIT
         trap 'exit 1' HUP INT TERM
-        # Use SQLite's online backup primitive so committed WAL data is included.
         sql_path=$(printf '%s' "$scratch/snapshot.db" | sed "s/'/''/g") || exit 1
         sqlite3 -batch -bail -readonly -cmd '.timeout 15000' "$db" \
             "VACUUM INTO '$sql_path';" || exit 1
@@ -33,7 +32,6 @@ snapshot() (
         echo "Created backup $target"
     fi
 
-    # ISO-formatted UTC dates sort lexically. Keep manual server backups separate.
     set -- "$dest"/daily-[0-9][0-9][0-9][0-9][0-9][0-9][0-9][0-9].db
     while [ "$#" -gt "$keep" ]; do
         rm -- "$1" || exit 1

@@ -1,4 +1,3 @@
-// subspacectl is the owner client for the Subspace REST API.
 package main
 
 import (
@@ -188,8 +187,6 @@ func flags(command string) *flag.FlagSet {
 	return set
 }
 
-// Go's flag parser stops at the first positional argument. Collect flags first
-// so human-readable forms such as "answer Q-1 --answer yes" also work.
 func parseFlags(set *flag.FlagSet, args []string, minArgs, maxArgs int) error {
 	var options, positions []string
 	for i := 0; i < len(args); i++ {

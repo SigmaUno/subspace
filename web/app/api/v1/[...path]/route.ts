@@ -30,8 +30,6 @@ async function forward(request: NextRequest, context: Context) {
   if (events && lastEventID) headers.set("Last-Event-ID", lastEventID);
 
   try {
-    // Go's state endpoint authenticates owner tokens without side effects.
-    // Check access before sending a body or opening a stream upstream.
     if (!(readOnly && path.length === 1 && path[0] === "state")) {
       const status = await ownerStatus(token, request.signal);
       if (status === 401 || status === 403) return apiError(status, "Owner token rejected.");

@@ -86,7 +86,6 @@ services:
       SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
       SUBSPACE_BACKUP_EVERY_SECONDS: "${SUBSPACE_BACKUP_EVERY_SECONDS:-86400}"
     volumes:
-      # A live WAL database may need a writable SHM file even for read-only SQLite opens.
       - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
       - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
 

@@ -138,11 +138,15 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
-	deps := Deps{Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux}
+	deps := Deps{Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache}
 	for _, m := range extraMounts {
 		m(deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, handler: bodyDeadline(mux, cfg.BodyTimeout)}, nil
+	var h http.Handler = mux
+	for _, w := range wraps {
+		h = w(h, deps)
+	}
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
 }
 
 type deadlineBody struct {

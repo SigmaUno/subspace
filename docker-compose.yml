@@ -1,0 +1,70 @@
+services:
+  server:
+    build:
+      context: .
+      target: server
+    restart: unless-stopped
+    environment:
+      SUBSPACE_ADDR: ":8080"
+      SUBSPACE_DB: "${SUBSPACE_DB:-/data/db/subspace.db}"
+      SUBSPACE_OWNER_TOKEN: "${SUBSPACE_OWNER_TOKEN:-}"
+      SUBSPACE_OWNER_TOKEN_FILE: "${SUBSPACE_OWNER_TOKEN_FILE:-}"
+      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-http://localhost}"
+      SUBSPACE_CAPACITY_FILE: "${SUBSPACE_CAPACITY_FILE:-}"
+      SUBSPACE_LEASE: "${SUBSPACE_LEASE:-15m}"
+      SUBSPACE_SPAWNER: "${SUBSPACE_SPAWNER:-noop}"
+      SUBSPACE_HC_BIN: "${SUBSPACE_HC_BIN:-}"
+      SUBSPACE_HC_HOST: "${SUBSPACE_HC_HOST:-}"
+      SUBSPACE_HC_COMMAND: "${SUBSPACE_HC_COMMAND:-}"
+      SUBSPACE_BACKUP_DIR: /data/backups
+      SUBSPACE_BACKUP_INTERVAL: "0"
+      SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
+      SUBSPACE_LOG_LEVEL: "${SUBSPACE_LOG_LEVEL:-info}"
+    volumes:
+      - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
+      - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
+      - "${SUBSPACE_DATA:-/data/subspace}/config:/data/config:ro"
+
+  web:
+    build:
+      context: web
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      SUBSPACE_API_URL: "${SUBSPACE_API_URL:-http://server:8080}"
+      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-http://localhost}"
+
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    depends_on:
+      - server
+      - web
+    environment:
+      SUBSPACE_DOMAIN: "${SUBSPACE_DOMAIN:-:80}"
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - "${SUBSPACE_DATA:-/data/subspace}/caddy/data:/data"
+      - "${SUBSPACE_DATA:-/data/subspace}/caddy/config:/config"
+
+  backup:
+    build:
+      context: .
+      target: backup
+    restart: unless-stopped
+    depends_on:
+      - server
+    environment:
+      SUBSPACE_DB: "${SUBSPACE_DB:-/data/db/subspace.db}"
+      SUBSPACE_BACKUP_DIR: /data/backups
+      SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
+      SUBSPACE_BACKUP_EVERY_SECONDS: "${SUBSPACE_BACKUP_EVERY_SECONDS:-86400}"
+    volumes:
+      # A live WAL database may need a writable SHM file even for read-only SQLite opens.
+      - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
+      - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"

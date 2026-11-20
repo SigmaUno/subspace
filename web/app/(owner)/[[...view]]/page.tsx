@@ -25,6 +25,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
+  if (root === "charter" && view.length === 1) return <Workspace section="charter" architecture={false} />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
   if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;
   if (root === "tasks" && id && view.length === 2) return <TaskDetailPage id={id} />;

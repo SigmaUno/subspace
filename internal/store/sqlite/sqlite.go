@@ -41,6 +41,8 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
+var extraSchemas []string
+
 var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
 
 func dsn(path string, immediate bool) string {

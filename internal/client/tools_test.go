@@ -187,6 +187,10 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("empty usage report: %v", err)
 	}
 
+	_, _ = uc.ListArtifacts(ctx, "", 1)
+	_, _ = uc.GetArtifact(ctx, "A-1")
+	_, _ = uc.PutArtifact(ctx, "agent:me", "a.txt", "text/plain", []byte("x"))
+
 	for _, role := range []string{model.RoleLeader, model.RoleWorker, model.RoleTester, model.RoleReviewer} {
 		for _, tl := range mcp.DefaultRegistry().List(role) {
 			if !e.seen.has(tl.Name) {

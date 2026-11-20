@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"testing"
 	"time"
@@ -29,6 +30,11 @@ func New(t *testing.T) *Env {
 
 func Start(t *testing.T, cfg server.Config) *Env {
 	t.Helper()
+	for _, k := range []string{"SUBSPACE_RATE_MCP", "SUBSPACE_RATE_AUTHFAIL"} {
+		if _, ok := os.LookupEnv(k); !ok {
+			_ = os.Setenv(k, "off")
+		}
+	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = filepath.Join(t.TempDir(), "t.db")
 	}

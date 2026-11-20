@@ -2,6 +2,8 @@ package client
 
 import (
 	"context"
+	"encoding/base64"
+	"encoding/json"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
@@ -307,4 +309,22 @@ func (m *MCP) ReportUsage(ctx context.Context, in UsageReport) (*usage.Record, e
 		return nil, err
 	}
 	return out.Record, nil
+}
+
+func (m *MCP) ListArtifacts(ctx context.Context, scope string, limit int) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := m.Call(ctx, "list_artifacts", map[string]any{"scope": scope, "limit": limit}, &out)
+	return out, err
+}
+
+func (m *MCP) GetArtifact(ctx context.Context, id string) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := m.Call(ctx, "get_artifact", map[string]any{"id": id}, &out)
+	return out, err
+}
+
+func (m *MCP) PutArtifact(ctx context.Context, scope, name, contentType string, content []byte) (json.RawMessage, error) {
+	var out json.RawMessage
+	err := m.Call(ctx, "put_artifact", map[string]any{"scope": scope, "name": name, "content_type": contentType, "content_base64": base64.StdEncoding.EncodeToString(content)}, &out)
+	return out, err
 }

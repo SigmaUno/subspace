@@ -54,7 +54,9 @@ function AgentRow({ agent, task, recent, openThread, openChat }: {
       <div className="meta ellipsis" title={agent.model}>{agent.kind} · {agent.model}</div></div>
     <div>{task ? <button className="text-button ellipsis" type="button" title={task.title}
       onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button> : <span className="meta">No current task</span>}
-      <div className={blocked ? "stale" : "meta"}>{task ? `${label(task.status)} · ${task.progress_pct}% · ${elapsed(task.minutes_used)}` : `${agent.role} · ${agent.status}`}</div>
+      <div className="meta">{task
+        ? <><span className="pill" data-status={task.status}>{label(task.status)}</span> {task.progress_pct}% · {elapsed(task.minutes_used)}</>
+        : `${agent.role} · ${agent.status}`}</div>
     </div>
     <div><Heartbeat time={heartbeat} watch={agent.status === "active"} expires={task?.lease_expires_at} />
       <div className="meta">{agent.assigned_count} assigned</div></div>

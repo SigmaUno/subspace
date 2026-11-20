@@ -93,7 +93,7 @@ export function Architecture({ components, tasks, loading, error, openThread, op
         {current.depends_on.map((id) => <button key={id} type="button" onClick={() => setSelected(id)}>{components.find((item) => item.id === id)?.name || id}</button>)}
       </div>}
       <div className="actions">
-        {statuses.filter(([status]) => summary.counts[status]).map(([status, label]) => <span key={status} className={`pill ${status === "blocked" || status === "needs_owner" ? "stale" : ""}`}>{summary.counts[status]} {label.toLowerCase()}</span>)}
+        {statuses.filter(([status]) => summary.counts[status]).map(([status, label]) => <span key={status} className="pill" data-status={status}>{summary.counts[status]} {label.toLowerCase()}</span>)}
         {!!summary.stale && <span className="pill stale">{summary.stale} stale</span>}
       </div>
       <div className="actions"><span className="meta">Owners</span>{summary.owners.length ? summary.owners.map((id) => <button key={id} type="button" onClick={() => openThread({ kind: "agent", id })}>{id}</button>) : <span className="meta">Unassigned</span>}</div>

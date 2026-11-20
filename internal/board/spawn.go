@@ -143,6 +143,9 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	cfg := b.capConfig()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
+		if err := pausedTx(tx); err != nil {
+			return err
+		}
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {
 			return err

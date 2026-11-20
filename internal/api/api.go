@@ -67,6 +67,10 @@ func qint(r *http.Request, name string) int {
 	return n
 }
 
+func qlimit(r *http.Request) int {
+	return min(qint(r, "limit"), board.MaxPage)
+}
+
 func qint64(r *http.Request, name string) int64 {
 	n, _ := strconv.ParseInt(r.URL.Query().Get(name), 10, 64)
 	return n
@@ -179,7 +183,7 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: qint(r, "limit")})
+		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: qlimit(r)})
 		return map[string]any{"tasks": ts}, err
 	}))
 	m("GET /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetTask(r.Context(), model.Owner, r.PathValue("id")) }))
@@ -258,7 +262,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 
 	m("GET /api/v1/threads/{kind}/{id}/messages", a.do(200, func(r *http.Request) (any, error) {
-		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), qint(r, "limit"))
+		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), qlimit(r))
 		return map[string]any{"messages": ms}, err
 	}))
 	m("POST /api/v1/threads/{kind}/{id}/messages", a.do(201, func(r *http.Request) (any, error) {
@@ -283,7 +287,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 	m("GET /api/v1/audit", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: qint(r, "limit")})
+		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: qlimit(r)})
 		return map[string]any{"events": ev}, err
 	}))
 

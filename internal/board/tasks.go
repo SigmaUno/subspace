@@ -192,6 +192,11 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 		if p.Status != nil {
 			switch *p.Status {
 			case model.StatusBlocked:
+				switch t.Status {
+				case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested:
+				default:
+					return model.Conflict("cannot block a %s task", t.Status)
+				}
 				if t.Status == model.StatusInProgress {
 					b.endLease(t)
 				}
@@ -363,6 +368,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 	}
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		if err := pausedTx(tx); err != nil {
+			return err
+		}
 		t, err := tx.GetTask(taskID)
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
@@ -618,8 +626,21 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 			return err
 		}
 		prov := map[string]string{}
+		allowed := map[string]bool{}
 		for _, t := range ts {
 			if t.Reviewer != nil && *t.Reviewer != a.ID {
+				continue
+			}
+			ok, seen := allowed[t.BriefID]
+			if !seen {
+				br, err := tx.GetBrief(t.BriefID)
+				if err != nil {
+					return err
+				}
+				ok = b.providerAllowed(br, me.Provider)
+				allowed[t.BriefID] = ok
+			}
+			if !ok {
 				continue
 			}
 			p, ok := prov[deref(t.Assignee)]
@@ -661,6 +682,13 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		me, err := tx.GetAgent(a.ID)
 		if err != nil {
 			return err
+		}
+		br, err := tx.GetBrief(t.BriefID)
+		if err != nil {
+			return err
+		}
+		if !b.providerAllowed(br, me.Provider) {
+			return model.Forbidden("provider %q is not allowed for brief %s", me.Provider, br.ID)
 		}
 		if t.Assignee != nil {
 			if wk, e := tx.GetAgent(*t.Assignee); e == nil && wk.Provider == me.Provider {

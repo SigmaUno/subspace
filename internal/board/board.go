@@ -125,6 +125,9 @@ func (w *wctx) agent(a *model.Agent) {
 }
 
 func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body string) error {
+	if len(body) > maxBody {
+		return model.BadRequest("message too long (max %d bytes)", maxBody)
+	}
 	m := &model.Message{ThreadKind: kind, ThreadID: id, AuthorID: author.ID, AuthorRole: author.Role, Kind: mk, Body: body, CreatedAt: w.b.now()}
 	if err := tx.InsertMessage(m); err != nil {
 		return err
@@ -235,6 +238,17 @@ func (b *Board) Paused() (bool, string) {
 	b.pausedMu.RLock()
 	defer b.pausedMu.RUnlock()
 	return b.paused, b.pauseWhy
+}
+
+func pausedTx(tx store.Tx) error {
+	v, ok, err := tx.GetKV("paused")
+	if err != nil {
+		return err
+	}
+	if ok && v != "" {
+		return model.Errf("paused", "Subspace is paused: %s", v)
+	}
+	return nil
 }
 
 func (b *Board) Run(ctx context.Context) {

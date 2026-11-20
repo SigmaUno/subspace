@@ -1,6 +1,3 @@
-// Package store defines the persistence interface of Subspace. Business logic
-// depends only on these interfaces so the SQLite implementation can be swapped
-// (e.g. for Postgres).
 package store
 
 import (
@@ -10,13 +7,10 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
-// ErrNotFound is returned by Get* when the row does not exist.
 var ErrNotFound = errors.New("store: not found")
 
-// ErrDuplicate is returned on unique violations.
 var ErrDuplicate = errors.New("store: duplicate")
 
-// TaskFilter selects tasks. Zero fields are ignored.
 type TaskFilter struct {
 	BriefID  string
 	PlanID   string
@@ -27,14 +21,12 @@ type TaskFilter struct {
 	Limit    int
 }
 
-// AgentFilter selects agents.
 type AgentFilter struct {
 	Role   string
 	Status string
 	Limit  int
 }
 
-// AuditFilter selects audit events (ascending id).
 type AuditFilter struct {
 	AgentID string
 	TaskID  string
@@ -43,8 +35,6 @@ type AuditFilter struct {
 	Limit   int
 }
 
-// Tx is the set of typed operations available both for reads (View) and inside
-// serialized write transactions (Atomic).
 type Tx interface {
 	NextID(prefix string) (string, error)
 
@@ -54,9 +44,9 @@ type Tx interface {
 	ListBriefs(status string) ([]*model.Brief, error)
 
 	InsertPlan(p *model.Plan) error
-	GetPlan(id string) (*model.Plan, error) // Tasks not populated
+	GetPlan(id string) (*model.Plan, error)
 	UpdatePlan(p *model.Plan) error
-	ListPlans(briefID, status string) ([]*model.Plan, error) // Tasks not populated
+	ListPlans(briefID, status string) ([]*model.Plan, error)
 
 	InsertTask(t *model.Task) error
 	GetTask(id string) (*model.Task, error)
@@ -70,9 +60,9 @@ type Tx interface {
 	GetAgentByTokenHash(hash string) (*model.Agent, error)
 	UpdateAgent(a *model.Agent) error
 	ListAgents(f AgentFilter) ([]*model.Agent, error)
-	// TouchAgents sets last_seen for many agents (heartbeat flush).
+
 	TouchAgents(seen map[string]int64) error
-	// ExtendLeases monotonically extends heartbeat/lease of in_progress tasks (heartbeat flush).
+
 	ExtendLeases(rows []LeaseRow) error
 
 	InsertMessage(m *model.Message) error
@@ -94,7 +84,6 @@ type Tx interface {
 	SetKV(key, value string) error
 }
 
-// LeaseRow is one heartbeat flush row (unix milliseconds).
 type LeaseRow struct {
 	TaskID    string
 	Assignee  string
@@ -102,14 +91,11 @@ type LeaseRow struct {
 	Lease     int64
 }
 
-// Store is a persistence backend.
 type Store interface {
-	// Atomic runs fn in a serialized write transaction. A returned error rolls
-	// back only this fn's effects (other queued writers are unaffected).
 	Atomic(ctx context.Context, fn func(Tx) error) error
-	// View runs fn against a consistent read connection.
+
 	View(ctx context.Context, fn func(Tx) error) error
-	// Backup writes a consistent copy of the database to path.
+
 	Backup(ctx context.Context, path string) error
 	Close() error
 }

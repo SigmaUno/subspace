@@ -21,7 +21,6 @@ func checkBody(s string) error {
 	return nil
 }
 
-// canAccessThread implements thread scoping (SPEC §5).
 func canAccessThread(tx store.Tx, a model.Actor, r threads.Ref) error {
 	if a.Role == model.RoleOwner {
 		return nil
@@ -51,7 +50,6 @@ func canAccessThread(tx store.Tx, a model.Actor, r threads.Ref) error {
 	return model.NotFound("thread %s:%s not found", r.Kind, r.ID)
 }
 
-// PostMessage appends to a thread the actor may access.
 func (b *Board) PostMessage(ctx context.Context, a model.Actor, thread, body, kind string) (*model.Message, error) {
 	ref, err := threads.Parse(thread, a.ID)
 	if err != nil {
@@ -82,7 +80,6 @@ func (b *Board) post(ctx context.Context, a model.Actor, ref threads.Ref, body, 
 	return out, err
 }
 
-// AddNote posts a note to the task thread (or the actor's own agent thread).
 func (b *Board) AddNote(ctx context.Context, a model.Actor, taskID, body string) (*model.Message, error) {
 	ref := threads.Ref{Kind: model.ThreadAgent, ID: a.ID}
 	if taskID != "" {
@@ -91,7 +88,6 @@ func (b *Board) AddNote(ctx context.Context, a model.Actor, taskID, body string)
 	return b.post(ctx, a, ref, body, model.MsgNote)
 }
 
-// OwnerReply is the owner's REST reply to any thread.
 func (b *Board) OwnerReply(ctx context.Context, kind, id, body string) (*model.Message, error) {
 	ref, err := threads.Parse(kind+":"+id, "")
 	if err != nil {
@@ -100,7 +96,6 @@ func (b *Board) OwnerReply(ctx context.Context, kind, id, body string) (*model.M
 	return b.post(ctx, model.Owner, ref, body, model.MsgMessage)
 }
 
-// ReadThread reads messages the actor may access.
 func (b *Board) ReadThread(ctx context.Context, a model.Actor, thread string, since int64, limit int) ([]*model.Message, error) {
 	ref, err := threads.Parse(thread, a.ID)
 	if err != nil {
@@ -122,7 +117,6 @@ func (b *Board) readRef(ctx context.Context, a model.Actor, ref threads.Ref, sin
 	return nz(out), err
 }
 
-// OwnerThread reads any thread (owner REST).
 func (b *Board) OwnerThread(ctx context.Context, kind, id string, since int64, limit int) ([]*model.Message, error) {
 	ref, err := threads.Parse(kind+":"+id, "")
 	if err != nil {
@@ -131,9 +125,6 @@ func (b *Board) OwnerThread(ctx context.Context, kind, id string, since int64, l
 	return b.readRef(ctx, model.Owner, ref, since, limit)
 }
 
-// ---- questions ----
-
-// AskOwner records a question for the owner.
 func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question string, options []string) (*model.Question, error) {
 	if err := checkBody(question); err != nil {
 		return nil, err
@@ -179,14 +170,12 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 	return out, err
 }
 
-// ListQuestions lists questions (status "" = all).
 func (b *Board) ListQuestions(ctx context.Context, status string) ([]*model.Question, error) {
 	var out []*model.Question
 	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListQuestions(status); return })
 	return nz(out), err
 }
 
-// Answer answers a question (owner).
 func (b *Board) Answer(ctx context.Context, id, answer string) (*model.Question, error) {
 	if err := checkBody(answer); err != nil {
 		return nil, err
@@ -222,14 +211,11 @@ func (b *Board) Answer(ctx context.Context, id, answer string) (*model.Question,
 	return out, err
 }
 
-// ListAudit lists audit events.
 func (b *Board) ListAudit(ctx context.Context, f store.AuditFilter) ([]*model.AuditEvent, error) {
 	var out []*model.AuditEvent
 	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListAudit(f); return })
 	return nz(out), err
 }
-
-// ---- instructions ----
 
 const baseInstructions = `You are %s, role %s, on Subspace.
 ALWAYS: work only on tasks assigned to you (leader: on the brief). Work on the task's branch in the task's repo and open/update a PR. Keep status current with update_status; heartbeat while working. Stay within budget, otherwise ask_owner. Record decisions with add_note / post_message.
@@ -244,7 +230,6 @@ var roleInstructions = map[string]string{
 	model.RoleLeader:   "FLOW: get_brief → propose_plan (the owner must approve it) → after approval assign ready tasks to agents (list_agents, capacity), reassign/unblock as needed, request_spawn when more workers are needed. Never write code, merge, or edit the charter.",
 }
 
-// Instructions returns the stable agent instructions followed by the charter.
 func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error) {
 	c, err := b.GetCharter(ctx)
 	if err != nil {
@@ -252,4 +237,46 @@ func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error)
 	}
 	s := fmt.Sprintf(baseInstructions, a.ID, a.Role) + roleInstructions[a.Role] + "\n--- Owner charter ---\n" + c.Text
 	return s, nil
+}
+
+func (b *Board) AppendMessage(ctx context.Context, kind, id string, m model.Message) (model.Message, error) {
+	if err := checkBody(m.Body); err != nil {
+		return m, err
+	}
+	if m.Kind == "" {
+		m.Kind = model.MsgMessage
+	}
+	author := model.Actor{ID: m.AuthorID, Role: m.AuthorRole}
+	var out model.Message
+	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		if err := w.post(tx, kind, id, author, m.Kind, m.Body); err != nil {
+			return err
+		}
+		out = *w.events[len(w.events)-1].data.(*model.Message)
+		return nil
+	})
+	return out, err
+}
+
+func (b *Board) ActiveAgentsOfBrief(ctx context.Context, briefID string) ([]string, error) {
+	var ids []string
+	err := b.read(ctx, func(tx store.Tx) error {
+		ts, err := tx.ListTasks(store.TaskFilter{BriefID: briefID, Limit: 100000})
+		if err != nil {
+			return err
+		}
+		seen := map[string]bool{}
+		for _, t := range ts {
+			switch t.Status {
+			case model.StatusDone, model.StatusCancelled, model.StatusBacklog:
+				continue
+			}
+			if a := deref(t.Assignee); a != "" && !seen[a] {
+				seen[a] = true
+				ids = append(ids, a)
+			}
+		}
+		return nil
+	})
+	return ids, err
 }

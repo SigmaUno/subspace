@@ -576,7 +576,7 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease}
+		b.tasks[t.ID] = hotTask{hb: now, lease: lease, assignee: a.ID}
 		b.dirtyT[t.ID] = struct{}{}
 		l := lease
 		res.LeaseExpiresAt = &l

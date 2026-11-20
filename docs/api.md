@@ -5,7 +5,7 @@ the server changes, this file changes in the same PR.
 
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, spawns `S-<n>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
@@ -23,7 +23,7 @@ Errors (REST): HTTP status + body
 ```json
 {"error": {"code": "not_found", "message": "task T-9 not found"}}
 ```
-Codes: `bad_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500.
+Codes: `bad_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded` 507 (artifact uploads). Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`.
 
@@ -36,6 +36,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 {"id":"B-1","title":"...","body":"markdown brief","repos":["SigmaUno/foo"],"status":"open",   // open|closed
  "budget":{"max_cost_eur":50.0,"max_parallel_agents":10},
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
+ "cross_review":true,
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected
  "created_at":"..."}
 
@@ -47,9 +48,9 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "progress_pct":40,"last_heartbeat_at":"...","lease_expires_at":"...","pr_url":null,
  "budget":{"max_minutes":120,"max_cost_eur":5.0},"cost_used":0.4,"minutes_used":12,
  "review_rounds":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
+ "blocked_reason":null,                                // string when status is blocked or needs_owner
  "created_at":"...","updated_at":"..."}
 // status: backlog|ready|assigned|in_progress|submitted|in_review|changes_requested|approved|done|blocked|needs_owner|cancelled
-// Task.blocked_reason (string|null) is set when status is blocked/needs_owner.
 
 // Plan
 {"id":"P-1","brief_id":"B-1","status":"proposed",   // proposed|approved|rejected|superseded
@@ -63,10 +64,10 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "pause_reason":null,"current_task_id":"T-3","assigned_count":2,
  "last_seen_at":"...","created_at":"...","spawned":false}
 
-// Message (thread entry)
+// Message
 {"id":42,"thread_kind":"task","thread_id":"T-3","author_id":"claude-1","author_role":"worker",
  "kind":"message","body":"...","created_at":"..."}
-// thread_kind: agent|task|brief ; kind: message|status|question|answer|note|system
+// thread entry. thread_kind: agent|task|brief ; kind: message|status|question|answer|note|system
 
 // Question
 {"id":"Q-1","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1","question":"...","options":["a","b"],
@@ -103,7 +104,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | POST | `/api/v1/pause-all` | `{"reason":"..."}` → `{"paused":true}`. Revokes all leases (in_progress → assigned), blocks claims. |
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
-| POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`). |
+| POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO` into `SUBSPACE_BACKUP_DIR`; 400 when no backup directory is configured). |
 
 ### Briefs
 | Method | Path | Body → Response |
@@ -162,16 +163,191 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 ### Capacity & spawns
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12}` |
+| GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12,"paused":false}` |
 | PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
 | GET | `/api/v1/spawns?brief_id=` | → `{"spawns":[Spawn]}` |
 
 ### Audit
-`GET /api/v1/audit?agent_id=&task_id=&tool=&since=<id>&limit=` → `{"events":[AuditEvent]}` ascending; append-only, no write endpoint.
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&limit=` | → `{"events":[AuditEvent]}` ascending; append-only, no write endpoint. |
+
+### Reports & architecture
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/briefs/{id}/report` | → Report. 404 for an unknown brief. |
+| GET | `/api/v1/briefs/{id}/report.md` | → the same report as `text/markdown`. |
+
+```jsonc
+// Report
+{"brief_id":"B-1","title":"...","generated_at":"...","total":4,"counts":{"done":3,"blocked":1},
+ "tasks":[{"id":"T-1","title":"...","status":"done","assignee":"claude-1","provider":"anthropic","cost_eur":0.4,
+           "created_at":"...","claimed_at":null,"submitted_at":null,"done_at":null,"claims":1,"review_rounds":0,
+           "reviews":[{"at":"...","reviewer":"codex-r","verdict":"approve","wait_seconds":30}],
+           "timeline":[{"at":"...","from":"ready","to":"assigned","by":"rex","tool":"assign","elapsed_seconds":0}],
+           "time_in_status":{"assigned":12},"queue_seconds":0,"work_seconds":0,"review_seconds":0,
+           "blocked_seconds":0,"active_seconds":0,"lead_seconds":0}],
+ "cost":{"total_eur":0.4,"by_task":{"T-1":0.4},"by_agent":{"claude-1":0.4},"by_provider":{"anthropic":0.4}},
+ "blocked_seconds":0,
+ "throughput":{"done":3,"window_hours":2.5,"per_hour":1.2,"hourly":[{"hour":"...","done":2}]},
+ "critical_path":{"task_ids":["T-1","T-2"],"seconds":3600},
+ "outliers":[{"task_id":"T-3","metric":"work_seconds","value":9000,"threshold":3000}]}
+
+// Component
+{"id":"C-1","brief_id":"B-1","name":"api","description":"...","paths":["internal/api"],"depends_on":["C-2"]}
+```
+
+Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
+
+### Decisions
+The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks and stale agents (an active agent with a current task not seen for 10 minutes).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/decisions?limit=` | → `{"decisions":[Decision]}` without snoozed ones, ordered by `priority` descending, then `created_at` ascending, then `id`. `limit` default 100, max 1000, 400 if not a positive integer. |
+| GET | `/api/v1/decisions/next` | → `{"decision":Decision}`; `decision` is `null` when the inbox is empty. |
+| POST | `/api/v1/decisions/{id}` | `{"action":"...", ...}` → `{"id":"q:Q-1","action":"answer","result":<result>,"next":Decision}`; `next` is `null` when nothing is left. 400 without `action`, 404 for an unknown id, 409 when the action is not in the decision's `actions`. |
+
+```jsonc
+// Decision
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent
+ "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
+ "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
+ "priority":70,"created_at":"...","actions":["answer","skip"]}
+```
+
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+
+| kind | actions | payload → `result` |
+|---|---|---|
+| `question` | `answer`, `skip` | `answer` `{"answer":"..."}` (required) → Question |
+| `plan` | `approve`, `reject`, `skip` | `approve` `{"note":""}` → Plan; `reject` `{"reason":""}` (or `note`) → Plan |
+| `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
+| `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
+| `stale_agent` | `skip` | – |
+
+`skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
+
+### Chat
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/messages` | `{"to":"agent:<id> or brief:<id> or leader","body":"..."}` → Conversation (201). `body` is required and at most 64 KiB; unknown fields are rejected with 400. |
+| GET | `/api/v1/conversations` | → `{"conversations":[Conversation]}` newest first, without `messages`. |
+| GET | `/api/v1/conversations/{id}` | → Conversation with `messages`. 404 for an unknown id. |
+
+```jsonc
+// Conversation
+{"id":"C-0123456789abcdef","to":"agent:claude-1","recipients":["claude-1"],"created_at":"...",
+ "messages":[/* Message */]}                    // omitted in the list
+```
+
+A send appends one owner `message` to the agent thread of each recipient. `agent:<id>` is one agent (404 if unknown, 409 if revoked), `brief:<id>` every active agent working on that brief, `leader` the first active leader (404 when there is none). `component:<id>` is accepted but resolves no agents yet, so it returns 404. The stored and POST-returned body is prefixed with `[conv <id>] `; `GET /conversations/{id}` strips the prefix and returns the owner message plus the recipient's `message` replies posted before the owner's next message, ordered by time. Conversations are held in memory per server process.
+
+### Prompts
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/prompts?tag=` | → `{"prompts":[Template]}` sorted by id. |
+| GET | `/api/v1/prompts/{id}` | → Template. 404 for an unknown id. |
+| GET | `/api/v1/prompts/{id}/render?<variable>=<value>` | → `{"id":"...","text":"..."}`; 400 listing the missing variables. |
+
+```jsonc
+// Template
+{"id":"make-10x-faster","title":"Make it 10x faster","tags":["performance"],"variables":["target","command"],
+ "body":"Make {{target}} at least 10x faster. ..."}
+```
+
+Built-in templates are embedded; `.md` files in `SUBSPACE_PROMPTS_DIR` override or extend them by id.
+
+### Hillclimb
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/hillclimb/jobs` | `{"brief_id","repo","metric_cmd","direction":"min or max","target":null,"budget":0,"plateau_n":0}` → Job (201). `brief_id`, `repo`, `metric_cmd` and `direction` are required; `budget` and `plateau_n` must not be negative. |
+| GET | `/api/v1/hillclimb/jobs` | → `{"jobs":[Job]}` (no filters). |
+| GET | `/api/v1/hillclimb/jobs/{id}/series` | → `{"job":Job,"points":[Point]}`, oldest attempt first. 404 for an unknown id. |
+
+```jsonc
+// Job
+{"id":"H-1","brief_id":"B-1","repo":"SigmaUno/foo","metric_cmd":"make bench","direction":"min",
+ "target":null,"budget":0,"plateau_n":0,           // budget 0 = unlimited, plateau_n 0 = off
+ "status":"running","stop_reason":null,            // running|stopped; target_reached|budget_exhausted|plateau
+ "best":null,"best_attempt_id":null,"attempts":0,"since_best":0,"created_at":"..."}
+
+// Point
+{"n":1,"attempt_id":1,"agent_id":"claude-1","branch":"sub/t-3-speedup","value":12.5,"best":12.5,"measured_at":"..."}   // value null when the attempt failed
+```
+
+Jobs are held in memory per server process, and the server has no measurement runner configured, so jobs stay `running` with no attempts.
+
+### Artifacts
+Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/artifacts?scope=&name=` | `multipart/form-data` with the file in part `file` (optional parts `scope`, `name`, `content_type` before it) → Artifact (201). 413 `too_large` above `SUBSPACE_ARTIFACT_MAX_FILE_BYTES` (default 100 MiB), 507 `quota_exceeded` above `SUBSPACE_ARTIFACT_PROJECT_QUOTA_BYTES` per project (default 5 GiB). |
+| GET | `/api/v1/artifacts?scope=&limit=` | → `{"artifacts":[Artifact]}`; `limit` default 100, max 1000. |
+| GET | `/api/v1/artifacts/{id}` | → the raw file with `Content-Type`, `Content-Disposition`, `ETag` (SHA-256), `Content-Security-Policy: sandbox`; supports `Range`. |
+| DELETE | `/api/v1/artifacts/{id}` | → 204 |
+
+```jsonc
+// Artifact
+{"id":"A-1","scope":"task:T-3","name":"run.log","size":5,"sha256":"2cf2...","content_type":"text/plain",
+ "uploaded_by":"owner","project":"B-1","created_at":"..."}
+```
+
+Files live under `$SUBSPACE_DATA_DIR/artifacts` (default: the database directory).
+
+### Bots
+Agent management with a liveness flag. A bot is an Agent plus `live` (active and seen within twice the lease, or `SUBSPACE_BOTS_LIVE_WINDOW`). `kind` accepts `claude-code`, `codex`, `opencode`, `opencode-anthropic`, `opencode-deepseek` and `other`; `provider` defaults from the kind and `role` defaults to `worker`.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/bots?role=&status=` | → `{"bots":[Bot]}` |
+| POST | `/api/v1/bots` | `{"name","role","kind","provider","model"}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
+| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model"}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
+| POST | `/api/v1/bots/spawn` | `{"brief_id","kind","model","n":1,"role","provider"}` → `{"spawns":[Spawn]}` (201). Same checks as `request_spawn`; `kind` `other` is rejected. |
+| GET | `/api/v1/bots/{id}` | → `{"bot":Bot}` |
+| DELETE | `/api/v1/bots/{id}` | → `{"bot":Bot}` revoked. 409 if already revoked. |
+| POST | `/api/v1/bots/{id}/revoke` | `{"reason":""}` → `{"bot":Bot}`; same as DELETE. |
+| POST | `/api/v1/bots/{id}/rotate-token` | `{}` → `{"bot":Agent,"connect":Connect}` (new token once). |
+| POST | `/api/v1/bots/{id}/pause` | `{"reason":""}` → `{"bot":Bot}` paused (default reason `paused by owner`). 409 if revoked. |
+| POST | `/api/v1/bots/{id}/resume` | `{}` → `{"bot":Bot}` |
+| POST | `/api/v1/bots/{id}/kill` | `{"reason":""}` → `{"bot":Bot,"stopped":true}`. Pauses the bot (default reason `killed by owner`), then asks the spawner to stop it; `stopped` is `false` when the spawner cannot stop processes. |
+
+### Instructions
+Versioned owner instructions, appended to every agent's `get_instructions`. Scope is `global` or `project:<brief id>`; kind is `rules`, `style` or `templates`. Every save and rollback creates a new version and is audited.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/instructions/effective?project=<brief id>` | → `{"text":"# Rules\n\n...","version":"g3.0.0/p1.0.0"}`. Global text merged with the project text, one section per kind. `version` lists the head version of rules.style.templates per scope. |
+| GET | `/api/v1/instructions/{scope}/{kind}` | → Version (head). 404 when never saved. |
+| PUT | `/api/v1/instructions/{scope}/{kind}` | `{"text":"...","message":"..."}` → Version (201). `text` at most 256 KiB. |
+| GET | `/api/v1/instructions/{scope}/{kind}/versions` | → `{"versions":[Meta]}` newest first. |
+| GET | `/api/v1/instructions/{scope}/{kind}/versions/{n}` | → Version. 404 for an unknown version. |
+| GET | `/api/v1/instructions/{scope}/{kind}/diff?from=&to=` | → `{"from":1,"to":2,"lines":[{"op":"equal or add or delete","text":"..."}]}` |
+| POST | `/api/v1/instructions/{scope}/{kind}/rollback` | `{"to":1,"message":""}` → Version (201), a new version with the old text. 409 if `to` is already the head. |
+
+```jsonc
+// Version (Meta without "text")
+{"scope":"global","kind":"rules","version":2,"author":"owner","message":"...","created_at":"...","text":"..."}
+```
+
+### Search
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/search/?q=&kind=&limit=` | → `{"results":[{"kind":"task","id":"T-1","field":"title","snippet":"...«match»...","at":"..."}]}`. `q` is required, at most 200 characters; `kind` is `task`, `message`, `agent` or `brief`; `limit` default 20, max 100. Message ids are the numeric message id. Other methods return 405. |
+
+### Notifications
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
 
 ## 4. SSE: `GET /api/v1/events`
 
-Owner token header. (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/events?topics=` | → `text/event-stream` (owner token header) |
+
+(Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
 Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`.
 
 Response `text/event-stream`, a `: ping` comment every 15s. Each event:
@@ -187,7 +363,7 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `hello` | `{"seq":n}` | – |
 | `task.created` / `task.updated` | Task (heartbeats are coalesced: at most one `task.updated` per task per 2s) | board, brief:*, task:* |
 | `agent.updated` | Agent | agents, agent:* |
-| `message.created` | Message | thread:*, plus board for kind `question` |
+| `message.created` | Message | thread:*, plus questions for kind `question` |
 | `question.created` / `question.answered` | Question | questions |
 | `plan.proposed` / `plan.approved` / `plan.rejected` | Plan | plans, brief:* |
 | `spawn.updated` | Spawn | agents, brief:* |
@@ -218,6 +394,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
 | get_brief, list_briefs, propose_plan, create_task, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
+| list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
 
@@ -226,7 +403,7 @@ Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, regi
 All tools return an object; `task` = Task object above.
 
 **Common**
-- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`
+- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions, then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
 - `whoami {}` → `{"agent":Agent,"paused":false,"server_time":"..."}`
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
 - `get_task {"task_id"}` → `{"task":Task}` (own/assigned tasks; leader: any)
@@ -236,6 +413,11 @@ All tools return an object; `task` = Task object above.
 - `ask_owner {"task_id?","question","options?":["..."]}` → `{"question":Question}`; answer arrives in the task/agent thread (`read_thread`).
 - `post_message {"thread":"task:T-3","body"}` → `{"message":Message}`. `thread` is `agent:<id>` (or `agent:me`), `task:<id>`, `brief:<id>`. Scope: own agent thread; task threads where I am assignee/reviewer; leader additionally every task/brief thread.
 - `read_thread {"thread","since?":int,"limit?":int}` → `{"messages":[Message]}`
+
+**Artifacts** (all roles; the same access rules as the owner REST artifacts, limited to scopes the agent can reach: its own agent scope, tasks it holds, and their projects)
+- `list_artifacts {"scope?","limit?":1-1000}` → `{"artifacts":[Artifact]}`
+- `get_artifact {"id"}` → `{"artifact":Artifact,"content_base64":"..."}` for files up to 256 KiB, otherwise `{"artifact":Artifact,"url":"...","url_expires_at":"..."}`
+- `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"..."}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.
@@ -264,21 +446,3 @@ All tools return an object; `task` = Task object above.
 ### Threads scoping summary
 Agent thread `agent:<id>`: leader messages to the agent, owner replies, answers, system notices. Task thread `task:<id>`: status changes (auto), notes, questions/answers, reviews, tests. Brief thread `brief:<id>`: plan decisions, leader notes.
 
-## 6. Swarm overview extensions
-
-| Method | Path | Response or body |
-|---|---|---|
-| GET | `/api/v1/decisions` | `{"decisions":[Decision],"count":n}`, ordered by impact descending, creation time ascending |
-| GET | `/api/v1/decisions/next` | `{"decision":Decision|null,"count":n}` |
-| POST | `/api/v1/decisions/{id}` | `{"action":"approve|reject|answer|unblock","answer":"...","note":"..."}` |
-| GET | `/api/v1/briefs/{id}/architecture` | `{"components":[Component]}` |
-| POST | `/api/v1/messages` | `{"to":"agent:ID|component:ID|brief:ID|leader","body":"..."}` → `{"conversation_id":"ID"}` |
-| GET | `/api/v1/conversations/{id}` | `{"id":"ID","messages":[Message]}` |
-| GET | `/api/v1/hillclimb/jobs?brief_id={id}` | `{"jobs":[Job]}` |
-| GET | `/api/v1/hillclimb/jobs/{id}/series` | `{"job":Job,"attempts":[Attempt]}`, oldest attempt first |
-
-- Decision fields are `id`, `kind` (`plan|question|merge|unblock`), `title`, `body`, `brief_id`, `task_id`, `agent_id`, `pr_url`, `options`, `impact` and `created_at`. Approving a merge decision records owner approval.
-- Component fields are `id`, `name`, `description`, `depends_on`, `paths`, `owner_agent_ids`, `task_ids`, and optional `status_counts`, `progress_pct`, `stale_count` and `last_activity_at`. Tasks may carry `component_id`.
-- `GET /api/v1/agents?include=last_message` may include an agent's latest `Message` across the agent thread and current task thread.
-- Job fields are `id`, `title`, `metric`, `direction` (`min|max`), `status`, and optional `target` and `stop_reason`. Attempt fields are `id`, `value` (null if failed or pending), `branch`, `branch_url` and `created_at`.
-- The owner overview accepts `decision.created`, `decision.updated`, `decision.resolved`, `architecture.updated`, `conversation.message`, `hillclimb.updated` and `hillclimb.attempt` on the SSE stream. Existing plan, question, task and message events also refresh their associated panels.

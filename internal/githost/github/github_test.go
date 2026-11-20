@@ -91,7 +91,7 @@ func TestGetPR(t *testing.T) {
 		gotAuth, gotPath = r.Header.Get("Authorization"), r.URL.Path
 		switch r.URL.Path {
 		case "/repos/o/r/pulls/7":
-			w.Write([]byte(prJSON))
+			_, _ = w.Write([]byte(prJSON))
 		case "/repos/o/r/pulls/8":
 			w.WriteHeader(404)
 		default:

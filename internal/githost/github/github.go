@@ -180,7 +180,7 @@ func (c *Client) GetPR(ctx context.Context, ref PRRef) (*PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	defer resp.Body.Close()
+	defer func() { _ = resp.Body.Close() }()
 	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
 	if err != nil {
 		return nil, err
@@ -220,7 +220,7 @@ func (c *Client) ParseWebhook(header map[string][]string, body []byte) (*Event, 
 	if w.PullRequest == nil {
 		return nil, fmt.Errorf("github: webhook without pull_request")
 	}
-	if w.Action != "closed" || !(w.PullRequest.Merged || w.PullRequest.MergedAt != nil) {
+	if w.Action != "closed" || (!w.PullRequest.Merged && w.PullRequest.MergedAt == nil) {
 		return nil, fmt.Errorf("%w: pull_request %q", ErrIgnoredEvent, w.Action)
 	}
 	pr := w.PullRequest.toPR(w.Repository.FullName)

@@ -16,6 +16,7 @@ import { FilesView } from "./files";
 import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
 import { Clock, Feedback } from "./components";
+import { ConnectionStatus, ResourceState } from "./states";
 
 export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
   const topbar = useRef<HTMLElement>(null);
@@ -35,7 +36,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
   }, []);
   const [thread, setThread] = useState<Thread | null>(null);
   const [inboxOpen, setInboxOpen] = useState(section === "swarm");
-  const { revisions, recent, connected } = useLive("all");
+  const { revisions, recent, status } = useLive("all");
   const state = useResource<Control>("state", revisions.control);
   const decisions = useResource("decisions", revisions.decisions, optionalResource<DecisionFeed>);
   const decisionCount = decisions.data?.count ?? decisions.data?.decisions?.length ??
@@ -92,7 +93,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
           ))}
         </nav>
         <div className="top-actions">
-          <span className={`connection ${connected ? "online" : ""}`} role="status">{connected ? "Live" : "Reconnecting"}</span>
+          <ConnectionStatus status={status} />
           <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
             Decisions <span className="nav-count">{decisionCount}</span>
           </button>
@@ -103,7 +104,8 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         </div>
       </header>
       <main className={`workspace ${section === "swarm" ? "wide" : ""}`}>
-        <Feedback error={error || state.error} />
+        <Feedback error={error} />
+        <ResourceState error={state.error} retry={state.refresh} />
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
         <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
           <div className="stack workspace-content">

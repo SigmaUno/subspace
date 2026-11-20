@@ -2,6 +2,7 @@ import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { ownerCookie, ownerStatus } from "../../../lib/upstream";
 import { AgentDetailPage } from "./agent-detail";
+import { AuditPage } from "./audit";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
@@ -18,6 +19,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (status !== 200) redirect("/login?error=unavailable");
 
   const [root, id, subview] = view;
+  if (root === "audit" && view.length === 1) return <AuditPage />;
   if (root === "prompts" && view.length === 1) return <PromptsPage />;
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;

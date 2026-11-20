@@ -26,6 +26,8 @@ Codes: `bad_request` 400, `unauthorized` 401, `forbidden` 403, `not_found` 404, 
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`.
 
+In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s owner state endpoint before forwarding requests to protected handlers. Go also authenticates each protected request.
+
 ## 2. Objects
 
 ```jsonc
@@ -105,10 +107,10 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[]}` → Brief (201) |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true}` → Brief (201). `cross_review` defaults to `true`. |
 | GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
 | GET | `/api/v1/briefs/{id}` | → Brief |
-| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, status` → Brief (set_budget) |
+| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, status` → Brief (set_budget) |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}` |
 
 ### Plans
@@ -235,7 +237,7 @@ All tools return an object; `task` = Task object above.
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"..."}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.
 - `release_task {"task_id","reason?"}` → `{"task":Task}` (→ `assigned`)
-- `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`; releases lease; `pr_url` required for worker, optional for tester)
+- `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`, or → `approved` when the brief has `cross_review:false`; releases lease; `pr_url` required for worker, optional for tester)
 
 **Tester**
 - `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`

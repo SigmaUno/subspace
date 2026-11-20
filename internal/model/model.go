@@ -108,6 +108,7 @@ type Brief struct {
 	Status           string      `json:"status"`
 	Budget           BriefBudget `json:"budget"`
 	AllowedProviders []string    `json:"allowed_providers"`
+	CrossReview      bool        `json:"cross_review"`
 	CostUsed         float64     `json:"cost_used"`
 	PlanStatus       string      `json:"plan_status"`
 	CreatedAt        time.Time   `json:"created_at"`

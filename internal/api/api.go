@@ -57,13 +57,23 @@ func decode(r *http.Request, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(b, v); err != nil {
-		return model.BadRequest("invalid JSON: %v", err)
+		return model.BadRequest("invalid JSON body")
 	}
 	return nil
 }
 
+const maxListLimit = 1000
+
 func qint(r *http.Request, name string) int {
 	n, _ := strconv.Atoi(r.URL.Query().Get(name))
+	return n
+}
+
+func limitq(r *http.Request) int {
+	n := qint(r, "limit")
+	if n > maxListLimit {
+		return maxListLimit
+	}
 	return n
 }
 
@@ -179,7 +189,7 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: qint(r, "limit")})
+		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: limitq(r)})
 		return map[string]any{"tasks": ts}, err
 	}))
 	m("GET /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetTask(r.Context(), model.Owner, r.PathValue("id")) }))
@@ -258,7 +268,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 
 	m("GET /api/v1/threads/{kind}/{id}/messages", a.do(200, func(r *http.Request) (any, error) {
-		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), qint(r, "limit"))
+		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), limitq(r))
 		return map[string]any{"messages": ms}, err
 	}))
 	m("POST /api/v1/threads/{kind}/{id}/messages", a.do(201, func(r *http.Request) (any, error) {
@@ -283,7 +293,7 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 	m("GET /api/v1/audit", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: qint(r, "limit")})
+		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: limitq(r)})
 		return map[string]any{"events": ev}, err
 	}))
 

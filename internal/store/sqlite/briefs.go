@@ -11,7 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at`
+const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review`
 
 type briefScanner interface {
 	Scan(dest ...any) error
@@ -41,11 +41,12 @@ func briefScan(s briefScanner) (*model.Brief, error) {
 		maxParallel        int
 		id, title, body    string
 		status, planStatus string
+		crossReview        bool
 	)
-	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS); err != nil {
+	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS, &crossReview); err != nil {
 		return nil, err
 	}
-	b.ID, b.Title, b.Body, b.Status, b.PlanStatus = id, title, body, status, planStatus
+	b.ID, b.Title, b.Body, b.Status, b.PlanStatus, b.CrossReview = id, title, body, status, planStatus, crossReview
 	b.Budget = model.BriefBudget{MaxCostEUR: maxCost, MaxParallelAgent: maxParallel}
 	if err := json.Unmarshal([]byte(repos), &b.Repos); err != nil {
 		return nil, err
@@ -74,9 +75,9 @@ func (t *tx) InsertBrief(b *model.Brief) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?)`,
+	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
 		b.ID, b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt))
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return store.ErrDuplicate
 	}
@@ -101,9 +102,9 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
 		return err
 	}
 	res, err := t.q.ExecContext(t.ctx, `UPDATE briefs SET title=?, body=?, repos=?, status=?, max_cost_eur=?,
-		max_parallel=?, allowed_providers=?, plan_status=?, created_at=? WHERE id=?`,
+		max_parallel=?, allowed_providers=?, plan_status=?, created_at=?, cross_review=? WHERE id=?`,
 		b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.ID)
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.ID)
 	if err != nil {
 		return err
 	}

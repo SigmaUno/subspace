@@ -111,7 +111,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, status` → Brief (set_budget) |
-| GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}` |
+| GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
 | GET | `/api/v1/briefs/{id}/architecture` | → `{"brief_id","nodes":[{"id":"C-1","brief_id","name","description","paths":[],"depends_on":["C-2"],"owners":[{"agent_id","role","agent_status","task_ids":[]}],"status":{"counts":{status:n},"total","progress_avg","blocked","stale","last_activity"}}],"edges":[{"from":"C-1","to":"C-2"}]}` |
 | PUT | `/api/v1/briefs/{id}/components` | `{"components":[{"name","description","paths":[],"depends_on":["<component name>"]}]}` → `{"components":[Component]}`. Replaces the plan; ids `C-<n>` follow list order. 400 on an empty plan, duplicate names, unknown/self/cyclic dependencies or paths that are absolute or escape the repository. |
 
@@ -250,8 +250,8 @@ All tools return an object; `task` = Task object above.
 
 **Leader**
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
-- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"}}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
-- `create_task {"brief_id", ...task fields}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
+- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan.
+- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
@@ -277,7 +277,7 @@ Agent thread `agent:<id>`: leader messages to the agent, owner replies, answers,
 | GET | `/api/v1/hillclimb/jobs/{id}/series` | `{"job":Job,"attempts":[Attempt]}`, oldest attempt first |
 
 - Decision fields are `id`, `kind` (`plan|question|merge|unblock`), `title`, `body`, `brief_id`, `task_id`, `agent_id`, `pr_url`, `options`, `impact` and `created_at`. Approving a merge decision records owner approval.
-- Component fields are `id`, `name`, `description`, `depends_on`, `paths`, `owner_agent_ids`, `task_ids`, and optional `status_counts`, `progress_pct`, `stale_count` and `last_activity_at`. Tasks may carry `component_id`.
+- Component fields are `id`, `name`, `description`, `depends_on`, `paths`, `owner_agent_ids`, `task_ids`, and optional `status_counts`, `progress_pct`, `stale_count` and `last_activity_at`. Tasks carry `component_id`; the architecture graph groups tasks per component through it. The autopilot assigns higher `priority` tasks first.
 - `GET /api/v1/agents?include=last_message` may include an agent's latest `Message` across the agent thread and current task thread.
 - Job fields are `id`, `title`, `metric`, `direction` (`min|max`), `status`, and optional `target` and `stop_reason`. Attempt fields are `id`, `value` (null if failed or pending), `branch`, `branch_url` and `created_at`.
 - The owner overview accepts `decision.created`, `decision.updated`, `decision.resolved`, `architecture.updated`, `conversation.message`, `hillclimb.updated` and `hillclimb.attempt` on the SSE stream. Existing plan, question, task and message events also refresh their associated panels.

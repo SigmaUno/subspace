@@ -106,6 +106,9 @@ func (c componentSource) Tasks(ctx context.Context, briefID string) ([]component
 	out := make([]components.Task, len(ts))
 	for i, t := range ts {
 		out[i] = components.Task{Task: t}
+		if t.ComponentID != nil {
+			out[i].ComponentID = *t.ComponentID
+		}
 	}
 	return out, nil
 }

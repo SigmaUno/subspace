@@ -141,10 +141,6 @@ func (a *API) Register(mux *http.ServeMux) {
 		}
 		return B.SetCharter(r.Context(), in.Text)
 	}))
-	m("POST /api/v1/backup", a.do(200, func(r *http.Request) (any, error) {
-		p, n, err := B.Backup(r.Context())
-		return map[string]any{"path": p, "bytes": n}, err
-	}))
 
 	m("POST /api/v1/briefs", a.do(201, func(r *http.Request) (any, error) {
 		var in board.BriefInput

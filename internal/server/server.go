@@ -6,14 +6,13 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/chat"
@@ -46,11 +45,12 @@ type Config struct {
 }
 
 type Server struct {
-	cfg   Config
-	Store store.Store
-	Board *board.Board
-	Hub   events.Hub
-	mux   *http.ServeMux
+	cfg     Config
+	Store   store.Store
+	Board   *board.Board
+	Hub     events.Hub
+	backups *backup.Scheduler
+	mux     *http.ServeMux
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -79,6 +79,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	hub := events.NewHub()
+	backups, err := backup.New(backup.Config{
+		Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
+		Run: st.Backup, Verify: sqlite.IntegrityCheck, Logger: cfg.Log,
+	})
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
 		PublicURL: cfg.PublicURL, Lease: cfg.Lease, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
@@ -87,7 +95,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 				cache.Invalidate(id)
 			}
 		},
-		Log: cfg.Log, BackupDir: cfg.BackupDir, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
+		Log: cfg.Log, Backups: backups, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
 	})
 	if err != nil {
 		_ = st.Close()
@@ -133,7 +141,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, m := range extraMounts {
 		m(deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, mux: mux}, nil
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, mux: mux}, nil
 }
 
 func (s *Server) Handler() http.Handler { return s.mux }
@@ -142,9 +150,7 @@ func (s *Server) Close() error { return s.Store.Close() }
 
 func (s *Server) Run(ctx context.Context) error {
 	go s.Board.Run(ctx)
-	if s.cfg.BackupInterval > 0 {
-		go s.backupLoop(ctx)
-	}
+	go s.backups.Run(ctx)
 	srv := &http.Server{Addr: s.cfg.Addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -156,43 +162,5 @@ func (s *Server) Run(ctx context.Context) error {
 		return nil
 	case err := <-errc:
 		return err
-	}
-}
-
-func (s *Server) backupLoop(ctx context.Context) {
-	t := time.NewTicker(s.cfg.BackupInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if p, n, err := s.Board.Backup(ctx); err != nil {
-				s.cfg.Log.Error("backup", "err", err)
-			} else {
-				s.cfg.Log.Info("backup written", "path", p, "bytes", n)
-				s.pruneBackups()
-			}
-		}
-	}
-}
-
-func (s *Server) pruneBackups() {
-	keep := s.cfg.BackupKeep
-	if keep <= 0 {
-		return
-	}
-	es, err := os.ReadDir(s.cfg.BackupDir)
-	if err != nil {
-		return
-	}
-	var names []string
-	for _, e := range es {
-		if strings.HasPrefix(e.Name(), "subspace-") && strings.HasSuffix(e.Name(), ".db") {
-			names = append(names, e.Name())
-		}
-	}
-	for i := 0; i < len(names)-keep; i++ {
-		_ = os.Remove(filepath.Join(s.cfg.BackupDir, names[i]))
 	}
 }

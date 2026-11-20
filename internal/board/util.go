@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"github.com/SigmaUno/subspace/internal/spawner"
-	"os"
 	"regexp"
 	"strings"
 )
@@ -61,14 +60,6 @@ type noopSpawner struct{}
 
 func (noopSpawner) Name() string                                 { return "noop" }
 func (noopSpawner) Spawn(context.Context, spawner.Request) error { return nil }
-
-func fileSize(path string) int64 {
-	st, err := os.Stat(path)
-	if err != nil {
-		return 0
-	}
-	return st.Size()
-}
 
 func jsonString(v any) string {
 	b, _ := json.Marshal(v)

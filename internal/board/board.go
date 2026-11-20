@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -23,7 +24,7 @@ type Options struct {
 	Invalidate func(agentID string)
 	Now        func() time.Time
 	Log        *slog.Logger
-	BackupDir  string
+	Backups    *backup.Scheduler
 
 	FlushEvery time.Duration
 	SweepEvery time.Duration

@@ -32,8 +32,8 @@ type Tool struct {
 // Registry holds tools.
 type Registry struct{ tools map[string]*Tool }
 
-// NewRegistry returns an empty registry.
-func NewRegistry() *Registry { return &Registry{tools: map[string]*Tool{}} }
+// NewRegistry0 returns an empty registry.
+func NewRegistry0() *Registry { return &Registry{tools: map[string]*Tool{}} }
 
 // Register adds a tool.
 func (r *Registry) Register(t *Tool) { r.tools[t.Name] = t }

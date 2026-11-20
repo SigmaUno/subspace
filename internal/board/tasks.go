@@ -453,6 +453,7 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	} else if a.Role == model.RoleWorker {
 		return nil, model.BadRequest("pr_url is required")
 	}
+	in.Summary = Redact(in.Summary)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
@@ -504,6 +505,7 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	if in.CostEUR != nil && *in.CostEUR < 0 {
 		return nil, model.BadRequest("cost_eur must be >= 0")
 	}
+	in.Note = Redact(in.Note)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
@@ -592,6 +594,7 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	if passed < 0 || failed < 0 {
 		return nil, model.BadRequest("counts must be >= 0")
 	}
+	log = Redact(log)
 	if len(log) > 8000 {
 		log = log[:8000] + "…"
 	}
@@ -675,6 +678,7 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 	if verdict == "changes_requested" && strings.TrimSpace(comments) == "" {
 		return nil, model.BadRequest("comments are required when requesting changes")
 	}
+	comments = Redact(comments)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)

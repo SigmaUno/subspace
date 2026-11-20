@@ -1,0 +1,69 @@
+package main
+
+import (
+	"context"
+	"fmt"
+	"log/slog"
+	"os"
+	"os/signal"
+	"strings"
+	"syscall"
+	"time"
+
+	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/server"
+)
+
+func env(k, def string) string {
+	if v := os.Getenv(k); v != "" {
+		return v
+	}
+	return def
+}
+
+func dur(k, def string) time.Duration {
+	d, err := time.ParseDuration(env(k, def))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid duration in %s\n", k)
+		os.Exit(2)
+	}
+	return d
+}
+
+func main() {
+	level := slog.LevelInfo
+	if strings.EqualFold(os.Getenv("SUBSPACE_LOG_LEVEL"), "debug") {
+		level = slog.LevelDebug
+	}
+	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
+
+	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
+	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path
+		if err != nil {
+			log.Error("read owner token file", "err", err)
+			os.Exit(2)
+		}
+		tok = strings.TrimSpace(string(b))
+	}
+	board.Version = env("SUBSPACE_VERSION", "dev")
+	cfg := server.Config{
+		Addr: env("SUBSPACE_ADDR", ":8080"), DBPath: env("SUBSPACE_DB", "/data/subspace.db"), OwnerToken: tok,
+		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
+		Lease: dur("SUBSPACE_LEASE", "15m"), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
+		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: 14, Log: log,
+	}
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	s, err := server.New(ctx, cfg)
+	if err != nil {
+		log.Error("start", "err", err)
+		os.Exit(1)
+	}
+	defer func() { _ = s.Close() }()
+	log.Info("subspace listening", "addr", cfg.Addr, "db", cfg.DBPath)
+	if err := s.Run(ctx); err != nil {
+		log.Error("server", "err", err)
+		os.Exit(1)
+	}
+}

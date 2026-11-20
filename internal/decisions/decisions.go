@@ -18,6 +18,7 @@ const (
 	KindMerge    = "merge"
 	KindUnblock  = "unblock"
 	KindStale    = "stale_agent"
+	KindBudget   = "budget"
 )
 
 const (
@@ -41,6 +42,7 @@ const (
 var impact = map[string]int{
 	KindPlan:     80,
 	KindQuestion: 70,
+	KindBudget:   65,
 	KindMerge:    60,
 	KindUnblock:  50,
 	KindStale:    40,
@@ -70,6 +72,7 @@ type Snapshot struct {
 	Plans     []*model.Plan
 	Tasks     []*model.Task
 	Agents    []*model.Agent
+	Extra     []*Decision
 }
 
 type Source interface {
@@ -312,6 +315,9 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 			continue
 		}
 		add(d, extra)
+	}
+	for _, d := range s.Extra {
+		add(d, 0)
 	}
 	for _, a := range s.Agents {
 		if a.Status != model.AgentActive || a.CurrentTaskID == nil {

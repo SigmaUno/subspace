@@ -36,5 +36,6 @@ func (s StoreSource) Snapshot(ctx context.Context) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
+	out.Extra = contributed(ctx, s.Store)
 	return &out, nil
 }

@@ -104,7 +104,8 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | POST | `/api/v1/pause-all` | `{"reason":"..."}` → `{"paused":true}`. Revokes all leases (in_progress → assigned), blocks claims. |
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
-| POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO` into `SUBSPACE_BACKUP_DIR`; 400 when no backup directory is configured). |
+| POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
+| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. |
 
 ### Briefs
 | Method | Path | Body → Response |

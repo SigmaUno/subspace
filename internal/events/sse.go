@@ -1,6 +1,7 @@
 package events
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -10,6 +11,17 @@ import (
 )
 
 const DefaultPingInterval = 15 * time.Second
+
+type shutdownKey struct{}
+
+func WithShutdown(ctx context.Context, done <-chan struct{}) context.Context {
+	return context.WithValue(ctx, shutdownKey{}, done)
+}
+
+func shutdownFrom(ctx context.Context) <-chan struct{} {
+	done, _ := ctx.Value(shutdownKey{}).(<-chan struct{})
+	return done
+}
 
 type seqer interface{ Seq() int64 }
 
@@ -78,6 +90,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		rc := http.NewResponseController(w)
+		shutdown := shutdownFrom(r.Context())
 		sub := h.Subscribe(topics(r))
 		defer sub.Close()
 
@@ -136,6 +149,11 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		for {
 			select {
 			case <-r.Context().Done():
+				return
+			case <-shutdown:
+				if _, err := w.Write(encodeFrame(-1, "close", time.Now(), map[string]string{"reason": "shutdown"})); err == nil {
+					_ = rc.Flush()
+				}
 				return
 			case <-t.C:
 				if err := lagged(); err != nil {

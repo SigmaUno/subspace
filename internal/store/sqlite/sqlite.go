@@ -1,8 +1,3 @@
-// Package sqlite implements store.Store on SQLite (modernc.org/sqlite, pure Go).
-//
-// Writes are serialized through a single writer goroutine that group-commits
-// queued operations into one transaction (each under a SAVEPOINT so a failing
-// operation does not poison the batch). Reads use a separate connection pool.
 package sqlite
 
 import (
@@ -15,7 +10,7 @@ import (
 	"path/filepath"
 	"sync"
 
-	_ "modernc.org/sqlite" // driver
+	_ "modernc.org/sqlite"
 
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -28,7 +23,6 @@ type wreq struct {
 	done chan error
 }
 
-// Store is the SQLite store.
 type Store struct {
 	wdb  *sql.DB
 	rdb  *sql.DB
@@ -52,7 +46,6 @@ func dsn(path string, immediate bool) string {
 	return "file:" + path + "?" + q.Encode()
 }
 
-// Open opens (creating if needed) the database at path.
 func Open(path string) (*Store, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
@@ -77,13 +70,17 @@ func Open(path string) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
+	if err := migrate(wdb); err != nil {
+		_ = wdb.Close()
+		_ = rdb.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
 }
 
-// Close stops the writer and closes the databases.
 func (s *Store) Close() error {
 	var err error
 	s.once.Do(func() {
@@ -94,7 +91,6 @@ func (s *Store) Close() error {
 	return err
 }
 
-// Atomic implements store.Store.
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
@@ -112,12 +108,10 @@ func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	}
 }
 
-// View implements store.Store.
 func (s *Store) View(ctx context.Context, fn func(store.Tx) error) error {
 	return fn(&tx{q: s.rdb, ctx: ctx})
 }
 
-// Backup implements store.Store using VACUUM INTO.
 func (s *Store) Backup(ctx context.Context, path string) error {
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err

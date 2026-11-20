@@ -1,9 +1,9 @@
-// Command subspace is the Subspace server.
 package main
 
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -32,6 +32,15 @@ func dur(k, def string) time.Duration {
 }
 
 func main() {
+	if len(os.Args) > 1 {
+		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore}[os.Args[1]]; ok {
+			if err := run(os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
 	level := slog.LevelInfo
 	if strings.EqualFold(os.Getenv("SUBSPACE_LOG_LEVEL"), "debug") {
 		level = slog.LevelDebug
@@ -40,7 +49,7 @@ func main() {
 
 	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
 	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
-		b, err := os.ReadFile(f)
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path
 		if err != nil {
 			log.Error("read owner token file", "err", err)
 			os.Exit(2)
@@ -50,7 +59,7 @@ func main() {
 	board.Version = env("SUBSPACE_VERSION", "dev")
 	cfg := server.Config{
 		Addr: env("SUBSPACE_ADDR", ":8080"), DBPath: env("SUBSPACE_DB", "/data/subspace.db"), OwnerToken: tok,
-		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"),
+		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
 		Lease: dur("SUBSPACE_LEASE", "15m"), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: 14, Log: log,
 	}
@@ -61,7 +70,7 @@ func main() {
 		log.Error("start", "err", err)
 		os.Exit(1)
 	}
-	defer s.Close()
+	defer func() { _ = s.Close() }()
 	log.Info("subspace listening", "addr", cfg.Addr, "db", cfg.DBPath)
 	if err := s.Run(ctx); err != nil {
 		log.Error("server", "err", err)

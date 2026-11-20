@@ -10,7 +10,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-// Connect is the join information of an agent.
 type Connect struct {
 	AgentID  string            `json:"agent_id"`
 	JoinLine string            `json:"join_line"`
@@ -19,7 +18,6 @@ type Connect struct {
 	Token    string            `json:"token,omitempty"`
 }
 
-// ConnectInfo builds the join line and MCP config snippets (token "" → "<token>").
 func (b *Board) ConnectInfo(agentID, token string) Connect {
 	base := strings.TrimRight(b.o.PublicURL, "/")
 	mcp := base + "/mcp"
@@ -40,7 +38,6 @@ func (b *Board) ConnectInfo(agentID, token string) Connect {
 	}
 }
 
-// AgentInput registers one agent.
 type AgentInput struct {
 	ID       string `json:"id"`
 	Role     string `json:"role"`
@@ -49,7 +46,6 @@ type AgentInput struct {
 	Provider string `json:"provider"`
 }
 
-// Registered is an agent plus its one-time connect info.
 type Registered struct {
 	Agent   *model.Agent `json:"agent"`
 	Connect Connect      `json:"connect"`
@@ -80,7 +76,6 @@ func (b *Board) newAgent(in AgentInput, spawned bool) (*model.Agent, string, err
 		Status: model.AgentActive, CreatedAt: b.now(), Spawned: spawned, TokenHash: auth.Hash(tok)}, tok, nil
 }
 
-// RegisterAgent registers one agent (owner).
 func (b *Board) RegisterAgent(ctx context.Context, in AgentInput) (*Registered, error) {
 	rs, err := b.registerMany(ctx, []AgentInput{in})
 	if err != nil {
@@ -89,7 +84,6 @@ func (b *Board) RegisterAgent(ctx context.Context, in AgentInput) (*Registered, 
 	return rs[0], nil
 }
 
-// BulkInput registers many agents with a common prefix.
 type BulkInput struct {
 	Prefix   string `json:"prefix"`
 	Count    int    `json:"count"`
@@ -99,10 +93,8 @@ type BulkInput struct {
 	Provider string `json:"provider"`
 }
 
-// MaxBulk is the largest bulk registration.
 const MaxBulk = 1000
 
-// RegisterBulk registers prefix-001…prefix-N atomically.
 func (b *Board) RegisterBulk(ctx context.Context, in BulkInput) ([]*Registered, error) {
 	if in.Count < 1 || in.Count > MaxBulk {
 		return nil, model.BadRequest("count must be 1..%d", MaxBulk)
@@ -146,7 +138,6 @@ func (b *Board) registerMany(ctx context.Context, ins []AgentInput) ([]*Register
 	return out, err
 }
 
-// ListAgents lists agents with live heartbeat overlay.
 func (b *Board) ListAgents(ctx context.Context, role, status string) ([]*model.Agent, error) {
 	var out []*model.Agent
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -159,7 +150,6 @@ func (b *Board) ListAgents(ctx context.Context, role, status string) ([]*model.A
 	return nz(out), err
 }
 
-// GetAgent returns one agent.
 func (b *Board) GetAgent(ctx context.Context, id string) (*model.Agent, error) {
 	var out *model.Agent
 	err := b.read(ctx, func(tx store.Tx) error {
@@ -172,7 +162,6 @@ func (b *Board) GetAgent(ctx context.Context, id string) (*model.Agent, error) {
 	return out, err
 }
 
-// LoadByTokenHash is the loader for the auth cache.
 func (b *Board) LoadByTokenHash(hash string) (*model.Agent, error) {
 	var out *model.Agent
 	err := b.st.View(context.Background(), func(tx store.Tx) (e error) { out, e = tx.GetAgentByTokenHash(hash); return })
@@ -203,7 +192,6 @@ func (b *Board) setAgent(ctx context.Context, actor model.Actor, tool, id string
 	return out, err
 }
 
-// RevokeAgent kills an agent's token and releases its leases.
 func (b *Board) RevokeAgent(ctx context.Context, id, reason string) (*model.Agent, error) {
 	return b.setAgent(ctx, model.Owner, "revoke_agent", id, func(tx store.Tx, w *wctx, a *model.Agent) error {
 		a.Status, a.PauseReason = model.AgentRevoked, strp(reason)
@@ -224,7 +212,6 @@ func (b *Board) releaseAgentTasks(tx store.Tx, w *wctx, agentID, note string) er
 	return nil
 }
 
-// ResumeAgent clears an agent pause (loop protection).
 func (b *Board) ResumeAgent(ctx context.Context, id string) (*model.Agent, error) {
 	return b.setAgent(ctx, model.Owner, "resume_agent", id, func(tx store.Tx, w *wctx, a *model.Agent) error {
 		if a.Status == model.AgentRevoked {
@@ -235,7 +222,6 @@ func (b *Board) ResumeAgent(ctx context.Context, id string) (*model.Agent, error
 	})
 }
 
-// PauseAgent pauses one agent (loop protection) and releases its leases.
 func (b *Board) PauseAgent(ctx context.Context, id, reason string) error {
 	_, err := b.setAgent(ctx, model.Actor{ID: "system", Role: "system"}, "pause_agent", id, func(tx store.Tx, w *wctx, a *model.Agent) error {
 		if a.Status != model.AgentActive {
@@ -250,7 +236,6 @@ func (b *Board) PauseAgent(ctx context.Context, id, reason string) error {
 	return err
 }
 
-// RotateToken issues a new token for an agent.
 func (b *Board) RotateToken(ctx context.Context, id string) (*Registered, error) {
 	var tok string
 	a, err := b.setAgent(ctx, model.Owner, "rotate_token", id, func(tx store.Tx, w *wctx, a *model.Agent) error {
@@ -268,7 +253,6 @@ func (b *Board) RotateToken(ctx context.Context, id string) (*Registered, error)
 	return &Registered{Agent: a, Connect: b.ConnectInfo(id, tok)}, nil
 }
 
-// Connect returns join info without a token.
 func (b *Board) Connect(ctx context.Context, id string) (*Connect, error) {
 	if _, err := b.GetAgent(ctx, id); err != nil {
 		return nil, err

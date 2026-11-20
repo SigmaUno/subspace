@@ -117,3 +117,39 @@ tbody tr:last-child > * { border-bottom: 0; }
   .topbar { padding-inline: .7rem; }
   .board { grid-auto-columns: min(78vw, 15.5rem); }
 }
+
+.arch-layout { display: grid; gap: 1rem; align-items: start; }
+.arch-layout.with-panel { grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem); }
+.arch-canvas { overflow: auto; padding: .5rem; }
+.arch-canvas svg { display: block; max-width: none; }
+.arch-node { cursor: pointer; color: var(--border); outline: none; }
+.arch-node.pending { color: var(--accent); }
+.arch-node.active, .arch-node.done { color: var(--green); }
+.arch-node.stale { color: var(--warn); }
+.arch-node.blocked { color: var(--danger); }
+.arch-card { fill: var(--panel-raised); stroke: currentColor; stroke-width: 1.5; }
+.arch-node:hover .arch-card, .arch-node.selected .arch-card { stroke-width: 3; }
+.arch-node:focus-visible .arch-card { stroke: var(--action); stroke-width: 3; }
+.arch-node.done .arch-card { fill: #1c2b27; }
+.arch-name { fill: var(--text); font-size: 14px; font-weight: 650; }
+.arch-meta { fill: var(--muted); font-size: 12px; }
+.arch-track { fill: var(--bg); }
+.arch-fill { fill: currentColor; }
+.arch-edge { fill: none; stroke: var(--muted); stroke-width: 1.4; opacity: .6; }
+.arch-edge.linked { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+.arch-arrow { fill: var(--muted); }
+.arch-legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: 0; padding: 0; list-style: none; }
+.arch-legend-item { display: inline-flex; align-items: center; gap: .4rem; font-size: .8125rem; color: var(--muted); }
+.arch-swatch { width: .75rem; height: .75rem; border: 2px solid var(--border); border-radius: .2rem; }
+.arch-swatch.pending { border-color: var(--accent); }
+.arch-swatch.active, .arch-swatch.done { border-color: var(--green); }
+.arch-swatch.stale { border-color: var(--warn); }
+.arch-swatch.blocked { border-color: var(--danger); }
+.arch-swatch.done { background: var(--green); }
+.arch-panel h3 { margin: 0 0 .3rem; font-size: .9rem; }
+.arch-list { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.arch-list .arch-list { margin: .35rem 0 0 .8rem; }
+.arch-task { display: grid; gap: .2rem; font-size: .8125rem; }
+@media (max-width: 960px) {
+  .arch-layout.with-panel { grid-template-columns: minmax(0, 1fr); }
+}

@@ -15,7 +15,7 @@ func Parse(s, self string) (Ref, error) {
 	}
 	switch k {
 	case model.ThreadAgent:
-		if id == "me" {
+		if id == "me" && self != "" {
 			id = self
 		}
 	case model.ThreadTask, model.ThreadBrief:

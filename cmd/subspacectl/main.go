@@ -307,7 +307,7 @@ func readInput(path string, stdin io.Reader) ([]byte, error) {
 	if path == "-" {
 		return io.ReadAll(stdin)
 	}
-	return os.ReadFile(path)
+	return os.ReadFile(path) //nolint:gosec
 }
 
 func parseAction(command string, args []string) (request, error) {

@@ -218,10 +218,11 @@ func (d Docker) do(ctx context.Context, token, method, path string, in, out any)
 		if json.Unmarshal(data, &e) == nil && e.Message != "" {
 			msg = e.Message
 		}
+		msg = redact(msg, token)
 		if len(msg) > 512 {
 			msg = msg[:512]
 		}
-		return &engineError{status: resp.StatusCode, message: redact(msg, token)}
+		return &engineError{status: resp.StatusCode, message: msg}
 	}
 	if out == nil || len(data) == 0 {
 		return nil

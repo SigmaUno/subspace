@@ -181,6 +181,7 @@ const fakeOpenCode = `#!/bin/sh
 	echo "token=$SUBSPACE_TOKEN"
 	echo "url=$SUBSPACE_URL"
 	echo "extra=$EXTRA"
+	echo "owner=${SUBSPACE_OWNER_TOKEN:-}"
 	echo "pwd=$(pwd)"
 } >"$FAKE_OC_OUT"
 `
@@ -226,6 +227,7 @@ func TestOpenCodeScriptEndToEnd(t *testing.T) {
 	t.Setenv("FAKE_TMUX_LOG", filepath.Join(tmp, "tmux.log"))
 	t.Setenv("FAKE_TMUX_CWD", wt)
 	t.Setenv("FAKE_OC_OUT", ocOut)
+	t.Setenv("SUBSPACE_OWNER_TOKEN", "owner-secret-0123456789abcdef")
 
 	o := &OpenCode{Root: root, ReposDir: repos, Bin: filepath.Join(bindir, "oc")}
 	r := openCodeRequest()
@@ -239,7 +241,7 @@ func TestOpenCodeScriptEndToEnd(t *testing.T) {
 	}
 	for _, want := range []string{
 		"args=run --auto -m deepseek/deepseek-chat " + r.JoinLine,
-		"token=" + testToken, "url=https://s.example.com/mcp", "extra=it's", "pwd=" + wt,
+		"token=" + testToken, "url=https://s.example.com/mcp", "extra=it's", "owner=\n", "pwd=" + wt,
 	} {
 		if !strings.Contains(string(got), want) {
 			t.Errorf("missing %q in:\n%s", want, got)

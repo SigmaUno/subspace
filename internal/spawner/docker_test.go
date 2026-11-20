@@ -22,6 +22,7 @@ type fakeEngine struct {
 	names     map[string]string
 	running   map[string]bool
 	failStart bool
+	startMsg  string
 	calls     []string
 }
 
@@ -59,7 +60,11 @@ func (f *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		id := strings.TrimSuffix(strings.TrimPrefix(path, "/containers/"), "/start")
 		if f.failStart {
 			w.WriteHeader(http.StatusInternalServerError)
-			_, _ = w.Write([]byte(`{"message":"cannot start ` + strings.Join(f.bodies[id].Env, " ") + `"}`))
+			msg := f.startMsg
+			if msg == "" {
+				msg = "cannot start " + strings.Join(f.bodies[id].Env, " ")
+			}
+			_ = json.NewEncoder(w).Encode(map[string]string{"message": msg})
 			return
 		}
 		f.running[id] = true
@@ -258,5 +263,20 @@ func TestDockerDuplicateAgentConflict(t *testing.T) {
 	}
 	if err := d.Spawn(context.Background(), req); err == nil || !strings.Contains(err.Error(), "name in use") {
 		t.Fatalf("err %v", err)
+	}
+}
+
+func TestDockerRedactsTokenAcrossTruncation(t *testing.T) {
+	d, f := dockerFixture(t)
+	f.failStart = true
+	f.startMsg = strings.Repeat("x", 505) + testToken
+	req := testRequest()
+	req.Kind = "opencode"
+	err := d.Spawn(context.Background(), req)
+	if err == nil {
+		t.Fatal("expected error")
+	}
+	if strings.Contains(err.Error(), testToken[:7]) {
+		t.Fatalf("token prefix leaked: %v", err)
 	}
 }

@@ -357,24 +357,20 @@ func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
 	return nil
 }
 
-type activeLister interface {
-	ActiveAssignees(briefID string) ([]string, error)
+type activeCounter interface {
+	ActiveAgents(briefID, agentID string) (n int, self bool, err error)
 }
 
-func activeAssignees(tx store.Tx, briefID string) (map[string]bool, error) {
-	active := map[string]bool{}
-	if l, ok := tx.(activeLister); ok {
-		ids, err := l.ActiveAssignees(briefID)
-		for _, id := range ids {
-			active[id] = true
-		}
-		return active, err
+func activeAgents(tx store.Tx, briefID, agentID string) (int, bool, error) {
+	if c, ok := tx.(activeCounter); ok {
+		return c.ActiveAgents(briefID, agentID)
 	}
 	ts, err := tx.ListTasks(store.TaskFilter{BriefID: briefID, Status: []string{model.StatusInProgress}, Limit: 100000})
+	active := map[string]bool{}
 	for _, x := range ts {
 		active[deref(x.Assignee)] = true
 	}
-	return active, err
+	return len(active), active[agentID], err
 }
 
 func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*model.Task, error) {
@@ -407,12 +403,12 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 			return err
 		}
 		if br.Budget.MaxParallelAgent > 0 {
-			active, err := activeAssignees(tx, br.ID)
+			n, self, err := activeAgents(tx, br.ID, a.ID)
 			if err != nil {
 				return err
 			}
-			if !active[a.ID] && len(active) >= br.Budget.MaxParallelAgent {
-				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
+			if !self && n >= br.Budget.MaxParallelAgent {
+				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, n)
 			}
 		}
 		now := b.now()

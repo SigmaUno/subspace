@@ -270,22 +270,15 @@ func (t *tx) BriefCost(briefID string) (float64, error) {
 	return c, err
 }
 
-func (t *tx) ActiveAssignees(briefID string) ([]string, error) {
-	rows, err := t.q.QueryContext(t.ctx, `SELECT DISTINCT assignee FROM tasks WHERE brief_id=? AND status=?`,
-		briefID, model.StatusInProgress)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []string
-	for rows.Next() {
-		var a string
-		if err := rows.Scan(&a); err != nil {
-			return nil, err
-		}
-		out = append(out, a)
-	}
-	return out, rows.Err()
+func (t *tx) ActiveAgents(briefID, agentID string) (int, bool, error) {
+	var (
+		n    int
+		self bool
+	)
+	err := t.q.QueryRowContext(t.ctx,
+		`SELECT COUNT(DISTINCT assignee), COALESCE(MAX(assignee=?), 0) FROM tasks WHERE brief_id=? AND status=?`,
+		agentID, briefID, model.StatusInProgress).Scan(&n, &self)
+	return n, self, err
 }
 
 func (t *tx) ExtendLeases(rows []store.LeaseRow) error {

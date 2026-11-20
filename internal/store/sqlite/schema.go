@@ -27,7 +27,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at INTEGER NOT NULL DEFAULT 0,
   blocked_reason TEXT NOT NULL DEFAULT '', created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );
-CREATE INDEX IF NOT EXISTS tasks_brief ON tasks(brief_id, status);
+DROP INDEX IF EXISTS tasks_brief;
+CREATE INDEX IF NOT EXISTS tasks_brief_status ON tasks(brief_id, status, assignee);
 CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee, status);
 CREATE INDEX IF NOT EXISTS tasks_reviewer ON tasks(reviewer, status);
 CREATE INDEX IF NOT EXISTS tasks_status ON tasks(status);

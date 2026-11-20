@@ -1,0 +1,8 @@
+{
+  "title": "Webhooks: PR status sync into the board",
+  "body": "Add webhook support so a Forgejo/GitHub PR opened or merged updates the matching task (open -> submitted; merge -> prompt the owner to mark done). This is a multi-task feature; the leader should break it into the following tasks with these dependencies.\n\nTasks:\n1. Store: add a repo/secret linking table and its store methods (no deps).\n2. Auth: bot user credentials for the git host, stored and rotated like agent tokens (depends on 1).\n3. Handler: an endpoint that receives PR events, verifies the signature, and maps the branch (`sub/<task-id>-<slug>`) back to the task (depends on 2).\n4. Status mapping: PR opened -> `submitted`; PR merged -> notify the owner to mark `done` (depends on 3).\n5. Config and docs: wire the webhook URL and secret, and document setup (depends on 4).\n\nAcceptance criteria:\n- A signed PR-opened event marks the task `submitted`.\n- A merge event posts an owner notification; nothing is auto-merged (SPEC §1 rule 5).\n- Invalid signatures are rejected and logged.",
+  "repos": ["SigmaUno/subspace"],
+  "max_cost_eur": 120,
+  "max_parallel_agents": 8,
+  "allowed_providers": ["anthropic", "openai", "deepseek"]
+}

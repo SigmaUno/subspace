@@ -1,0 +1,13 @@
+{
+  "comment": "APPROXIMATE list prices in USD per 1M tokens. Update by editing this file only; check provider pricing pages. Entries match by exact id first, then by the longest 'match' substring found in the lowercased model name.",
+  "eur_per_usd": 0.92,
+  "models": [
+    {"id": "claude-opus", "provider": "anthropic", "match": ["opus"], "input": 15.0, "output": 75.0, "cache_read": 1.5, "cache_write": 18.75},
+    {"id": "claude-sonnet", "provider": "anthropic", "match": ["sonnet"], "input": 3.0, "output": 15.0, "cache_read": 0.3, "cache_write": 3.75},
+    {"id": "claude-haiku", "provider": "anthropic", "match": ["haiku"], "input": 1.0, "output": 5.0, "cache_read": 0.1, "cache_write": 1.25},
+    {"id": "gpt", "provider": "openai", "match": ["gpt"], "input": 1.25, "output": 10.0, "cache_read": 0.125, "cache_write": 0},
+    {"id": "gpt-mini", "provider": "openai", "match": ["gpt-5-mini", "gpt-4.1-mini", "gpt-4o-mini", "-mini"], "input": 0.25, "output": 2.0, "cache_read": 0.025, "cache_write": 0},
+    {"id": "deepseek-v4-pro", "provider": "deepseek", "match": ["v4-pro"], "input": 0.55, "output": 2.2, "cache_read": 0.055, "cache_write": 0},
+    {"id": "deepseek-flash", "provider": "deepseek", "match": ["v4-flash", "deepseek-flash"], "input": 0.14, "output": 0.28, "cache_read": 0.028, "cache_write": 0}
+  ]
+}

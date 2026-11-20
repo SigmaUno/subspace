@@ -11,6 +11,7 @@ func (l *Library) Handler() http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /prompts", l.handleList)
 	mux.HandleFunc("GET /prompts/{id}", l.handleGet)
+	mux.HandleFunc("GET /prompts/{id}/render", l.handleRender)
 	return mux
 }
 
@@ -30,6 +31,19 @@ func (l *Library) handleGet(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, t)
+}
+
+func (l *Library) handleRender(w http.ResponseWriter, r *http.Request) {
+	vars := map[string]string{}
+	for name, values := range r.URL.Query() {
+		vars[name] = values[0]
+	}
+	text, err := l.Render(r.PathValue("id"), vars)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"id": r.PathValue("id"), "text": text})
 }
 
 func writeError(w http.ResponseWriter, err error) {

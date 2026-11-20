@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"os/signal"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -128,7 +129,7 @@ func send(ctx context.Context, base, token string, req request, out io.Writer) e
 		return fmt.Errorf("read Subspace response: %w", err)
 	}
 	if len(payload) > maxResponse {
-		return errors.New("Subspace response exceeds 32 MiB")
+		return errors.New("response exceeds 32 MiB")
 	}
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
 		var failure struct {
@@ -231,10 +232,10 @@ func parseID(command string, args []string) (string, error) {
 	return identifier(set.Arg(0))
 }
 
+var validIdentifier = regexp.MustCompile(`^[a-zA-Z0-9_-]+$`)
+
 func identifier(id string) (string, error) {
-	if id == "" || strings.ContainsFunc(id, func(r rune) bool {
-		return !(r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9' || r == '_' || r == '-')
-	}) {
+	if !validIdentifier.MatchString(id) {
 		return "", fmt.Errorf("invalid identifier %q", id)
 	}
 	return id, nil

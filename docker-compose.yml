@@ -1,15 +1,21 @@
 services:
   server:
+    container_name: subspace-server
     build:
       context: .
       target: server
     restart: unless-stopped
+    ports:
+      - "127.0.0.1:8180:8080"
+    networks:
+      internal:
+        aliases: [subspace-api]
+      proxy: {}
     environment:
       SUBSPACE_ADDR: ":8080"
       SUBSPACE_DB: "${SUBSPACE_DB:-/data/db/subspace.db}"
-      SUBSPACE_OWNER_TOKEN: "${SUBSPACE_OWNER_TOKEN:-}"
-      SUBSPACE_OWNER_TOKEN_FILE: "${SUBSPACE_OWNER_TOKEN_FILE:-}"
-      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-http://localhost}"
+      SUBSPACE_OWNER_TOKEN_FILE: /run/secrets/subspace_owner_token
+      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-https://subspace.sigmauno.com}"
       SUBSPACE_CAPACITY_FILE: "${SUBSPACE_CAPACITY_FILE:-}"
       SUBSPACE_LEASE: "${SUBSPACE_LEASE:-15m}"
       SUBSPACE_SPAWNER: "${SUBSPACE_SPAWNER:-noop}"
@@ -24,18 +30,32 @@ services:
       - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
       - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
       - "${SUBSPACE_DATA:-/data/subspace}/config:/data/config:ro"
+      - type: bind
+        source: "${SUBSPACE_DATA:-/data/subspace}/secrets/owner_token"
+        target: /run/secrets/subspace_owner_token
+        read_only: true
+        bind:
+          create_host_path: false
 
   web:
+    container_name: subspace-web
+    ports:
+      - "127.0.0.1:3100:3000"
+    networks:
+      - internal
+      - proxy
     build:
       context: web
     restart: unless-stopped
     depends_on:
       - server
     environment:
-      SUBSPACE_API_URL: "${SUBSPACE_API_URL:-http://server:8080}"
-      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-http://localhost}"
+      SUBSPACE_API_URL: "${SUBSPACE_API_URL:-http://subspace-api:8080}"
 
   caddy:
+    profiles: [standalone]
+    networks:
+      - proxy
     image: caddy:2-alpine
     restart: unless-stopped
     depends_on:
@@ -53,6 +73,7 @@ services:
       - "${SUBSPACE_DATA:-/data/subspace}/caddy/config:/config"
 
   backup:
+    network_mode: none
     build:
       context: .
       target: backup
@@ -68,3 +89,10 @@ services:
       # A live WAL database may need a writable SHM file even for read-only SQLite opens.
       - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
       - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
+
+networks:
+  internal:
+    internal: true
+  proxy:
+    external: true
+    name: "${SUBSPACE_PROXY_NETWORK:-proxy}"

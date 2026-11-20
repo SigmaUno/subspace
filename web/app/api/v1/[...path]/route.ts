@@ -1,5 +1,5 @@
 import type { NextRequest } from "next/server";
-import { apiError, browserMutation, ownerCookie, upstream } from "../../../../lib/upstream";
+import { apiError, browserMutation, ownerCookie, ownerStatus, upstream } from "../../../../lib/upstream";
 
 type Context = RouteContext<"/api/v1/[...path]">;
 
@@ -30,6 +30,13 @@ async function forward(request: NextRequest, context: Context) {
   if (events && lastEventID) headers.set("Last-Event-ID", lastEventID);
 
   try {
+    // Go's state endpoint authenticates owner tokens without side effects.
+    // Check access before sending a body or opening a stream upstream.
+    if (!(readOnly && path.length === 1 && path[0] === "state")) {
+      const status = await ownerStatus(token, request.signal);
+      if (status === 401 || status === 403) return apiError(status, "Owner token rejected.");
+      if (status !== 200) return apiError(502, "Subspace API is unavailable.");
+    }
     const response = await upstream(`/api/v1/${path.join("/")}${request.nextUrl.search}`, token, {
       method: request.method,
       headers,

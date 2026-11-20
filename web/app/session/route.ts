@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
-import { apiError, browserMutation, ownerCookie, upstream } from "../../lib/upstream";
+import { apiError, browserMutation, ownerCookie, ownerStatus } from "../../lib/upstream";
 
 function protocol(request: NextRequest) {
   const forwarded = request.headers.get("x-forwarded-proto")?.split(",")[0]?.trim();
@@ -11,7 +11,7 @@ function cookieOptions(request: NextRequest) {
     httpOnly: true,
     sameSite: "strict" as const,
     path: "/",
-    secure: process.env.SUBSPACE_PUBLIC_URL?.startsWith("https://") || protocol(request) === "https:",
+    secure: protocol(request) === "https:",
   };
 }
 
@@ -41,10 +41,9 @@ export async function POST(request: NextRequest) {
   if (!token || /[^\x21-\x7e]/.test(token)) return redirectTo("/login?error=invalid");
 
   try {
-    const check = await upstream("/api/v1/state", token, { signal: AbortSignal.timeout(8000) });
-    await check.body?.cancel();
-    if (check.status === 401 || check.status === 403) return redirectTo("/login?error=rejected");
-    if (!check.ok) return redirectTo("/login?error=unavailable");
+    const status = await ownerStatus(token, request.signal);
+    if (status === 401 || status === 403) return redirectTo("/login?error=rejected");
+    if (status !== 200) return redirectTo("/login?error=unavailable");
   } catch {
     return redirectTo("/login?error=unavailable");
   }

@@ -1,18 +1,18 @@
 {$SUBSPACE_DOMAIN::80} {
-	@agent path /mcp /healthz
+	@agent path /mcp* /healthz
 	handle @agent {
-		reverse_proxy server:8080 {
+		reverse_proxy subspace-server:8080 {
 			flush_interval -1
 		}
 	}
 
 	handle /api/v1/events {
-		reverse_proxy web:3000 {
+		reverse_proxy subspace-web:3000 {
 			flush_interval -1
 		}
 	}
 
 	handle {
-		reverse_proxy web:3000
+		reverse_proxy subspace-web:3000
 	}
 }

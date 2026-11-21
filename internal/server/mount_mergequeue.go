@@ -52,6 +52,8 @@ type mqRepo struct {
 	Train    int      `json:"train"`
 	Required []string `json:"required"`
 	WorkDir  string   `json:"workdir"`
+	Host     string   `json:"-"`
+	TokenEnv string   `json:"-"`
 }
 
 type mqFile struct {
@@ -87,7 +89,8 @@ func mqConfig(d Deps) (mqFile, bool, error) {
 	f := mqFile{Repos: map[string]mqRepo{}, Interval: os.Getenv(mqIntervalEnv)}
 	for _, r := range rs {
 		if len(r.MergeTestCommand) > 0 {
-			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir}
+			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir,
+				Host: r.Host, TokenEnv: r.TokenEnv}
 		}
 	}
 	if len(f.Repos) > 0 {
@@ -133,7 +136,8 @@ func startMergeQueue(d Deps, f mqFile) error {
 	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
 	bases := make(map[string]string, len(f.Repos))
 	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir}
+		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir,
+			Host: r.Host, TokenEnv: r.TokenEnv, Token: os.Getenv(r.TokenEnv)}
 		bases[name] = r.Base
 		if r.Base == "" {
 			bases[name] = "main"

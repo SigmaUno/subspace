@@ -50,6 +50,9 @@ type RepoConfig struct {
 	MaxTrain int
 	Required []string
 	WorkDir  string
+	Host     string
+	TokenEnv string
+	Token    string
 }
 
 type Runner interface {
@@ -251,6 +254,10 @@ type rejection struct{ reason string }
 func (r *rejection) Error() string { return r.reason }
 
 func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidate) error {
+	if reason := rc.missingToken(); reason != "" {
+		return q.fail(ctx, c, &rejection{reason: reason})
+	}
+	ctx = withCredential(ctx, rc)
 	if err := q.save(ctx, c, StateRunning); err != nil {
 		return err
 	}
@@ -347,7 +354,7 @@ func (q *Queue) prepare(ctx context.Context, dir string, rc RepoConfig, c *Candi
 func (q *Queue) verify(ctx context.Context, dir string, rc RepoConfig, log *strings.Builder) error {
 	fmt.Fprintf(log, "$ %s\n", strings.Join(rc.Verify, " "))
 	out, err := q.cfg.Runner.Run(ctx, dir, rc.Verify[0], rc.Verify[1:]...)
-	log.WriteString(out)
+	log.WriteString(redact(ctx, out))
 	if err != nil {
 		fmt.Fprintf(log, "%v\n", err)
 		return &rejection{reason: fmt.Sprintf("`%s` failed", strings.Join(rc.Verify, " "))}
@@ -379,9 +386,10 @@ func (q *Queue) notify(ctx context.Context, c *Candidate, body string) error {
 }
 
 func (q *Queue) git(ctx context.Context, dir string, log *strings.Builder, args ...string) (string, error) {
-	fmt.Fprintf(log, "$ git %s\n", redactCredentials(strings.Join(args, " ")))
-	out, err := q.cfg.Runner.Run(ctx, dir, "git", args...)
-	log.WriteString(redactCredentials(out))
+	fmt.Fprintf(log, "$ git %s\n", redact(ctx, strings.Join(args, " ")))
+	out, err := q.cfg.Runner.Run(gitContext(ctx), dir, "git", args...)
+	out = redact(ctx, out)
+	log.WriteString(out)
 	if err != nil {
 		fmt.Fprintf(log, "%v\n", err)
 	}

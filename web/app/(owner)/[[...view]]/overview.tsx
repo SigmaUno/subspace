@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useContext, useMemo, useState } from "react";
+import { memo, useContext, useDeferredValue, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { api, label, money, optionalResource, useResource } from "../../../lib/client";
 import type { Agent, Board, Brief, Capacity, Message, Task, Thread } from "../../../lib/types";
@@ -17,6 +17,7 @@ import { Metrics } from "./metrics";
 import { VirtualList } from "./virtual";
 
 const emptyComponents: Component[] = [];
+const emptyAgents: Agent[] = [];
 
 function elapsed(minutes: number) {
   const rounded = Math.floor(minutes);
@@ -38,12 +39,12 @@ function latestMessage(messages: (Message | undefined | null)[]) {
   return messages.reduce<Message | undefined>((newest, current) => current && (!newest || current.id > newest.id) ? current : newest, undefined);
 }
 
-function AgentRow({ agent, task, recent, openThread, openChat }: {
-  agent: Agent; task?: Task; recent: Record<string, Message>;
+const AgentRow = memo(function AgentRow({ agent, task, agentMessage, taskMessage, openThread, openChat }: {
+  agent: Agent; task?: Task; agentMessage?: Message; taskMessage?: Message;
   openThread: (thread: Thread) => void; openChat: (target: string) => void;
 }) {
   const now = useContext(Clock);
-  const live = latestMessage([agent.last_message, recent[`agent:${agent.id}`], task && recent[`task:${task.id}`]]);
+  const live = latestMessage([agent.last_message, agentMessage, taskMessage]);
   const fallback = useResource(agent.last_message === undefined
     ? `threads/agent/${encodeURIComponent(agent.id)}/messages` : null, 0, loadLatest);
   const last = latestMessage([live, fallback.data]);
@@ -65,7 +66,7 @@ function AgentRow({ agent, task, recent, openThread, openChat }: {
     <div className="activity"><p className="ellipsis" title={line}>{line || "No recent messages"}</p>
       <button className="text-button" type="button" onClick={() => openChat(`agent:${agent.id}`)}>Message agent</button></div>
   </article>;
-}
+});
 
 function Workload({ agents, tasks, recent, openThread, openChat }: {
   agents: Agent[]; tasks: Task[]; recent: Record<string, Message>;
@@ -73,29 +74,38 @@ function Workload({ agents, tasks, recent, openThread, openChat }: {
 }) {
   const [filter, setFilter] = useState("");
   const [scope, setScope] = useState("project");
-  const activeTasks = useMemo(() => {
+  const deferredFilter = useDeferredValue(filter);
+  const deferredScope = useDeferredValue(scope);
+  const now = useContext(Clock);
+  const { byID, activeTasks } = useMemo(() => {
     const active = new Map<string, Task>();
+    const index = new Map<string, Task>();
     for (const task of tasks) {
+      index.set(task.id, task);
       if (!task.assignee || ["done", "cancelled"].includes(task.status)) continue;
       if (!active.has(task.assignee) || ["in_progress", "blocked", "needs_owner"].includes(task.status)) active.set(task.assignee, task);
     }
-    return active;
+    return { byID: index, activeTasks: active };
   }, [tasks]);
-  const byID = new Map(tasks.map((task) => [task.id, task]));
-  const now = useContext(Clock);
-  const needle = filter.trim().toLowerCase();
-  const taskFor = (agent: Agent) => (agent.current_task_id && byID.get(agent.current_task_id)) || activeTasks.get(agent.id);
-  const attention = (agent: Agent) => {
-    const task = taskFor(agent);
-    return Number(task?.status === "blocked" || task?.status === "needs_owner") * 2 +
-      Number(agent.status === "active" && staleAt(task?.last_heartbeat_at ?? agent.last_seen_at, now, task?.lease_expires_at));
-  };
-  const items = agents.filter((agent) => {
-    if (agent.status === "revoked") return false;
-    if (scope === "project" && !taskFor(agent) && agent.role !== "leader") return false;
-    return !needle || [agent.id, agent.kind, agent.model, agent.provider, taskFor(agent)?.title]
-      .some((item) => item?.toLowerCase().includes(needle));
-  }).sort((a, b) => attention(b) - attention(a) || a.id.localeCompare(b.id));
+  const items = useMemo(() => {
+    const needle = deferredFilter.trim().toLowerCase();
+    const taskFor = (agent: Agent) => (agent.current_task_id && byID.get(agent.current_task_id)) || activeTasks.get(agent.id);
+    const ranked = new Map<string, number>();
+    const attention = (agent: Agent) => {
+      const task = taskFor(agent);
+      return Number(task?.status === "blocked" || task?.status === "needs_owner") * 2 +
+        Number(agent.status === "active" && staleAt(task?.last_heartbeat_at ?? agent.last_seen_at, now, task?.lease_expires_at));
+    };
+    const visible = agents.filter((agent) => {
+      if (agent.status === "revoked") return false;
+      if (deferredScope === "project" && !taskFor(agent) && agent.role !== "leader") return false;
+      return !needle || [agent.id, agent.kind, agent.model, agent.provider, taskFor(agent)?.title]
+        .some((item) => item?.toLowerCase().includes(needle));
+    });
+    visible.forEach((agent) => ranked.set(agent.id, attention(agent)));
+    return visible.sort((a, b) => ranked.get(b.id)! - ranked.get(a.id)! || a.id.localeCompare(b.id))
+      .map((agent) => ({ id: agent.id, agent, task: taskFor(agent) }));
+  }, [agents, byID, activeTasks, deferredFilter, deferredScope, now]);
 
   return <section className="panel stack">
     <div className="heading">
@@ -109,7 +119,8 @@ function Workload({ agents, tasks, recent, openThread, openChat }: {
       </div>
     </div>
     {items.length ? <VirtualList name="Agent workload" items={items} estimate={78} className="agent-list"
-      render={(agent) => <AgentRow agent={agent} task={taskFor(agent)} recent={recent} openThread={openThread} openChat={openChat} />} />
+      render={({ agent, task }) => <AgentRow agent={agent} task={task} agentMessage={recent[`agent:${agent.id}`]}
+        taskMessage={task && recent[`task:${task.id}`]} openThread={openThread} openChat={openChat} />} />
       : <p className="empty">No agents match this view.</p>}
   </section>;
 }
@@ -140,14 +151,20 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
   const componentFeed = useResource((architecture || chat) ? `briefs/${encodeURIComponent(id)}/architecture` : null,
     revisions.architecture, optionalResource<{ components: Component[] }>);
   const components = componentFeed.data?.components ?? emptyComponents;
-  const agents = registry.data?.agents ?? [];
+  const agents = registry.data?.agents ?? emptyAgents;
   const taskList = useMemo(() => Object.values(board.data?.columns ?? {}).flatMap((column) => column ?? []), [board.data]);
-  const scope = taskList.filter((task) => task.status !== "cancelled");
-  const complete = scope.filter((task) => task.status === "done").length;
-  const progress = scope.length ? Math.round(scope.reduce((sum, task) => sum + (task.status === "done" ? 100 : task.progress_pct), 0) / scope.length) : 0;
   const now = useContext(Clock);
-  const blocked = scope.filter((task) => ["blocked", "needs_owner"].includes(task.status)).length;
-  const stale = scope.filter((task) => task.status === "in_progress" && staleAt(task.last_heartbeat_at, now, task.lease_expires_at)).length;
+  const { complete, total, progress, blocked, stale } = useMemo(() => {
+    let complete = 0, total = 0, sum = 0, blocked = 0, stale = 0;
+    for (const task of taskList) {
+      if (task.status === "cancelled") continue;
+      total++;
+      if (task.status === "done") { complete++; sum += 100; } else sum += task.progress_pct;
+      if (task.status === "blocked" || task.status === "needs_owner") blocked++;
+      else if (task.status === "in_progress" && staleAt(task.last_heartbeat_at, now, task.lease_expires_at)) stale++;
+    }
+    return { complete, total, progress: total ? Math.round(sum / total) : 0, blocked, stale };
+  }, [taskList, now]);
   const brief = board.data?.brief;
   const path = `/briefs/${encodeURIComponent(id)}`;
 
@@ -163,7 +180,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
       </div>
       <div className="project-stats">
         <div className="panel"><span>Project progress</span><strong>{progress}%</strong><progress max={100} value={progress} aria-label="Project progress" /></div>
-        <div className="panel"><span>Tasks done</span><strong>{complete} / {scope.length}</strong></div>
+        <div className="panel"><span>Tasks done</span><strong>{complete} / {total}</strong></div>
         <div className={`panel ${blocked || stale ? "needs-attention" : ""}`}><span>Needs attention</span><strong>{blocked} blocked · {stale} stale</strong></div>
         <div className={`panel ${brief.budget.max_cost_eur > 0 && brief.cost_used >= brief.budget.max_cost_eur ? "needs-attention" : ""}`}><span>Spend / budget</span><strong>{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)}</strong></div>
       </div>
@@ -193,7 +210,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
   </section>;
 }
 
-export function SwarmOverview({ id, architecture, revisions, recent, openThread }: {
+export const SwarmOverview = memo(function SwarmOverview({ id, architecture, revisions, recent, openThread }: {
   id?: string; architecture: boolean; revisions: Revisions; recent: Record<string, Message>;
   openThread: (thread: Thread) => void;
 }) {
@@ -212,4 +229,4 @@ export function SwarmOverview({ id, architecture, revisions, recent, openThread 
     {!selected && briefs.data && <div className="panel stack"><p>No briefs yet.</p><Link href="/briefs">Create a brief</Link></div>}
     {selected && <SwarmProject key={selected} id={selected} architecture={architecture} revisions={revisions} recent={recent} openThread={openThread} />}
   </>;
-}
+});

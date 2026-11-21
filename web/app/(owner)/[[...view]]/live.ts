@@ -38,6 +38,11 @@ export type LiveStatus = "connected" | "reconnecting" | "offline";
 
 const retryDelay = 5_000;
 
+const windows: Partial<Record<Scope, number>> = {
+  board: 1500, agents: 1500, capacity: 1500, decisions: 1500, architecture: 1500, metrics: 1500, briefs: 1500,
+  thread: 300, chat: 300,
+};
+
 export function useLive(topics: string) {
   const [revisions, setRevisions] = useState<Revisions>({
     board: 0, agents: 0, thread: 0, questions: 0, plans: 0, briefs: 0, control: 0, capacity: 0,
@@ -55,29 +60,44 @@ export function useLive(topics: string) {
     const params = new URLSearchParams({ topics });
     if (resumed) params.set("last_event_id", cursor.id);
     const stream = new EventSource(`/api/v1/events?${params}`);
-    let opened = resumed;
-    const pending = new Set<Scope>();
+    const lanes = new Map<number, Set<Scope>>();
+    const timers = new Map<number, ReturnType<typeof setTimeout>>();
     const messages = new Map<string, Message>();
     const taskStatuses = new Map<string, string>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame: number | undefined;
+    let opened = resumed;
     let reconnect: ReturnType<typeof setTimeout> | undefined;
 
+    function bump(lane: number) {
+      const refreshed = Array.from(lanes.get(lane) ?? []);
+      lanes.delete(lane);
+      timers.delete(lane);
+      if (!refreshed.length) return;
+      setRevisions((current) => {
+        const next = { ...current };
+        refreshed.forEach((scope) => { next[scope] += 1; });
+        return next;
+      });
+    }
+
+    function paint() {
+      frame = undefined;
+      bump(0);
+      if (!messages.size) return;
+      const updates = Object.fromEntries(messages);
+      messages.clear();
+      setRecent((current) => ({ ...current, ...updates }));
+    }
+
     function invalidate(changed: readonly Scope[]) {
-      changed.forEach((scope) => pending.add(scope));
-      if (timer) return;
-      timer = setTimeout(() => {
-        const refreshed = Array.from(pending);
-        const updates = Object.fromEntries(messages);
-        pending.clear();
-        messages.clear();
-        timer = undefined;
-        setRevisions((current) => {
-          const next = { ...current };
-          refreshed.forEach((scope) => { next[scope] += 1; });
-          return next;
-        });
-        if (Object.keys(updates).length) setRecent((current) => ({ ...current, ...updates }));
-      }, 650);
+      for (const scope of changed) {
+        const lane = windows[scope] ?? 0;
+        const pending = lanes.get(lane) ?? new Set<Scope>();
+        pending.add(scope);
+        lanes.set(lane, pending);
+        if (lane > 0 && !timers.has(lane)) timers.set(lane, setTimeout(() => bump(lane), lane));
+      }
+      if ((lanes.has(0) || messages.size) && frame === undefined) frame = requestAnimationFrame(paint);
     }
 
     function on(event: string, handler: (event: MessageEvent<string>) => void) {
@@ -129,7 +149,8 @@ export function useLive(topics: string) {
       on(event, () => invalidate(changed));
     });
     return () => {
-      if (timer) clearTimeout(timer);
+      timers.forEach((timer) => clearTimeout(timer));
+      if (frame !== undefined) cancelAnimationFrame(frame);
       if (reconnect) clearTimeout(reconnect);
       window.removeEventListener("online", online);
       window.removeEventListener("offline", offline);

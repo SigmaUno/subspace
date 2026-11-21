@@ -1,5 +1,6 @@
 "use client";
 
+import { useMemo } from "react";
 import { optionalResource, safeURL, useResource } from "../../../lib/client";
 import type { PRList, PRStatus } from "../../../lib/pr-types";
 
@@ -10,7 +11,7 @@ export function usePRs(revision: number, briefID: string) {
   const query = new URLSearchParams({ brief_id: briefID, limit: "1000" });
   const feed = useResource(`prs?${query}`, revision, optionalResource<PRList>);
   const supported = feed.data !== null;
-  const byTask = new Map((feed.data?.prs ?? []).map((pr) => [pr.task_id, pr]));
+  const byTask = useMemo(() => new Map((feed.data?.prs ?? []).map((pr) => [pr.task_id, pr])), [feed.data]);
   return { supported, byTask };
 }
 

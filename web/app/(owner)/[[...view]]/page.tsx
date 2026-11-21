@@ -6,6 +6,7 @@ import { AuditPage } from "./audit";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
+import { KnowledgePage } from "./knowledge";
 import { PromptsPage } from "./prompts";
 import { ReportPage } from "./report";
 import { TaskDetailPage } from "./task-detail";
@@ -25,6 +26,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
+  if (root === "knowledge" && view.length === 1) return <KnowledgePage />;
   if (root === "charter" && view.length === 1) return <Workspace section="charter" architecture={false} />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
   if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;

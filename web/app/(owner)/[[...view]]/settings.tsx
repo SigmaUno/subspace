@@ -11,6 +11,7 @@ import { InstructionsView } from "./instructions";
 import type { Revisions } from "./live";
 import { CapacityView } from "./operations";
 import { OrgBudget } from "./org-budget";
+import { PushPanel } from "./push";
 import { EmptyState, ResourceState } from "./states";
 
 const units = ["B", "KB", "MB", "GB", "TB"];
@@ -190,6 +191,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     {active === "notifications" && <>
       <ResourceState error={notify.error} loading={notify.data === undefined} retry={notify.refresh} rows={2} />
       {notify.data && <NotificationsPanel status={notify.data} />}
+      <PushPanel />
     </>}
     {active === "backups" && <>
       <ResourceState error={backups.error} loading={backups.data === undefined} retry={backups.refresh} rows={3} />

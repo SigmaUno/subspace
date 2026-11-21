@@ -11,12 +11,15 @@ import (
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/store"
 )
+
+const stopGrace = 2 * time.Second
 
 type proc struct {
 	cfg    server.Config
@@ -26,7 +29,7 @@ type proc struct {
 	wg     sync.WaitGroup
 }
 
-func newProc(dir string, lease time.Duration, log *slog.Logger) (*proc, error) {
+func newProc(dir, db string, lease time.Duration, log *slog.Logger) (*proc, error) {
 	for _, k := range []string{"SUBSPACE_RATE_MCP", "SUBSPACE_RATE_AUTHFAIL"} {
 		if _, ok := os.LookupEnv(k); !ok {
 			if err := os.Setenv(k, "off"); err != nil {
@@ -46,11 +49,20 @@ func newProc(dir string, lease time.Duration, log *slog.Logger) (*proc, error) {
 	if err := l.Close(); err != nil {
 		return nil, err
 	}
+	if db == "" {
+		db = filepath.Join(dir, "subspace.db")
+	}
 	return &proc{cfg: server.Config{
-		Addr: addr, DBPath: filepath.Join(dir, "subspace.db"), OwnerToken: "soak-owner-" + hex.EncodeToString(tb),
+		Addr: addr, DBPath: db, DataDir: dir, OwnerToken: "soak-owner-" + hex.EncodeToString(tb),
 		PublicURL: "http://" + addr, Lease: lease, BackupDir: filepath.Join(dir, "backups"), BackupKeep: 3, Log: log,
 	}}, nil
 }
+
+func (p *proc) postgres() bool {
+	return strings.HasPrefix(p.cfg.DBPath, "postgres://") || strings.HasPrefix(p.cfg.DBPath, "postgresql://")
+}
+
+func (p *proc) dataDir() string { return p.cfg.DataDir }
 
 func (p *proc) url() string { return p.cfg.PublicURL }
 
@@ -81,7 +93,7 @@ func (p *proc) start() error {
 }
 
 func (p *proc) stop() error {
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), stopGrace)
 	defer cancel()
 	if err := p.hs.Shutdown(ctx); err != nil {
 		_ = p.hs.Close()
@@ -109,6 +121,9 @@ func chanLen(st store.Store) int {
 }
 
 func (p *proc) walBytes() int64 {
+	if p.postgres() {
+		return 0
+	}
 	fi, err := os.Stat(p.cfg.DBPath + "-wal")
 	if err != nil {
 		return 0

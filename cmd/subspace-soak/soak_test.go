@@ -20,6 +20,7 @@ func TestSoakSmoke(t *testing.T) {
 		"-workers", "6", "-testers", "2", "-reviewers", "2", "-sse", "4", "-briefs", "2", "-max-plan", "8",
 		"-lease", "3s", "-agent-life", "6s", "-brief-life", "12s",
 		"-restart-every", "6s", "-pause-every", "7s", "-backup-every", "5s", "-verify-every", "5s",
+		"-streamers", "8", "-streamer-life", "5s",
 		"-max-heap-slope", "1000", "-max-goroutine-slope", "100000",
 		"-dir", filepath.Join(dir, "data"), "-out", out, "-csv", series,
 	}
@@ -40,7 +41,7 @@ func TestSoakSmoke(t *testing.T) {
 	if !rep.Passed || rep.ViolationCount != 0 || rep.Aborted != "" {
 		t.Fatalf("soak failed: %s", stdout.String())
 	}
-	for _, a := range []string{"restart", "backup", "pause_all", "agent_join", "claim", "submit", "propose_plan", "bulk_register"} {
+	for _, a := range []string{"restart", "backup", "pause_all", "agent_join", "claim", "submit", "propose_plan", "bulk_register", "log_output", "create_schedule"} {
 		if rep.Actions[a] == 0 {
 			t.Errorf("action %s never happened: %v", a, rep.Actions)
 		}

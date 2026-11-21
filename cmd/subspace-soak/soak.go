@@ -9,6 +9,9 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"os"
+	"path/filepath"
+	"runtime"
+	"runtime/pprof"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -38,6 +41,11 @@ type Config struct {
 	VerifyEvery       time.Duration
 	MaxHeapSlope      float64
 	MaxGoroutineSlope float64
+	Features          bool
+	Streamers         int
+	StreamerLife      time.Duration
+	DB                string
+	HeapProfile       string
 	Dir               string
 	Log               *slog.Logger
 }
@@ -60,6 +68,8 @@ func (c *Config) validate() error {
 		return errors.New("lease, agent-life and brief-life must be >= 1s")
 	case c.RestartEvery < 0 || c.PauseEvery < 0 || c.BackupEvery < 0 || c.VerifyEvery < 0:
 		return errors.New("restart-every, pause-every, backup-every and verify-every must be >= 0")
+	case c.Streamers < 0 || (c.Streamers > 0 && c.StreamerLife < time.Second):
+		return errors.New("need streamers >= 0 and streamer-life >= 1s")
 	}
 	return nil
 }
@@ -88,6 +98,8 @@ type Report struct {
 	Last           Sample              `json:"last_sample"`
 	Peak           Sample              `json:"peak"`
 	Trends         []Trend             `json:"trends"`
+	Growth         []Trend             `json:"growth"`
+	Fakes          map[string]int64    `json:"fake_hits,omitempty"`
 	ViolationCount int                 `json:"violation_count"`
 	Violations     []Violation         `json:"violations"`
 	Aborted        string              `json:"aborted,omitempty"`
@@ -99,24 +111,27 @@ type Report struct {
 const maxViolations = 100
 
 type harness struct {
-	cfg     Config
-	start   time.Time
-	proc    *proc
-	gate    sync.RWMutex
-	tr      *http.Transport
-	hc      *http.Client
-	owner   *client.Owner
-	direct  *client.Owner
-	stats   *stats
-	roster  *roster
-	sse     *sseFleet
-	checker *checker
-	seq     atomic.Int64
+	cfg      Config
+	start    time.Time
+	proc     *proc
+	gate     sync.RWMutex
+	tr       *http.Transport
+	hc       *http.Client
+	owner    *client.Owner
+	direct   *client.Owner
+	stats    *stats
+	roster   *roster
+	sse      *sseFleet
+	checker  *checker
+	fakes    *fakes
+	streamMu sync.Mutex
+	seq      atomic.Int64
 
 	mu         sync.Mutex
 	actions    map[string]int64
 	violations []Violation
 	nviolation int
+	drills     map[string]bool
 }
 
 func (h *harness) count(action string) {
@@ -168,20 +183,30 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		defer func() { _ = os.RemoveAll(d) }()
 		dir = d
 	}
-	p, err := newProc(dir, cfg.Lease, cfg.Log)
+	p, err := newProc(dir, cfg.DB, cfg.Lease, cfg.Log)
 	if err != nil {
 		return nil, err
 	}
-	if err := p.start(); err != nil {
-		return nil, fmt.Errorf("start server: %w", err)
-	}
-	tr := &http.Transport{MaxIdleConns: 512, MaxIdleConnsPerHost: 512, IdleConnTimeout: 30 * time.Second}
-	h := &harness{cfg: cfg, start: time.Now(), proc: p, tr: tr, stats: newStats(), roster: newRoster(), actions: map[string]int64{}}
+	tr := &http.Transport{MaxIdleConns: 1024, MaxIdleConnsPerHost: 1024, IdleConnTimeout: 30 * time.Second}
+	h := &harness{cfg: cfg, proc: p, tr: tr, stats: newStats(), roster: newRoster(), actions: map[string]int64{}}
 	h.hc = &http.Client{Timeout: time.Minute, Transport: gatedTransport{gate: &h.gate, next: tr}}
 	h.owner = client.NewOwner(p.url(), p.cfg.OwnerToken, client.WithHTTPClient(h.hc), client.WithObserver(h.stats.observe))
 	raw := &http.Client{Timeout: time.Minute, Transport: tr}
 	h.direct = client.NewOwner(p.url(), p.cfg.OwnerToken, client.WithHTTPClient(raw), client.WithObserver(h.stats.observe))
 	h.checker = newChecker(client.NewOwner(p.url(), p.cfg.OwnerToken, client.WithHTTPClient(raw)), cfg.Lease)
+	if cfg.Features {
+		h.fakes = newFakes(cfg.Seed)
+		defer h.fakes.close()
+		if err := h.seedPhase(ctx, dir); err != nil {
+			return nil, fmt.Errorf("seed: %w", err)
+		}
+	}
+	if err := p.start(); err != nil {
+		return nil, fmt.Errorf("start server: %w", err)
+	}
+	h.start = time.Now()
+	h.stats = newStats()
+	h.actions = map[string]int64{}
 
 	rep := &Report{Seed: cfg.Seed, StartedAt: h.start.UTC(), Duration: cfg.Duration.Seconds(), SampleEvery: cfg.Sample.Seconds(), Warmup: cfg.Warmup.Seconds()}
 	wctx, stopWork := context.WithCancel(ctx)
@@ -204,6 +229,11 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		var s Sample
 		h.sampleInto(&s)
 		rep.series = append(rep.series, s)
+	}
+	if cfg.HeapProfile != "" {
+		if err := writeHeap(cfg.HeapProfile); err != nil {
+			cfg.Log.Error("heap profile", "err", err)
+		}
 	}
 	if err := p.stop(); err != nil {
 		h.violate(invRestart, "final stop: "+err.Error())
@@ -248,7 +278,29 @@ func (h *harness) launch(ctx context.Context, wg *sync.WaitGroup) error {
 	}
 	gor(func(r *rand.Rand) { every(ctx, r, cfg.PauseEvery, func() { h.pauseCycle(ctx, r) }) })
 	gor(func(r *rand.Rand) { every(ctx, r, cfg.BackupEvery, func() { h.backup(ctx) }) })
+	if h.fakes != nil {
+		gor(func(r *rand.Rand) { h.featureLoop(ctx, r) })
+		for range cfg.Streamers {
+			gor(func(r *rand.Rand) { h.streamSlot(ctx, r) })
+		}
+	}
 	return nil
+}
+
+func (h *harness) seedPhase(ctx context.Context, dir string) error {
+	env, err := featureEnv(dir, h.fakes)
+	if err != nil {
+		return err
+	}
+	if err := applyEnv(env); err != nil {
+		return err
+	}
+	if err := h.proc.start(); err != nil {
+		return err
+	}
+	err = h.seed(ctx)
+	h.tr.CloseIdleConnections()
+	return errors.Join(err, h.proc.stop())
 }
 
 func (h *harness) observe(ctx context.Context, rep *Report) string {
@@ -311,6 +363,15 @@ func (h *harness) sampleInto(s *Sample) {
 	h.gate.RUnlock()
 	s.WAL = h.proc.walBytes()
 	s.SSE = h.sse.open.Load()
+	if h.fakes != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		h.gate.RLock()
+		s.Tables = tableCounts(ctx, h.proc.srv.Store, h.proc.postgres())
+		h.gate.RUnlock()
+		cancel()
+		s.DataBytes = dirBytes(h.proc.dataDir())
+		s.RetainBytes = dirBytes(filepath.Join(h.proc.dataDir(), "retention"))
+	}
 	w := h.stats.rotate()
 	s.Requests, s.Errors, s.P99ms = w.Count, w.Errors, w.P99ms
 }
@@ -383,8 +444,25 @@ func (h *harness) finish(rep *Report) {
 		trend("heap_live", "MiB/min", series, h.cfg.Warmup, h.cfg.MaxHeapSlope, func(s Sample) float64 { return float64(s.HeapLive) / (1 << 20) }),
 		trend("goroutines", "goroutines/min", series, h.cfg.Warmup, h.cfg.MaxGoroutineSlope, func(s Sample) float64 { return float64(s.Goroutines) }),
 	}
+	rep.Growth = growth(series, h.cfg.Warmup)
+	if h.fakes != nil {
+		rep.Fakes = h.fakes.counts()
+	}
 	rep.Passed = rep.Aborted == "" && rep.ViolationCount == 0
 	for _, t := range rep.Trends {
 		rep.Passed = rep.Passed && !t.Exceeded
 	}
+}
+
+func writeHeap(path string) error {
+	runtime.GC()
+	f, err := create(path)
+	if err != nil {
+		return err
+	}
+	if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }

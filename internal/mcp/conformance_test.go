@@ -118,8 +118,10 @@ func TestConformanceInitialize(t *testing.T) {
 	if res.ProtocolVersion != "2025-06-18" {
 		t.Errorf("protocolVersion = %q", res.ProtocolVersion)
 	}
-	if _, ok := res.Capabilities["tools"]; !ok {
-		t.Errorf("capabilities lack tools: %v", res.Capabilities)
+	for _, k := range []string{"tools", "prompts", "resources"} {
+		if _, ok := res.Capabilities[k]; !ok {
+			t.Errorf("capabilities lack %s: %v", k, res.Capabilities)
+		}
 	}
 	if res.ServerInfo["name"] == "" || res.ServerInfo["name"] == nil {
 		t.Errorf("serverInfo = %v", res.ServerInfo)
@@ -260,7 +262,7 @@ func TestConformanceUnknownToolAndMethod(t *testing.T) {
 	if o.Error == nil || o.Error.Code != -32601 {
 		t.Errorf("unknown tool: %+v", o.Error)
 	}
-	o = decodeRPC(t, post(t, s, "tok-worker", `{"jsonrpc":"2.0","id":2,"method":"resources/list"}`))
+	o = decodeRPC(t, post(t, s, "tok-worker", `{"jsonrpc":"2.0","id":2,"method":"resources/subscribe"}`))
 	if o.Error == nil || o.Error.Code != -32601 {
 		t.Errorf("unknown method: %+v", o.Error)
 	}
@@ -269,6 +271,30 @@ func TestConformanceUnknownToolAndMethod(t *testing.T) {
 		if o.Error == nil || o.Error.Code != -32602 {
 			t.Errorf("params %s: %+v", params, o.Error)
 		}
+	}
+}
+
+func TestConformancePromptsAndResourcesWithoutBoard(t *testing.T) {
+	s, _ := confServer()
+	for _, tok := range []string{"tok-leader", "tok-worker", "tok-tester", "tok-reviewer"} {
+		for _, m := range []string{"prompts/list", "resources/list", "resources/templates/list"} {
+			if o := decodeRPC(t, post(t, s, tok, `{"jsonrpc":"2.0","id":1,"method":"`+m+`"}`)); o.Error != nil {
+				t.Errorf("%s %s: %+v", tok, m, o.Error)
+			}
+		}
+		for _, body := range []string{
+			`{"jsonrpc":"2.0","id":1,"method":"prompts/get","params":{"name":"handoff"}}`,
+			`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"subspace://me"}}`,
+			`{"jsonrpc":"2.0","id":1,"method":"resources/read","params":{"uri":"x"}}`,
+			`{"jsonrpc":"2.0","id":1,"method":"resources/read"}`,
+		} {
+			if o := decodeRPC(t, post(t, s, tok, body)); o.Error == nil || o.Error.Code != -32602 {
+				t.Errorf("%s %s: %+v", tok, body, o.Error)
+			}
+		}
+	}
+	if w := post(t, s, "tok-revoked", `{"jsonrpc":"2.0","id":1,"method":"resources/list"}`); w.Code != http.StatusUnauthorized {
+		t.Errorf("revoked agent = %d", w.Code)
 	}
 }
 

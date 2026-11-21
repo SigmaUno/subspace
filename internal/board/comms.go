@@ -135,6 +135,9 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 		q := &model.Question{AgentID: a.ID, Question: question, Options: nz(options), Status: "open", CreatedAt: b.now()}
 		if taskID != "" {
 			t, err := tx.GetTask(taskID)
+			if err != nil && !isErr(err, store.ErrNotFound) {
+				return err
+			}
 			if err != nil || !canSee(a, t) {
 				return model.NotFound("task %s not found", taskID)
 			}

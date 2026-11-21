@@ -516,8 +516,12 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		return nil, model.BadRequest("pr_url is required")
 	}
 	in.Summary = Redact(in.Summary)
-	var out *model.Task
+	var (
+		out  *model.Task
+		held *model.Error
+	)
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		held = nil
 		t, err := tx.GetTask(in.TaskID)
 		if err != nil && !isErr(err, store.ErrNotFound) {
 			return err
@@ -535,11 +539,25 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		to := model.StatusSubmitted
 		if !br.CrossReview {
 			to = model.StatusApproved
+			pending := *t
+			pending.PRURL = strp(in.PRURL)
+			if qerr := b.checkQuality(tx, QualityCheck{Ctx: ctx, Op: QualitySubmit, Actor: a, Task: b.overlay(&pending), Brief: br}); qerr != nil {
+				ge, ok := gatesFailed(qerr)
+				if !ok {
+					return qerr
+				}
+				to, held = model.StatusSubmitted, ge
+			}
 		}
 		b.endLease(w, t)
 		t.PRURL, t.ProgressPct = strp(in.PRURL), 100
 		if err := b.statusChange(tx, w, a, "submit", t, to, "PR "+in.PRURL); err != nil {
 			return err
+		}
+		if held != nil {
+			if err := b.postHeld(tx, w, t, held); err != nil {
+				return err
+			}
 		}
 		if in.Summary != "" {
 			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgNote, "Submission summary: "+in.Summary); err != nil {
@@ -549,6 +567,9 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		out = t
 		return nil
 	})
+	if err == nil && held != nil {
+		return out, held
+	}
 	return out, err
 }
 
@@ -768,8 +789,12 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		return nil, model.BadRequest("comments are required when requesting changes")
 	}
 	comments = Redact(comments)
-	var out *model.Task
+	var (
+		out  *model.Task
+		held *model.Error
+	)
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		held = nil
 		t, err := tx.GetTask(taskID)
 		if err != nil {
 			return model.NotFound("task %s not found", taskID)
@@ -806,6 +831,14 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		}
 		if verdict == "approve" {
 			out = t
+			if qerr := b.checkQuality(tx, QualityCheck{Ctx: ctx, Op: QualityApprove, Actor: a, Task: b.overlay(t), Brief: br, Comments: comments}); qerr != nil {
+				ge, ok := gatesFailed(qerr)
+				if !ok {
+					return qerr
+				}
+				held = ge
+				return b.holdForGates(tx, w, a, t, ge)
+			}
 			return b.statusChange(tx, w, a, "review", t, model.StatusApproved, comments)
 		}
 		t.ReviewRounds++
@@ -817,6 +850,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		out = t
 		return b.statusChange(tx, w, a, "review", t, to, comments)
 	})
+	if err == nil && held != nil {
+		return out, held
+	}
 	return out, err
 }
 

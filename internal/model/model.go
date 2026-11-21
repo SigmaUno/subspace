@@ -102,20 +102,34 @@ type BriefBudget struct {
 }
 
 type Brief struct {
-	ID               string      `json:"id"`
-	Title            string      `json:"title"`
-	Body             string      `json:"body"`
-	Repos            []string    `json:"repos"`
-	Status           string      `json:"status"`
-	Budget           BriefBudget `json:"budget"`
-	AllowedProviders []string    `json:"allowed_providers"`
-	CrossReview      bool        `json:"cross_review"`
-	AutoDoneOnMerge  bool        `json:"auto_done_on_merge"`
-	CostUsed         float64     `json:"cost_used"`
-	PlanStatus       string      `json:"plan_status"`
-	LeaderID         *string     `json:"leader_id"`
-	CreatedAt        time.Time   `json:"created_at"`
+	ID               string       `json:"id"`
+	Title            string       `json:"title"`
+	Body             string       `json:"body"`
+	Repos            []string     `json:"repos"`
+	Status           string       `json:"status"`
+	Budget           BriefBudget  `json:"budget"`
+	AllowedProviders []string     `json:"allowed_providers"`
+	CrossReview      bool         `json:"cross_review"`
+	AutoDoneOnMerge  bool         `json:"auto_done_on_merge"`
+	CostUsed         float64      `json:"cost_used"`
+	PlanStatus       string       `json:"plan_status"`
+	LeaderID         *string      `json:"leader_id"`
+	QualityGates     QualityGates `json:"quality_gates"`
+	CreatedAt        time.Time    `json:"created_at"`
 }
+
+type QualityGates struct {
+	Tests          bool    `json:"tests"`
+	MinTestsPassed int     `json:"min_tests_passed"`
+	Checks         bool    `json:"checks"`
+	Scope          bool    `json:"scope"`
+	Questions      bool    `json:"questions"`
+	Review         bool    `json:"review"`
+	Budget         bool    `json:"budget"`
+	MaxPRAgeHours  float64 `json:"max_pr_age_hours"`
+}
+
+func (q QualityGates) Enabled() bool { return q != QualityGates{} }
 
 func (b *Brief) LedBy(leaderID string) bool {
 	return b.LeaderID == nil || *b.LeaderID == leaderID
@@ -282,6 +296,7 @@ var Owner = Actor{ID: "owner", Role: RoleOwner}
 type Error struct {
 	Code    string
 	Message string
+	Details any
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -296,7 +311,7 @@ func (e *Error) HTTPStatus() int {
 		return http.StatusForbidden
 	case "not_found":
 		return http.StatusNotFound
-	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded":
+	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed":
 		return http.StatusConflict
 	case "paused", "agent_paused":
 		return http.StatusLocked

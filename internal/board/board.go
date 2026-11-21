@@ -59,6 +59,7 @@ type Board struct {
 	capCfg  capacity.Config
 	capGate capacity.Gate
 	gate    Gate
+	quality QualityGate
 
 	expiries map[string][]time.Time
 

@@ -273,7 +273,11 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		if e.Code == "internal" {
 			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
 		}
-		return toolResult(errBody(e.Code, e.Message), true), nil
+		body := errBody(e.Code, e.Message)
+		if e.Details != nil {
+			body["error"].(map[string]any)["details"] = e.Details
+		}
+		return toolResult(body, true), nil
 	}
 	return toolResult(res, false), nil
 }

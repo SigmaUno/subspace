@@ -513,6 +513,8 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
 
 The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged. After a successful push to a Forgejo-hosted repository the queue marks the pull request merged through the host API (`manually-merged`, because a pushed head leaves a Forgejo PR open); the repository must allow the "Manually merged" merge style, otherwise the merge stays and the task thread gets a warning.
 
+The queue never picks up a PR on its own: the owner approves the merge from the decision inbox (`enqueue` on the task's `merge` decision) or with `POST /api/v1/mergequeue/candidates`. Every enqueue appends an audit event `enqueue_merge` (owner, task id, candidate, repo, PR, head, base). While a candidate of the task is `queued`, `running` or `waiting` its `merge` decision is hidden; after an ejection it returns with `enqueue` and the candidate id in the summary.
+
 ```jsonc
 {"workdir":"/data/mergequeue","interval":"30s",
  "repos":{"o/r":{"remote":"https://git.example/o/r.git","verify":["make","test"],"base":"main",
@@ -1146,7 +1148,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 |---|---|---|
 | `question` | `answer`, `skip` | `answer` `{"answer":"..."}` (required) → Question |
 | `plan` | `approve`, `reject`, `skip` | `approve` `{"note":""}` → Plan; `reject` `{"reason":""}` (or `note`) → Plan |
-| `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
+| `merge` | `enqueue` (merge queue repos only), `merge`, `skip` | `enqueue` `{}` → Candidate (like `POST /api/v1/mergequeue/candidates`); `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
 | `help` | `skip` | – (an open `help` request; the agent's details are the summary) |

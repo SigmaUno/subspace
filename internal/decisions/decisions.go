@@ -32,6 +32,7 @@ const (
 	ActionApprove = "approve"
 	ActionReject  = "reject"
 	ActionMerge   = "merge"
+	ActionEnqueue = "enqueue"
 	ActionUnblock = "unblock"
 	ActionRotate  = "rotate"
 	ActionSkip    = "skip"
@@ -108,12 +109,30 @@ type Options struct {
 	Now        func() time.Time
 }
 
+type Extension interface {
+	Extend(ctx context.Context, ds []*Decision) ([]*Decision, error)
+	Act(ctx context.Context, d *Decision, action string, raw json.RawMessage) (result any, handled bool, err error)
+}
+
 type Feed struct {
 	src  Source
 	act  Actions
 	opt  Options
 	mu   sync.Mutex
 	snoz map[string]time.Time
+	exts []Extension
+}
+
+func (f *Feed) Extend(e Extension) {
+	f.mu.Lock()
+	f.exts = append(f.exts, e)
+	f.mu.Unlock()
+}
+
+func (f *Feed) extensions() []Extension {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]Extension(nil), f.exts...)
 }
 
 type Outcome struct {
@@ -200,7 +219,16 @@ func (f *Feed) Act(ctx context.Context, id, action string, raw json.RawMessage) 
 	if !contains(d.Actions, action) {
 		return nil, model.Conflict("action %q not available for %s (allowed: %s)", action, id, strings.Join(d.Actions, ", "))
 	}
-	res, err := f.dispatch(ctx, d, action, p)
+	var res any
+	handled := false
+	for _, e := range f.extensions() {
+		if res, handled, err = e.Act(ctx, d, action, raw); handled || err != nil {
+			break
+		}
+	}
+	if !handled && err == nil {
+		res, err = f.dispatch(ctx, d, action, p)
+	}
 	if err != nil {
 		return nil, err
 	}
@@ -375,6 +403,11 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 			Title:   fmt.Sprintf("Agent %s is stale on %s", a.ID, *a.CurrentTaskID),
 			Summary: since, Links: Links{Thread: model.ThreadAgent + ":" + a.ID},
 		}, 0)
+	}
+	for _, e := range f.extensions() {
+		if out, err = e.Extend(ctx, out); err != nil {
+			return nil, err
+		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		a, b := out[i], out[j]

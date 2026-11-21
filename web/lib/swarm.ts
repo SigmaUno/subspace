@@ -5,6 +5,9 @@ export interface Decision {
   kind: "plan" | "question" | "merge" | "unblock";
   title: string;
   body?: string;
+  summary?: string;
+  links?: { thread?: string; pr?: string };
+  actions?: string[];
   brief_id?: string;
   task_id?: string;
   agent_id?: string;

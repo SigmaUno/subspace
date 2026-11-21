@@ -15,7 +15,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/githost/forgejo"
 	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
@@ -170,6 +172,9 @@ func startMergeQueue(d Deps, f mqFile) error {
 	mux.HandleFunc("GET /mergequeue/candidates/{id}", h.get)
 	mux.HandleFunc("POST /mergequeue/candidates", h.enqueue)
 	d.API.Mount(d.Mux, "/api/v1/mergequeue/", mux)
+	if d.Feed != nil {
+		d.Feed.Extend(h)
+	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	go func() {
@@ -247,7 +252,12 @@ func (s mqStore) Insert(ctx context.Context, c *mergequeue.Candidate) error {
 			return err
 		}
 		c.ID = id
-		return nil
+		note := auth.AuditNote(ctx, fmt.Sprintf("merge queue %s#%d onto %s", c.Repo, c.PR, c.Base))
+		return t.InsertAudit(&model.AuditEvent{
+			TS: c.EnqueuedAt, AgentID: model.Owner.ID, Role: model.Owner.Role, Tool: "enqueue_merge", TaskID: &c.TaskID,
+			After: map[string]any{"candidate": id, "repo": c.Repo, "pr": c.PR, "head": c.Head, "base": c.Base},
+			Note:  &note,
+		})
 	}))
 }
 
@@ -429,23 +439,76 @@ func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, model.BadRequest("task_id is required"))
 		return
 	}
-	t, err := h.gate.check(r.Context(), in.TaskID)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	if in.PR == 0 {
-		in.PR = prNumber(t.PRURL)
-	}
-	if in.Base == "" {
-		in.Base = h.bases[t.Repo]
-	}
-	c, err := h.q.Enqueue(r.Context(), mergequeue.Candidate{Repo: t.Repo, PR: in.PR, Head: t.Branch, Base: in.Base, TaskID: t.ID})
+	c, err := h.add(r.Context(), in.TaskID, in.PR, in.Base)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, c)
+}
+
+func (h *mqHandler) add(ctx context.Context, taskID string, pr int, base string) (mergequeue.Candidate, error) {
+	t, err := h.gate.check(ctx, taskID)
+	if err != nil {
+		return mergequeue.Candidate{}, err
+	}
+	if pr == 0 {
+		pr = prNumber(t.PRURL)
+	}
+	if base == "" {
+		base = h.bases[t.Repo]
+	}
+	return h.q.Enqueue(ctx, mergequeue.Candidate{Repo: t.Repo, PR: pr, Head: t.Branch, Base: base, TaskID: t.ID})
+}
+
+func (h *mqHandler) Extend(ctx context.Context, ds []*decisions.Decision) ([]*decisions.Decision, error) {
+	var cs []*mergequeue.Candidate
+	latest := map[string]*mergequeue.Candidate{}
+	out := ds[:0]
+	for _, d := range ds {
+		if d.Kind != decisions.KindMerge || d.TaskID == "" {
+			out = append(out, d)
+			continue
+		}
+		t, err := h.gate.b.GetTask(ctx, model.Owner, d.TaskID)
+		if err != nil {
+			out = append(out, d)
+			continue
+		}
+		if _, ok := h.bases[t.Repo]; !ok {
+			out = append(out, d)
+			continue
+		}
+		if cs == nil {
+			if cs, err = h.st.List(ctx, ""); err != nil {
+				return nil, err
+			}
+			for _, c := range cs {
+				latest[c.TaskID] = c
+			}
+		}
+		c := latest[d.TaskID]
+		if c != nil && c.State != mergequeue.StateMerged && c.State != mergequeue.StateEjected {
+			continue
+		}
+		d.Actions = append([]string{decisions.ActionEnqueue}, d.Actions...)
+		if c != nil && c.State == mergequeue.StateEjected {
+			d.Summary += fmt.Sprintf(", ejected from the merge queue as %s", c.ID)
+		}
+		out = append(out, d)
+	}
+	return out, nil
+}
+
+func (h *mqHandler) Act(ctx context.Context, d *decisions.Decision, action string, _ json.RawMessage) (any, bool, error) {
+	if action != decisions.ActionEnqueue || d.Kind != decisions.KindMerge {
+		return nil, false, nil
+	}
+	c, err := h.add(ctx, d.TaskID, 0, "")
+	if err != nil {
+		return nil, true, err
+	}
+	return c, true, nil
 }
 
 func (h *mqHandler) fail(w http.ResponseWriter, err error) {

@@ -34,7 +34,7 @@ func (s *Store) SpawnLifecycles(ctx context.Context) (map[string]SpawnLifecycle,
 		if err := rows.Scan(&l.SpawnID, &connected, &idle, &stopped, &l.StopReason, &l.Process, &checked); err != nil {
 			return nil, err
 		}
-		l.ConnectedAt, l.IdleSince, l.StoppedAt, l.ProcessCheckedAt = auditTime(connected), auditTime(idle), auditTime(stopped), auditTime(checked)
+		l.ConnectedAt, l.IdleSince, l.StoppedAt, l.ProcessCheckedAt = store.FromMillis(connected), store.FromMillis(idle), store.FromMillis(stopped), store.FromMillis(checked)
 		out[l.SpawnID] = l
 	}
 	return out, rows.Err()
@@ -50,8 +50,8 @@ func (s *Store) SaveSpawnLifecycle(ctx context.Context, l SpawnLifecycle, sp *mo
 		}
 		res, err := tt.q.ExecContext(tt.ctx,
 			`UPDATE spawns SET connected_at=?, idle_since=?, stopped_at=?, stop_reason=?, process=?, process_checked_at=? WHERE id=?`,
-			auditMillis(l.ConnectedAt), auditMillis(l.IdleSince), auditMillis(l.StoppedAt), l.StopReason, l.Process,
-			auditMillis(l.ProcessCheckedAt), l.SpawnID)
+			store.Millis(l.ConnectedAt), store.Millis(l.IdleSince), store.Millis(l.StoppedAt), l.StopReason, l.Process,
+			store.Millis(l.ProcessCheckedAt), l.SpawnID)
 		if err != nil {
 			return err
 		}

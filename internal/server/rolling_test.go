@@ -394,7 +394,7 @@ func TestRollingRestartUnderLoad(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer func() { _ = raw.Close() }()
-	var got store.Schema
+	var got store.SchemaVersion
 	if err := raw.QueryRow(`SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&got.Version, &got.Hash); err != nil {
 		t.Fatal(err)
 	}

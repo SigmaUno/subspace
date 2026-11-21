@@ -16,14 +16,14 @@ type OpenOptions struct {
 	ReadOnlyNewer bool
 }
 
-type Schema struct {
+type SchemaVersion struct {
 	Version int64
 	Hash    string
 }
 
 var ddlStatement = regexp.MustCompile(`(?im)(?:^|;)\s*(?:CREATE|ALTER|DROP)\s`)
 
-func SchemaOf(units ...string) Schema {
+func SchemaOf(units ...string) SchemaVersion {
 	h := sha256.New()
 	var n int64
 	for _, u := range units {
@@ -31,7 +31,7 @@ func SchemaOf(units ...string) Schema {
 		h.Write([]byte(u))
 		h.Write([]byte{0})
 	}
-	return Schema{Version: n, Hash: hex.EncodeToString(h.Sum(nil))}
+	return SchemaVersion{Version: n, Hash: hex.EncodeToString(h.Sum(nil))}
 }
 
 type SchemaAction int
@@ -42,7 +42,7 @@ const (
 	SchemaReadOnly
 )
 
-func CheckSchema(stored *Schema, binary Schema, o OpenOptions) (SchemaAction, error) {
+func CheckSchema(stored *SchemaVersion, binary SchemaVersion, o OpenOptions) (SchemaAction, error) {
 	switch {
 	case stored == nil:
 		return SchemaMigrate, nil

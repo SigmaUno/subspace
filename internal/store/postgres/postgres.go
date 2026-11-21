@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -96,8 +97,14 @@ const schemaVersionTable = `CREATE TABLE IF NOT EXISTS schema_version (
 
 const auditHashDDL = `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`
 
-func BinarySchema() store.Schema {
-	units := append([]string{schema}, extraSchemas...)
+func BinarySchema() store.SchemaVersion {
+	units := []string{schema}
+	for _, tb := range store.CoreTables {
+		for _, add := range columnAdds(tb) {
+			units = append(units, "ALTER TABLE "+tb.Table()+" "+add)
+		}
+	}
+	units = append(units, extraSchemas...)
 	return store.SchemaOf(append(units, auditHashDDL)...)
 }
 
@@ -127,6 +134,11 @@ func migrate(db *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
 	if _, err := t.ExecContext(ctx, schema); err != nil {
 		return false, err
 	}
+	for _, tb := range store.CoreTables {
+		if _, err := t.ExecContext(ctx, "ALTER TABLE "+tb.Table()+" "+strings.Join(columnAdds(tb), ", ")); err != nil {
+			return false, err
+		}
+	}
 	for _, ddl := range extraSchemas {
 		if _, err := t.ExecContext(ctx, ddl); err != nil {
 			return false, err
@@ -146,17 +158,43 @@ func migrate(db *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
 	return false, t.Commit()
 }
 
-func readSchemaVersion(ctx context.Context, t *sql.Tx) (*store.Schema, error) {
+func readSchemaVersion(ctx context.Context, t *sql.Tx) (*store.SchemaVersion, error) {
 	var exists bool
 	if err := t.QueryRowContext(ctx, `SELECT to_regclass('schema_version') IS NOT NULL`).Scan(&exists); err != nil || !exists {
 		return nil, err
 	}
-	var s store.Schema
+	var s store.SchemaVersion
 	err := t.QueryRowContext(ctx, `SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&s.Version, &s.Hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}
 	return &s, err
+}
+
+func columnAdds(tb store.Schema) []string {
+	defs := tb.Defs()
+	adds := make([]string, len(defs))
+	for i, c := range defs {
+		adds[i] = "ADD COLUMN IF NOT EXISTS " + c.Name + " " + pgType(c)
+	}
+	return adds
+}
+
+func pgType(c store.ColumnDef) string {
+	t := "TEXT"
+	switch c.Kind {
+	case store.KindInt:
+		t = "INTEGER"
+	case store.KindMillis:
+		t = "BIGINT"
+	case store.KindReal:
+		t = "DOUBLE PRECISION"
+	case store.KindBool:
+		t = "BOOLEAN"
+	case store.KindJSON:
+		t = "JSONB"
+	}
+	return t + c.Constraint()
 }
 
 func migrateAuditChain(ctx context.Context, t *sql.Tx) error {

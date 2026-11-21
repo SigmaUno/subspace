@@ -4,7 +4,6 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"slices"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/audit"
@@ -98,22 +97,32 @@ const schemaVersionTable = `CREATE TABLE IF NOT EXISTS schema_version (
 
 const auditHashDDL = `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`
 
-var builtinColumns = []columnDef{
-	{"briefs", "cross_review", "INTEGER NOT NULL DEFAULT 1"},
-	{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
-	{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
-	{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
-	{"plans", "warnings", "TEXT NOT NULL DEFAULT '[]'"},
-	{"tasks", "lease_expiries", "INTEGER NOT NULL DEFAULT 0"},
-}
-
 func (c columnDef) ddl() string {
 	return `ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.def
 }
 
-func columns() []columnDef { return append(slices.Clip(builtinColumns), extraColumns...) }
+func columns() []columnDef {
+	var out []columnDef
+	for _, t := range store.CoreTables {
+		for _, c := range t.Defs() {
+			out = append(out, columnDef{t.Table(), c.Name, sqlType(c)})
+		}
+	}
+	return append(out, extraColumns...)
+}
 
-func BinarySchema() store.Schema {
+func sqlType(c store.ColumnDef) string {
+	t := "TEXT"
+	switch c.Kind {
+	case store.KindInt, store.KindMillis, store.KindBool:
+		t = "INTEGER"
+	case store.KindReal:
+		t = "REAL"
+	}
+	return t + c.Constraint()
+}
+
+func BinarySchema() store.SchemaVersion {
 	units := []string{schema}
 	for _, c := range columns() {
 		units = append(units, c.ddl())
@@ -151,12 +160,12 @@ func initSchema(wdb *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
 	return false, t.Commit()
 }
 
-func readSchemaVersion(t *sql.Tx) (*store.Schema, error) {
+func readSchemaVersion(t *sql.Tx) (*store.SchemaVersion, error) {
 	var n int
 	if err := t.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`).Scan(&n); err != nil || n == 0 {
 		return nil, err
 	}
-	var s store.Schema
+	var s store.SchemaVersion
 	err := t.QueryRow(`SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&s.Version, &s.Hash)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
@@ -164,7 +173,7 @@ func readSchemaVersion(t *sql.Tx) (*store.Schema, error) {
 	return &s, err
 }
 
-func writeSchemaVersion(t *sql.Tx, s store.Schema) error {
+func writeSchemaVersion(t *sql.Tx, s store.SchemaVersion) error {
 	if _, err := t.Exec(schemaVersionTable); err != nil {
 		return err
 	}

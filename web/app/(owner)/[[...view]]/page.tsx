@@ -12,6 +12,7 @@ import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
 import { KnowledgePage } from "./knowledge";
 import { LogsPage } from "./logs";
+import { MissionPage } from "./mission";
 import { PromptsPage } from "./prompts";
 import { ReplayPage } from "./replay";
 import { ReportPage } from "./report";
@@ -23,19 +24,21 @@ export async function generateMetadata({ params }: PageProps<"/[[...view]]">): P
   return { title: pageTitle(view) };
 }
 
-export default async function Page({ params }: PageProps<"/[[...view]]">) {
+export default async function Page({ params, searchParams }: PageProps<"/[[...view]]">) {
   const { view = [] } = await params;
+  const { viewer } = await searchParams;
   const token = (await cookies()).get(ownerCookie)?.value;
   if (!token) redirect("/login");
   const session = await ownerSession(token).catch((): OwnerSession => ({ status: 502 }));
   if (session.status === 401 || session.status === 403) redirect("/login");
   if (session.status !== 200) redirect("/login?error=unavailable");
 
-  return <div className="scope" data-scope={session.scope === "owner" ? "owner" : "viewer"}><UiProvider>{content(view)}</UiProvider></div>;
+  return <div className="scope" data-scope={session.scope === "owner" ? "owner" : "viewer"}><UiProvider>{content(view, viewer === "1")}</UiProvider></div>;
 }
 
-function content(view: string[]) {
+function content(view: string[], viewer: boolean) {
   const [root, id, subview] = view;
+  if (root === "mission" && view.length === 1) return <MissionPage viewer={viewer} />;
   if (root === "audit" && view.length === 1) return <AuditPage />;
   if (root === "logs" && view.length === 1) return <LogsPage />;
   if (root === "prompts" && view.length === 1) return <PromptsPage />;

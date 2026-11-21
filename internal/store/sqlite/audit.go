@@ -2,83 +2,28 @@ package sqlite
 
 import (
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"math"
-	"strings"
-	"time"
 
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const (
-	auditDefaultLimit = 200
-	auditCols         = `id, ts, agent_id, role, tool, task_id, before, after, note, hash`
-	spawnCols         = `id, brief_id, agent_id, kind, model, provider, status, spawner, error, requested_by, created_at`
+const auditDefaultLimit = 200
+
+var (
+	spawnSelect = `SELECT ` + store.Spawns.Select("") + ` FROM spawns`
+	spawnInsert = store.Spawns.Insert(ph)
+	spawnUpdate = store.Spawns.Update(ph)
 )
 
-func auditJSON(m map[string]any) (string, error) {
-	if m == nil {
-		return "", nil
-	}
-	b, err := json.Marshal(m)
-	if err != nil {
-		return "", err
-	}
-	return string(b), nil
-}
-
-func auditUnJSON(s string) (map[string]any, error) {
-	if s == "" {
-		return nil, nil
-	}
-	var m map[string]any
-	if err := json.Unmarshal([]byte(s), &m); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func auditStrPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func auditStr(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-func auditMillis(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
-func auditTime(ms int64) time.Time {
-	if ms == 0 {
-		return time.Time{}
-	}
-	return time.UnixMilli(ms).UTC()
-}
-
-func auditIsDup(err error) bool {
-	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
-}
-
 func (t *tx) InsertAudit(e *model.AuditEvent) error {
-	before, err := auditJSON(e.Before)
+	before, err := store.AuditJSON(e.Before)
 	if err != nil {
 		return err
 	}
-	after, err := auditJSON(e.After)
+	after, err := store.AuditJSON(e.After)
 	if err != nil {
 		return err
 	}
@@ -86,14 +31,14 @@ func (t *tx) InsertAudit(e *model.AuditEvent) error {
 	if err != nil {
 		return err
 	}
-	rec := audit.Record{ID: head.ID + 1, TS: auditMillis(e.TS), AgentID: e.AgentID, Role: e.Role, Tool: e.Tool,
-		TaskID: auditStr(e.TaskID), Before: before, After: after, Note: auditStr(e.Note)}
+	rec := audit.Record{ID: head.ID + 1, TS: store.Millis(e.TS), AgentID: e.AgentID, Role: e.Role, Tool: e.Tool,
+		TaskID: store.Str(e.TaskID), Before: before, After: after, Note: store.Str(e.Note)}
 	hash, err := audit.Link(head.Hash, rec)
 	if err != nil {
 		return err
 	}
 	_, err = t.q.ExecContext(t.ctx,
-		`INSERT INTO audit(`+auditCols+`) VALUES(?,?,?,?,?,?,?,?,?,?)`,
+		`INSERT INTO audit(`+store.AuditCols+`) VALUES(?,?,?,?,?,?,?,?,?,?)`,
 		rec.ID, rec.TS, rec.AgentID, rec.Role, rec.Tool, rec.TaskID, rec.Before, rec.After, rec.Note, hash)
 	if err != nil {
 		return err
@@ -116,7 +61,7 @@ func (t *tx) VerifyAudit() (model.AuditCheck, error) {
 	if err != nil {
 		return model.AuditCheck{}, err
 	}
-	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit WHERE id > ? ORDER BY id`, anchor.ID)
+	rows, err := t.q.QueryContext(t.ctx, `SELECT `+store.AuditCols+` FROM audit WHERE id > ? ORDER BY id`, anchor.ID)
 	if err != nil {
 		return model.AuditCheck{}, err
 	}
@@ -147,124 +92,40 @@ func chainCheck(c audit.Chain, broken int64) model.AuditCheck {
 }
 
 func (t *tx) ListAudit(f store.AuditFilter) ([]*model.AuditEvent, error) {
-	q := `SELECT ` + auditCols + ` FROM audit WHERE id > ?`
-	args := []any{f.SinceID}
-	if f.AgentID != "" {
-		q += ` AND agent_id = ?`
-		args = append(args, f.AgentID)
-	}
-	if f.TaskID != "" {
-		q += ` AND task_id = ?`
-		args = append(args, f.TaskID)
-	}
-	if f.Tool != "" {
-		q += ` AND tool = ?`
-		args = append(args, f.Tool)
-	}
+	w := where{conds: []string{"id > ?"}, args: []any{f.SinceID}}
+	w.eq("agent_id", f.AgentID)
+	w.eq("task_id", f.TaskID)
+	w.eq("tool", f.Tool)
 	limit := f.Limit
 	if limit <= 0 {
 		limit = auditDefaultLimit
 	}
-	q += ` ORDER BY id ASC LIMIT ?`
-	args = append(args, limit)
-
-	rows, err := t.q.QueryContext(t.ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := []*model.AuditEvent{}
-	for rows.Next() {
-		var (
-			e                         model.AuditEvent
-			ts                        int64
-			taskID, before, after, nt string
-		)
-		if err := rows.Scan(&e.ID, &ts, &e.AgentID, &e.Role, &e.Tool, &taskID, &before, &after, &nt, &e.Hash); err != nil {
-			return nil, err
-		}
-		e.TS = auditTime(ts)
-		e.TaskID = auditStrPtr(taskID)
-		e.Note = auditStrPtr(nt)
-		if e.Before, err = auditUnJSON(before); err != nil {
-			return nil, err
-		}
-		if e.After, err = auditUnJSON(after); err != nil {
-			return nil, err
-		}
-		out = append(out, &e)
-	}
-	return out, rows.Err()
+	q := `SELECT ` + store.AuditCols + ` FROM audit` + w.clause() + ` ORDER BY id ASC` + w.limit(limit)
+	return list(t, store.ScanAudit, q, w.args...)
 }
 
 func (t *tx) InsertSpawn(s *model.Spawn) error {
-	_, err := t.q.ExecContext(t.ctx,
-		`INSERT INTO spawns(`+spawnCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
-		s.ID, s.BriefID, s.AgentID, s.Kind, s.Model, s.Provider, s.Status, s.Spawner,
-		auditStr(s.Error), s.RequestedBy, auditMillis(s.CreatedAt))
-	if auditIsDup(err) {
-		return store.ErrDuplicate
+	args, err := store.Spawns.InsertArgs(s)
+	if err != nil {
+		return err
 	}
-	return err
+	return t.exec(spawnInsert, args...)
 }
 
 func (t *tx) UpdateSpawn(s *model.Spawn) error {
-	res, err := t.q.ExecContext(t.ctx,
-		`UPDATE spawns SET brief_id=?, agent_id=?, kind=?, model=?, provider=?, status=?, spawner=?, error=?,
-		 requested_by=?, created_at=? WHERE id=?`,
-		s.BriefID, s.AgentID, s.Kind, s.Model, s.Provider, s.Status, s.Spawner,
-		auditStr(s.Error), s.RequestedBy, auditMillis(s.CreatedAt), s.ID)
+	args, err := store.Spawns.UpdateArgs(s)
 	if err != nil {
 		return err
 	}
-	n, err := res.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if n == 0 {
-		return store.ErrNotFound
-	}
-	return nil
+	return t.update(spawnUpdate, args...)
 }
 
 func (t *tx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
-	q := `SELECT ` + spawnCols + ` FROM spawns WHERE 1=1`
-	var args []any
-	if f.BriefID != "" {
-		q += ` AND brief_id = ?`
-		args = append(args, f.BriefID)
-	}
-	if f.AfterID != "" {
-		c, a := afterCreatedNumClause("spawns", f.AfterID)
-		q += ` AND ` + c
-		args = append(args, a...)
-	}
-	q += ` ORDER BY created_at, ` + idNum + `, id`
-	if f.Limit > 0 {
-		q += ` LIMIT ?`
-		args = append(args, f.Limit)
-	}
-	rows, err := t.q.QueryContext(t.ctx, q, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	out := []*model.Spawn{}
-	for rows.Next() {
-		var (
-			s       model.Spawn
-			errText string
-			created int64
-		)
-		if err := rows.Scan(&s.ID, &s.BriefID, &s.AgentID, &s.Kind, &s.Model, &s.Provider, &s.Status,
-			&s.Spawner, &errText, &s.RequestedBy, &created); err != nil {
-			return nil, err
-		}
-		s.Error = auditStrPtr(errText)
-		s.CreatedAt = auditTime(created)
-		out = append(out, &s)
-	}
-	return out, rows.Err()
+	var w where
+	w.eq("brief_id", f.BriefID)
+	w.afterCreatedNum("spawns", f.AfterID)
+	q := spawnSelect + w.clause() + ` ORDER BY created_at, ` + idNum + `, id` + w.limit(f.Limit)
+	return list(t, store.Spawns.Scan, q, w.args...)
 }
 
 func (t *tx) GetKV(key string) (string, bool, error) {

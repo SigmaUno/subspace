@@ -3,8 +3,10 @@
 import { useState } from "react";
 import { ApiError, api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Bot, BotAction, BotList, BotRegistration } from "../../../lib/bots-types";
+import type { AgentProfile, ProfileList } from "../../../lib/profiles-types";
 import type { Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { ProfilesPanel } from "./profiles";
 import { SpawnsPanel } from "./spawns";
 import { EmptyState, ResourceState } from "./states";
 
@@ -49,13 +51,19 @@ function Credentials({ items, dismiss }: { items: BotRegistration[]; dismiss: ()
   </section>;
 }
 
-function AddBotForm({ complete }: { complete: (items: BotRegistration[]) => void }) {
-  const [bulk, setBulk] = useState(false);
+type FormStart = { bulk: boolean; profile: string };
+
+function AddBotForm({ complete, profiles, start }: { complete: (items: BotRegistration[]) => void; profiles: AgentProfile[]; start: FormStart }) {
+  const [bulk, setBulk] = useState(start.bulk);
+  const [profile, setProfile] = useState(start.profile);
+  const chosen = profiles.find((item) => item.name === profile);
+  const fromProfile = (text?: string) => chosen && <option value="">{text || "—"} (profile)</option>;
   const form = useSubmit();
   return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     const common = {
       role: value(fields, "role"), kind: value(fields, "kind"),
       model: value(fields, "model"), provider: value(fields, "provider"),
+      ...(chosen ? { profile: chosen.name } : {}),
     };
     const id = value(fields, "id");
     if (bulk) {
@@ -70,18 +78,24 @@ function AddBotForm({ complete }: { complete: (items: BotRegistration[]) => void
     <h2>{bulk ? "Bulk add bots" : "Add bot"}</h2>
     <label className="inline"><input type="checkbox" checked={bulk} onChange={(event) => setBulk(event.target.checked)} /> Bulk add</label>
     <div className="form-grid">
+      <label>Profile<select value={profile} onChange={(event) => setProfile(event.target.value)}>
+        <option value="">None</option>
+        {profiles.map((item) => <option key={item.name} value={item.name}>{item.name}</option>)}
+      </select></label>
       <label>{bulk ? "Name prefix" : "Name"}
         <input name="id" pattern={"[a-z0-9][a-z0-9_\\-]*"} maxLength={bulk ? 58 : 63} required />
       </label>
-      {bulk && <label>Count<input name="count" type="number" min="1" max="1000" defaultValue="2" required /></label>}
-      <label>Role<select name="role" defaultValue="worker">
+      {bulk && <label>Count<input key={profile} name="count" type="number" min="1" max="1000" defaultValue={chosen?.count || 2} required /></label>}
+      <label>Role<select key={`role:${profile}`} name="role" defaultValue={chosen ? "" : "worker"}>
+        {fromProfile(chosen?.role)}
         {roles.map((role) => <option key={role} value={role}>{role}</option>)}
       </select></label>
-      <label>Kind<select name="kind" defaultValue="claude-code">
+      <label>Kind<select key={`kind:${profile}`} name="kind" defaultValue={chosen ? "" : "claude-code"}>
+        {fromProfile(chosen?.kind)}
         {kinds.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
       </select></label>
-      <label>Model<input name="model" placeholder="claude-sonnet-5-5" required /></label>
-      <label>Provider override<input name="provider" placeholder="Derived from kind" /></label>
+      <label>Model<input name="model" placeholder={chosen?.model || "claude-sonnet-5-5"} required={!chosen} /></label>
+      <label>Provider override<input name="provider" placeholder={chosen?.provider || "Derived from kind"} /></label>
     </div>
     <Feedback error={form.error} />
     <div><button className="primary" disabled={form.busy}>{bulk ? "Add bots" : "Add bot"}</button></div>
@@ -109,7 +123,10 @@ function BotActions({ bot, busy, run }: { bot: Bot; busy: boolean; run: (bot: Bo
 
 export function BotsView({ revision, openThread }: { revision: number; openThread: (thread: Thread) => void }) {
   const bots = useResource<BotList>("agents?limit=1000", revision);
+  const profiles = useResource<ProfileList>("agent-profiles", revision);
   const [showForm, setShowForm] = useState(false);
+  const [start, setStart] = useState<FormStart>({ bulk: false, profile: "" });
+  const [formKey, setFormKey] = useState(0);
   const [credentials, setCredentials] = useState<BotRegistration[] | null>(null);
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -139,10 +156,19 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
   }
 
   const items = bots.data?.agents ?? [];
+  const presets = profiles.data?.profiles ?? [];
+
+  function openForm(next: FormStart) {
+    setStart(next);
+    setFormKey((key) => key + 1);
+    setShowForm(true);
+  }
+
   return <>
     <div className="heading"><h1>Bots</h1>
-      <button className="primary" data-write disabled={!!credentials} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Add bot"}</button></div>
-    {showForm && <AddBotForm complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
+      <button className="primary" data-write disabled={!!credentials} onClick={() => showForm ? setShowForm(false) : openForm({ bulk: false, profile: "" })}>{showForm ? "Close form" : "Add bot"}</button></div>
+    {showForm && <AddBotForm key={formKey} profiles={presets} start={start}
+      complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
     <Feedback error={error} />
     <ResourceState error={bots.error} loading={!bots.data} retry={bots.refresh} rows={5} />
@@ -171,6 +197,8 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
         ))}</tbody>
       </table>
     </div>}
+    <ResourceState error={profiles.error} loading={!profiles.data} retry={profiles.refresh} rows={3} />
+    {profiles.data && <ProfilesPanel profiles={presets} refresh={profiles.refresh} use={(profile) => openForm({ bulk: true, profile: profile.name })} />}
     <SpawnsPanel revision={revision} />
   </>;
 }

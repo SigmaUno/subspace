@@ -44,6 +44,7 @@ var scenarios = []struct {
 	{"next id", scenarioNextID},
 	{"concurrent writes", scenarioConcurrent},
 	{"batch isolation", scenarioBatchIsolation},
+	{"timeseries", scenarioTimeseries},
 }
 
 func ptr[T any](v T) *T { return &v }

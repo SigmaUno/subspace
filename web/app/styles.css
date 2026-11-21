@@ -323,6 +323,15 @@ kbd { display: inline-block; font-size: .6875rem; border: 1px solid var(--border
 .loss-curve { width: 100%; background: var(--panel-muted); border: 1px solid var(--border-subtle); border-radius: var(--radius); min-height: 9rem; }
 .loss-curve text { fill: var(--muted); font-size: 11px; font-family: var(--font-mono); }
 .loss-curve circle { fill: var(--faint); }
+.trend-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 19rem), 1fr)); gap: .75rem; }
+.trend { min-width: 0; }
+.trend svg { width: 100%; height: auto; overflow: visible; touch-action: pan-y; }
+.trend .axis { stroke: var(--border); }
+.trend .bar { fill: var(--action); opacity: .55; }
+.trend .bar.active { opacity: 1; }
+.trend .series { fill: none; stroke: var(--accent); stroke-width: 2; vector-effect: non-scaling-stroke; }
+.trend .crosshair { stroke: var(--muted); stroke-dasharray: 3 3; }
+.trend .point { fill: var(--action); }
 .chart-grid { stroke: var(--border); }
 .chart-attempts, .chart-best { fill: none; stroke: var(--faint); }
 .chart-best { stroke: var(--action); stroke-width: 2.5px; }

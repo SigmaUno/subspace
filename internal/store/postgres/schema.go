@@ -74,6 +74,14 @@ CREATE TABLE IF NOT EXISTS spawns (
 );
 CREATE INDEX IF NOT EXISTS spawns_brief ON spawns(brief_id);
 
+CREATE TABLE IF NOT EXISTS usage_records (
+  key TEXT COLLATE "C" PRIMARY KEY, ts BIGINT NOT NULL, agent_id TEXT NOT NULL DEFAULT '', task_id TEXT NOT NULL DEFAULT '',
+  brief_id TEXT NOT NULL DEFAULT '', tokens_in BIGINT NOT NULL DEFAULT 0, tokens_out BIGINT NOT NULL DEFAULT 0
+);
+CREATE INDEX IF NOT EXISTS usage_records_ts ON usage_records(ts);
+CREATE INDEX IF NOT EXISTS audit_ts ON audit(ts);
+CREATE INDEX IF NOT EXISTS tasks_created ON tasks(created_at);
+
 CREATE OR REPLACE FUNCTION audit_append_only() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN
   RAISE EXCEPTION 'audit is append-only';

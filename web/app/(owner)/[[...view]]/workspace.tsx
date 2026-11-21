@@ -9,6 +9,7 @@ import { BriefsView } from "./board";
 import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
+import { TrendsView } from "./trends";
 import { UsageView } from "./usage";
 import { useLive } from "./live";
 
@@ -82,6 +83,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "capacity", name: "Capacity", href: "/capacity" },
     { id: "charter", name: "Charter", href: "/charter" },
     { id: "usage", name: "Usage", href: "/usage" },
+    { id: "trends", name: "Trends", href: "/trends" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "files", name: "Files", href: "/files" },
     { id: "audit", name: "Audit", href: "/audit" },
@@ -132,6 +134,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
             {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}
+            {section === "trends" && <TrendsView revision={revisions.board} />}
             {section === "files" && <FilesView />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}

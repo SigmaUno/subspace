@@ -43,6 +43,7 @@ type Board struct {
 	dirtyT map[string]struct{}
 	capCfg capacity.Config
 
+	pauseOp  sync.Mutex
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string

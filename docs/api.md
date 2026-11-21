@@ -573,6 +573,13 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 
 Buckets are aligned to UTC multiples of the bucket size. A series has at most 2000 buckets: an earlier `since` is moved forward so the series ends with the bucket containing now. Metrics: `tasks_done` counts audit events that moved a task to `done`; `tasks_created` counts tasks by `created_at`; `review_rounds` counts `review` events that requested changes; `active_agents` counts distinct non-owner agents with audit events; `cost_eur` sums increases of a task's `cost_used` reported by `update_status`; `tokens` sums input and output tokens of stored usage records.
 
+### OpenAPI
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/openapi.json` | → the OpenAPI 3.1 document of this API (`application/json`). Owner token required. |
+
+The document is built on first request from the schema registry in `internal/openapi`, keeping only the operations the running server has mounted: routes that depend on configuration (webhooks, autopilot, merge queue) appear only when enabled. Every operation has a unique `operationId` (method plus path), the success response and a shared `Error` response (`{"error":{"code","message"}}`). Request and response schemas are derived from the Go types by reflection; nullable fields use `null` in `type`. `bearer` is the only security scheme (owner token on `/api/v1`, agent token on `/mcp`); `/healthz`, action links and webhooks opt out or use `webhookSignature`. The `x-mcp-tools` extension lists every MCP tool with its `name`, `description`, the `roles` that may call it and its JSON Schema `inputSchema`. The server URL is `SUBSPACE_PUBLIC_URL`.
+
 ### Notifications
 | Method | Path | Body → Response |
 |---|---|---|

@@ -252,6 +252,41 @@ func parseCosts(args []string, _ io.Reader) (command, error) {
 	return get("costs", setIf(url.Values{}, "group_by", *group, "split_by", *split, "since", *since, "until", *until, "brief_id", *brief)), nil
 }
 
+func usageQuery(name string, bucket bool) parser {
+	return func(args []string, _ io.Reader) (command, error) {
+		set := flags(name)
+		group := set.String("group-by", "", "all, agent, task, brief, model, provider or source")
+		from := set.String("from", "", "RFC 3339 start")
+		to := set.String("to", "", "RFC 3339 end")
+		brief := set.String("brief", "", "only this brief")
+		agent := set.String("agent", "", "only this agent")
+		task := set.String("task", "", "only this task")
+		provider := set.String("provider", "", "only this provider")
+		mdl := set.String("model", "", "only this model")
+		source := set.String("source", "", "mcp, claude, codex or opencode")
+		var size *string
+		if bucket {
+			size = set.String("bucket", "", "minute, hour or day")
+		}
+		if err := parseFlags(set, args, 0, 0); err != nil {
+			return nil, err
+		}
+		q := setIf(url.Values{}, "group_by", *group, "from", *from, "to", *to, "brief_id", *brief, "agent_id", *agent,
+			"task_id", *task, "provider", *provider, "model", *mdl, "source", *source)
+		if size != nil {
+			setIf(q, "bucket", *size)
+		}
+		return get("usage/"+strings.TrimPrefix(name, "usage "), q), nil
+	}
+}
+
+var usageCommands = table{
+	"summary":   usageQuery("usage summary", false),
+	"series":    usageQuery("usage series", true),
+	"providers": plain("usage providers", request{method: http.MethodGet, path: "usage/providers"}),
+	"capacity":  plain("usage capacity", request{method: http.MethodGet, path: "usage/capacity"}),
+}
+
 var estimateCommands = table{
 	"brief": byID("estimates brief", "briefs/%s/estimates"),
 	"plan":  byID("estimates plan", "plans/%s/estimates"),

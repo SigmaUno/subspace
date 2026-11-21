@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -153,17 +154,76 @@ var instructionCommands = table{
 		scope := set.String("scope", "global", "global or project:ID")
 		kind := set.String("kind", "", "rules, style or templates (default: the effective text)")
 		project := set.String("project", "", "project for the effective text")
+		version := set.Int("version", 0, "a specific version of --kind instead of the head")
 		if err := parseFlags(set, args, 0, 0); err != nil {
 			return nil, err
 		}
 		if *kind == "" {
+			if *version != 0 {
+				return nil, errors.New("instructions get --version requires --kind")
+			}
 			return get("instructions/effective", setIf(url.Values{}, "project", *project)), nil
 		}
 		path, err := instructionPath(*scope, *kind)
 		if err != nil {
 			return nil, err
 		}
+		if *version != 0 {
+			if *version < 1 {
+				return nil, errors.New("--version must be positive")
+			}
+			path = fmt.Sprintf("%s/versions/%d", path, *version)
+		}
 		return get(path, nil), nil
+	},
+	"versions": func(args []string, _ io.Reader) (command, error) {
+		set := flags("instructions versions")
+		scope := set.String("scope", "global", "global or project:ID")
+		kind := set.String("kind", "", "rules, style or templates")
+		if err := parseFlags(set, args, 0, 0); err != nil {
+			return nil, err
+		}
+		path, err := instructionPath(*scope, *kind)
+		if err != nil {
+			return nil, err
+		}
+		return get(path+"/versions", nil), nil
+	},
+	"diff": func(args []string, _ io.Reader) (command, error) {
+		set := flags("instructions diff")
+		scope := set.String("scope", "global", "global or project:ID")
+		kind := set.String("kind", "", "rules, style or templates")
+		from := set.Int("from", 0, "older version number")
+		to := set.Int("to", 0, "newer version number")
+		if err := parseFlags(set, args, 0, 0); err != nil {
+			return nil, err
+		}
+		path, err := instructionPath(*scope, *kind)
+		if err != nil {
+			return nil, err
+		}
+		if *from < 1 || *to < 1 {
+			return nil, errors.New("instructions diff requires --from and --to version numbers")
+		}
+		return get(path+"/diff", url.Values{"from": {fmt.Sprint(*from)}, "to": {fmt.Sprint(*to)}}), nil
+	},
+	"rollback": func(args []string, _ io.Reader) (command, error) {
+		set := flags("instructions rollback")
+		scope := set.String("scope", "global", "global or project:ID")
+		kind := set.String("kind", "", "rules, style or templates")
+		to := set.Int("to", 0, "version to roll back to")
+		message := set.String("message", "", "version message")
+		if err := parseFlags(set, args, 0, 0); err != nil {
+			return nil, err
+		}
+		path, err := instructionPath(*scope, *kind)
+		if err != nil {
+			return nil, err
+		}
+		if *to < 1 {
+			return nil, errors.New("instructions rollback requires --to version number")
+		}
+		return call(request{method: http.MethodPost, path: path + "/rollback", body: map[string]any{"to": *to, "message": *message}}), nil
 	},
 	"set": func(args []string, stdin io.Reader) (command, error) {
 		set := flags("instructions set")
@@ -226,6 +286,16 @@ var promptCommands = table{
 	},
 }
 
+var briefCommands = table{
+	"show":         byID("briefs show", "briefs/%s"),
+	"architecture": byID("briefs architecture", "briefs/%s/architecture"),
+	"update":       jsonBody("briefs update", http.MethodPatch, "briefs/%s", true),
+	"leader":       parseBriefLeader,
+	"components": grouped("briefs components", table{
+		"set": jsonBody("briefs components set", http.MethodPut, "briefs/%s/components", true),
+	}),
+}
+
 func parseBriefs(args []string, stdin io.Reader) (command, error) {
 	if len(args) > 0 {
 		switch args[0] {
@@ -234,8 +304,29 @@ func parseBriefs(args []string, stdin io.Reader) (command, error) {
 		case "templates":
 			return parseTemplates(args[1:])
 		}
+		if p, ok := briefCommands[args[0]]; ok {
+			return p(args[1:], stdin)
+		}
 	}
 	return single(parseList("briefs", args))
+}
+
+func parseBriefLeader(args []string, _ io.Reader) (command, error) {
+	set := flags("briefs leader")
+	agent := set.String("agent", "", "leader to hand the brief to; empty = any leader")
+	if err := parseFlags(set, args, 1, 1); err != nil {
+		return nil, err
+	}
+	id, err := identifier(set.Arg(0))
+	if err != nil {
+		return nil, err
+	}
+	if *agent != "" {
+		if _, err := identifier(*agent); err != nil {
+			return nil, err
+		}
+	}
+	return call(request{method: http.MethodPost, path: "briefs/" + id + "/leader", body: map[string]string{"agent_id": *agent}}), nil
 }
 
 func parseImport(args []string, stdin io.Reader) (command, error) {

@@ -1,0 +1,11 @@
+{
+  "global_max_agents": 40,
+  "limits": [
+    {"provider": "anthropic", "model": "claude-opus-*", "max_concurrency": 2, "requests_per_min": 40},
+    {"provider": "anthropic", "model": "claude-sonnet-*", "max_concurrency": 12, "requests_per_min": 200},
+    {"provider": "anthropic", "model": "*", "max_concurrency": 14, "requests_per_min": 240},
+    {"provider": "openai", "model": "gpt-*", "max_concurrency": 10, "requests_per_min": 120},
+    {"provider": "deepseek", "model": "*", "max_concurrency": 16, "requests_per_min": 300},
+    {"provider": "selfhosted", "model": "*", "max_concurrency": 2, "requests_per_min": 0}
+  ]
+}

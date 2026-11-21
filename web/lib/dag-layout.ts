@@ -3,7 +3,7 @@ export interface DagInput {
   deps: readonly string[];
 }
 
-export interface LayoutOptions {
+interface LayoutOptions {
   nodeWidth: number;
   nodeHeight: number;
   layerGap: number;
@@ -16,7 +16,7 @@ export interface Point {
   y: number;
 }
 
-export interface LayoutNode {
+interface LayoutNode {
   id: string;
   layer: number;
   row: number;
@@ -24,7 +24,7 @@ export interface LayoutNode {
   y: number;
 }
 
-export interface LayoutEdge {
+interface LayoutEdge {
   from: string;
   to: string;
   points: Point[];

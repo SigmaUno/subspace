@@ -15,7 +15,19 @@ const (
 	maxNote     = 500
 	stdoutLines = 15
 	stderrLines = 5
+
+	codexTurnComplete = "agent-turn-complete"
 )
+
+type codexEvent struct {
+	Type string `json:"type"`
+}
+
+func parseCodexEvent(s string) codexEvent {
+	var e codexEvent
+	_ = json.Unmarshal([]byte(s), &e)
+	return e
+}
 
 type payload struct {
 	HookEventName string          `json:"hook_event_name"`

@@ -31,7 +31,7 @@ type canonical struct {
 	Note    string          `json:"note"`
 }
 
-func Canonical(r Record) ([]byte, error) {
+func encode(r Record) ([]byte, error) {
 	before, err := canonJSON(r.Before)
 	if err != nil {
 		return nil, err
@@ -60,7 +60,7 @@ func canonJSON(s string) (json.RawMessage, error) {
 }
 
 func Link(prev string, r Record) (string, error) {
-	c, err := Canonical(r)
+	c, err := encode(r)
 	if err != nil {
 		return "", err
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/drill"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
@@ -20,7 +21,17 @@ type backupLister func(context.Context) ([]backup.Info, error)
 
 func (f backupLister) List(ctx context.Context) ([]backup.Info, error) { return f(ctx) }
 
-func init() { registerMount(mountDrill) }
+func init() {
+	registerMount(mountDrill)
+	store.DeclareSQLiteOnly(store.SQLiteOnly{
+		Name:   "scheduled restore drills (" + envDrillEvery + ")",
+		Reason: "the postgres backup scheduler writes JSON-lines dumps, not pg_dump files; unset " + envDrillEvery + " or set it to 0",
+		Enabled: func(getenv func(string) string) bool {
+			v, err := time.ParseDuration(getenv(envDrillEvery))
+			return getenv(envDrillEvery) != "" && (err != nil || v > 0)
+		},
+	})
+}
 
 func mountDrill(d Deps) {
 	if !drill.SupportsSQL(d.Ctx, d.Store) {

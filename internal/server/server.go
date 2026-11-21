@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"sync"
 	"time"
 
@@ -75,6 +76,7 @@ type Server struct {
 	reg     *mcp.Registry
 	Leader  *ha.Elector
 	cluster *cluster
+	closers []func()
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -127,6 +129,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	env, err := rl.Load()
 	if err != nil {
 		return nil, err
+	}
+	if isPostgres(cfg.DBPath) {
+		if err := store.CheckSQLiteOnly(env); err != nil {
+			return nil, err
+		}
 	}
 	var capCfg capacity.Config
 	if path := env(board.EnvCapacityFile); path != "" {
@@ -239,7 +246,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
+	var closers []func()
+	deps := Deps{Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
 		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)
@@ -265,7 +273,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, drain: make(chan struct{})}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, closers: closers, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -320,6 +328,9 @@ func (s *Server) ToolNames() map[string][]string {
 
 func (s *Server) Close() error {
 	s.beginDrain()
+	for _, f := range slices.Backward(s.closers) {
+		f()
+	}
 	s.cluster.close()
 	return s.Store.Close()
 }

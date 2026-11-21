@@ -30,6 +30,13 @@ export function deleteBotsById(
   return r.request("DELETE", "/api/v1/bots/{id}", { ...args, response: "json" });
 }
 
+export function deleteGatewaysByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/gateways/{name}", { ...args, response: "none" });
+}
+
 export function deleteKnowledgeById(
   r: Requester,
   args: { path: { id: string } },
@@ -387,6 +394,26 @@ export function getDrills(
   args?: { query?: { limit?: number } },
 ): Promise<{ drills: T.DrillResult[] | null }> {
   return r.request("GET", "/api/v1/drills", { ...args, response: "json" });
+}
+
+export function getGateways(
+  r: Requester,
+): Promise<T.List> {
+  return r.request("GET", "/api/v1/gateways", { response: "json" });
+}
+
+export function getGatewaysByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<T.Gateway> {
+  return r.request("GET", "/api/v1/gateways/{name}", { ...args, response: "json" });
+}
+
+export function getGatewaysByNameTools(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<T.Tools> {
+  return r.request("GET", "/api/v1/gateways/{name}/tools", { ...args, response: "json" });
 }
 
 export function getHa(
@@ -756,6 +783,20 @@ export function getTasksByIdScope(
   return r.request("GET", "/api/v1/tasks/{id}/scope", { ...args, response: "json" });
 }
 
+export function getTasksByIdTranscript(
+  r: Requester,
+  args: { path: { id: string }; query?: { since?: number; limit?: number; at?: string; q?: string } },
+): Promise<T.TranscriptPage> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript", { ...args, response: "json" });
+}
+
+export function getTasksByIdTranscriptDownload(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<string> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript/download", { ...args, response: "text" });
+}
+
 export function getThreadsByKindByIdMessages(
   r: Requester,
   args: { path: { kind: string; id: string }; query?: { since?: number; limit?: number } },
@@ -1011,6 +1052,13 @@ export function postDrills(
   args?: { body?: unknown },
 ): Promise<T.DrillResult> {
   return r.request("POST", "/api/v1/drills", { ...args, response: "json" });
+}
+
+export function postGateways(
+  r: Requester,
+  args: { body: T.GatewayInput },
+): Promise<T.Gateway> {
+  return r.request("POST", "/api/v1/gateways", { ...args, response: "json" });
 }
 
 export function postHillclimbJobs(
@@ -1312,6 +1360,13 @@ export function putCharter(
   args: { body: T.CharterText },
 ): Promise<T.Charter> {
   return r.request("PUT", "/api/v1/charter", { ...args, response: "json" });
+}
+
+export function putGatewaysByName(
+  r: Requester,
+  args: { path: { name: string }; body: T.GatewayInput },
+): Promise<T.Gateway> {
+  return r.request("PUT", "/api/v1/gateways/{name}", { ...args, response: "json" });
 }
 
 export function putInstructionsByScopeByKind(

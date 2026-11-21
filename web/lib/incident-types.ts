@@ -1,9 +1,9 @@
-export interface IncidentFailure {
+interface IncidentFailure {
   agent_id: string;
   error: string;
 }
 
-export interface IncidentResult {
+interface IncidentResult {
   action: string;
   status: "ok" | "failed";
   error?: string;
@@ -26,7 +26,7 @@ export interface IncidentList {
   incidents: Incident[] | null;
 }
 
-export interface IncidentToken {
+interface IncidentToken {
   agent_id: string;
   token?: string;
 }

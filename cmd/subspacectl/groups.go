@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"flag"
 	"fmt"
 	"io"
@@ -407,11 +408,32 @@ var taskCommands = table{
 		}
 		return get("tasks", setIf(q, "brief_id", *brief, "status", *status, "assignee", *assignee, "role", *role)), nil
 	},
-	"show":  byID("tasks show", "tasks/%s"),
-	"pr":    byID("tasks pr", "tasks/%s/pr"),
-	"scope": byID("tasks scope", "tasks/%s/scope"),
-	"gates": byID("tasks gates", "tasks/%s/gates"),
-	"bulk":  parseTaskBulk,
+	"show":           byID("tasks show", "tasks/%s"),
+	"pr":             byID("tasks pr", "tasks/%s/pr"),
+	"scope":          byID("tasks scope", "tasks/%s/scope"),
+	"gates":          byID("tasks gates", "tasks/%s/gates"),
+	"override-gates": parseGateOverride,
+	"bulk":           parseTaskBulk,
+
+	"transcript":          parseTranscript,
+	"transcript-download": parseTranscriptDownload,
+}
+
+func parseGateOverride(args []string, _ io.Reader) (command, error) {
+	set := flags("tasks override-gates")
+	reason := set.String("reason", "", "why the gates are overridden (audited)")
+	gates := set.String("gates", "", "comma-separated gates; empty = all")
+	if err := parseFlags(set, args, 1, 1); err != nil {
+		return nil, err
+	}
+	id, err := identifier(set.Arg(0))
+	if err != nil {
+		return nil, err
+	}
+	if strings.TrimSpace(*reason) == "" {
+		return nil, errors.New("tasks override-gates requires --reason")
+	}
+	return call(request{method: http.MethodPost, path: "tasks/" + id + "/gates/override", body: map[string]any{"reason": *reason, "gates": splitList(*gates)}}), nil
 }
 
 func parseTaskBulk(args []string, stdin io.Reader) (command, error) {

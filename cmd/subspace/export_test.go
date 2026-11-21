@@ -10,6 +10,7 @@ import (
 	"database/sql"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/url"
@@ -461,45 +462,10 @@ func TestRoundTripSQLiteToPostgres(t *testing.T) {
 	dir := t.TempDir()
 	src, arc, back := filepath.Join(dir, "src.db"), filepath.Join(dir, "a.jsonl.gz"), filepath.Join(dir, "b.jsonl.gz")
 	populate(t, src)
+	fillExtensionTables(t, src)
 	_, err = runCmd(t, runExport, "--db", src, "--out", arc)
 	mustDo(t, err)
 	_, err = runCmd(t, runImport, "--db", dsn, "--in", arc)
-	if err == nil || !strings.Contains(err.Error(), "has no table") {
-		t.Fatalf("extension tables must not be dropped silently: %v", err)
-	}
-	_, err = runCmd(t, runImport, "--db", dsn, "--in", arc, "--force")
-	if err == nil || !strings.Contains(err.Error(), "has no table") {
-		t.Fatalf("forced import: %v", err)
-	}
-
-	core := filepath.Join(dir, "core.jsonl.gz")
-	lines := archiveLines(t, arc)
-	var h line
-	mustDo(t, json.Unmarshal(lines[0], &h))
-	keep := map[string]bool{}
-	for _, c := range coreTables {
-		keep[c.name] = true
-	}
-	var tables []headerTable
-	for _, tb := range h.Header.Tables {
-		if keep[tb.Name] {
-			tables = append(tables, tb)
-		}
-	}
-	h.Header.Tables = tables
-	first, err := json.Marshal(h)
-	mustDo(t, err)
-	filtered := [][]byte{first}
-	for _, l := range lines[1 : len(lines)-1] {
-		var r line
-		mustDo(t, json.Unmarshal(l, &r))
-		if keep[r.T] {
-			filtered = append(filtered, l)
-		}
-	}
-	writeArchive(t, core, seal(append(filtered, nil)))
-
-	_, err = runCmd(t, runImport, "--db", dsn, "--in", core)
 	mustDo(t, err)
 	_, err = runCmd(t, runExport, "--db", dsn, "--out", back)
 	mustDo(t, err)
@@ -517,33 +483,108 @@ func TestRoundTripSQLiteToPostgres(t *testing.T) {
 		}
 		return out
 	}
-	want, got := rowsOf(core), rowsOf(back)
-	for _, c := range coreTables {
-		if len(want[c.name]) != len(got[c.name]) {
-			t.Fatalf("%s: %d rows, want %d", c.name, len(got[c.name]), len(want[c.name]))
+	want, got := rowsOf(arc), rowsOf(back)
+	for name, rows := range want {
+		if len(got[name]) != len(rows) {
+			t.Fatalf("%s: %d rows, want %d", name, len(got[name]), len(rows))
 		}
-		for i, row := range got[c.name] {
-			for col, v := range row {
-				w, ok := want[c.name][i][col]
-				if !ok && col == "id_num" {
-					continue
-				}
-				if !sameValue(w, v) {
-					t.Errorf("%s row %d column %s: %v, want %v", c.name, i, col, v, w)
+		used := make([]bool, len(got[name]))
+	next:
+		for _, w := range rows {
+			for i, g := range got[name] {
+				if !used[i] && sameRow(w, g) {
+					used[i] = true
+					continue next
 				}
 			}
+			t.Errorf("%s: no row matches %v", name, w)
+		}
+	}
+	for _, name := range sqlite.ExtensionTables() {
+		if len(want[name]) == 0 {
+			t.Fatalf("%s: the fixture has no rows", name)
 		}
 	}
 
-	_, err = runCmd(t, runImport, "--db", dsn, "--in", core)
+	pg, err := sql.Open("pgx", dsn)
+	mustDo(t, err)
+	defer func() { _ = pg.Close() }()
+	for _, q := range []string{
+		`INSERT INTO tool_errors(ts, agent_id, tool, code, fingerprint) VALUES (1, 'a', 't', 'c', 'f')`,
+		`INSERT INTO api_tokens(name, hash, scope, created_at) VALUES ('n', 'fresh-hash', 'owner', 1)`,
+		`INSERT INTO hillclimb_attempts(job_id, agent_id, branch, status, measured_at, log) VALUES ('H-1', 'a', 'b', 'ok', 1, '')`,
+	} {
+		_, err := pg.Exec(q)
+		mustDo(t, err)
+	}
+	_, err = runCmd(t, runImport, "--db", dsn, "--in", arc)
 	if err == nil || !strings.Contains(err.Error(), "not empty") {
 		t.Fatalf("non-empty postgres target: %v", err)
 	}
+	_, err = runCmd(t, runImport, "--db", dsn, "--in", arc, "--force")
+	mustDo(t, err)
 	pgBack := filepath.Join(dir, "pg.db")
 	_, err = runCmd(t, runImport, "--db", pgBack, "--in", back)
 	mustDo(t, err)
 	_, err = runCmd(t, runAuditVerify, "--db", pgBack)
 	mustDo(t, err)
+}
+
+func fillExtensionTables(t *testing.T, path string) {
+	t.Helper()
+	db, err := sql.Open("sqlite", "file:"+path)
+	mustDo(t, err)
+	defer func() { _ = db.Close() }()
+	n := 100
+	fixed := map[string]string{"retention_segments.kind": "messages", "retention_segments.status": "restored"}
+	for _, table := range sqlite.ExtensionTables() {
+		var empty bool
+		mustDo(t, db.QueryRow(`SELECT NOT EXISTS (SELECT 1 FROM `+quote(table)+`)`).Scan(&empty))
+		if !empty {
+			continue
+		}
+		rows, err := db.Query(`SELECT name, type, pk FROM pragma_table_info(?)`, table)
+		mustDo(t, err)
+		var (
+			cols []string
+			args []any
+		)
+		for rows.Next() {
+			var name, typ string
+			var pk int
+			mustDo(t, rows.Scan(&name, &typ, &pk))
+			if pk == 1 && strings.EqualFold(typ, "INTEGER") {
+				continue
+			}
+			n++
+			cols = append(cols, quote(name))
+			if v, ok := fixed[table+"."+name]; ok {
+				args = append(args, v)
+				continue
+			}
+			switch up := strings.ToUpper(typ); {
+			case strings.Contains(up, "INT"):
+				args = append(args, n)
+			case strings.Contains(up, "REAL"), strings.Contains(up, "DOUBLE"):
+				args = append(args, float64(n)+0.5)
+			default:
+				args = append(args, fmt.Sprintf("v%d", n))
+			}
+		}
+		mustDo(t, errors.Join(rows.Err(), rows.Close()))
+		marks := strings.TrimSuffix(strings.Repeat("?,", len(cols)), ",")
+		_, err = db.Exec(`INSERT INTO `+quote(table)+`(`+strings.Join(cols, ",")+`) VALUES(`+marks+`)`, args...)
+		mustDo(t, err)
+	}
+}
+
+func sameRow(want, got map[string]any) bool {
+	for col, w := range want {
+		if !sameValue(w, got[col]) {
+			return false
+		}
+	}
+	return true
 }
 
 func sameValue(a, b any) bool {

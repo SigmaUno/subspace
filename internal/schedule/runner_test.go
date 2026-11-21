@@ -5,13 +5,13 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/schedule"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type clock struct {
@@ -78,23 +78,21 @@ type rig struct {
 	svc   *schedule.Service
 	run   *schedule.Runner
 	path  string
+	st    store.Store
 }
 
 func newRig(t *testing.T) *rig {
 	t.Helper()
 	c := &clock{t: time.Date(2026, 11, 21, 10, 0, 0, 0, time.UTC)}
-	r := &rig{t: t, ctx: context.Background(), clock: c, exec: &fakeExec{}, path: filepath.Join(t.TempDir(), "s.db")}
+	r := &rig{t: t, ctx: context.Background(), clock: c, exec: &fakeExec{}, path: testdb.Path(t, "s.db")}
 	r.open()
 	return r
 }
 
 func (r *rig) open() {
 	r.t.Helper()
-	st, err := sqlite.Open(r.path)
-	if err != nil {
-		r.t.Fatal(err)
-	}
-	r.t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(r.t, r.path)
+	r.st = st
 	r.svc = schedule.NewService(st, r.exec, r.clock.now)
 	r.run = schedule.NewRunner(schedule.Options{Store: st, Exec: r.exec, Now: r.clock.now, Grace: 5 * time.Minute})
 }
@@ -184,12 +182,13 @@ func TestRunnerNeverRepeatsAnInstantWhenTheCursorIsLost(t *testing.T) {
 	r.clock.advance(23 * time.Hour)
 	r.tick()
 
-	db, err := sql.Open("sqlite", r.path)
+	err := r.st.Atomic(r.ctx, func(tx store.Tx) error {
+		_, err := tx.(interface {
+			Exec(q string, args ...any) (sql.Result, error)
+		}).Exec(`UPDATE schedules SET cursor_at=0 WHERE id=?`, s.ID)
+		return err
+	})
 	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db.Close() }()
-	if _, err := db.Exec(`UPDATE schedules SET cursor_at=0 WHERE id=?`, s.ID); err != nil {
 		t.Fatal(err)
 	}
 	r.tick()

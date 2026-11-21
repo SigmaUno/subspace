@@ -195,6 +195,7 @@ Plan edits post a system message to the brief thread and append an audit event (
 | POST | `/api/v1/tasks/{id}/done` | `{"note":"merged in #123"}` → Task. Only from `approved` (or `needs_owner`). Sets `done`. |
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |
+| POST | `/api/v1/tasks/bulk` | `{"ids":["T-1","T-2"],"action":"cancel","params":{}}` → `{"action","results":[{"id","ok","error"?:{"code","message"}}],"succeeded","failed"}`. See Bulk operations. |
 
 ### Agents
 | Method | Path | Body → Response |
@@ -207,6 +208,23 @@ Plan edits post a system message to the brief thread and append an audit event (
 | POST | `/api/v1/agents/{id}/rotate-token` | `{"expires_in":""}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead). Without `expires_in` the current `token_expires_at` is kept (400 when it has already passed); with it the expiry is set to now plus the duration. |
 | POST | `/api/v1/agents/{id}/revoke` | `{"reason":""}` → Agent. Token dead immediately, leases released. |
 | POST | `/api/v1/agents/{id}/resume` | `{}` → Agent (clears loop-protection pause) |
+| POST | `/api/v1/agents/bulk-action` | `{"ids":["claude-1"],"action":"pause","params":{}}` → `{"action","results":[{"id","ok","error"?,"connect"?}],"succeeded","failed"}`. See Bulk operations. |
+
+### Bulk operations
+`POST /api/v1/tasks/bulk` and `POST /api/v1/agents/bulk-action` apply one action to up to 500 ids, one id at a time, in request order (duplicate ids are applied once). Each id is its own operation with its own audit event and SSE update (`task.updated` / `agent.updated`), exactly as the single-item endpoints. Partial success is allowed: the response is `200` with a result per id, `ok:false` results carry the error `code` and `message` the single-item endpoint would have returned (`not_found`, `conflict`, `forbidden`, ...). The request itself is rejected with `400` for an empty or oversized `ids`, empty id values, an unknown `action` or missing/invalid `params`; nothing is applied then.
+
+| Endpoint | action | params |
+|---|---|---|
+| tasks/bulk | `cancel` | `{"reason":""}` |
+| tasks/bulk | `reopen` | `{"status":"ready|assigned","note":""}` (default `ready`) |
+| tasks/bulk | `unblock` | `{"status":"ready|assigned","note":""}`; only `blocked` and `needs_owner` tasks, `conflict` otherwise |
+| tasks/bulk | `set_budget` | `{"max_minutes":120,"max_cost_eur":5}`; at least one, non-negative; an omitted field keeps the task's value |
+| tasks/bulk | `assign` | `{"agent_id":"claude-1","as":"assignee|reviewer"}` (required `agent_id`) |
+| tasks/bulk | `reassign` | `{"agent_id":"claude-1","reason":""}` (required `agent_id`) |
+| agents/bulk-action | `pause` | `{"reason":""}`; `conflict` for revoked agents |
+| agents/bulk-action | `resume` | `{}` |
+| agents/bulk-action | `revoke` | `{"reason":""}`; `conflict` for already revoked agents |
+| agents/bulk-action | `rotate-token` | `{}`; each successful result carries `connect` (Connect with the new token, shown once) |
 
 ### Questions
 | Method | Path | Body → Response |

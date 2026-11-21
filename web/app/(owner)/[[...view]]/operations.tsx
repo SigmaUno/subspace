@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
+import { agentActions, BulkBar, BulkToast, SelectAll, SelectBox, useBulk } from "./bulk";
 import { Feedback, Heartbeat } from "./components";
 import { PlanEditor } from "./plan-edit";
 import { EmptyState, ResourceState } from "./states";
@@ -90,6 +91,7 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
   const agents = useResource<{ agents: Agent[] }>("agents?limit=1000", revision);
   const [showForm, setShowForm] = useState(false);
   const [registered, setRegistered] = useState<Registration[] | null>(null);
+  const bulk = useBulk();
   return <>
     <div className="heading"><h1>Agents</h1>
       <button className="primary" disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
@@ -99,9 +101,10 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
     {agents.data && !agents.data.agents?.length && <EmptyState>No agents registered.</EmptyState>}
     {!!agents.data?.agents?.length && <div className="table-wrap">
       <div className="registry-table">
-        <div className="registry-row registry-head"><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
+        <div className="registry-row selectable registry-head"><SelectAll ids={agents.data.agents.map((agent) => agent.id)} bulk={bulk} name="agents" /><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
-          <article className="registry-row">
+          <article className="registry-row selectable">
+            <SelectBox id={agent.id} bulk={bulk} name={agent.id} />
             <div><Link href={`/agents/${encodeURIComponent(agent.id)}`}>{agent.id}</Link>
               <div><button className="text-button meta" onClick={() => openThread({ kind: "agent", id: agent.id })}>Thread</button></div></div>
             <div>{agent.role}</div><div>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></div>
@@ -112,6 +115,8 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
         )} />
       </div>
     </div>}
+    <BulkBar kind="agents" bulk={bulk} actions={agentActions} />
+    <BulkToast bulk={bulk} />
   </>;
 }
 

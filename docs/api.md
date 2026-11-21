@@ -1691,7 +1691,7 @@ With the Postgres backend any number of server instances may share one database 
 | GET | `/api/v1/events?topics=&last_event_id=` | → `text/event-stream` (owner token header) |
 
 (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
-Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, `activity`, and the agent output topics `output`, `output:<id>` (see below).
+Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, `activity`, `hillclimb`, and the agent output topics `output`, `output:<id>` (see below).
 
 Response `text/event-stream`, a `: ping` comment every 15s. Each event:
 ```
@@ -1720,12 +1720,15 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `policy.hold` | Hold, when a policy hold is created, decided or expires | control |
 | `activity.new` | ActivityItem | activity |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
+| `hillclimb.updated` | hillclimb Job, on create and after every recorded attempt | hillclimb, brief:* |
 | `resync` | `{"seq":n}` — a resume could not be served; refetch | all |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
 On shutdown the server first turns `/readyz` to 503, stops its leader-only loops and resigns leadership (see High availability), keeps serving for `SUBSPACE_DRAIN_DELAY` (default `0s`, `3s` in the HA compose profile) counted from the start of the shutdown so load balancers take it out of rotation, then stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
 
 Agent output topics: `output:<agent id>` (one agent; list several to follow several agents) and `output` (every agent). They are served by a separate stream: a request whose topics are all output topics gets only `agent.output` events, with their own `id` sequence and a replay buffer of the last 1000 events for `Last-Event-ID`; `all` never includes them, and mixing output topics with other topics is a 400 `bad_request`. `agent.output` carries `{"agent_id":"claude-1","task_id":"T-3","lines":[OutputLine]}`, one event per `log_output` call (`task_id` null when untagged).
+
+`hillclimb.attempt` (topics `hillclimb`, `brief:<id>`, also `all`) carries `{"job_id","brief_id","status":"ok or failed"}` plus the Point fields of the attempt and is emitted by the MCP `measure` tool for every recorded attempt, right before the matching `hillclimb.updated`.
 
 `alert.raised` and `alert.resolved` (topic `alerts`, also `all`) carry `{"id":"alert:<alert id>","kind":"alert","title","text","priority","brief_id"?,"task_id"?,"ts"}` and are emitted only by the alert rules.
 

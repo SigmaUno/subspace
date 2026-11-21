@@ -266,7 +266,7 @@ func TestBriefFilterEventsAndBranchLinks(t *testing.T) {
 
 	mu.Lock()
 	defer mu.Unlock()
-	if len(events) != 6 || events[0] != "hillclimb.updated@brief:B-1" || events[5] != "hillclimb.attempt@brief:B-2" {
+	if len(events) != 9 || events[0] != "hillclimb.updated@brief:B-1" || events[8] != "hillclimb.updated@brief:B-2" || events[7] != "hillclimb.attempt@brief:B-2" {
 		t.Fatalf("events: %v", events)
 	}
 }

@@ -2,8 +2,16 @@
 
 import { useState } from "react";
 import { api, optionalResource, useResource, useSubmit } from "../../../lib/client";
-import type { About, Alerts, Backup, BackupList, NotifyStatus, OwnerToken, SinkResult, TokenList } from "../../../lib/settings-types";
+import type {
+  About, AlertList, Backup, BackupList, BreakerList, NotifyStatus, RetentionStatus, SinkResult, TokenList, WebhookList,
+} from "../../../lib/settings-types";
 import type { Control } from "../../../lib/types";
+import { AlertsPanel } from "./admin-alerts";
+import { BreakersPanel } from "./admin-breakers";
+import { RetentionPanel } from "./admin-retention";
+import { formatSize, formatTime } from "./admin-shared";
+import { TokensPanel } from "./admin-tokens";
+import { WebhooksPanel } from "./admin-webhooks";
 import { AnnouncementsView } from "./announcements";
 import { CharterView } from "./charter";
 import { Feedback } from "./components";
@@ -13,18 +21,6 @@ import { CapacityView } from "./operations";
 import { OrgBudget } from "./org-budget";
 import { EmptyState, ResourceState } from "./states";
 
-const units = ["B", "KB", "MB", "GB", "TB"];
-
-function formatSize(bytes: number) {
-  let size = bytes;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit++;
-  }
-  return `${unit ? size.toFixed(1) : size} ${units[unit]}`;
-}
-
 function formatDuration(seconds: number) {
   const days = Math.floor(seconds / 86400);
   const hours = Math.floor(seconds % 86400 / 3600);
@@ -32,10 +28,6 @@ function formatDuration(seconds: number) {
   if (days) return `${days}d ${hours}h ${minutes}m`;
   if (hours) return `${hours}h ${minutes}m`;
   return `${minutes}m ${Math.floor(seconds % 60)}s`;
-}
-
-function formatTime(iso?: string | null) {
-  return iso ? <time dateTime={iso}>{new Date(iso).toLocaleString()}</time> : "—";
 }
 
 function NotificationsPanel({ status }: { status: NotifyStatus }) {
@@ -96,48 +88,6 @@ function BackupsPanel({ list, refresh }: { list: BackupList; refresh: () => void
   </section>;
 }
 
-function TokensPanel({ list }: { list: TokenList }) {
-  const tokens: OwnerToken[] = list.tokens ?? [];
-  return <section className="panel stack">
-    <div className="heading"><h2>API tokens</h2></div>
-    {!tokens.length && <EmptyState>No owner API tokens.</EmptyState>}
-    {!!tokens.length && <div className="table-wrap">
-      <table>
-        <thead><tr><th>Name</th><th>Created</th><th>Expires</th><th>Last used</th></tr></thead>
-        <tbody>{tokens.map((token, index) => (
-          <tr key={token.id ?? index}>
-            <th scope="row">{token.name ?? token.id ?? "—"}</th>
-            <td>{formatTime(token.created_at)}</td>
-            <td>{token.expires_at ? formatTime(token.expires_at) : "never"}</td>
-            <td>{formatTime(token.last_used_at)}</td>
-          </tr>
-        ))}</tbody>
-      </table>
-    </div>}
-  </section>;
-}
-
-function flatten(value: unknown, prefix = ""): [string, string][] {
-  if (value && typeof value === "object" && !Array.isArray(value)) {
-    return Object.entries(value).flatMap(([key, item]) => flatten(item, prefix ? `${prefix}.${key}` : key));
-  }
-  return [[prefix, typeof value === "object" ? JSON.stringify(value) : String(value)]];
-}
-
-function AlertsPanel({ alerts }: { alerts: Alerts }) {
-  const rows = flatten(alerts.thresholds ?? alerts);
-  return <section className="panel stack">
-    <div className="heading"><h2>Alert thresholds</h2><span className="meta">Effective values, read only</span></div>
-    {!rows.length && <EmptyState>No thresholds reported.</EmptyState>}
-    {!!rows.length && <div className="table-wrap">
-      <table>
-        <thead><tr><th>Setting</th><th>Value</th></tr></thead>
-        <tbody>{rows.map(([key, text]) => <tr key={key}><th scope="row">{key}</th><td>{text}</td></tr>)}</tbody>
-      </table>
-    </div>}
-  </section>;
-}
-
 function AboutPanel({ version, about }: { version?: string; about?: About | null }) {
   const rows: [string, string][] = [
     ["Version", about?.version ?? version ?? "—"],
@@ -158,7 +108,10 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
   const notify = useResource("notify/status", revisions.control, optionalResource<NotifyStatus>);
   const backups = useResource("backups", 0, optionalResource<BackupList>);
   const tokens = useResource("tokens", 0, optionalResource<TokenList>);
-  const alerts = useResource("alerts", revisions.control, optionalResource<Alerts>);
+  const alerts = useResource("alerts", revisions.control, optionalResource<AlertList>);
+  const retention = useResource("retention", 0, optionalResource<RetentionStatus>);
+  const webhooks = useResource("webhooks-out", 0, optionalResource<WebhookList>);
+  const breakers = useResource("breakers", revisions.control, optionalResource<BreakerList>);
   const about = useResource("about", 0, optionalResource<About>);
   const [selected, setSelected] = useState("charter");
 
@@ -171,6 +124,9 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     { id: "backups", name: "Backups", show: backups.data !== null },
     { id: "tokens", name: "Tokens", show: tokens.data !== null },
     { id: "alerts", name: "Alerts", show: alerts.data !== null },
+    { id: "retention", name: "Retention", show: retention.data !== null },
+    { id: "webhooks", name: "Webhooks", show: webhooks.data !== null },
+    { id: "breakers", name: "Provider breakers", show: breakers.data !== null },
     { id: "about", name: "About", show: true },
   ].filter((tab) => tab.show);
   const active = tabs.some((tab) => tab.id === selected) ? selected : "charter";
@@ -197,11 +153,23 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     </>}
     {active === "tokens" && <>
       <ResourceState error={tokens.error} loading={tokens.data === undefined} retry={tokens.refresh} rows={3} />
-      {tokens.data && <TokensPanel list={tokens.data} />}
+      {tokens.data && <TokensPanel list={tokens.data} refresh={tokens.refresh} />}
     </>}
     {active === "alerts" && <>
       <ResourceState error={alerts.error} loading={alerts.data === undefined} retry={alerts.refresh} rows={3} />
-      {alerts.data && <AlertsPanel alerts={alerts.data} />}
+      {alerts.data && <AlertsPanel list={alerts.data} />}
+    </>}
+    {active === "retention" && <>
+      <ResourceState error={retention.error} loading={retention.data === undefined} retry={retention.refresh} rows={3} />
+      {retention.data && <RetentionPanel status={retention.data} refresh={retention.refresh} />}
+    </>}
+    {active === "webhooks" && <>
+      <ResourceState error={webhooks.error} loading={webhooks.data === undefined} retry={webhooks.refresh} rows={3} />
+      {webhooks.data && <WebhooksPanel list={webhooks.data} refresh={webhooks.refresh} />}
+    </>}
+    {active === "breakers" && <>
+      <ResourceState error={breakers.error} loading={breakers.data === undefined} retry={breakers.refresh} rows={3} />
+      {breakers.data && <BreakersPanel list={breakers.data} refresh={breakers.refresh} />}
     </>}
     {active === "about" && <>
       <ResourceState error={state.error} loading={state.data === undefined} retry={state.refresh} rows={2} />

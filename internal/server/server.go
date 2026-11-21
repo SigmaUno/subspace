@@ -50,9 +50,13 @@ type Config struct {
 	BodyTimeout     time.Duration
 	Now             func() time.Time
 	IdleTimeout     time.Duration
+	HeaderTimeout   time.Duration
+	MaxConns        int
 	ShutdownTimeout time.Duration
 	Log             *slog.Logger
 }
+
+const DefaultMaxConns = 4096
 
 type Server struct {
 	cfg     Config
@@ -83,6 +87,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.IdleTimeout <= 0 {
 		cfg.IdleTimeout = 2 * time.Minute
 	}
+	if cfg.HeaderTimeout <= 0 {
+		cfg.HeaderTimeout = 10 * time.Second
+	}
+	if cfg.MaxConns <= 0 {
+		cfg.MaxConns = DefaultMaxConns
+	}
 	if cfg.Now == nil {
 		cfg.Now = func() time.Time { return time.Now().UTC() }
 	}
@@ -110,7 +120,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	hub := events.NewHub()
+	hub := events.NewHubAt(time.Now().UnixMicro())
 	var backups *backup.Scheduler
 	if cfg.BackupDir != "" {
 		backups, err = backup.New(backup.Config{
@@ -238,7 +248,7 @@ func (s *Server) Close() error {
 }
 
 func (s *Server) httpServer() *http.Server {
-	return &http.Server{Handler: s.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: s.cfg.IdleTimeout}
+	return &http.Server{Handler: s.handler, ReadHeaderTimeout: s.cfg.HeaderTimeout, IdleTimeout: s.cfg.IdleTimeout}
 }
 
 func (s *Server) Run(ctx context.Context) error {
@@ -264,7 +274,7 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	srv := s.httpServer()
 	errc := make(chan error, 1)
-	go func() { errc <- srv.Serve(ln) }()
+	go func() { errc <- srv.Serve(limitListener(ln, s.cfg.MaxConns)) }()
 
 	var serveErr error
 	select {
@@ -315,4 +325,46 @@ func (s *Server) flushLoop(ctx context.Context) {
 			s.Board.Flush(context.Background())
 		}
 	}
+}
+
+type connLimiter struct {
+	net.Listener
+	slots chan struct{}
+	done  chan struct{}
+	once  sync.Once
+}
+
+func limitListener(ln net.Listener, n int) net.Listener {
+	return &connLimiter{Listener: ln, slots: make(chan struct{}, n), done: make(chan struct{})}
+}
+
+func (l *connLimiter) Accept() (net.Conn, error) {
+	select {
+	case l.slots <- struct{}{}:
+	case <-l.done:
+		return nil, net.ErrClosed
+	}
+	c, err := l.Listener.Accept()
+	if err != nil {
+		<-l.slots
+		return nil, err
+	}
+	return &limitedConn{Conn: c, release: func() { <-l.slots }}, nil
+}
+
+func (l *connLimiter) Close() error {
+	l.once.Do(func() { close(l.done) })
+	return l.Listener.Close()
+}
+
+type limitedConn struct {
+	net.Conn
+	once    sync.Once
+	release func()
+}
+
+func (c *limitedConn) Close() error {
+	err := c.Conn.Close()
+	c.once.Do(c.release)
+	return err
 }

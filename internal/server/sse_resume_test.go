@@ -98,8 +98,13 @@ func payloadN(t *testing.T, f sseFrame) int {
 	return ev.Data.N
 }
 
+func hubSeq(e *servertest.Env) string {
+	return strconv.FormatInt(e.Srv.Hub.(interface{ Seq() int64 }).Seq(), 10)
+}
+
 func TestSSEForcedDisconnectsLoseNoEvents(t *testing.T) {
 	e := servertest.New(t)
+	start := hubSeq(e)
 	const total = 600
 	done := make(chan struct{})
 	go func() {
@@ -113,7 +118,7 @@ func TestSSEForcedDisconnectsLoseNoEvents(t *testing.T) {
 	}()
 
 	var got []int
-	lastID := "0"
+	lastID := start
 	for conn := 0; len(got) < total; conn++ {
 		if conn > 200 {
 			t.Fatalf("still missing events after %d connections: have %d", conn, len(got))
@@ -145,11 +150,12 @@ func TestSSEForcedDisconnectsLoseNoEvents(t *testing.T) {
 func TestSSEOverflowedBufferSendsResync(t *testing.T) {
 	t.Setenv("SUBSPACE_SSE_REPLAY", "5")
 	e := servertest.New(t)
+	start, _ := strconv.ParseInt(hubSeq(e), 10, 64)
 	for n := 0; n < 20; n++ {
 		e.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": n})
 	}
 
-	c := dialSSE(t, e, "topics=board", "3", true)
+	c := dialSSE(t, e, "topics=board", strconv.FormatInt(start+3, 10), true)
 	defer c.cancel()
 	hello := c.next(t)
 	if hello.event != "hello" {
@@ -165,18 +171,19 @@ func TestSSEOverflowedBufferSendsResync(t *testing.T) {
 	if f.event != "probe.updated" || payloadN(t, f) != 99 {
 		t.Fatalf("live frame %+v", f)
 	}
-	if id, _ := strconv.Atoi(f.id); id <= 20 {
+	if id, _ := strconv.ParseInt(f.id, 10, 64); id <= start+20 {
 		t.Fatalf("live id %d", id)
 	}
 }
 
 func TestSSEReplayHonorsTopics(t *testing.T) {
 	e := servertest.New(t)
+	start := hubSeq(e)
 	e.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": 1})
 	e.Srv.Hub.Publish([]string{"control"}, "probe.updated", map[string]int{"n": 2})
 	e.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": 3})
 
-	c := dialSSE(t, e, "topics=board", "0", false)
+	c := dialSSE(t, e, "topics=board", start, false)
 	defer c.cancel()
 	if f := c.next(t); f.event != "hello" {
 		t.Fatalf("first frame %+v", f)

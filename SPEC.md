@@ -166,6 +166,7 @@ Returned by `GET /api/v1/agents/{id}/connect` and on register/rotate; shown in t
 | `SUBSPACE_BACKUP_INTERVAL` | `24h` (`0` = off) | automatic backup period |
 | `SUBSPACE_BACKUP_KEEP` | `14` | backups retained |
 | `SUBSPACE_LOG_LEVEL` | `info` | slog level |
+| `SUBSPACE_MAX_CONNS` | `4096` | concurrent client connections; further connections wait in the accept queue |
 
 Bootstrap: with an empty DB (no agents, no briefs) nothing breaks — `/healthz`, REST and the UI work, `/mcp` simply rejects all tokens. Owner creates the first brief and registers agents.
 

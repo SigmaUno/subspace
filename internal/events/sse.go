@@ -18,6 +18,11 @@ const flushDelay = 20 * time.Millisecond
 
 const writeBuffer = 32 << 10
 
+const (
+	writeTimeout = 10 * time.Second
+	closeTimeout = time.Second
+)
+
 type shutdownKey struct{}
 
 func WithShutdown(ctx context.Context, done <-chan struct{}) context.Context {
@@ -66,6 +71,42 @@ func (e *Event) frame() []byte {
 	}
 	e.enc.once.Do(func() { e.enc.b = encodeFrame(e.Seq, e.Type, e.TS, e.Data) })
 	return e.enc.b
+}
+
+type deadlineWriter struct {
+	w    http.ResponseWriter
+	rc   *http.ResponseController
+	mu   sync.Mutex
+	stop time.Time
+}
+
+func (d *deadlineWriter) arm() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	t := d.stop
+	if t.IsZero() {
+		t = time.Now().Add(writeTimeout)
+	}
+	_ = d.rc.SetWriteDeadline(t)
+}
+
+func (d *deadlineWriter) closing() {
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	if d.stop.IsZero() {
+		d.stop = time.Now().Add(closeTimeout)
+		_ = d.rc.SetWriteDeadline(d.stop)
+	}
+}
+
+func (d *deadlineWriter) Write(p []byte) (int, error) {
+	d.arm()
+	return d.w.Write(p)
+}
+
+func (d *deadlineWriter) Flush() error {
+	d.arm()
+	return d.rc.Flush()
 }
 
 func TopicsFromQuery(r *http.Request) []string {
@@ -148,12 +189,22 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		hd.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
-		bw := bufio.NewWriterSize(w, writeBuffer)
+		dw := &deadlineWriter{w: w, rc: rc}
+		quit := make(chan struct{})
+		defer close(quit)
+		go func() {
+			select {
+			case <-shutdown:
+				dw.closing()
+			case <-quit:
+			}
+		}()
+		bw := bufio.NewWriterSize(dw, writeBuffer)
 		flush := func() error {
 			if err := bw.Flush(); err != nil {
 				return err
 			}
-			return rc.Flush()
+			return dw.Flush()
 		}
 		lagged := func() error {
 			if n := sub.TakeDropped(); n > 0 {

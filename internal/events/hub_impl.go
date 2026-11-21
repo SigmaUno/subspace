@@ -38,8 +38,10 @@ type sub struct {
 	once    sync.Once
 }
 
-func NewHub() Hub {
-	return &hub{topics: make(map[string][]*sub), ring: make([]ringEntry, DefaultReplay)}
+func NewHub() Hub { return NewHubAt(0) }
+
+func NewHubAt(seq int64) Hub {
+	return &hub{seq: seq, topics: make(map[string][]*sub), ring: make([]ringEntry, DefaultReplay)}
 }
 
 func (h *hub) SetReplay(n int) {

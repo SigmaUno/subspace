@@ -3,6 +3,7 @@
 import { useContext, useState } from "react";
 import { api, label, optionalResource, useResource } from "../../../lib/client";
 import type { Spawn, SpawnList } from "../../../lib/spawns-types";
+import { spawnSpan } from "../../../lib/duration";
 import { Clock } from "./components";
 import { EmptyState, ResourceState } from "./states";
 import { useAction, useConfirm } from "./ui";
@@ -15,22 +16,14 @@ const tones = {
   idle: "assigned", stopped: "cancelled", failed: "blocked",
 } as const;
 
-function span(ms: number) {
-  const minutes = Math.max(0, Math.floor(ms / 60_000));
-  if (minutes < 1) return "<1m";
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 24 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
-}
-
 function age(spawn: Spawn, now: number) {
   const end = spawn.stopped_at ? Date.parse(spawn.stopped_at) : now;
-  return span(end - Date.parse(spawn.created_at));
+  return spawnSpan(end - Date.parse(spawn.created_at));
 }
 
 function remaining(name: string, since: string, limit: number, now: number) {
   const left = Date.parse(since) + limit - now;
-  return left > 0 ? `${name} in ${span(left)}` : `${name} due`;
+  return left > 0 ? `${name} in ${spawnSpan(left)}` : `${name} due`;
 }
 
 function countdown(spawn: Spawn, now: number) {

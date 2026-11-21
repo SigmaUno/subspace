@@ -7,6 +7,7 @@ import type {
 } from "../../../lib/settings-types";
 import type { DigestPreview } from "../../../lib/digest-types";
 import type { Control } from "../../../lib/types";
+import { uptime } from "../../../lib/duration";
 import { AlertsPanel } from "./admin-alerts";
 import { BreakersPanel } from "./admin-breakers";
 import { RetentionPanel } from "./admin-retention";
@@ -27,15 +28,6 @@ import { RepositoriesView } from "./repos";
 import { SchedulesView } from "./schedules";
 import { EmptyState, PageHeading, ResourceState } from "./states";
 import { useToast } from "./ui";
-
-function formatDuration(seconds: number) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor(seconds % 86400 / 3600);
-  const minutes = Math.floor(seconds % 3600 / 60);
-  if (days) return `${days}d ${hours}h ${minutes}m`;
-  if (hours) return `${hours}h ${minutes}m`;
-  return `${minutes}m ${Math.floor(seconds % 60)}s`;
-}
 
 function NotificationsPanel({ status }: { status: NotifyStatus }) {
   const [results, setResults] = useState<SinkResult[]>();
@@ -104,7 +96,7 @@ function AboutPanel({ version, about }: { version?: string; about?: About | null
   const rows: [string, ReactNode][] = [
     ["Version", about?.version ?? version ?? "—"],
     ["Started", formatTime(about?.started_at)],
-    ["Uptime", about?.uptime_seconds === undefined ? "—" : formatDuration(about.uptime_seconds)],
+    ["Uptime", about?.uptime_seconds == null ? "—" : uptime(about.uptime_seconds)],
     ["Backend", about?.backend ?? "—"],
     ["Database size", about?.db_bytes == null ? "—" : formatSize(about.db_bytes)],
     ["Write-ahead log", about?.wal_bytes == null ? "—" : formatSize(about.wal_bytes)],

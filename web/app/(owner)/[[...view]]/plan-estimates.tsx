@@ -2,6 +2,7 @@
 
 import { money, useResource } from "../../../lib/client";
 import type { Plan, Task } from "../../../lib/types";
+import { estimateMinutes } from "../../../lib/duration";
 import { EmptyState, ResourceState } from "./states";
 
 interface Stat { median: number; p80: number }
@@ -20,12 +21,6 @@ interface PlanEstimates {
   totals: { tasks: number; estimated: number; minutes: Range; critical_path_minutes: Range; cost_eur: Range };
 }
 
-function duration(minutes: number) {
-  const rounded = Math.round(minutes);
-  if (rounded < 60) return `${rounded} min`;
-  return `${Math.floor(rounded / 60)} h ${rounded % 60} min`;
-}
-
 function fingerprint(tasks: Task[]) {
   let hash = 0;
   for (const char of JSON.stringify(tasks)) hash = (hash * 31 + char.charCodeAt(0)) | 0;
@@ -36,7 +31,7 @@ function warnings(task: Task, row: TaskEstimate | undefined) {
   const out: string[] = [];
   if (!row?.exceeds_budget) return out;
   if (row.exceeds_budget.includes("max_cost_eur")) out.push(`Expected cost ${money(row.estimate.cost_eur.median)} exceeds the ${money(task.budget.max_cost_eur)} budget`);
-  if (row.exceeds_budget.includes("max_minutes")) out.push(`Expected time ${duration(row.estimate.minutes.median)} exceeds the ${duration(task.budget.max_minutes)} budget`);
+  if (row.exceeds_budget.includes("max_minutes")) out.push(`Expected time ${estimateMinutes(row.estimate.minutes.median)} exceeds the ${estimateMinutes(task.budget.max_minutes)} budget`);
   return out;
 }
 
@@ -59,7 +54,7 @@ export function PlanEstimatesPanel({ plan, tasks }: { plan: Plan; tasks: Task[] 
             const warned = warnings(task, row);
             return <tr key={task.id}>
               <th scope="row">{task.title}<div className="meta">{task.id}</div></th>
-              <td>{row?.estimate.sufficient ? <>{duration(row.estimate.minutes.median)}<div className="meta">up to {duration(row.estimate.minutes.p80)}</div></> : "—"}</td>
+              <td>{row?.estimate.sufficient ? <>{estimateMinutes(row.estimate.minutes.median)}<div className="meta">up to {estimateMinutes(row.estimate.minutes.p80)}</div></> : "—"}</td>
               <td>{row?.estimate.sufficient ? <>{money(row.estimate.cost_eur.median)}<div className="meta">up to {money(row.estimate.cost_eur.p80)}</div></> : "—"}</td>
               <td>{row?.estimate.confidence ?? "none"}</td>
               <td>{warned.length ? warned.map((text) => <div key={text}><span className="pill stale">{text}</span></div>) : <span className="meta">Within budget</span>}</td>
@@ -67,7 +62,7 @@ export function PlanEstimatesPanel({ plan, tasks }: { plan: Plan; tasks: Task[] 
           })}</tbody>
           <tfoot><tr>
             <th scope="row">Total{data.totals.estimated < data.totals.tasks && <div className="meta">{data.totals.estimated} of {data.totals.tasks} tasks estimated</div>}</th>
-            <td>{duration(data.totals.minutes.expected)}<div className="meta">{duration(data.totals.minutes.low)} – {duration(data.totals.minutes.high)} · critical path {duration(data.totals.critical_path_minutes.expected)}</div></td>
+            <td>{estimateMinutes(data.totals.minutes.expected)}<div className="meta">{estimateMinutes(data.totals.minutes.low)} – {estimateMinutes(data.totals.minutes.high)} · critical path {estimateMinutes(data.totals.critical_path_minutes.expected)}</div></td>
             <td>{money(data.totals.cost_eur.expected)}<div className="meta">{money(data.totals.cost_eur.low)} – {money(data.totals.cost_eur.high)}</div></td>
             <td colSpan={2} className="meta">Learned from {data.history} completed tasks</td>
           </tr></tfoot>

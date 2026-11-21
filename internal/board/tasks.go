@@ -212,7 +212,7 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 					return model.Conflict("cannot make a %s task ready", t.Status)
 				}
 				to := model.StatusReady
-				if t.Assignee != nil {
+				if t.Status == model.StatusBlocked && t.Assignee != nil {
 					to = model.StatusAssigned
 				}
 				if t.Status == model.StatusBacklog {
@@ -520,6 +520,9 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 		}
 		if in.CostEUR != nil && *in.CostEUR > t.CostUsed {
 			t.CostUsed = *in.CostEUR
+			if err := tx.UpdateTask(t); err != nil {
+				return err
+			}
 		}
 		br, err := tx.GetBrief(t.BriefID)
 		if err != nil {
@@ -578,7 +581,7 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease}
+		b.tasks[t.ID] = hotTask{hb: now, lease: lease, assignee: a.ID}
 		b.dirtyT[t.ID] = struct{}{}
 		l := lease
 		res.LeaseExpiresAt = &l

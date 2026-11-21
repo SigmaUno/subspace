@@ -4,9 +4,8 @@ import { createContext, useContext, useEffect, useRef } from "react";
 
 export const Clock = createContext(0);
 
-export function Feedback({ error, loading }: { error?: string; loading?: boolean }) {
-  if (error) return <p className="error" role="alert">{error}</p>;
-  return loading ? <p className="muted" role="status">Loading…</p> : null;
+export function Feedback({ error }: { error?: string }) {
+  return error ? <p className="error" role="alert">{error}</p> : null;
 }
 
 export function LoadMore({ hasMore, loading, onMore }: { hasMore: boolean; loading: boolean; onMore: () => void }) {

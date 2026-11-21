@@ -4,8 +4,9 @@ import { useContext, useState, type KeyboardEvent, type PointerEvent } from "rea
 import { money, useResource } from "../../../lib/client";
 import type { Brief } from "../../../lib/types";
 import type { Timeseries, TimeseriesMetric } from "../../../lib/timeseries-types";
-import { Clock, Feedback } from "./components";
-import { EmptyState } from "./states";
+import { Clock } from "./components";
+import { EmptyState, ResourceState } from "./states";
+import { count } from "./format";
 
 const ranges = [
   { id: "24h", name: "24 hours", ms: 86_400_000, bucket: "5m", bucketMs: 300_000 },
@@ -21,7 +22,7 @@ const charts: { metric: TimeseriesMetric; title: string; kind: "bar" | "line"; f
   { metric: "review_rounds", title: "Review rounds", kind: "bar", format: (value) => String(value) },
   { metric: "active_agents", title: "Active agents", kind: "line", format: (value) => String(value) },
   { metric: "cost_eur", title: "Cost", kind: "line", format: money },
-  { metric: "tokens", title: "Tokens", kind: "line", format: (value) => new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 }).format(value) },
+  { metric: "tokens", title: "Tokens", kind: "line", format: (value) => count.format(value) },
 ];
 
 const frame = { width: 320, height: 120, left: 6, right: 6, top: 8, bottom: 8 };
@@ -80,7 +81,7 @@ function TrendChart({ metric, title, kind, format, range, since, briefID, revisi
     <p className="meta">{shown === undefined
       ? metric === "active_agents" ? "Peak in range" : "Total in range"
       : stamp(times[index], range)}</p>
-    <Feedback error={series.error} loading={!series.data && !series.error} />
+    <ResourceState error={series.error} loading={!series.data && !series.error} retry={series.refresh} />
     {series.data && (points.some((point) => point.v > 0)
       ? <svg viewBox={`0 0 ${frame.width} ${frame.height}`} role="img" tabIndex={0} aria-label={`${title} per ${range.bucket} bucket over ${range.name}`}
         onPointerMove={at} onPointerLeave={() => setHover(null)} onKeyDown={key} onBlur={() => setHover(null)}>

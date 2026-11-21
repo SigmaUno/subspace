@@ -5,34 +5,13 @@ import { ApiError, api, useResource, useSubmit, value } from "../../../lib/clien
 import type { Bot, BotAction, BotList, BotRegistration } from "../../../lib/bots-types";
 import type { AgentProfile, ProfileList } from "../../../lib/profiles-types";
 import type { Thread } from "../../../lib/types";
+import { agentKinds, agentRoles } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { CopyBlock } from "./copy";
 import { ProfilesPanel } from "./profiles";
 import { SpawnsPanel } from "./spawns";
-import { EmptyState, ResourceState } from "./states";
-
-const roles = ["leader", "worker", "tester", "reviewer"];
-const kinds = [
-  ["claude-code", "Claude Code"], ["codex", "Codex"], ["opencode", "OpenCode"], ["other", "Other"],
-];
-
-export function CopyBlock({ label, text }: { label: string; text: string }) {
-  const [feedback, setFeedback] = useState("");
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setFeedback("Copied");
-    } catch {
-      setFeedback("Select and copy the text.");
-    }
-  }
-  return <div className="secret">
-    <div className="heading"><strong>{label}</strong>
-      <button type="button" onClick={copy} aria-label={`Copy ${label}`}>Copy</button>
-    </div>
-    <pre>{text}</pre>
-    {feedback && <span className="meta" role="status">{feedback}</span>}
-  </div>;
-}
+import { EmptyState, PageHeading, ResourceState } from "./states";
+import { useConfirm, useToast } from "./ui";
 
 function Credentials({ items, dismiss }: { items: BotRegistration[]; dismiss: () => void }) {
   return <section className="panel stack">
@@ -88,11 +67,11 @@ function AddBotForm({ complete, profiles, start }: { complete: (items: BotRegist
       {bulk && <label>Count<input key={profile} name="count" type="number" min="1" max="1000" defaultValue={chosen?.count || 2} required /></label>}
       <label>Role<select key={`role:${profile}`} name="role" defaultValue={chosen ? "" : "worker"}>
         {fromProfile(chosen?.role)}
-        {roles.map((role) => <option key={role} value={role}>{role}</option>)}
+        {agentRoles.map((role) => <option key={role} value={role}>{role}</option>)}
       </select></label>
       <label>Kind<select key={`kind:${profile}`} name="kind" defaultValue={chosen ? "" : "claude-code"}>
         {fromProfile(chosen?.kind)}
-        {kinds.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        {agentKinds.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
       </select></label>
       <label>Model<input name="model" placeholder={chosen?.model || "claude-sonnet-5-5"} required={!chosen} /></label>
       <label>Provider override<input name="provider" placeholder={chosen?.provider || "Derived from kind"} /></label>
@@ -101,6 +80,10 @@ function AddBotForm({ complete, profiles, start }: { complete: (items: BotRegist
     <div><button className="primary" disabled={form.busy}>{bulk ? "Add bots" : "Add bot"}</button></div>
   </form>;
 }
+
+const completed: Record<BotAction, string> = {
+  pause: "Paused", resume: "Resumed", revoke: "Revoked", rotate: "Rotated the token of", spawn: "Spawn requested for",
+};
 
 const endpoints: Record<BotAction, (id: string) => string> = {
   pause: (id) => `bots/${id}/pause`,
@@ -129,26 +112,28 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
   const [formKey, setFormKey] = useState(0);
   const [credentials, setCredentials] = useState<BotRegistration[] | null>(null);
   const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
-  const [notice, setNotice] = useState("");
+  const confirm = useConfirm();
+  const toast = useToast();
 
   async function run(bot: Bot, action: BotAction) {
-    if (action === "revoke" && !window.confirm(`Revoke ${bot.id}? Its token stops working immediately.`)) return;
-    if (action === "rotate" && !window.confirm(`Rotate the token for ${bot.id}? The old token stops working.`)) return;
+    if (action === "revoke" && !await confirm({
+      title: `Revoke ${bot.id}?`, message: "Its token stops working immediately.", confirm: "Revoke",
+    })) return;
+    if (action === "rotate" && !await confirm({
+      title: `Rotate the token for ${bot.id}?`, message: "The old token stops working.", confirm: "Rotate",
+    })) return;
     setBusy(bot.id);
-    setError("");
-    setNotice("");
     try {
       const path = endpoints[action](encodeURIComponent(bot.id));
       const result = await api<Partial<BotRegistration>>(path, "POST", action === "revoke" ? { reason: "" } : {});
       if (action === "rotate" && result.agent && result.connect) setCredentials([{ agent: result.agent, connect: result.connect }]);
-      if (action === "spawn") setNotice(`Spawn requested for ${bot.id}.`);
+      toast(`${completed[action]} ${bot.id}.`);
       bots.refresh();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 404 && endpoints[action](bot.id).startsWith("bots/")) {
-        setError(`The ${action} action is not available on this server.`);
+        toast(`The ${action} action is not available on this server.`, "error");
       } else {
-        setError(cause instanceof Error ? cause.message : "Request failed.");
+        toast(cause instanceof Error ? cause.message : "Request failed.", "error");
       }
     } finally {
       setBusy("");
@@ -165,14 +150,12 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
   }
 
   return <>
-    <div className="heading"><h1>Bots</h1>
-      <button className="primary" data-write disabled={!!credentials} onClick={() => showForm ? setShowForm(false) : openForm({ bulk: false, profile: "" })}>{showForm ? "Close form" : "Add bot"}</button></div>
+    <PageHeading title="Bots">
+      <button className="primary" data-write disabled={!!credentials} onClick={() => showForm ? setShowForm(false) : openForm({ bulk: false, profile: "" })}>{showForm ? "Close form" : "Add bot"}</button></PageHeading>
     {showForm && <AddBotForm key={formKey} profiles={presets} start={start}
       complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
-    <Feedback error={error} />
     <ResourceState error={bots.error} loading={!bots.data} retry={bots.refresh} rows={5} />
-    {notice && <p className="meta" role="status">{notice}</p>}
     {bots.data && !items.length && <EmptyState>No bots registered.</EmptyState>}
     {!!items.length && <div className="table-wrap">
       <table>

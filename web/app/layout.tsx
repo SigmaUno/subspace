@@ -3,7 +3,7 @@ import { theme, themes } from "../lib/theme";
 import "./styles.css";
 
 export const metadata: Metadata = {
-  title: "Subspace",
+  title: { default: "Subspace", template: "%s · Subspace" },
   description: "Subspace owner workspace",
   applicationName: "Subspace",
   appleWebApp: { capable: true, title: "Subspace", statusBarStyle: "default" },

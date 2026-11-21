@@ -2,7 +2,7 @@
 
 import { money, useResource } from "../../../lib/client";
 import type { Plan, Task } from "../../../lib/types";
-import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 interface Stat { median: number; p80: number }
 interface Range { low: number; expected: number; high: number }
@@ -47,8 +47,8 @@ export function PlanEstimatesPanel({ plan, tasks }: { plan: Plan; tasks: Task[] 
   const over = tasks.filter((task) => warnings(task, rows.get(task.id)).length > 0).length;
   return <section className="stack" aria-label="Expected cost and duration">
     <h3>Expected cost and duration</h3>
-    <Feedback error={estimates.error} loading={!data && !estimates.error} />
-    {data && !data.sufficient && <p className="empty">Not enough completed tasks to estimate yet ({data.history} so far).</p>}
+    <ResourceState error={estimates.error} loading={!data && !estimates.error} retry={estimates.refresh} />
+    {data && !data.sufficient && <EmptyState>Not enough completed tasks to estimate yet ({data.history} so far).</EmptyState>}
     {data?.sufficient && <>
       {over > 0 && <p className="pill stale" role="status">{over} {over === 1 ? "task is" : "tasks are"} expected to exceed {over === 1 ? "its" : "their"} budget</p>}
       <div className="table-wrap">

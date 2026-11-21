@@ -146,7 +146,7 @@ func (c *conn) redact(s string) string {
 	return agentToken.ReplaceAllString(s, redacted)
 }
 
-func (c *conn) do(ctx context.Context, req request) (*response, error) {
+func (c *conn) httpRequest(ctx context.Context, req request, accept string) (*http.Request, error) {
 	endpoint := c.base.JoinPath("api/v1", req.path)
 	endpoint.RawQuery = req.query.Encode()
 	body, contentType := req.payload, req.contentType
@@ -157,17 +157,10 @@ func (c *conn) do(ctx context.Context, req request) (*response, error) {
 		}
 		body, contentType = data, "application/json"
 	}
-	timeout := req.timeout
-	if timeout == 0 {
-		timeout = defaultTimeout
-	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
-	defer cancel()
 	httpReq, err := http.NewRequestWithContext(ctx, req.method, endpoint.String(), bytes.NewReader(body)) //nolint:gosec
 	if err != nil {
 		return nil, err
 	}
-	accept := req.accept
 	if accept == "" {
 		accept = "application/json"
 	}
@@ -175,6 +168,20 @@ func (c *conn) do(ctx context.Context, req request) (*response, error) {
 	httpReq.Header.Set("Accept", accept)
 	if contentType != "" {
 		httpReq.Header.Set("Content-Type", contentType)
+	}
+	return httpReq, nil
+}
+
+func (c *conn) do(ctx context.Context, req request) (*response, error) {
+	timeout := req.timeout
+	if timeout == 0 {
+		timeout = defaultTimeout
+	}
+	ctx, cancel := context.WithTimeout(ctx, timeout)
+	defer cancel()
+	httpReq, err := c.httpRequest(ctx, req, req.accept)
+	if err != nil {
+		return nil, err
 	}
 	resp, err := c.hc.Do(httpReq) //nolint:gosec
 	if err != nil {

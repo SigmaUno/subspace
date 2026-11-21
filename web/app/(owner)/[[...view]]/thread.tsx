@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Message, Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 const pageSize = 200;
 
@@ -69,8 +70,8 @@ export function ThreadPanel({ thread, revision, top, close }: { thread: Thread; 
           const { scrollTop, clientHeight, scrollHeight } = event.currentTarget;
           follow.current = scrollHeight - scrollTop - clientHeight < 48;
         }}>
-        <Feedback error={messages.error} loading={!messages.data} />
-        {messages.data?.length === 0 && <p className="empty">No messages yet.</p>}
+        <ResourceState error={messages.error} loading={!messages.data} retry={messages.refresh} />
+        {messages.data?.length === 0 && <EmptyState>No messages yet.</EmptyState>}
         {hidden > 0 && <button type="button" className="text-button" onClick={() => setShown(shown + pageSize)}>Show {Math.min(hidden, pageSize)} earlier messages ({hidden} hidden)</button>}
         {messages.data?.slice(hidden).map((message) => <MessageItem key={message.id} message={message} />)}
       </div>

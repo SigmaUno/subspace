@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, commaList, useResource, useSubmit, value } from "../../../lib/client";
 import type { Brief } from "../../../lib/types";
 import type { KnowledgeEntry, KnowledgeKind, KnowledgeList, KnowledgeStatus } from "../../../lib/knowledge-types";
 import { Feedback } from "./components";
 import { EmptyState, ResourceState } from "./states";
+import { PageShell } from "./shell";
 
 const kinds: KnowledgeKind[] = ["decision", "convention", "pitfall", "howto", "glossary"];
 const views: [KnowledgeStatus | "", string][] = [["active", "Active"], ["pending", "Moderation queue"], ["superseded", "Superseded"], ["", "All"]];
@@ -133,65 +133,56 @@ export function KnowledgePage() {
     queue.refresh();
   }
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/briefs">Briefs</Link>
-        <Link href="/knowledge" aria-current="page">Knowledge</Link>
-      </nav>
-    </header>
-    <main className="workspace stack">
-      <div className="heading">
-        <h1>Knowledge</h1>
-        <label className="inline">Brief
-          <select value={brief} onChange={(event) => setBrief(event.target.value)}>
-            <option value="">All briefs</option>
-            {(briefs.data?.briefs ?? []).map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
-          </select>
-        </label>
-      </div>
-      <ResourceState error={briefs.error} retry={briefs.refresh} />
-      <form className="actions" role="search" onSubmit={(event) => {
-        event.preventDefault();
-        setQuery(value(new FormData(event.currentTarget), "q"));
-      }}>
-        <input name="q" type="search" placeholder="Search title, tags and body" maxLength={200} aria-label="Search knowledge" />
-        <button>Search</button>
-        {query && <button type="button" className="text-button" onClick={() => setQuery("")}>Clear “{query}”</button>}
-      </form>
-      <div className="actions" role="group" aria-label="Status">
-        {views.map(([id, name]) => <button key={id || "all"} className="text-button" aria-pressed={id === status}
-          onClick={() => setStatus(id)}>{name}{id === "pending" && ` (${queue.data?.entries.length ?? 0})`}</button>)}
-      </div>
-      <div className="actions" role="group" aria-label="Kind">
-        <button className="text-button" aria-pressed={kind === ""} onClick={() => setKind("")}>All kinds</button>
-        {kinds.map((item) => <button key={item} className="text-button" aria-pressed={item === kind}
-          onClick={() => setKind(item)}>{item}</button>)}
-      </div>
-      <ResourceState error={list.error} loading={!list.data} retry={list.refresh} rows={4} />
-      {list.data && !entries.length && <EmptyState>{status === "pending" ? "Nothing waiting for approval." : "No entries match."}</EmptyState>}
-      {!!entries.length && <div className="table-wrap">
-        <table>
-          <thead><tr><th>Entry</th><th>Kind</th><th>Brief</th><th>Author</th><th>Status</th><th>Tags</th></tr></thead>
-          <tbody>{entries.map((entry) => (
-            <tr key={entry.id}>
-              <th scope="row"><button className="text-button" aria-pressed={entry.id === selected}
-                onClick={() => setSelected(entry.id)}>{entry.title}</button>
-                <div className="meta">{entry.id}{entry.pinned && " · pinned"}</div></th>
-              <td>{entry.kind}</td>
-              <td>{entry.brief_id}</td>
-              <td>{entry.author}</td>
-              <td>{entry.status}</td>
-              <td>{entry.tags.join(", ") || "—"}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>}
-      {current && <EntryDetail key={`${current.id}:${current.updated_at}`} entry={current}
-        changed={(entry) => { list.setData({ entries: entries.map((item) => item.id === entry.id ? entry : item) }); reload(); }}
-        removed={() => { setSelected(""); reload(); }} />}
-      {briefs.data && <NewEntry briefs={briefs.data.briefs} created={(entry) => { setSelected(entry.id); reload(); }} />}
-    </main>
-  </>;
+  return <PageShell section="knowledge" className="workspace stack">
+    <div className="heading">
+      <h1>Knowledge</h1>
+      <label className="inline">Brief
+        <select value={brief} onChange={(event) => setBrief(event.target.value)}>
+          <option value="">All briefs</option>
+          {(briefs.data?.briefs ?? []).map((item) => <option key={item.id} value={item.id}>{item.id}</option>)}
+        </select>
+      </label>
+    </div>
+    <ResourceState error={briefs.error} retry={briefs.refresh} />
+    <form className="actions" role="search" onSubmit={(event) => {
+      event.preventDefault();
+      setQuery(value(new FormData(event.currentTarget), "q"));
+    }}>
+      <input name="q" type="search" placeholder="Search title, tags and body" maxLength={200} aria-label="Search knowledge" />
+      <button>Search</button>
+      {query && <button type="button" className="text-button" onClick={() => setQuery("")}>Clear “{query}”</button>}
+    </form>
+    <div className="actions" role="group" aria-label="Status">
+      {views.map(([id, name]) => <button key={id || "all"} className="text-button" aria-pressed={id === status}
+        onClick={() => setStatus(id)}>{name}{id === "pending" && ` (${queue.data?.entries.length ?? 0})`}</button>)}
+    </div>
+    <div className="actions" role="group" aria-label="Kind">
+      <button className="text-button" aria-pressed={kind === ""} onClick={() => setKind("")}>All kinds</button>
+      {kinds.map((item) => <button key={item} className="text-button" aria-pressed={item === kind}
+        onClick={() => setKind(item)}>{item}</button>)}
+    </div>
+    <ResourceState error={list.error} loading={!list.data} retry={list.refresh} rows={4} />
+    {list.data && !entries.length && <EmptyState>{status === "pending" ? "Nothing waiting for approval." : "No entries match."}</EmptyState>}
+    {!!entries.length && <div className="table-wrap">
+      <table>
+        <thead><tr><th>Entry</th><th>Kind</th><th>Brief</th><th>Author</th><th>Status</th><th>Tags</th></tr></thead>
+        <tbody>{entries.map((entry) => (
+          <tr key={entry.id}>
+            <th scope="row"><button className="text-button" aria-pressed={entry.id === selected}
+              onClick={() => setSelected(entry.id)}>{entry.title}</button>
+              <div className="meta">{entry.id}{entry.pinned && " · pinned"}</div></th>
+            <td>{entry.kind}</td>
+            <td>{entry.brief_id}</td>
+            <td>{entry.author}</td>
+            <td>{entry.status}</td>
+            <td>{entry.tags.join(", ") || "—"}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>}
+    {current && <EntryDetail key={`${current.id}:${current.updated_at}`} entry={current}
+      changed={(entry) => { list.setData({ entries: entries.map((item) => item.id === entry.id ? entry : item) }); reload(); }}
+      removed={() => { setSelected(""); reload(); }} />}
+    {briefs.data && <NewEntry briefs={briefs.data.briefs} created={(entry) => { setSelected(entry.id); reload(); }} />}
+  </PageShell>;
 }

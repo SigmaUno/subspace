@@ -4,8 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { api, useResource } from "../../../lib/client";
 import type { ActivityItem, ActivityPage, ActivityRef, ActivitySeverity } from "../../../lib/activity-types";
 import type { Brief, Thread } from "../../../lib/types";
-import { Feedback } from "./components";
 import "./activity-feed.css";
+import { stamp } from "./format";
+import { EmptyState, ResourceState } from "./states";
 
 const pageSize = 50;
 const severities: ActivitySeverity[] = ["info", "success", "warning", "error"];
@@ -31,7 +32,6 @@ function threadOf(ref: ActivityRef): Thread | null {
   return ref.kind === "task" || ref.kind === "brief" || ref.kind === "agent" ? { kind: ref.kind, id: ref.id } : null;
 }
 
-const stamp = (time: string) => new Date(time).toLocaleString([], { dateStyle: "short", timeStyle: "medium" });
 
 export function ActivityFeed({ briefID, revision, openThread }: {
   briefID?: string; revision: number; openThread: (thread: Thread) => void;
@@ -102,8 +102,8 @@ export function ActivityFeed({ briefID, revision, openThread }: {
         </select>
       </div>
     </div>
-    <Feedback error={head.error} loading={head.data?.path !== path && !head.error} />
-    {head.data?.path === path && !items.length && <p className="empty">No activity matches this view.</p>}
+    <ResourceState error={head.error} loading={head.data?.path !== path && !head.error} retry={head.refresh} rows={3} />
+    {head.data?.path === path && !items.length && <EmptyState>No activity matches this view.</EmptyState>}
     {!!items.length && <div className="activity-feed" role="feed" aria-label="Activity">
       {items.map((item) => <article key={item.id} className="feed-row" data-severity={item.severity}>
         <span className="feed-icon" aria-hidden="true">{glyphs[item.icon] ?? glyphs.activity}</span>

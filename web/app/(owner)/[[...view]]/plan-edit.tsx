@@ -5,6 +5,7 @@ import { api, money, useSubmit, value } from "../../../lib/client";
 import type { Plan, Task } from "../../../lib/types";
 import { Feedback } from "./components";
 import { PlanEstimatesPanel } from "./plan-estimates";
+import { EmptyState } from "./states";
 
 const liveTasks = (plan: Plan) => plan.tasks?.filter((task) => task.status !== "cancelled") ?? [];
 
@@ -124,7 +125,7 @@ function DependencyPreview({ tasks }: { tasks: Task[] }) {
   const titles = new Map(tasks.map((task) => [task.id, task.title]));
   return <section className="stack" aria-label="Dependency preview">
     <h3>Dependency preview</h3>
-    {!tasks.length && <p className="empty">The plan has no tasks.</p>}
+    {!tasks.length && <EmptyState>The plan has no tasks.</EmptyState>}
     <ol className="plan-tasks">
       {order.map((wave, index) => <li key={index}>
         <strong>{index === 0 ? "Start immediately" : `After wave ${index}`}</strong>

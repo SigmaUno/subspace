@@ -10,27 +10,28 @@ import { AgentQuotaPanel } from "./agent-quota";
 import { Clock, Feedback, Heartbeat, LoadMore } from "./components";
 import { InsightsPanel } from "./insights";
 import { useLive } from "./live";
-import { Secret } from "./operations";
+import { CopyBlock } from "./copy";
 import { AgentTerminal } from "./terminal";
+import { PageShell } from "./shell";
+import { useConfirm, useToast } from "./ui";
+import { count, stamp, usd } from "./format";
+import { EmptyState, ResourceState } from "./states";
 
 const dayMs = 86_400_000;
 const days = 30;
 const finished = ["done", "cancelled"];
 
-const usd = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
-const count = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
-const stamp = (time: string) => new Date(time).toLocaleString([], { dateStyle: "short", timeStyle: "medium" });
 
 function ConnectPanel({ connect, rotated, dismiss }: { connect: Connect; rotated: boolean; dismiss: () => void }) {
   return <section className="panel stack">
     <div className="heading"><h2>Connect</h2>{rotated && <button onClick={dismiss}>Dismiss token</button>}</div>
     {rotated && <p className="notice">Save this token now. It is displayed once and the previous token no longer works.</p>}
-    {rotated && <Secret label="Agent token" value={connect.token} />}
-    <Secret label="Join line" value={connect.join_line} />
-    <Secret label="MCP URL" value={connect.mcp_url} />
-    <Secret label="Claude Code" value={connect.snippets.claude_code} />
-    <Secret label="Codex config.toml" value={connect.snippets.codex_toml} />
-    <Secret label="OpenCode / DeepSeek opencode.json" value={connect.snippets.opencode_json} />
+    {rotated && <CopyBlock label="Agent token" text={connect.token} />}
+    <CopyBlock label="Join line" text={connect.join_line} />
+    <CopyBlock label="MCP URL" text={connect.mcp_url} />
+    <CopyBlock label="Claude Code" text={connect.snippets.claude_code} />
+    <CopyBlock label="Codex config.toml" text={connect.snippets.codex_toml} />
+    <CopyBlock label="OpenCode / DeepSeek opencode.json" text={connect.snippets.opencode_json} />
   </section>;
 }
 
@@ -41,8 +42,8 @@ function AgentThread({ id, revision }: { id: string; revision: number }) {
   const items = messages.items;
   return <section className="panel stack">
     <h2>Thread</h2>
-    <Feedback error={messages.error} loading={!messages.loaded} />
-    {messages.loaded && !items.length && <p className="empty">No messages yet.</p>}
+    <ResourceState error={messages.error} loading={!messages.loaded} retry={messages.refresh} />
+    {messages.loaded && !items.length && <EmptyState>No messages yet.</EmptyState>}
     {!!items.length && <div className="messages" role="log" aria-label="Agent thread" tabIndex={0}>
       {items.map((message) => <article key={message.id}>
         <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
@@ -66,7 +67,7 @@ function AgentThread({ id, revision }: { id: string; revision: number }) {
 }
 
 function TaskTable({ tasks, empty }: { tasks: Task[]; empty: string }) {
-  if (!tasks.length) return <p className="empty">{empty}</p>;
+  if (!tasks.length) return <EmptyState>{empty}</EmptyState>;
   return <div className="table-wrap">
     <table>
       <thead><tr><th>Task</th><th>Status</th><th>Progress</th><th>Branch</th><th>Spent</th></tr></thead>
@@ -91,7 +92,7 @@ function Tasks({ id, revision }: { id: string; revision: number }) {
   return <>
     <section className="stack">
       <h2>Current tasks</h2>
-      <Feedback error={tasks.error} loading={!tasks.data} />
+      <ResourceState error={tasks.error} loading={!tasks.data} retry={tasks.refresh} />
       {tasks.data && <TaskTable tasks={all.filter((task) => !finished.includes(task.status))} empty="No current tasks." />}
     </section>
     <section className="stack">
@@ -108,8 +109,8 @@ function Usage({ id, now, revision }: { id: string; now: number; revision: numbe
   const group = summary.data?.groups?.find((entry) => entry.key === id);
   return <section className="panel stack">
     <div className="heading"><h2>Usage</h2><span className="meta">Last {days} days</span></div>
-    <Feedback error={summary.error} loading={!summary.data} />
-    {summary.data && !group && <p className="empty">No usage recorded in this period.</p>}
+    <ResourceState error={summary.error} loading={!summary.data} retry={summary.refresh} />
+    {summary.data && !group && <EmptyState>No usage recorded in this period.</EmptyState>}
     {group && <div className="table-wrap" role="region" aria-label="Usage" tabIndex={0}>
       <table>
         <thead><tr><th>Cost</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th><th>Rate limited</th></tr></thead>
@@ -134,8 +135,8 @@ function AuditTrail({ id, revision }: { id: string; revision: number }) {
   const events = audit.items;
   return <section className="stack">
     <h2>Audit trail</h2>
-    <Feedback error={audit.error} loading={!audit.loaded} />
-    {audit.loaded && !events.length && <p className="empty">No audit events.</p>}
+    <ResourceState error={audit.error} loading={!audit.loaded} retry={audit.refresh} />
+    {audit.loaded && !events.length && <EmptyState>No audit events.</EmptyState>}
     {!!events.length && <div className="table-wrap" role="region" aria-label="Audit events" tabIndex={0}>
       <table>
         <thead><tr><th>Time</th><th>Tool</th><th>Task</th><th>Before</th><th>After</th><th>Note</th></tr></thead>
@@ -157,6 +158,8 @@ function Actions({ agent, changed, rotated }: { agent: Agent; changed: (agent: A
   const resume = useSubmit();
   const rotate = useSubmit();
   const revoke = useSubmit();
+  const confirm = useConfirm();
+  const toast = useToast();
   const id = encodeURIComponent(agent.id);
   const revoked = agent.status === "revoked";
   return <section className="panel stack">
@@ -165,18 +168,25 @@ function Actions({ agent, changed, rotated }: { agent: Agent; changed: (agent: A
     <div className="actions">
       {agent.status === "paused" && <form data-write onSubmit={(event) => resume.submit(event, async () => {
         changed(await api<Agent>(`agents/${id}/resume`, "POST", {}));
+        toast(`Resumed ${agent.id}.`);
       })}><button className="primary" disabled={resume.busy}>Resume agent</button></form>}
       {!revoked && <form data-write onSubmit={(event) => rotate.submit(event, async () => {
-        if (!window.confirm(`Rotate the token for ${agent.id}? The current token stops working immediately.`)) return;
+        if (!await confirm({
+          title: `Rotate the token for ${agent.id}?`, message: "The current token stops working immediately.", confirm: "Rotate",
+        })) return;
         const result = await api<Registration>(`agents/${id}/rotate-token`, "POST", {});
         changed(result.agent);
         rotated(result);
+        toast(`Rotated the token of ${agent.id}.`);
       })}><button disabled={rotate.busy}>Rotate token</button></form>}
     </div>
     <Feedback error={resume.error || rotate.error} />
     {!revoked && <form className="stack" data-write onSubmit={(event) => revoke.submit(event, async (fields) => {
-      if (!window.confirm(`Revoke ${agent.id}? Its token dies immediately and its leases are released.`)) return;
+      if (!await confirm({
+        title: `Revoke ${agent.id}?`, message: "Its token dies immediately and its leases are released.", confirm: "Revoke",
+      })) return;
       changed(await api<Agent>(`agents/${id}/revoke`, "POST", { reason: value(fields, "reason") }));
+      toast(`Revoked ${agent.id}.`);
     })}>
       <label>Revocation reason<input name="reason" /></label>
       <Feedback error={revoke.error} />
@@ -200,19 +210,12 @@ export function AgentDetailPage({ id }: { id: string }) {
   const current = agent.data;
 
   return <Clock.Provider value={now}>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/agents" aria-current="page">Agents</Link>
-      </nav>
-    </header>
-    <main className="workspace">
+    <PageShell section="agents">
       <div className="heading">
         <div><div className="meta"><Link href="/agents">Agents</Link></div><h1>{id}</h1></div>
         {current && <span className={`pill ${current.status}`}>{current.status}</span>}
       </div>
-      <Feedback error={agent.error} loading={!current && !agent.error} />
+      <ResourceState error={agent.error} loading={!current && !agent.error} retry={agent.refresh} />
       {current && <>
         <section className="panel stack">
           <h2>Agent</h2>
@@ -236,6 +239,6 @@ export function AgentDetailPage({ id }: { id: string }) {
         <Usage id={id} now={now} revision={revisions.capacity} />
         <AuditTrail id={id} revision={revisions.board + revisions.agents} />
       </>}
-    </main>
+    </PageShell>
   </Clock.Provider>;
 }

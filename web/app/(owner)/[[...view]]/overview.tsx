@@ -7,9 +7,11 @@ import { api, label, money, optionalResource, useResource } from "../../../lib/c
 import type { Agent, Board, Brief, Capacity, Message, Task, Thread } from "../../../lib/types";
 import type { Component } from "../../../lib/swarm";
 import { Architecture } from "./architecture";
+import { AutopilotPanel } from "./autopilot";
 import { Kanban } from "./board";
 import { OwnerChat } from "./chat";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { ForecastPanel } from "./forecast";
 import type { Revisions } from "./live";
 import { Metrics } from "./metrics";
 import { VirtualList } from "./virtual";
@@ -174,8 +176,10 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
         <div className="stack project-body">
           {architecture ? <Architecture components={components} tasks={taskList} loading={componentFeed.data === undefined}
             error={componentFeed.error} openThread={openThread} openChat={setChat} /> : <>
+            <ForecastPanel briefID={id} revision={revisions.board} />
             <Kanban board={board.data!} agents={agents} openThread={openThread} />
             <Workload agents={agents} tasks={taskList} recent={recent} openThread={openThread} openChat={setChat} />
+            <AutopilotPanel revision={revisions.board} spawnRevision={revisions.agents} />
             <div className="project-detail-grid">
               <CapacitySummary revision={revisions.capacity} />
               <Metrics briefID={id} knownJobs={brief.hillclimb_jobs} revision={revisions.metrics} />

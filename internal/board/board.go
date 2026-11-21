@@ -15,6 +15,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
+const (
+	DefaultPoisonExpiries = 3
+	DefaultFlapExpiries   = 3
+	DefaultFlapWindow     = 30 * time.Minute
+)
+
 type Options struct {
 	PublicURL  string
 	Lease      time.Duration
@@ -25,6 +31,10 @@ type Options struct {
 	Now        func() time.Time
 	Log        *slog.Logger
 	Backups    *backup.Scheduler
+
+	PoisonExpiries int
+	FlapExpiries   int
+	FlapWindow     time.Duration
 
 	FlushEvery time.Duration
 	SweepEvery time.Duration
@@ -47,6 +57,8 @@ type Board struct {
 	dirtyT map[string]struct{}
 	capCfg capacity.Config
 
+	expiries map[string][]time.Time
+
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string
@@ -58,6 +70,15 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 	}
 	if o.Lease <= 0 {
 		o.Lease = 15 * time.Minute
+	}
+	if o.PoisonExpiries <= 0 {
+		o.PoisonExpiries = DefaultPoisonExpiries
+	}
+	if o.FlapExpiries <= 0 {
+		o.FlapExpiries = DefaultFlapExpiries
+	}
+	if o.FlapWindow <= 0 {
+		o.FlapWindow = DefaultFlapWindow
 	}
 	if o.FlushEvery <= 0 {
 		o.FlushEvery = 2 * time.Second
@@ -75,7 +96,8 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 		o.PublicURL = "http://localhost:8080"
 	}
 	b := &Board{st: st, o: o, log: o.Log, seen: map[string]time.Time{}, tasks: map[string]hotTask{},
-		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity}
+		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity,
+		expiries: map[string][]time.Time{}}
 	err := st.View(ctx, func(tx store.Tx) error {
 		if v, ok, err := tx.GetKV("paused"); err != nil {
 			return err

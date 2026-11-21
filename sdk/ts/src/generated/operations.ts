@@ -79,6 +79,12 @@ export function deleteWebhooksOutById(
   return r.request("DELETE", "/api/v1/webhooks-out/{id}", { ...args, response: "none" });
 }
 
+export function getAbout(
+  r: Requester,
+): Promise<T.Info> {
+  return r.request("GET", "/api/v1/about", { response: "json" });
+}
+
 export function getActivity(
   r: Requester,
   args?: { query?: { since?: string; brief_id?: string; severity?: string; cursor?: string; limit?: number } },

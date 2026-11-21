@@ -1,4 +1,4 @@
-import type { Message, Task } from "./types";
+import type { Task } from "./types";
 
 export interface TaskDetail extends Task {
   brief_id: string;
@@ -29,8 +29,6 @@ export type TimelineEntry = {
   title: string;
   detail?: string;
 };
-
-export type TaskMessages = { messages: Message[] | null };
 
 export type AuditList = { events: AuditEvent[] | null };
 

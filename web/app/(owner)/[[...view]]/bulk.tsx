@@ -43,7 +43,7 @@ const specs: Record<TaskAction | AgentAction, Spec> = {
 };
 
 export const taskActions: TaskAction[] = ["assign", "reassign", "unblock", "reopen", "set_budget", "cancel"];
-export const quickTaskActions: TaskAction[] = ["assign", "reassign", "cancel", "reopen", "set_budget"];
+const quickTaskActions: TaskAction[] = ["assign", "reassign", "cancel", "reopen", "set_budget"];
 export const agentActions: AgentAction[] = ["pause", "resume", "rotate-token", "revoke"];
 
 export function useBulk() {
@@ -83,7 +83,7 @@ export function SelectAll({ ids, bulk, name }: { ids: string[]; bulk: Bulk; name
   </label>;
 }
 
-export function BulkActions({ kind, ids, agents = [], actions, onResult }: {
+function BulkActions({ kind, ids, agents = [], actions, onResult }: {
   kind: "tasks" | "agents"; ids: string[]; agents?: Agent[]; actions: (TaskAction | AgentAction)[];
   onResult: (response: BulkResponse) => void;
 }) {

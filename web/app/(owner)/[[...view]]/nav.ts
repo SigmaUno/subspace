@@ -1,4 +1,4 @@
-export type NavItem = { id: string; name: string; href: string };
+type NavItem = { id: string; name: string; href: string };
 
 export const primaryNav: NavItem[] = [
   { id: "swarm", name: "Swarm", href: "/" },

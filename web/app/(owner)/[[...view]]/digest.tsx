@@ -5,7 +5,7 @@ import type { DigestPreview } from "../../../lib/digest-types";
 import { EntityLink } from "./components";
 import { EmptyState } from "./states";
 
-export const digestWindows: [string, string][] = [
+const digestWindows: [string, string][] = [
   ["24h", "Last 24 hours"], ["72h", "Last 3 days"], ["168h", "Last 7 days"], ["744h", "Last 31 days"],
 ];
 

@@ -19,7 +19,7 @@ export function Skeleton({ rows = 3, label = "Loading" }: { rows?: number; label
   </div>;
 }
 
-export function ErrorBanner({ message, retry }: { message: string; retry?: () => void }) {
+function ErrorBanner({ message, retry }: { message: string; retry?: () => void }) {
   return <div className="error error-banner" role="alert">
     <span>{message}</span>
     {retry && <button type="button" onClick={retry}>Retry</button>}

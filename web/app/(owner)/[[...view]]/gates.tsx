@@ -4,11 +4,11 @@ import { api, optionalResource, useResource, useSubmit, value } from "../../../l
 import { Feedback } from "./components";
 import { EmptyState } from "./states";
 
-export type GateResult = { gate: string; enabled: boolean; passed: boolean; overridden: boolean; evidence: string };
+type GateResult = { gate: string; enabled: boolean; passed: boolean; overridden: boolean; evidence: string };
 
-export type GateOverride = { gates: string[] | null; reason: string; by: string; at: string };
+type GateOverride = { gates: string[] | null; reason: string; by: string; at: string };
 
-export type GateReport = {
+type GateReport = {
   task_id: string;
   brief_id: string;
   passed: boolean;
@@ -31,13 +31,13 @@ function gatePath(taskID: string) {
   return `tasks/${encodeURIComponent(taskID)}/gates`;
 }
 
-export function useGates(taskID: string | undefined, revision: number) {
+function useGates(taskID: string | undefined, revision: number) {
   return useResource(taskID ? gatePath(taskID) : null, revision, optionalResource<GateReport>);
 }
 
 const enabledGates = (report: GateReport) => (report.gates ?? []).filter((gate) => gate.enabled);
 
-export function GateChecklist({ report }: { report: GateReport }) {
+function GateChecklist({ report }: { report: GateReport }) {
   const gates = enabledGates(report);
   if (!gates.length) return <EmptyState>No quality gates on this brief.</EmptyState>;
   return <ul className="stack" aria-label="Quality gates">

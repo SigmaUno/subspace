@@ -16,7 +16,7 @@ export function usePlaybooks() {
   return { ...resource, list: resource.data?.playbooks ?? [] };
 }
 
-export function playbookSummary(playbook: Playbook) {
+function playbookSummary(playbook: Playbook) {
   const parts = [playbook.description];
   if (playbook.coverage) parts.push(playbook.coverage === "tester" ? "every task needs a tester task" : "tester task or cross review");
   if (playbook.allowed_sizes?.length) parts.push(`sizes ${playbook.allowed_sizes.join(", ")}`);

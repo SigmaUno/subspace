@@ -10,7 +10,7 @@ const viewsKey = "subspace.board.views";
 const densityKey = "subspace.board.density";
 const collapsedKey = "subspace.board.collapsed";
 
-export type Density = "comfortable" | "compact";
+type Density = "comfortable" | "compact";
 
 const storageListeners = new Set<() => void>();
 

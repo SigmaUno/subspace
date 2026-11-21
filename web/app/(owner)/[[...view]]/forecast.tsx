@@ -2,19 +2,8 @@
 
 import { money, optionalResource, useResource } from "../../../lib/client";
 import { forecastMinutes } from "../../../lib/duration";
+import type { Forecast } from "../../../lib/generated-types";
 import { ResourceState } from "./states";
-
-interface Range { p10: number; p50: number; p90: number }
-
-interface ForecastData {
-  brief_id: string;
-  generated_at: string;
-  tasks: { total: number; complete: number; remaining: number };
-  cost_eur: { used: number; budget: number; projected: Range; exceed_probability: number };
-  schedule: { remaining_minutes: Range; completes_at: { p10: string; p50: string; p90: string } };
-  burn: { eur_per_hour: number; tasks_per_hour: number; runway_hours: number | null; source: string };
-  risks: { code: string; severity: string; message: string }[] | null;
-}
 
 const percent = new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 0 });
 const rate = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
@@ -23,7 +12,7 @@ function when(time: string) {
   return new Date(time).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
 }
 
-function BudgetBar({ cost }: { cost: ForecastData["cost_eur"] }) {
+function BudgetBar({ cost }: { cost: Forecast["cost_eur"] }) {
   const { used, budget, projected } = cost;
   const top = Math.max(budget, projected.p90, used, 0.01) * 1.05;
   const x = (amount: number) => Math.min(100, Math.max(0, amount / top * 100));
@@ -42,7 +31,7 @@ function BudgetBar({ cost }: { cost: ForecastData["cost_eur"] }) {
 }
 
 export function ForecastPanel({ briefID, revision }: { briefID: string; revision: number }) {
-  const feed = useResource(`briefs/${encodeURIComponent(briefID)}/forecast`, revision, optionalResource<ForecastData>);
+  const feed = useResource(`briefs/${encodeURIComponent(briefID)}/forecast`, revision, optionalResource<Forecast>);
   const forecast = feed.data;
   if (forecast === null) return null;
   const risks = forecast?.risks ?? [];

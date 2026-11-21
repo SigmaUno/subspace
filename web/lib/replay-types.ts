@@ -11,7 +11,7 @@ export interface ReplayTask {
   changed_at: string | null;
 }
 
-export interface ReplayAgent {
+interface ReplayAgent {
   id: string;
   role: string;
   assigned: string[] | null;

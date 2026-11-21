@@ -6,7 +6,7 @@ import { ResourceState } from "./states";
 
 interface Range { p10: number; p50: number; p90: number }
 
-interface ForecastData {
+export interface ForecastData {
   brief_id: string;
   generated_at: string;
   tasks: { total: number; complete: number; remaining: number };

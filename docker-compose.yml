@@ -17,7 +17,7 @@ services:
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
     healthcheck:
-      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/readyz"]
       interval: 30s
       timeout: 5s
       retries: 3
@@ -179,13 +179,14 @@ services:
     <<: *hardened
     profiles: [ha]
     hostname: ha-server-a
+    stop_grace_period: 30s
     build:
       context: .
       target: server
     tmpfs:
       - /tmp:rw,noexec,nosuid,size=64m
     healthcheck:
-      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/healthz"]
+      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/readyz"]
       interval: 5s
       timeout: 3s
       retries: 3
@@ -215,6 +216,7 @@ services:
       SUBSPACE_BACKUP_INTERVAL: "0"
       SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
       SUBSPACE_LOG_LEVEL: "${SUBSPACE_LOG_LEVEL:-info}"
+      SUBSPACE_DRAIN_DELAY: "${SUBSPACE_DRAIN_DELAY:-3s}"
     volumes:
       - "${SUBSPACE_DATA:-/data/subspace}/shared:/data/shared"
       - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"

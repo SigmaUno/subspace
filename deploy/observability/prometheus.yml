@@ -1,0 +1,27 @@
+global:
+  scrape_interval: 30s
+  evaluation_interval: 30s
+
+rule_files:
+  - alerts.yml
+
+scrape_configs:
+  - job_name: subspace
+    metrics_path: /api/v1/metrics
+    scheme: http
+    bearer_token_file: /etc/prometheus/secrets/subspace-metrics-token
+    static_configs:
+      - targets: ["subspace-server:8080"]
+  - job_name: subspace-healthz
+    metrics_path: /probe
+    params:
+      module: [http_2xx]
+    static_configs:
+      - targets: ["http://subspace-server:8080/healthz"]
+    relabel_configs:
+      - source_labels: [__address__]
+        target_label: __param_target
+      - source_labels: [__param_target]
+        target_label: instance
+      - target_label: __address__
+        replacement: blackbox-exporter:9115

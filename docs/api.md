@@ -39,7 +39,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "budget":{"max_cost_eur":50.0,"max_parallel_agents":10},
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
  "cross_review":true,"auto_done_on_merge":false,
- "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected
+ "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected; cost_used includes cancelled tasks
  "created_at":"..."}
 
 // Task
@@ -193,7 +193,7 @@ Plan edits post a system message to the brief thread and append an audit event (
 |---|---|---|
 | GET | `/api/v1/agents?role=&status=` | → `{"agents":[Agent]}` |
 | GET | `/api/v1/agents/{id}` | → Agent |
-| POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). |
+| POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek); it must match `[a-z0-9][a-z0-9._-]{0,62}` and, for claude-code and codex, equal the kind's provider (400 otherwise). |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic. |
 | GET | `/api/v1/agents/{id}/connect` | → Connect without token (snippets keep `<token>`). |
 | POST | `/api/v1/agents/{id}/rotate-token` | `{}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead) |
@@ -479,7 +479,7 @@ All tools return an object; `task` = Task object above.
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
 - `get_task {"task_id"}` → `{"task":Task}` (own/assigned tasks; leader: any)
 - `heartbeat {"task_id?","note?"}` → `{"ok":true,"paused":false,"lease_expires_at":"..."|null}`. Extends leases of my in_progress tasks (or only `task_id`). Cheap (in-memory, batched).
-- `update_status {"task_id","status":"in_progress|blocked","progress_pct?":0-100,"note?","cost_eur?":number}` → `{"task":Task}`. `cost_eur` is cumulative cost spent. Exceeding task/brief budget forces `blocked`. Cannot set submitted/approved/done.
+- `update_status {"task_id","status":"in_progress|blocked","progress_pct?":0-100,"note?","cost_eur?":number}` → `{"task":Task}`. `cost_eur` is cumulative cost spent (0..1000000; a lower value than the recorded cost is ignored). Exceeding task/brief budget forces `blocked`. Cannot set submitted/approved/done.
 - `add_note {"task_id?","body"}` → `{"message":Message}` (task thread, or own agent thread if no task)
 - `ask_owner {"task_id?","question","options?":["..."]}` → `{"question":Question}`; answer arrives in the task/agent thread (`read_thread`).
 - `post_message {"thread":"task:T-3","body"}` → `{"message":Message}`. `thread` is `agent:<id>` (or `agent:me`), `task:<id>`, `brief:<id>`. Scope: own agent thread; task threads where I am assignee/reviewer; leader additionally every task/brief thread.
@@ -496,7 +496,7 @@ All tools return an object; `task` = Task object above.
 - `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`, or → `approved` when the brief has `cross_review:false`; releases lease; `pr_url` required for worker, optional for tester)
 
 **Tester**
-- `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`
+- `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`. Requires an `in_progress` task of mine (409 otherwise).
 
 **Hill-climb** (worker and tester; listed only when `SUBSPACE_HILLCLIMB_WORKDIR` is set, see Hillclimb)
 - `measure {"job_id","branch"}` → `{"attempt":{"id","job_id","agent_id","branch","value","status":"ok|failed","measured_at","log"},"metric","loss","best","job_status","stop_reason","remaining_attempts"}`. `loss` is the metric negated for `max` jobs; `remaining_attempts` is null for an unlimited budget; `metric` is the last number printed by `metric_cmd`. Requires an `in_progress` task of mine in the job's brief and repo whose branch is `branch` or a prefix of it followed by `-`, within task and brief budgets (`budget_exceeded`), and Subspace not paused; otherwise `not_assigned`. 409 `conflict` on a stopped job, `budget_exceeded` when the job has no attempts left, 403 for a repo outside `SUBSPACE_HILLCLIMB_REPOS`.
@@ -509,13 +509,13 @@ All tools return an object; `task` = Task object above.
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
 - `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
-- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
+- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval). Tasks blocked for `budget_exceeded` or `poison_task` can only be unblocked by the owner (403, also for `reassign`). `budget` may only add or lower limits; raising or removing one is owner-only (403). `depends_on` follows the same rules as the owner PATCH (400 on unknown, self, cancelled, foreign-brief or cyclic dependencies); `create_task` checks `depends_on` the same way.
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
-- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}`; 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 
 ### Threads scoping summary
 Agent thread `agent:<id>`: leader messages to the agent, owner replies, answers, system notices. Task thread `task:<id>`: status changes (auto), notes, questions/answers, reviews, tests. Brief thread `brief:<id>`: plan decisions, leader notes.

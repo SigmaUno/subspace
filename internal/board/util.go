@@ -13,6 +13,8 @@ func isErr(err, target error) bool { return errors.Is(err, target) }
 
 var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
+var providerRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func slug(s string) string {

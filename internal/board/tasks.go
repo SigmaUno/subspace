@@ -128,8 +128,13 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if br.PlanStatus == model.PlanApproved {
 			status = model.StatusReady
 		}
+		deps := in.DependsOn
+		in.DependsOn = nil
 		t, err := b.newTask(tx, br, in, "", status, nil)
 		if err != nil {
+			return err
+		}
+		if t.DependsOn, err = b.checkDeps(tx, t, deps); err != nil {
 			return err
 		}
 		if err := tx.InsertTask(t); err != nil {
@@ -172,19 +177,13 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			t.AcceptanceCriteria = nz(*p.AcceptanceCriteria)
 		}
 		if p.DependsOn != nil {
-			for _, d := range *p.DependsOn {
-				if d == id {
-					return model.BadRequest("task cannot depend on itself")
-				}
-				if _, err := tx.GetTask(d); err != nil {
-					return model.BadRequest("unknown dependency %q", d)
-				}
+			if t.DependsOn, err = b.checkDeps(tx, t, *p.DependsOn); err != nil {
+				return err
 			}
-			t.DependsOn = nz(*p.DependsOn)
 		}
 		if p.Budget != nil {
-			if p.Budget.MaxMinutes < 0 || p.Budget.MaxCostEUR < 0 {
-				return model.BadRequest("budget must be >= 0")
+			if err := checkLeaderBudget(t.Budget, *p.Budget); err != nil {
+				return err
 			}
 			t.Budget = *p.Budget
 		}
@@ -200,7 +199,7 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 				if t.Status == model.StatusInProgress {
 					b.endLease(t)
 				}
-				t.BlockedReason = strp("blocked by leader")
+				t.BlockedReason = strp(leaderBlock)
 				return b.finishUpdate(tx, w, a, "update_task", t, model.StatusBlocked, &out)
 			case model.StatusCancelled:
 				if t.Status == model.StatusInProgress {
@@ -216,8 +215,10 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 					to = model.StatusAssigned
 				}
 				if t.Status == model.StatusBacklog {
-
 					return model.Forbidden("backlog tasks become ready through owner plan approval")
+				}
+				if err := leaderMayUnblock(t); err != nil {
+					return err
 				}
 				t.BlockedReason, t.LeaseExpiries = nil, 0
 				return b.finishUpdate(tx, w, a, "update_task", t, to, &out)
@@ -233,6 +234,30 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 		return w.audit(tx, a, "update_task", t.ID, nil, map[string]any{"title": t.Title}, "")
 	})
 	return out, err
+}
+
+const leaderBlock = "blocked by leader"
+
+func leaderMayUnblock(t *model.Task) error {
+	if t.Status != model.StatusBlocked {
+		return nil
+	}
+	r := deref(t.BlockedReason)
+	if r == leaderBlock || strings.HasPrefix(r, "blocked by agent") {
+		return nil
+	}
+	return model.Forbidden("task is blocked (%s); only the owner can unblock it", r)
+}
+
+func checkLeaderBudget(old, nb model.Budget) error {
+	if nb.MaxMinutes < 0 || nb.MaxCostEUR < 0 {
+		return model.BadRequest("budget must be >= 0")
+	}
+	if (old.MaxMinutes > 0 && (nb.MaxMinutes == 0 || nb.MaxMinutes > old.MaxMinutes)) ||
+		(old.MaxCostEUR > 0 && (nb.MaxCostEUR == 0 || nb.MaxCostEUR > old.MaxCostEUR)) {
+		return model.Forbidden("only the owner can raise or remove a task budget")
+	}
+	return nil
 }
 
 func (b *Board) finishUpdate(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, to string, out **model.Task) error {
@@ -313,6 +338,9 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked:
 			default:
 				return model.Conflict("cannot reassign a %s task", t.Status)
+			}
+			if err := leaderMayUnblock(t); err != nil {
+				return err
 			}
 		}
 		if t.Status == model.StatusInProgress {
@@ -487,6 +515,8 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	return out, err
 }
 
+const MaxCostEUR = 1e6
+
 type StatusInput struct {
 	TaskID      string   `json:"task_id"`
 	Status      string   `json:"status"`
@@ -502,8 +532,8 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	if in.ProgressPct != nil && (*in.ProgressPct < 0 || *in.ProgressPct > 100) {
 		return nil, model.BadRequest("progress_pct must be 0..100")
 	}
-	if in.CostEUR != nil && *in.CostEUR < 0 {
-		return nil, model.BadRequest("cost_eur must be >= 0")
+	if in.CostEUR != nil && (*in.CostEUR < 0 || *in.CostEUR > MaxCostEUR) {
+		return nil, model.BadRequest("cost_eur must be between 0 and %g", MaxCostEUR)
 	}
 	in.Note = Redact(in.Note)
 	var out *model.Task
@@ -578,7 +608,7 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease}
+		b.tasks[t.ID] = hotTask{hb: now, lease: lease, assignee: a.ID}
 		b.dirtyT[t.ID] = struct{}{}
 		l := lease
 		res.LeaseExpiresAt = &l
@@ -603,6 +633,9 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 		t, err := tx.GetTask(taskID)
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
+		}
+		if t.Status != model.StatusInProgress {
+			return model.Conflict("task is %s; report_tests needs an in_progress task (claim it first)", t.Status)
 		}
 		t.Tests = &model.TestResult{Passed: passed, Failed: failed, ReportedAt: b.now()}
 		t.UpdatedAt = b.now()

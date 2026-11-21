@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 const SignatureHeader = "X-Subspace-Signature"
@@ -95,7 +96,11 @@ func NewNtfy(url string, c *http.Client) Sink {
 
 func NewSlack(url string, c *http.Client) Sink {
 	return &httpSink{name: "slack", url: url, client: c, build: func(n Notification) ([]byte, http.Header, error) {
-		b, err := json.Marshal(map[string]string{"text": "*" + n.Title + "*\n" + n.Text})
+		b, err := json.Marshal(map[string]string{"text": "*" + slackEscape(n.Title) + "*\n" + slackEscape(n.Text)})
 		return b, http.Header{"Content-Type": {"application/json"}}, err
 	}}
 }
+
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+func slackEscape(s string) string { return slackEscaper.Replace(s) }

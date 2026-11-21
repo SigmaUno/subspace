@@ -1,4 +1,4 @@
-export interface SavedView {
+interface SavedView {
   name: string;
   query: string;
 }

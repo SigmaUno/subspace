@@ -1,4 +1,4 @@
-export type ScopeFinding = {
+type ScopeFinding = {
   rule: string;
   severity: "error" | "warning";
   message: string;

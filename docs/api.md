@@ -133,6 +133,42 @@ Briefs, plans, tasks, agents, questions, spawns, thread messages and audit event
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
 | GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 
+### Incident mode
+One owner action for containment. Owner scope writes, viewer scope reads. Only one incident is active at a time.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/incident` | `{"reason":"...","actions":["pause_all","revoke_agents","rotate_leader_tokens","snapshot","notify"],"revoke":{"role":"","provider":""}}` → Incident outcome (201 for a new incident, 200 when it joins the active one). 400 without a reason, without actions, on an unknown action, or on `revoke` without `revoke_agents`. |
+| GET | `/api/v1/incident?limit=` | → `{"incidents":[Incident]}`, newest first; `limit` default 100, max 1000. The active incident has `"ended_at":null`. |
+| POST | `/api/v1/incident/{id}/end` | `{"resume_agents":false,"note":""}` → End outcome. 404 for an unknown incident. Ending an ended incident changes nothing. |
+
+```jsonc
+// Incident
+{"id":"INC-1","reason":"leaked token","actions":["pause_all","revoke_agents"],"started_at":"...","ended_at":null,"actor":"root",
+ "results":[{"action":"pause_all","status":"ok","detail":"","agents":["claude-1"],"failures":[{"agent_id":"x","error":"..."}],"error":""}]}
+// status: ok|failed
+
+// Incident outcome: Incident plus
+{"skipped":["pause_all"],                     // actions of this request that were already done
+ "tokens":[Connect],                          // rotate_leader_tokens: new leader tokens, shown once, never stored
+ "succeeded":2,"failed":0}                    // actions by status
+
+// End outcome: Incident plus
+{"resumed_all":true,"resumed_agents":["claude-2"],"failures":[{"agent_id":"claude-3","error":"..."}]}
+```
+
+Actions run in this order, each on its own: a failing action is recorded as `failed` with its `error` (or per-agent `failures`) and the others still run, so the response is 200/201 and the caller reads `failed` and `results`. The incident is recorded in the `incidents` table before the first action runs and its results are updated after each action.
+
+- `pause_all`: same as `POST /api/v1/pause-all` with reason `incident <id>: <reason>`; already paused counts as done.
+- `revoke_agents`: revokes every non-revoked agent, or only those matching `revoke.role` and/or `revoke.provider`. Leases are released like `POST /agents/{id}/revoke`.
+- `rotate_leader_tokens`: rotates the token of every non-revoked leader and returns the connect info with the new token in `tokens`, exactly once.
+- `snapshot`: writes `<data dir>/incidents/<id>.ndjson` (`SUBSPACE_DATA_DIR`, else the database directory; required with Postgres): a `meta` line (incident, time, pause state, audit head) followed by `brief`, `agent` and `task` lines. Agents carry no token hashes.
+- `notify`: publishes an `alert.raised` notification (`incident:<id>`, priority 5) with the summary of the results so far to the configured notification sinks.
+
+Posting again while an incident is active is idempotent: the reason of the first request stays, new actions are added, an action that already succeeded is skipped and listed in `skipped` (so tokens are never rotated twice), `failed` actions are retried and `revoke_agents` always runs again for the given scope (it only touches agents that are not revoked yet; revoked ids accumulate in the result).
+
+Ending resumes the system: when `pause_all` succeeded and the system is paused, `resume_all` runs (an error aborts the end and the incident stays active). With `resume_agents` every agent that is `paused` is resumed; failures are listed in `failures` and do not keep the incident open. Revoked agents stay revoked. Audit events: `incident_start` and `incident_end` (plus the events of the underlying `pause_all`, `revoke_agent`, `rotate_token`, `resume_all`), so the audit chain stays verifiable.
+
 ### Organization spend limits
 | Method | Path | Body → Response |
 |---|---|---|

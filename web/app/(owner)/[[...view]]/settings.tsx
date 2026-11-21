@@ -1,12 +1,14 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { api, optionalResource, useResource, useSubmit } from "../../../lib/client";
 import type { About, Alerts, Backup, BackupList, NotifyStatus, OwnerToken, SinkResult, TokenList } from "../../../lib/settings-types";
+import type { DigestPreview } from "../../../lib/digest-types";
 import type { Control } from "../../../lib/types";
 import { AnnouncementsView } from "./announcements";
 import { CharterView } from "./charter";
 import { Feedback } from "./components";
+import { DigestPanel } from "./digest";
 import { InstructionsView } from "./instructions";
 import type { Revisions } from "./live";
 import { CapacityView } from "./operations";
@@ -139,11 +141,18 @@ function AlertsPanel({ alerts }: { alerts: Alerts }) {
 }
 
 function AboutPanel({ version, about }: { version?: string; about?: About | null }) {
-  const rows: [string, string][] = [
+  const latest = about?.backups?.latest_at;
+  const rows: [string, ReactNode][] = [
     ["Version", about?.version ?? version ?? "—"],
+    ["Started", formatTime(about?.started_at)],
     ["Uptime", about?.uptime_seconds === undefined ? "—" : formatDuration(about.uptime_seconds)],
-    ["Database size", about?.db_bytes === undefined ? "—" : formatSize(about.db_bytes)],
     ["Backend", about?.backend ?? "—"],
+    ["Database size", about?.db_bytes == null ? "—" : formatSize(about.db_bytes)],
+    ["Write-ahead log", about?.wal_bytes == null ? "—" : formatSize(about.wal_bytes)],
+    ["Backups", about?.backups ? `${about.backups.count} kept` : "—"],
+    ["Latest backup", latest
+      ? <>{formatTime(latest)} <span className={`pill ${about?.backups?.latest_verified ? "active" : "revoked"}`}>{about?.backups?.latest_verified ? "verified" : "failed"}</span></>
+      : "—"],
   ];
   return <section className="panel stack">
     <div className="heading"><h2>About</h2></div>
@@ -160,6 +169,8 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
   const tokens = useResource("tokens", 0, optionalResource<TokenList>);
   const alerts = useResource("alerts", revisions.control, optionalResource<Alerts>);
   const about = useResource("about", 0, optionalResource<About>);
+  const [range, setRange] = useState("24h");
+  const digest = useResource(`digest/preview?window=${range}`, 0, optionalResource<DigestPreview>);
   const [selected, setSelected] = useState("charter");
 
   const tabs = [
@@ -169,6 +180,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     { id: "announcements", name: "Announcements", show: true },
     { id: "notifications", name: "Notifications", show: notify.data !== null },
     { id: "backups", name: "Backups", show: backups.data !== null },
+    { id: "digest", name: "Digest", show: digest.data !== null },
     { id: "tokens", name: "Tokens", show: tokens.data !== null },
     { id: "alerts", name: "Alerts", show: alerts.data !== null },
     { id: "about", name: "About", show: true },
@@ -194,6 +206,10 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     {active === "backups" && <>
       <ResourceState error={backups.error} loading={backups.data === undefined} retry={backups.refresh} rows={3} />
       {backups.data && <BackupsPanel list={backups.data} refresh={backups.refresh} />}
+    </>}
+    {active === "digest" && <>
+      <ResourceState error={digest.error} loading={digest.data === undefined} retry={digest.refresh} rows={4} />
+      {digest.data && <DigestPanel preview={digest.data} range={range} setRange={setRange} />}
     </>}
     {active === "tokens" && <>
       <ResourceState error={tokens.error} loading={tokens.data === undefined} retry={tokens.refresh} rows={3} />

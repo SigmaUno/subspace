@@ -42,7 +42,10 @@ export type Alerts = Record<string, unknown>;
 
 export interface About {
   version?: string;
+  started_at?: string;
   uptime_seconds?: number;
-  db_bytes?: number;
   backend?: string;
+  db_bytes?: number | null;
+  wal_bytes?: number | null;
+  backups?: { count: number; latest_at: string | null; latest_verified: boolean };
 }

@@ -8,6 +8,7 @@ import { statuses, type Message } from "../../../lib/types";
 import { Feedback, LoadMore } from "./components";
 import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
+import { ScopePanel } from "./scope-report";
 import { AgentTerminal } from "./terminal";
 
 const statusNames = new Map<string, string>(statuses);
@@ -209,6 +210,8 @@ export function TaskDetailPage({ id }: { id: string }) {
             })}</ul>
             : <p className="empty">No dependencies.</p>}
         </section>
+
+        <ScopePanel taskID={current.id} revision={revisions.board} />
 
         <OwnerActions task={current} changed={changed} />
 

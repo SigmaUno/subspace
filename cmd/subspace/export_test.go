@@ -343,8 +343,8 @@ func TestExportStreamsLargeDatasetWithinMemoryBound(t *testing.T) {
 		t.Skip("large dataset")
 	}
 	const bodySize = 2048
-	rows := testmode.Size(10000, 20000)
-	bound := uint64(testmode.Size(6<<20, 12<<20))
+	rows := testmode.Size(16000, 24000)
+	bound := uint64(testmode.Size(10<<20, 14<<20))
 	dir := t.TempDir()
 	src, dst, arc := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db"), filepath.Join(dir, "big.jsonl.gz")
 	st, err := sqlite.Open(src)

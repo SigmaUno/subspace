@@ -27,6 +27,7 @@ type MCP struct {
 	session string
 
 	pushOnce sync.Once
+	pumping  atomic.Bool
 	push     chan Notification
 	pushErr  error
 }

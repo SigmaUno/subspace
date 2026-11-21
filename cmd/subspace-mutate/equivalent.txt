@@ -57,3 +57,10 @@ internal/leakguard/guard.go	if !errors.Is(err, auth.ErrTokenExpired) {	swap argu
 internal/leakguard/guard.go	case errors.Is(err, tokens.ErrRevoked):	swap arguments err and tokens.ErrRevoked
 internal/leakguard/scan.go	return err == nil && len(b) == secretBytes	replace && with ||
 internal/leakguard/store.go	if err := rows.Scan(&l.ID, &l.Kind, &l.Subject, &l.Channel, &l.Author, &ms, &resolved); err != nil {	swap arguments &l.Channel and &l.Author
+internal/quota/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/quota/service.go	taskLimit  = 100000	change constant 100000 to 100001
+internal/quota/service.go	taskLimit  = 100000	change constant 100000 to 99999
+internal/quota/window.go	top = math.Max(top, u.CostEUR/q.MaxCostEURPerDay)	swap arguments top and u.CostEUR / q.MaxCostEURPerDay
+internal/quota/window.go	top = math.Max(top, float64(u.Tasks)/float64(q.MaxTasksPerDay))	swap arguments top and float64(u.Tasks) / float64(q.MaxTasksPerDay)
+internal/quota/window.go	top = math.Max(top, float64(u.ConcurrentTasks)/float64(q.MaxConcurrentTasks))	swap arguments top and float64(u.ConcurrentTasks) / float64(q.MaxConcurrentTasks)
+internal/quota/service.go	if err := rows.Scan(dest...); err != nil {	replace != with ==

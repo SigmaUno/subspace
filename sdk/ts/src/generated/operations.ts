@@ -9,6 +9,13 @@ export function deleteAgentProfilesByName(
   return r.request("DELETE", "/api/v1/agent-profiles/{name}", { ...args, response: "none" });
 }
 
+export function deleteAnnouncementsById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/announcements/{id}", { ...args, response: "none" });
+}
+
 export function deleteArtifactsById(
   r: Requester,
   args: { path: { id: string } },
@@ -37,6 +44,20 @@ export function deletePlansByIdTasksByTaskId(
   return r.request("DELETE", "/api/v1/plans/{id}/tasks/{taskId}", { ...args, response: "json" });
 }
 
+export function deletePushSubscriptions(
+  r: Requester,
+  args: { body: T.PushSubscriptionRemove },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/push/subscriptions", { ...args, response: "none" });
+}
+
+export function deleteReposByOwnerByName(
+  r: Requester,
+  args: { path: { owner: string; name: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/repos/{owner}/{name}", { ...args, response: "none" });
+}
+
 export function deleteSchedulesById(
   r: Requester,
   args: { path: { id: string } },
@@ -44,11 +65,24 @@ export function deleteSchedulesById(
   return r.request("DELETE", "/api/v1/schedules/{id}", { ...args, response: "none" });
 }
 
+export function deleteWebhooksOutById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/webhooks-out/{id}", { ...args, response: "none" });
+}
+
 export function getActivity(
   r: Requester,
   args?: { query?: { since?: string; brief_id?: string; severity?: string; cursor?: string; limit?: number } },
 ): Promise<T.ActivityPage> {
   return r.request("GET", "/api/v1/activity", { ...args, response: "json" });
+}
+
+export function getAgentOutput(
+  r: Requester,
+): Promise<{ agents: T.AgentOutputLatest[] | null }> {
+  return r.request("GET", "/api/v1/agent-output", { response: "json" });
 }
 
 export function getAgentProfiles(
@@ -99,6 +133,13 @@ export function getAgentsByIdInsights(
   return r.request("GET", "/api/v1/agents/{id}/insights", { ...args, response: "json" });
 }
 
+export function getAgentsByIdOutput(
+  r: Requester,
+  args: { path: { id: string }; query?: { since?: number; limit?: number; task_id?: string } },
+): Promise<T.AgentOutput> {
+  return r.request("GET", "/api/v1/agents/{id}/output", { ...args, response: "json" });
+}
+
 export function getAgentsByIdStats(
   r: Requester,
   args: { path: { id: string } },
@@ -111,6 +152,13 @@ export function getAlerts(
   args?: { query?: { status?: string; limit?: number } },
 ): Promise<{ alerts: T.Alert[] | null }> {
   return r.request("GET", "/api/v1/alerts", { ...args, response: "json" });
+}
+
+export function getAnnouncements(
+  r: Requester,
+  args?: { query?: { status?: string } },
+): Promise<{ announcements: T.Announcement[] | null }> {
+  return r.request("GET", "/api/v1/announcements", { ...args, response: "json" });
 }
 
 export function getArtifacts(
@@ -530,11 +578,55 @@ export function getPrs(
   return r.request("GET", "/api/v1/prs", { ...args, response: "json" });
 }
 
+export function getPushSubscriptions(
+  r: Requester,
+): Promise<{ subscriptions: T.PushSubscription[] | null }> {
+  return r.request("GET", "/api/v1/push/subscriptions", { response: "json" });
+}
+
+export function getPushVapidKey(
+  r: Requester,
+): Promise<T.PushVAPIDKey> {
+  return r.request("GET", "/api/v1/push/vapid-key", { response: "json" });
+}
+
 export function getQuestions(
   r: Requester,
   args?: { query?: { status?: string } },
 ): Promise<{ questions: T.Question[] | null }> {
   return r.request("GET", "/api/v1/questions", { ...args, response: "json" });
+}
+
+export function getRepos(
+  r: Requester,
+): Promise<{ repos: T.Repo[] | null }> {
+  return r.request("GET", "/api/v1/repos", { response: "json" });
+}
+
+export function getReposByOwnerByName(
+  r: Requester,
+  args: { path: { owner: string; name: string } },
+): Promise<T.Repo> {
+  return r.request("GET", "/api/v1/repos/{owner}/{name}", { ...args, response: "json" });
+}
+
+export function getReposByOwnerByNameHealth(
+  r: Requester,
+  args: { path: { owner: string; name: string } },
+): Promise<T.ReposHealth> {
+  return r.request("GET", "/api/v1/repos/{owner}/{name}/health", { ...args, response: "json" });
+}
+
+export function getRetention(
+  r: Requester,
+): Promise<T.RetentionStatus> {
+  return r.request("GET", "/api/v1/retention", { response: "json" });
+}
+
+export function getRetentionVerify(
+  r: Requester,
+): Promise<T.RetentionVerification> {
+  return r.request("GET", "/api/v1/retention/verify", { response: "json" });
 }
 
 export function getSchedules(
@@ -607,7 +699,7 @@ export function getTasksById(
 export function getTasksByIdGates(
   r: Requester,
   args: { path: { id: string } },
-): Promise<T.GatesReport> {
+): Promise<T.Report> {
   return r.request("GET", "/api/v1/tasks/{id}/gates", { ...args, response: "json" });
 }
 
@@ -616,6 +708,13 @@ export function getTasksByIdPr(
   args: { path: { id: string } },
 ): Promise<T.PRStatus> {
   return r.request("GET", "/api/v1/tasks/{id}/pr", { ...args, response: "json" });
+}
+
+export function getTasksByIdScope(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.ScopeStatus> {
+  return r.request("GET", "/api/v1/tasks/{id}/scope", { ...args, response: "json" });
 }
 
 export function getThreadsByKindByIdMessages(
@@ -636,6 +735,26 @@ export function getTokens(
   r: Requester,
 ): Promise<{ tokens: T.APIToken[] | null }> {
   return r.request("GET", "/api/v1/tokens", { response: "json" });
+}
+
+export function getWebhooksOut(
+  r: Requester,
+): Promise<{ webhooks: T.WebhookSubscription[] | null }> {
+  return r.request("GET", "/api/v1/webhooks-out", { response: "json" });
+}
+
+export function getWebhooksOutById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.WebhookSubscription> {
+  return r.request("GET", "/api/v1/webhooks-out/{id}", { ...args, response: "json" });
+}
+
+export function getWebhooksOutByIdDeliveries(
+  r: Requester,
+  args: { path: { id: string }; query?: { state?: string; limit?: number } },
+): Promise<{ deliveries: T.WebhookDelivery[] | null }> {
+  return r.request("GET", "/api/v1/webhooks-out/{id}/deliveries", { ...args, response: "json" });
 }
 
 export function patchBriefsById(
@@ -727,6 +846,13 @@ export function postAgentsQuotaBulk(
   args: { body: T.QuotaBulk },
 ): Promise<T.QuotaBulkResponse> {
   return r.request("POST", "/api/v1/agents/quota-bulk", { ...args, response: "json" });
+}
+
+export function postAnnouncements(
+  r: Requester,
+  args: { body: T.AnnouncementInput },
+): Promise<{ announcement: T.Announcement; delivered: number }> {
+  return r.request("POST", "/api/v1/announcements", { ...args, response: "json" });
 }
 
 export function postArtifacts(
@@ -946,6 +1072,13 @@ export function postPlansByIdTasks(
   return r.request("POST", "/api/v1/plans/{id}/tasks", { ...args, response: "json" });
 }
 
+export function postPushSubscriptions(
+  r: Requester,
+  args: { body: T.PushSubscriptionInput },
+): Promise<T.PushSubscription> {
+  return r.request("POST", "/api/v1/push/subscriptions", { ...args, response: "json" });
+}
+
 export function postQuestionsByIdAnswer(
   r: Requester,
   args: { path: { id: string }; body: T.Answer },
@@ -960,11 +1093,32 @@ export function postReload(
   return r.request("POST", "/api/v1/reload", { ...args, response: "json" });
 }
 
+export function postRepos(
+  r: Requester,
+  args: { body: T.RepoInput },
+): Promise<T.Repo> {
+  return r.request("POST", "/api/v1/repos", { ...args, response: "json" });
+}
+
 export function postResumeAll(
   r: Requester,
   args?: { body?: unknown },
 ): Promise<T.Paused> {
   return r.request("POST", "/api/v1/resume-all", { ...args, response: "json" });
+}
+
+export function postRetentionRun(
+  r: Requester,
+  args?: { body?: unknown },
+): Promise<T.RetentionReport> {
+  return r.request("POST", "/api/v1/retention/run", { ...args, response: "json" });
+}
+
+export function postRetentionSegmentsByIdRestore(
+  r: Requester,
+  args: { path: { id: string }; body?: unknown },
+): Promise<T.RetentionSegment> {
+  return r.request("POST", "/api/v1/retention/segments/{id}/restore", { ...args, response: "json" });
 }
 
 export function postSchedules(
@@ -1005,7 +1159,7 @@ export function postTasksByIdDone(
 export function postTasksByIdGatesOverride(
   r: Requester,
   args: { path: { id: string }; body: T.OverrideInput },
-): Promise<T.GatesReport> {
+): Promise<T.Report> {
   return r.request("POST", "/api/v1/tasks/{id}/gates/override", { ...args, response: "json" });
 }
 
@@ -1023,6 +1177,13 @@ export function postThreadsByKindByIdMessages(
   return r.request("POST", "/api/v1/threads/{kind}/{id}/messages", { ...args, response: "json" });
 }
 
+export function postTokenLeaksByIdReissue(
+  r: Requester,
+  args: { path: { id: string }; body?: unknown },
+): Promise<T.TokenLeakReissued> {
+  return r.request("POST", "/api/v1/token-leaks/{id}/reissue", { ...args, response: "json" });
+}
+
 export function postTokens(
   r: Requester,
   args: { body: T.APITokenInput },
@@ -1035,6 +1196,20 @@ export function postTokensByIdRevoke(
   args: { path: { id: string }; body?: unknown },
 ): Promise<T.APIToken> {
   return r.request("POST", "/api/v1/tokens/{id}/revoke", { ...args, response: "json" });
+}
+
+export function postWebhooksOut(
+  r: Requester,
+  args: { body: T.WebhookInput },
+): Promise<T.WebhookCreated> {
+  return r.request("POST", "/api/v1/webhooks-out", { ...args, response: "json" });
+}
+
+export function postWebhooksOutByIdDeliveriesByDeliveryRedeliver(
+  r: Requester,
+  args: { path: { id: string; delivery: string }; body?: unknown },
+): Promise<T.WebhookDelivery> {
+  return r.request("POST", "/api/v1/webhooks-out/{id}/deliveries/{delivery}/redeliver", { ...args, response: "json" });
 }
 
 export function putAgentProfilesByName(
@@ -1098,4 +1273,11 @@ export function putLogLevel(
   args: { body: T.LogLevel },
 ): Promise<T.LogLevel> {
   return r.request("PUT", "/api/v1/log-level", { ...args, response: "json" });
+}
+
+export function putReposByOwnerByName(
+  r: Requester,
+  args: { path: { owner: string; name: string }; body: T.RepoInput },
+): Promise<T.Repo> {
+  return r.request("PUT", "/api/v1/repos/{owner}/{name}", { ...args, response: "json" });
 }

@@ -73,6 +73,32 @@ export interface Agent {
   token_expires_at: string | null;
 }
 
+export interface AgentOutput {
+  agent_id: string;
+  first_seq: number;
+  gap: boolean;
+  last_seq: number;
+  lines: AgentOutputLine[] | null;
+  more: boolean;
+  next_since: number;
+}
+
+export interface AgentOutputLatest {
+  agent_id: string;
+  line: AgentOutputLine;
+  lines: number;
+  updated_at: string;
+}
+
+export interface AgentOutputLine {
+  agent_id: string;
+  seq: number;
+  stream: string;
+  task_id: string | null;
+  text: string;
+  ts: string;
+}
+
 export interface AgentQuota {
   max_concurrent_tasks: number;
   max_cost_eur_per_day: number;
@@ -167,6 +193,20 @@ export interface Alert {
   summary: string;
   task_id?: string;
   title: string;
+}
+
+export interface Announcement {
+  brief_id: string;
+  created_at: string;
+  expires_at: string | null;
+  id: string;
+  text: string;
+}
+
+export interface AnnouncementInput {
+  brief_id: string;
+  expires_at?: string | null;
+  text: string;
 }
 
 export interface Answer {
@@ -770,13 +810,6 @@ export interface Failure {
   error: string;
 }
 
-export interface Finding {
-  message: string;
-  paths?: string[] | null;
-  rule: string;
-  severity: string;
-}
-
 export interface Forecast {
   brief_id: string;
   burn: ForecastBurn;
@@ -832,15 +865,6 @@ export interface ForecastTimeRange {
   p10: string;
   p50: string;
   p90: string;
-}
-
-export interface GatesReport {
-  brief_id: string;
-  evaluated_at: string;
-  gates: GatesResult[] | null;
-  override: Override | null;
-  passed: boolean;
-  task_id: string;
 }
 
 export interface GatesResult {
@@ -1144,7 +1168,7 @@ export interface PRStatus {
   repo: string;
   review_decision: string;
   reviews: PRReview[] | null;
-  scope?: Report | null;
+  scope?: ScopeReport | null;
   state: string;
   task_id: string;
   url: string;
@@ -1242,6 +1266,37 @@ export interface ProposedTask {
   role: string;
   spec: string;
   title: string;
+}
+
+export interface PushSubscription {
+  created_at: string;
+  expires_at: string | null;
+  failures: number;
+  host: string;
+  id: string;
+  last_success_at: string | null;
+  name: string;
+}
+
+export interface PushSubscriptionInput {
+  endpoint: string;
+  expirationTime?: number | null;
+  keys: PushSubscriptionKeys;
+  name: string;
+}
+
+export interface PushSubscriptionKeys {
+  auth: string;
+  p256dh: string;
+}
+
+export interface PushSubscriptionRemove {
+  endpoint: string;
+  id: string;
+}
+
+export interface PushVAPIDKey {
+  public_key: string;
 }
 
 export interface QualityGates {
@@ -1399,13 +1454,39 @@ export interface ReplayTransition {
   tool: string;
 }
 
+export interface Repo {
+  base_url: string;
+  created_at: string;
+  default_branch: string;
+  enabled: boolean;
+  host: string;
+  merge_test_command: string[] | null;
+  merge_work_dir: string;
+  name: string;
+  protected_branches: string[] | null;
+  token_env: string;
+  updated_at: string;
+}
+
+export interface RepoInput {
+  base_url?: string;
+  default_branch?: string;
+  enabled?: boolean | null;
+  host: string;
+  merge_test_command?: string[] | null;
+  merge_work_dir?: string;
+  name: string;
+  protected_branches?: string[] | null;
+  token_env?: string;
+}
+
 export interface Report {
-  additions: number;
-  deletions: number;
-  files: number;
-  findings: Finding[] | null;
-  head_sha: string;
-  truncated: boolean;
+  brief_id: string;
+  evaluated_at: string;
+  gates: GatesResult[] | null;
+  override: Override | null;
+  passed: boolean;
+  task_id: string;
 }
 
 export interface ReportBucket {
@@ -1470,6 +1551,19 @@ export interface ReportThroughput {
   window_hours: number;
 }
 
+export interface ReposHealth {
+  checked_at: string;
+  default_branch: string;
+  default_branch_exists: boolean;
+  error: string;
+  host_default_branch: string;
+  ok: boolean;
+  reachable: boolean;
+  repo: string;
+  token_configured: boolean;
+  token_hint: string;
+}
+
 export interface Request {
   actions?: string[] | null;
   reason: string;
@@ -1479,6 +1573,66 @@ export interface Request {
 export interface Result {
   applied: string[] | null;
   ignored: Ignored[] | null;
+}
+
+export interface RetentionPolicy {
+  audit_days: number;
+  batch: number;
+  dir: string;
+  idempotency_days: number;
+  interval: string;
+  messages_days: number;
+  segment_rows: number;
+  usage_days: number;
+  vacuum_pages: number;
+  wal_autocheckpoint: number;
+}
+
+export interface RetentionReport {
+  archived: RetentionSegment[] | null;
+  at: string;
+  checkpointed: boolean;
+  error?: string;
+  resumed: number;
+  rows: Record<string, number> | null;
+  vacuumed_pages: number;
+  wal_frames: number;
+}
+
+export interface RetentionSegment {
+  bytes: number;
+  created_at: string;
+  cutoff: string;
+  file: string;
+  first_id: number;
+  id: number;
+  kind: string;
+  last_hash: string;
+  last_id: number;
+  prev_hash: string;
+  rows: number;
+  seq: number;
+  sha256: string;
+  status: string;
+  updated_at: string;
+}
+
+export interface RetentionStatus {
+  anchor: AuditHead;
+  dir: string;
+  last_run: RetentionReport | null;
+  policy: RetentionPolicy;
+  segments: RetentionSegment[] | null;
+}
+
+export interface RetentionVerification {
+  anchor: AuditHead;
+  broken_segment: number;
+  chain: AuditCheck;
+  error?: string;
+  ok: boolean;
+  rows: number;
+  segments: number;
 }
 
 export interface Run {
@@ -1514,6 +1668,34 @@ export interface Schedule {
 export interface Scope {
   provider?: string;
   role?: string;
+}
+
+export interface ScopeFinding {
+  message: string;
+  paths?: string[] | null;
+  rule: string;
+  severity: string;
+}
+
+export interface ScopeReport {
+  additions: number;
+  deletions: number;
+  files: number;
+  findings: ScopeFinding[] | null;
+  head_sha: string;
+  truncated: boolean;
+}
+
+export interface ScopeStatus {
+  additions: number;
+  checked_at: string | null;
+  deletions: number;
+  files: number;
+  findings: ScopeFinding[] | null;
+  head_sha: string;
+  merge_eligible: boolean;
+  task_id: string;
+  truncated: boolean;
 }
 
 export interface SearchResult {
@@ -1745,6 +1927,15 @@ export interface TimeseriesSeries {
   until: string;
 }
 
+export interface TokenLeakReissued {
+  agent?: AgentRecord | null;
+  connect?: Connect | null;
+  kind: string;
+  leak_id: string;
+  secret?: string;
+  token?: APIToken | null;
+}
+
 export interface Train {
   base: string;
   base_sha: string;
@@ -1766,4 +1957,41 @@ export interface TrainMember {
   result: string;
   sha: string;
   task_id: string;
+}
+
+export interface WebhookCreated {
+  secret: string;
+  webhook: WebhookSubscription | null;
+}
+
+export interface WebhookDelivery {
+  attempts: number;
+  created_at: string;
+  delivered_at: string | null;
+  event: string;
+  id: string;
+  last_error: string;
+  last_status: number | null;
+  next_attempt_at: string | null;
+  payload?: unknown;
+  state: string;
+  updated_at: string;
+  webhook_id: string;
+}
+
+export interface WebhookInput {
+  brief_id: string;
+  events?: string[] | null;
+  url: string;
+}
+
+export interface WebhookSubscription {
+  brief_id: string | null;
+  created_at: string;
+  dead: number;
+  delivered: number;
+  events: string[] | null;
+  id: string;
+  pending: number;
+  url: string;
 }

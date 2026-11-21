@@ -28,6 +28,12 @@ const (
 )
 
 var covered = map[string]use{
+	"DELETE /api/v1/repos/{owner}/{name}":                            {"repos remove o/r", ""},
+	"GET /api/v1/repos":                                              {"repos list", ""},
+	"GET /api/v1/repos/{owner}/{name}":                               {"repos show o/r", ""},
+	"GET /api/v1/repos/{owner}/{name}/health":                        {"repos health o/r", ""},
+	"POST /api/v1/repos":                                             {"repos add o/r --host github", ""},
+	"PUT /api/v1/repos/{owner}/{name}":                               {"repos update o/r --default-branch trunk", ""},
 	"DELETE /api/v1/agent-profiles/{name}":                           {"profiles delete p1", ""},
 	"DELETE /api/v1/announcements/{id}":                              {"announcements delete AN-1", ""},
 	"DELETE /api/v1/artifacts/{id}":                                  {"artifacts delete A-1", ""},
@@ -168,6 +174,11 @@ var covered = map[string]use{
 }
 
 var exempt = map[string]string{
+	"DELETE /api/v1/push/subscriptions":                    "browser push subscriptions are created and removed by the browser itself",
+	"GET /api/v1/push/subscriptions":                       "browser push subscriptions are created and removed by the browser itself",
+	"GET /api/v1/push/vapid-key":                           "browser push subscriptions are created and removed by the browser itself",
+	"POST /api/v1/push/subscriptions":                      "browser push subscriptions are created and removed by the browser itself",
+	"POST /api/v1/token-leaks/{id}/reissue":                pending,
 	"DELETE /api/v1/bots/{id}":                             legacyBots,
 	"GET /api/v1/bots":                                     legacyBots,
 	"GET /api/v1/bots/{id}":                                legacyBots,

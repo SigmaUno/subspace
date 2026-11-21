@@ -251,6 +251,34 @@ var roleInstructions = map[string]string{
 	model.RoleLeader:   "FLOW: get_brief → propose_plan (the owner must approve it) → after approval assign ready tasks to agents (list_agents, capacity), reassign/unblock as needed, request_spawn when more workers are needed. Never write code, merge, or edit the charter.",
 }
 
+var kindInstructions = map[string]string{
+	model.KindClaudeCode: `Claude Code tips:
+- Git: check out the task's branch; create it from the default branch only if it does not exist yet. Never commit to main.
+- Commit in small steps, one logical change each, subject "T-3: what changed". Never force-push a branch that has a PR.
+- Run the repo's tests and linters before submit and fix failures first.
+- Run long builds and test suites in the background with a timeout and read their output; do not block on them silently.
+- Heartbeat after each commit and at least every 5 minutes while a command runs.
+- Open or update the PR with the task id and the acceptance criteria in its body, then submit with the PR url.
+- Record decisions, blockers and skipped checks with add_note on the task.`,
+	model.KindCodex: `Codex tips:
+- Git: check out the task's branch; create it from the default branch only if it does not exist yet. Never commit to main.
+- Check git status before you start and after each step; keep the working tree clean between tasks.
+- Commit in small steps, one logical change each, subject "T-3: what changed". Never force-push a branch that has a PR.
+- Run the repo's tests and linters before submit and fix failures first.
+- Put a timeout on long commands and split test suites by package so one hang does not stall the task.
+- Heartbeat after each commit and at least every 5 minutes while a command runs.
+- Open or update the PR with the task id and the acceptance criteria in its body, then submit with the PR url.
+- Record decisions, blockers and skipped checks with add_note on the task.`,
+	model.KindOpenCode: `OpenCode tips:
+- Git: check out the task's branch before editing; keep all changes on that branch. Never commit to main.
+- Commit in small steps, one logical change each, subject "T-3: what changed". Never amend or force-push commits that are already on the remote.
+- Run the repo's tests and linters before submit and fix failures first.
+- Shell commands in OpenCode can time out: split long builds and test suites into smaller runs with explicit timeouts.
+- Heartbeat after each commit and at least every 5 minutes while a command runs.
+- Open or update the PR with the task id and the acceptance criteria in its body, then submit with the PR url.
+- Record decisions, blockers and skipped checks with add_note on the task.`,
+}
+
 func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error) {
 	c, err := b.GetCharter(ctx)
 	if err != nil {
@@ -265,6 +293,9 @@ func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error)
 		return "", err
 	}
 	s := fmt.Sprintf(baseInstructions, a.ID, a.Role) + roleInstructions[a.Role]
+	if a.Role == model.RoleWorker && kindInstructions[a.Kind] != "" {
+		s += "\n" + kindInstructions[a.Kind]
+	}
 	if e.Text != "" {
 		s += "\n--- Owner instructions (" + e.Version + ") ---\n" + e.Text
 	}

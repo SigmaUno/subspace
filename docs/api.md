@@ -418,7 +418,7 @@ Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, regi
 All tools return an object; `task` = Task object above.
 
 **Common**
-- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions, then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
+- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions (for workers of kind `claude-code`, `codex` or `opencode`, followed by short kind tips), then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
 - `whoami {}` → `{"agent":Agent,"paused":false,"server_time":"..."}`
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
 - `get_task {"task_id"}` → `{"task":Task}` (own/assigned tasks; leader: any)

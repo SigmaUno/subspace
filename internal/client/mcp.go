@@ -119,25 +119,44 @@ func (m *MCP) rpcOnce(ctx context.Context, method string, params any) (json.RawM
 
 func (m *MCP) Initialize(ctx context.Context) error {
 	start := time.Now()
-	_, err := m.rpc(ctx, "initialize", map[string]any{
-		"protocolVersion": ProtocolVersion,
-		"capabilities":    map[string]any{},
-		"clientInfo":      map[string]any{"name": m.cfg.clientName, "version": "0.1.0"},
+	err := m.retry(ctx, true, func() error {
+		_, err := m.rpc(ctx, "initialize", map[string]any{
+			"protocolVersion": ProtocolVersion,
+			"capabilities":    map[string]any{},
+			"clientInfo":      map[string]any{"name": m.cfg.clientName, "version": "0.1.0"},
+		})
+		return err
 	})
 	m.cfg.observe("initialize", start, err)
 	if err != nil {
 		return err
 	}
-	return m.notify(ctx, "notifications/initialized")
+	return m.retry(ctx, true, func() error { return m.notify(ctx, "notifications/initialized") })
+}
+
+func (m *MCP) retry(ctx context.Context, safe bool, fn func() error) error {
+	for attempt := 0; ; attempt++ {
+		err := fn()
+		wait, again := retryable(err, safe, attempt)
+		if !again || attempt >= m.cfg.retries || ctx.Err() != nil {
+			return err
+		}
+		if m.cfg.sleep(ctx, wait) != nil {
+			return err
+		}
+	}
 }
 
 func (m *MCP) notify(ctx context.Context, method string) error {
 	resp, err := m.post(ctx, map[string]any{"jsonrpc": "2.0", "method": method}, m.SessionID())
 	if err != nil {
-		return err
+		return &TransportError{Err: err}
 	}
-	b, _ := readBody(resp)
+	b, err := readBody(resp)
 	_ = resp.Body.Close()
+	if err != nil {
+		return &TransportError{Err: err}
+	}
 	if resp.StatusCode != http.StatusAccepted && resp.StatusCode != http.StatusOK {
 		return httpError(resp.StatusCode, b)
 	}
@@ -170,13 +189,19 @@ func (m *MCP) Close(ctx context.Context) error {
 }
 
 func (m *MCP) Ping(ctx context.Context) error {
-	_, err := m.rpc(ctx, "ping", nil)
-	return err
+	return m.retry(ctx, true, func() error {
+		_, err := m.rpc(ctx, "ping", nil)
+		return err
+	})
 }
 
 func (m *MCP) ListTools(ctx context.Context) ([]ToolInfo, error) {
 	start := time.Now()
-	raw, err := m.rpc(ctx, "tools/list", nil)
+	var raw json.RawMessage
+	err := m.retry(ctx, true, func() (err error) {
+		raw, err = m.rpc(ctx, "tools/list", nil)
+		return err
+	})
 	m.cfg.observe("tools/list", start, err)
 	if err != nil {
 		return nil, err
@@ -207,17 +232,10 @@ func (m *MCP) call(ctx context.Context, tool string, args, out any) error {
 		params["_meta"] = map[string]any{"idempotencyKey": m.cfg.newKey()}
 	}
 	var raw json.RawMessage
-	var err error
-	for attempt := 0; ; attempt++ {
+	err := m.retry(ctx, keyed, func() (err error) {
 		raw, err = m.rpc(ctx, "tools/call", params)
-		wait, retry := retryable(err, keyed, attempt)
-		if !retry || attempt >= m.cfg.retries || ctx.Err() != nil {
-			break
-		}
-		if serr := m.cfg.sleep(ctx, wait); serr != nil {
-			return err
-		}
-	}
+		return err
+	})
 	if err != nil {
 		return err
 	}

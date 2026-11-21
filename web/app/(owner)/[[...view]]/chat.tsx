@@ -31,7 +31,7 @@ function ConversationPanel({ target, revision }: { target: string; revision: num
       {!id && <p className="muted">No messages yet.</p>}
       {id && conversation.data === null && <p className="muted">Conversation history is unavailable.</p>}
     </div>
-    <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
+    <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");
       if (!body) return;
       const result = await api<{ conversation_id: string }>("messages", "POST", { to: target, body });

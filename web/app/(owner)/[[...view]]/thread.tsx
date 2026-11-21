@@ -65,7 +65,7 @@ export function ThreadPanel({ thread, revision, top, close }: { thread: Thread; 
           </article>
         ))}
       </div>
-      <form className="stack reply" onSubmit={(event) => form.submit(event, async (fields, element) => {
+      <form className="stack reply" data-write onSubmit={(event) => form.submit(event, async (fields, element) => {
         const body = value(fields, "body");
         if (!body) throw new Error("Enter a reply.");
         await api<Message>(path, "POST", { body });

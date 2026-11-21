@@ -11,7 +11,7 @@ function RegistrationForm({ complete }: { complete: (items: Registration[]) => v
   const [bulk, setBulk] = useState(false);
   const form = useSubmit();
   return (
-    <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+    <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
       const common = { role: value(fields, "role"), kind: value(fields, "kind"),
         model: value(fields, "model"), provider: value(fields, "provider") };
       const id = value(fields, "id");
@@ -90,7 +90,7 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
   const [registered, setRegistered] = useState<Registration[] | null>(null);
   return <>
     <div className="heading"><h1>Agents</h1>
-      <button className="primary" disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
+      <button className="primary" data-write disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
     {showForm && <RegistrationForm complete={(items) => { setRegistered(items); setShowForm(false); agents.refresh(); }} />}
     {registered && <RegistrationResults items={registered} dismiss={() => setRegistered(null)} />}
     <Feedback error={agents.error} loading={!agents.data} />
@@ -131,7 +131,7 @@ function PlanCard({ plan, decided, openThread }: { plan: Plan; decided: (id: str
         </details>
       </li>)}
     </ol>
-    <form className="stack" onSubmit={(event) => {
+    <form className="stack" data-write onSubmit={(event) => {
       const button = (event.nativeEvent as SubmitEvent).submitter;
       const reject = button instanceof HTMLButtonElement && button.value === "reject";
       void form.submit(event, async (fields) => {
@@ -178,7 +178,7 @@ function QuestionCard({ question, answered, openThread }: { question: Question; 
     {!!question.options?.length && <div className="actions">
       {question.options.map((option, index) => <button key={index} onClick={() => setAnswer(option)}>{option}</button>)}
     </div>}
-    <form className="stack" onSubmit={(event) => form.submit(event, async (fields) => {
+    <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
       const text = value(fields, "answer");
       if (!text) throw new Error("Enter an answer.");
       await api<Question>(`questions/${encodeURIComponent(question.id)}/answer`, "POST", { answer: text });
@@ -228,7 +228,7 @@ export function CapacityView({ revision }: { revision: number }) {
   return <>
     <div className="heading"><h1>Capacity settings</h1>{current && <span className="pill">{current.agents_in_use} agents in use</span>}</div>
     <Feedback error={capacity.error} loading={!current} />
-    {settings && <form className="panel stack" onSubmit={(event) => form.submit(event, async () => {
+    {settings && <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async () => {
       const response = await api<Capacity>("capacity", "PUT", {
         global_max_agents: settings.global_max_agents,
         limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min }) => ({

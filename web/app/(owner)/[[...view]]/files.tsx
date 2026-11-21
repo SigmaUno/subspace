@@ -106,7 +106,7 @@ function ScopeFiles({ scope }: { scope: string }) {
       onDragLeave={() => setDragging(false)}
       onDrop={drop}>
       <p>Drop files here to upload to {scope}</p>
-      <div className="actions">
+      <div className="actions" data-write>
         <button type="button" onClick={() => input.current?.click()}>Choose files</button>
         <input ref={input} type="file" multiple hidden aria-label="Files to upload"
           onChange={(event) => { void upload(event.target.files); event.target.value = ""; }} />
@@ -133,7 +133,7 @@ function ScopeFiles({ scope }: { scope: string }) {
             <td><time dateTime={artifact.created_at}>{new Date(artifact.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</time></td>
             <td><div className="actions">
               <a href={`/api/v1/artifacts/${encodeURIComponent(artifact.id)}`} download={artifact.name}>Download</a>
-              <button type="button" className="danger" disabled={removing === artifact.id} onClick={() => remove(artifact)}>Delete</button>
+              <button type="button" className="danger" data-write disabled={removing === artifact.id} onClick={() => remove(artifact)}>Delete</button>
             </div></td>
           </tr>)}
         </tbody>

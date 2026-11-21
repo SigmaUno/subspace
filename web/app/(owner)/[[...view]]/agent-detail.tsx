@@ -48,7 +48,7 @@ function AgentThread({ id, revision }: { id: string; revision: number }) {
         <p className="preserve">{message.body}</p>
       </article>)}
     </div>}
-    <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
+    <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");
       if (!body) throw new Error("Enter a reply.");
       await api<Message>(path, "POST", { body });
@@ -159,10 +159,10 @@ function Actions({ agent, changed, rotated }: { agent: Agent; changed: (agent: A
     <h2>Actions</h2>
     {revoked && <p className="meta">This agent is revoked. Its token no longer works.</p>}
     <div className="actions">
-      {agent.status === "paused" && <form onSubmit={(event) => resume.submit(event, async () => {
+      {agent.status === "paused" && <form data-write onSubmit={(event) => resume.submit(event, async () => {
         changed(await api<Agent>(`agents/${id}/resume`, "POST", {}));
       })}><button className="primary" disabled={resume.busy}>Resume agent</button></form>}
-      {!revoked && <form onSubmit={(event) => rotate.submit(event, async () => {
+      {!revoked && <form data-write onSubmit={(event) => rotate.submit(event, async () => {
         if (!window.confirm(`Rotate the token for ${agent.id}? The current token stops working immediately.`)) return;
         const result = await api<Registration>(`agents/${id}/rotate-token`, "POST", {});
         changed(result.agent);
@@ -170,7 +170,7 @@ function Actions({ agent, changed, rotated }: { agent: Agent; changed: (agent: A
       })}><button disabled={rotate.busy}>Rotate token</button></form>}
     </div>
     <Feedback error={resume.error || rotate.error} />
-    {!revoked && <form className="stack" onSubmit={(event) => revoke.submit(event, async (fields) => {
+    {!revoked && <form className="stack" data-write onSubmit={(event) => revoke.submit(event, async (fields) => {
       if (!window.confirm(`Revoke ${agent.id}? Its token dies immediately and its leases are released.`)) return;
       changed(await api<Agent>(`agents/${id}/revoke`, "POST", { reason: value(fields, "reason") }));
     })}>

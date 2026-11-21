@@ -10,6 +10,7 @@ import { AgentQuotaPanel } from "./agent-quota";
 import { Clock, Feedback, Heartbeat, LoadMore } from "./components";
 import { useLive } from "./live";
 import { Secret } from "./operations";
+import { AgentTerminal } from "./terminal";
 
 const dayMs = 86_400_000;
 const days = 30;
@@ -227,6 +228,7 @@ export function AgentDetailPage({ id }: { id: string }) {
         {(rotated ?? connect.data) && <ConnectPanel connect={(rotated ?? connect.data)!} rotated={!!rotated} dismiss={() => setRotated(null)} />}
         <Feedback error={connect.error} />
         <AgentQuotaPanel id={id} revision={revisions.agents + revisions.board} revoked={current.status === "revoked"} />
+        <AgentTerminal agent={id} />
         <AgentThread id={id} revision={revisions.thread} />
         <Tasks id={id} revision={revisions.board} />
         <Usage id={id} now={now} revision={revisions.capacity} />

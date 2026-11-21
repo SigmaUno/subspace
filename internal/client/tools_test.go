@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SigmaUno/subspace/internal/agentout"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/client"
 	"github.com/SigmaUno/subspace/internal/helpreq"
@@ -200,6 +201,14 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("accepted %+v", accepted)
 	}
 	_ = must(tm.tester.RequestHelp(ctx, tests, "dependency_issue", "needs fixtures"))
+	seq := int64(1)
+	logged := must(tm.tester.LogOutput(ctx, agentout.Input{TaskID: tests, Stream: "stdout", Text: "ok  \x1b[32mPASS\x1b[0m\n", Seq: &seq}))
+	if !logged.OK || logged.Lines != 1 || logged.Duplicate {
+		t.Fatalf("log_output %+v", logged)
+	}
+	if again := must(tm.tester.LogOutput(ctx, agentout.Input{Stream: "stdout", Text: "retry", Seq: &seq})); !again.Duplicate || again.Seq != logged.Seq {
+		t.Fatalf("log_output retry %+v", again)
+	}
 
 	reviews := must(tm.reviewer.ListReviews(ctx))
 	if !slices.ContainsFunc(reviews, func(x *model.Task) bool { return x.ID == impl }) {
@@ -259,8 +268,10 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 			}
 		}
 	}
-	if !e.seen.has("report_usage") {
-		t.Error("report_usage not exercised")
+	for _, op := range []string{"report_usage", "log_output"} {
+		if !e.seen.has(op) {
+			t.Errorf("%s not exercised", op)
+		}
 	}
 }
 
@@ -289,7 +300,7 @@ func TestListToolsMatchesRoles(t *testing.T) {
 		for _, tl := range reg.List(role) {
 			want = append(want, tl.Name)
 		}
-		want = append(want, "report_provider_error", "report_usage")
+		want = append(want, "log_output", "report_provider_error", "report_usage")
 		slices.Sort(want)
 		if !slices.Equal(names, want) {
 			t.Errorf("%s tools = %v, want %v", role, names, want)

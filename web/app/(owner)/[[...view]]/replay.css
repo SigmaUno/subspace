@@ -1,0 +1,12 @@
+.replay-controls { display: flex; flex-wrap: wrap; align-items: center; gap: .6rem; }
+.replay-controls input[type=range] { flex: 1 1 18rem; accent-color: var(--action); }
+.replay-strip { display: block; width: 100%; height: 4.5rem; cursor: pointer; }
+.replay-strip rect[data-status] { fill: var(--s-fg); opacity: .8; }
+.replay-strip .replay-cursor { stroke: var(--text); stroke-width: 2; }
+.replay-strip .replay-key { fill: var(--warn); }
+.task.replay-changed { border-color: var(--action); box-shadow: 0 0 0 2px var(--action); animation: replay-flash 1.2s ease-out; }
+.replay-events { display: grid; gap: .3rem; margin: 0; padding: 0; list-style: none; max-height: 16rem; overflow: auto; font-size: .8125rem; }
+.replay-events button { width: 100%; text-align: left; }
+.replay-events button[aria-current] { border-color: var(--action); }
+@keyframes replay-flash { from { background: var(--warn-soft); } to { background: var(--panel); } }
+@media (prefers-reduced-motion: reduce) { .task.replay-changed { animation: none; } }

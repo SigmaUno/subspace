@@ -399,12 +399,16 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err != nil {
 			return err
 		}
+		superseded := []string{}
 		for _, p := range old {
 			ts, err := tx.ListTasks(store.TaskFilter{PlanID: p.ID, Limit: 100000})
 			if err != nil {
 				return err
 			}
 			for _, t := range ts {
+				if t.Status != model.StatusCancelled {
+					superseded = append(superseded, t.ID)
+				}
 				t.Status, t.UpdatedAt = model.StatusCancelled, b.now()
 				if err := tx.UpdateTask(t); err != nil {
 					return err
@@ -450,11 +454,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				tasks[i].DependsOn = append(tasks[i].DependsOn, d)
 			}
 		}
-		for _, t := range tasks {
+		ids := make([]string, len(tasks))
+		for i, t := range tasks {
 			if err := tx.InsertTask(t); err != nil {
 				return err
 			}
 			w.task(t, true)
+			ids[i] = t.ID
 		}
 		p.Tasks = tasks
 		br.PlanStatus = model.PlanProposed
@@ -467,7 +473,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err := w.post(tx, model.ThreadBrief, br.ID, a, model.MsgSystem, fmt.Sprintf("Plan %s proposed with %d tasks", pid, len(tasks))); err != nil {
 			return err
 		}
-		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks)}, in.Note)
+		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks), "task_ids": ids, "superseded": superseded}, in.Note)
 	})
 	return out, err
 }
@@ -539,10 +545,12 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 			p.Status = model.PlanRejected
 			br.PlanStatus = model.PlanRejected
 		}
+		moved := []string{}
 		for _, t := range p.Tasks {
 			if t.Status != model.StatusBacklog {
 				continue
 			}
+			moved = append(moved, t.ID)
 			t.Status, t.UpdatedAt = target, now
 			if !approve {
 				t.BlockedReason = strp("plan rejected")
@@ -568,7 +576,7 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 			return err
 		}
 		out = p
-		return w.audit(tx, model.Owner, tool, "", nil, map[string]any{"plan_id": id, "status": p.Status}, note)
+		return w.audit(tx, model.Owner, tool, "", nil, map[string]any{"plan_id": id, "status": p.Status, "task_ids": moved}, note)
 	})
 	return out, err
 }

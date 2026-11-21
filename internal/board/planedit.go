@@ -181,7 +181,7 @@ func (b *Board) AddPlanTask(ctx context.Context, planID string, in TaskInput) (*
 		if err := w.post(tx, model.ThreadBrief, br.ID, model.Owner, model.MsgSystem, msg); err != nil {
 			return err
 		}
-		return w.audit(tx, model.Owner, "add_plan_task", t.ID, nil, map[string]any{"plan_id": p.ID, "title": t.Title}, "")
+		return w.audit(tx, model.Owner, "add_plan_task", t.ID, nil, map[string]any{"plan_id": p.ID, "title": t.Title, "state": replayState(t)}, "")
 	})
 	return out, err
 }
@@ -231,7 +231,7 @@ func (b *Board) DropPlanTask(ctx context.Context, planID, taskID string) (*model
 		if err := w.post(tx, model.ThreadBrief, p.BriefID, model.Owner, model.MsgSystem, msg); err != nil {
 			return err
 		}
-		return w.audit(tx, model.Owner, "drop_plan_task", t.ID, map[string]any{"status": model.StatusBacklog}, map[string]any{"status": model.StatusCancelled, "plan_id": p.ID}, "")
+		return w.audit(tx, model.Owner, "drop_plan_task", t.ID, map[string]any{"status": model.StatusBacklog}, map[string]any{"status": model.StatusCancelled, "plan_id": p.ID, "state": replayState(t)}, "")
 	})
 	return out, err
 }

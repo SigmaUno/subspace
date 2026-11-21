@@ -100,6 +100,10 @@ Commands:
             [--token-env VAR] [--disabled]
   repos update OWNER/NAME [--host H] [--base-url URL] [--default-branch BRANCH] [--protect PATTERN ...]
                [--merge-test CMD] [--merge-workdir DIR] [--token-env VAR] [--enabled=false]
+  gateways list
+  gateways show|tools|remove|enable|disable NAME
+  gateways add --file FILE
+  gateways update NAME --file FILE
   spawns list [--brief ID]
   spawns stop SPAWN_ID [--reason TEXT]
   autopilot status
@@ -310,6 +314,7 @@ func registry() map[string]entry {
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
 		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
 		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
+		"gateways":     {parse: grouped("gateways", gatewayCommands), subs: names(gatewayCommands)},
 		"playbooks":    {parse: grouped("playbooks", playbookCommands), subs: names(playbookCommands)},
 		"ha":           {parse: grouped("ha", haCommands), subs: names(haCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},

@@ -130,8 +130,8 @@ func TestHTTPFailureDoesNotPrintResponse(t *testing.T) {
 	defer server.Close()
 
 	var output bytes.Buffer
-	err := send(t.Context(), server.URL, "token", request{method: "POST", path: "plans/P-1/approve"}, &output)
-	if err == nil || err.Error() != "HTTP 409 (conflict): plan already decided" || output.Len() != 0 {
+	err := run(t.Context(), []string{"approve-plan", "P-1"}, mapEnv(map[string]string{"SUBSPACE_URL": server.URL, "SUBSPACE_OWNER_TOKEN": "token"}), strings.NewReader(""), &output)
+	if err == nil || err.Error() != "HTTP 409 (conflict): plan already decided" || output.Len() != 0 || exitCode(err) != exitConflict {
 		t.Fatalf("error = %v; output = %q", err, &output)
 	}
 }
@@ -145,8 +145,12 @@ func TestHTTPRedirectDoesNotForwardOwnerToken(t *testing.T) {
 		http.Redirect(w, r, destination.URL, http.StatusTemporaryRedirect)
 	}))
 	defer server.Close()
-	err := send(t.Context(), server.URL, "token", request{method: "GET", path: "agents"}, io.Discard)
+	err := run(t.Context(), []string{"agents"}, mapEnv(map[string]string{"SUBSPACE_URL": server.URL, "SUBSPACE_OWNER_TOKEN": "token"}), strings.NewReader(""), io.Discard)
 	if err == nil || !strings.Contains(err.Error(), "307") {
 		t.Fatalf("expected a redirect error, got %v", err)
 	}
+}
+
+func mapEnv(m map[string]string) func(string) string {
+	return func(key string) string { return m[key] }
 }

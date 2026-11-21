@@ -77,6 +77,10 @@ func (s *EventStream) Next() (Event, error) { return s.r.next() }
 func (s *EventStream) Close() error { return s.body.Close() }
 
 func (o *Owner) Events(ctx context.Context, topics ...string) (*EventStream, error) {
+	return o.EventsFrom(ctx, "", topics...)
+}
+
+func (o *Owner) EventsFrom(ctx context.Context, lastEventID string, topics ...string) (*EventStream, error) {
 	path := "/api/v1/events"
 	if len(topics) > 0 {
 		path += "?" + url.Values{"topics": {strings.Join(topics, ",")}}.Encode()
@@ -86,6 +90,9 @@ func (o *Owner) Events(ctx context.Context, topics ...string) (*EventStream, err
 		return nil, err
 	}
 	req.Header.Set("Accept", "text/event-stream")
+	if lastEventID != "" {
+		req.Header.Set("Last-Event-ID", lastEventID)
+	}
 	hc := *o.cfg.hc
 	hc.Timeout = 0
 	resp, err := hc.Do(req)

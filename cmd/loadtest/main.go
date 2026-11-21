@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"runtime/pprof"
+	"strings"
 	"syscall"
 	"time"
 
@@ -48,6 +49,10 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&cfg.Reviewers, "reviewers", 0, "number of reviewers (0 = one per 25 workers)")
 	fs.DurationVar(&cfg.Think, "think", 50*time.Millisecond, "pause between an agent's calls")
 	fs.DurationVar(&cfg.Drain, "drain", 30*time.Second, "grace period after -duration to finish reviews and done marks")
+	fs.StringVar(&cfg.Scenario, "scenario", loadtest.ScenarioSteady, "workload: "+strings.Join(loadtest.Scenarios, ", ")+" (all but steady finish when their work is done; -duration is their time budget)")
+	fs.IntVar(&cfg.Briefs, "briefs", 0, "many-briefs: number of briefs (0 = 100)")
+	fs.IntVar(&cfg.Tasks, "tasks", 0, "contention: tasks per wave (0 = 5); big-plan: plan size (0 = 500); many-briefs: tasks per brief (0 = 20)")
+	fs.IntVar(&cfg.Messages, "messages", 0, "thread-heavy: messages per agent thread (0 = 500)")
 	fs.BoolVar(&asJSON, "json", false, "print the report as JSON")
 	fs.StringVar(&outPath, "out", "", "also write the JSON report to this file")
 	fs.StringVar(&profileDir, "profile", "", "write cpu.pprof and heap.pprof to this directory (covers the in-process server too)")

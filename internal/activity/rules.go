@@ -28,6 +28,8 @@ var rules = map[string]rule{
 	"publish_announcement":  {icon: "megaphone", text: "{actor} published announcement {a.id}{note?: }"},
 	"retention_archive":     {icon: "archive", text: "{actor} archived old data ({a.rows} rows)"},
 	"retention_restore":     {icon: "archive", severity: SevWarning, text: "{actor} restored archived data"},
+	"token_leak_detected":   {icon: "alert", severity: SevError, text: "{actor} found a leaked {a.identity} token in a {a.channel} and revoked it"},
+	"reissue_leaked_token":  {icon: "lock", text: "{actor} re-issued a leaked token"},
 	"set_agent_quota":       {icon: "gauge", text: "{actor} set quota for agent {a.agent}"},
 	"set_log_level":         {icon: "log", text: "{actor} set log level to {a.level}"},
 	"add_knowledge":         {icon: "book", text: "{actor} added knowledge entry {a.id}{note?: }"},

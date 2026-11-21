@@ -37,6 +37,7 @@ type Config struct {
 	Limits     Limits
 	Rate       ratelimit.Limit
 	Persist    int
+	Scan       func(ctx context.Context, a model.Actor, text string) string
 	FlushEvery time.Duration
 	Now        func() time.Time
 	Log        *slog.Logger
@@ -182,13 +183,22 @@ func (s *Service) Append(ctx context.Context, a model.Actor, in Input) (*Result,
 	if in.Seq != nil && !s.buf.ClientSeq(a.ID, *in.Seq) {
 		return &Result{OK: true, Seq: s.buf.LastSeq(a.ID), Duplicate: true}, nil
 	}
-	texts, truncated := Clean(in.Text, MaxChunk)
+	texts, truncated := s.clean(ctx, a, in.Text)
 	if len(texts) == 0 {
 		return &Result{OK: true, Seq: s.buf.LastSeq(a.ID), Truncated: truncated}, nil
 	}
 	lines := s.buf.Append(a.ID, task, in.Stream, texts, s.cfg.Now().UTC())
 	s.hub.Publish([]string{TopicAll, TopicPrefix + a.ID}, EventType, Chunk{AgentID: a.ID, TaskID: task, Lines: lines})
 	return &Result{OK: true, Seq: lines[len(lines)-1].Seq, Lines: len(lines), Truncated: truncated}, nil
+}
+
+func (s *Service) clean(ctx context.Context, a model.Actor, text string) ([]string, bool) {
+	if s.cfg.Scan == nil || len(text) == 0 {
+		return Clean(text, MaxChunk)
+	}
+	head := text[:min(len(text), MaxChunk)]
+	lines, _ := Clean(s.cfg.Scan(ctx, a, head), MaxChunk)
+	return lines, len(text) > MaxChunk
 }
 
 func (s *Service) checkTask(ctx context.Context, a model.Actor, taskID string) error {

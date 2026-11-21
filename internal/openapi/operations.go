@@ -23,6 +23,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/knowledge"
+	"github.com/SigmaUno/subspace/internal/leakguard"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
@@ -210,6 +211,7 @@ var operations = []Op{
 	get("/api/v1/tokens", "List managed API tokens, revoked ones included", list[tokens.Token]("tokens")),
 	post("/api/v1/tokens", "Create a managed API token; the secret is shown once", tokens.CreateInput{}, tokens.Created{}).S(created),
 	post("/api/v1/tokens/{id}/revoke", "Revoke a managed API token", Free{}, tokens.Token{}),
+	post("/api/v1/token-leaks/{id}/reissue", "Re-issue a token that leaked: a fresh agent token or API token, shown once", Free{}, leakguard.Reissued{}),
 
 	get("/api/v1/knowledge", "Search knowledge entries, pinned first", list[knowledge.Entry]("entries")).Q("brief_id kind status q limit:integer"),
 	post("/api/v1/knowledge", "Add a knowledge entry", knowledge.Input{}, knowledge.Entry{}).S(created),

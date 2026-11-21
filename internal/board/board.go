@@ -59,6 +59,7 @@ type Board struct {
 	capCfg  capacity.Config
 	capGate capacity.Gate
 	gate    Gate
+	leak    LeakScanner
 
 	expiries map[string][]time.Time
 

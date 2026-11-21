@@ -135,6 +135,8 @@ type Request struct {
 
 func (r *Request) ref() string {
 	switch {
+	case r.Action == ActCreateTask && r.Task != nil:
+		return r.Task.BriefID + ":" + r.Task.Title
 	case r.Task != nil:
 		return r.Task.ID
 	case r.Plan != nil:

@@ -535,7 +535,7 @@ func (s *Service) OwnerDecisions(ctx context.Context) ([]*decisions.Decision, er
 		d := &decisions.Decision{
 			ID: "policy:" + h.ID, Kind: decisions.KindPolicy, TaskID: h.TaskID, BriefID: h.BriefID, AgentID: h.ActorID, CreatedAt: h.CreatedAt,
 			Title:   fmt.Sprintf("Approve %s%s by %s", h.Action, onRef(h), h.ActorID),
-			Summary: fmt.Sprintf("%s; approve or reject with POST /api/v1/policies/holds/%s/approve or /reject before %s", h.Message, h.ID, h.ExpiresAt.Format(time.RFC3339)),
+			Summary: fmt.Sprintf("%s; approve or reject with POST /api/v1/policy-holds/%s/approve or /reject before %s", h.Message, h.ID, h.ExpiresAt.Format(time.RFC3339)),
 		}
 		if h.TaskID != "" {
 			d.Links.Thread = model.ThreadTask + ":" + h.TaskID

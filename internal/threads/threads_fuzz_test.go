@@ -25,5 +25,11 @@ func FuzzThreadParse(f *testing.F) {
 		if r.Kind != kind || r.ID != want || r.ID == "" {
 			t.Fatalf("Parse(%q, %q) = %+v, want {%s %s}", s, self, r, kind, want)
 		}
+		if back, err := Parse(r.Kind+":"+r.ID, self); err != nil || back != r {
+			t.Fatalf("Parse(%q) round trip = %+v, %v, want %+v", r.Kind+":"+r.ID, back, err, r)
+		}
+		if r.Topic() != "thread:"+r.Kind+":"+r.ID {
+			t.Fatalf("Topic() = %q", r.Topic())
+		}
 	})
 }

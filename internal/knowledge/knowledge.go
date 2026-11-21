@@ -135,8 +135,6 @@ func New(st store.Store, o Options) *Service {
 	return &Service{st: st, now: o.Now, moderate: o.Moderation, limiter: o.Limiter}
 }
 
-func (s *Service) Moderated() bool { return s.moderate }
-
 func privileged(a model.Actor) bool { return a.Role == model.RoleOwner || a.Role == model.RoleLeader }
 
 func (s *Service) Add(ctx context.Context, a model.Actor, in Input) (*Entry, error) {

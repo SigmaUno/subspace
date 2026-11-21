@@ -58,51 +58,53 @@ func Handler(s *Service) http.Handler {
 		got, today := sn.Of(id)
 		httpx.WriteJSON(w, http.StatusOK, Status{AgentID: id, Quota: got, Usage: today})
 	})
-	mux.HandleFunc("POST /agents/quota-bulk", func(w http.ResponseWriter, r *http.Request) {
-		var req bulkRequest
-		if err := httpx.DecodeStrict(w, r, maxBody, &req); err != nil {
-			httpx.WriteError(w, err)
-			return
-		}
-		switch {
-		case len(req.IDs) == 0 || len(req.IDs) > maxIDs:
-			httpx.WriteError(w, model.BadRequest("ids must hold 1 to %d agent ids", maxIDs))
-			return
-		case slices.Contains(req.IDs, ""):
-			httpx.WriteError(w, model.BadRequest("ids must not contain empty values"))
-			return
-		case req.Quota == nil:
-			httpx.WriteError(w, model.BadRequest("quota is required"))
-			return
-		}
-		if err := req.Quota.Validate(); err != nil {
-			httpx.WriteError(w, err)
-			return
-		}
-		out := struct {
-			Results   []bulkResult `json:"results"`
-			Succeeded int          `json:"succeeded"`
-			Failed    int          `json:"failed"`
-		}{Results: []bulkResult{}}
-		seen := map[string]bool{}
-		for _, id := range req.IDs {
-			if seen[id] {
-				continue
-			}
-			seen[id] = true
-			res := bulkResult{ID: id, OK: true}
-			if err := s.Set(r.Context(), id, *req.Quota); err != nil {
-				e := model.AsError(err)
-				res = bulkResult{ID: id, Error: &bulkError{Code: e.Code, Message: e.Message}}
-				out.Failed++
-			} else {
-				out.Succeeded++
-			}
-			out.Results = append(out.Results, res)
-		}
-		httpx.WriteJSON(w, http.StatusOK, out)
-	})
+	mux.HandleFunc("POST /agents/quota-bulk", s.handleBulk)
 	return mux
+}
+
+func (s *Service) handleBulk(w http.ResponseWriter, r *http.Request) {
+	var req bulkRequest
+	if err := httpx.DecodeStrict(w, r, maxBody, &req); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	switch {
+	case len(req.IDs) == 0 || len(req.IDs) > maxIDs:
+		httpx.WriteError(w, model.BadRequest("ids must hold 1 to %d agent ids", maxIDs))
+		return
+	case slices.Contains(req.IDs, ""):
+		httpx.WriteError(w, model.BadRequest("ids must not contain empty values"))
+		return
+	case req.Quota == nil:
+		httpx.WriteError(w, model.BadRequest("quota is required"))
+		return
+	}
+	if err := req.Quota.Validate(); err != nil {
+		httpx.WriteError(w, err)
+		return
+	}
+	out := struct {
+		Results   []bulkResult `json:"results"`
+		Succeeded int          `json:"succeeded"`
+		Failed    int          `json:"failed"`
+	}{Results: []bulkResult{}}
+	seen := map[string]bool{}
+	for _, id := range req.IDs {
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		res := bulkResult{ID: id, OK: true}
+		if err := s.Set(r.Context(), id, *req.Quota); err != nil {
+			e := model.AsError(err)
+			res = bulkResult{ID: id, Error: &bulkError{Code: e.Code, Message: e.Message}}
+			out.Failed++
+		} else {
+			out.Succeeded++
+		}
+		out.Results = append(out.Results, res)
+	}
+	httpx.WriteJSON(w, http.StatusOK, out)
 }
 
 func Enrich(s *Service, next http.Handler) http.Handler {

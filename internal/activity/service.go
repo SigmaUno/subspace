@@ -86,30 +86,10 @@ func (s *Service) List(ctx context.Context, q Query) (Page, error) {
 		}
 		res := newResolver(tx)
 		audit := &stream{pos: auditPos, fetch: func(before int64) ([]entry, error) {
-			evs, err := at.AuditNewest(store.ActivityRange{Before: before, Limit: batchSize})
-			if err != nil {
-				return nil, err
-			}
-			out := make([]entry, len(evs))
-			for i, e := range evs {
-				it := FromAudit(e)
-				it.BriefID = res.auditBrief(e)
-				out[i] = entry{it, e.ID}
-			}
-			return out, nil
+			return auditEntries(at, res, store.ActivityRange{Before: before, Limit: batchSize})
 		}}
 		msgs := &stream{pos: msgPos, fetch: func(before int64) ([]entry, error) {
-			ms, err := at.SystemMessagesNewest(store.ActivityRange{Before: before, Limit: batchSize})
-			if err != nil {
-				return nil, err
-			}
-			out := make([]entry, len(ms))
-			for i, m := range ms {
-				it := FromMessage(m)
-				it.BriefID = res.messageBrief(m)
-				out[i] = entry{it, m.ID}
-			}
-			return out, nil
+			return messageEntries(at, res, store.ActivityRange{Before: before, Limit: batchSize})
 		}}
 		streams := []*stream{audit, msgs}
 		for scanned := 0; len(page.Items) < limit && scanned < maxScan; scanned++ {
@@ -149,6 +129,34 @@ func (s *Service) List(ctx context.Context, q Query) (Page, error) {
 		return nil
 	})
 	return page, err
+}
+
+func auditEntries(at store.ActivityTx, res *resolver, r store.ActivityRange) ([]entry, error) {
+	evs, err := at.AuditNewest(r)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entry, len(evs))
+	for i, e := range evs {
+		it := FromAudit(e)
+		it.BriefID = res.auditBrief(e)
+		out[i] = entry{it, e.ID}
+	}
+	return out, nil
+}
+
+func messageEntries(at store.ActivityTx, res *resolver, r store.ActivityRange) ([]entry, error) {
+	ms, err := at.SystemMessagesNewest(r)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]entry, len(ms))
+	for i, m := range ms {
+		it := FromMessage(m)
+		it.BriefID = res.messageBrief(m)
+		out[i] = entry{it, m.ID}
+	}
+	return out, nil
 }
 
 func newer(a, b entry) bool {

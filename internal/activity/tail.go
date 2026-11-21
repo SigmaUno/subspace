@@ -63,26 +63,21 @@ func (t *Tailer) poll(ctx context.Context, publish bool) error {
 			limit = 1
 		}
 		res := newResolver(tx)
-		evs, err := at.AuditNewest(store.ActivityRange{After: t.auditPos, Limit: limit})
+		audits, err := auditEntries(at, res, store.ActivityRange{After: t.auditPos, Limit: limit})
 		if err != nil {
 			return err
 		}
-		for _, e := range evs {
-			it := FromAudit(e)
-			it.BriefID = res.auditBrief(e)
-			items = append(items, entry{it, e.ID})
-			t.auditPos = max(t.auditPos, e.ID)
-		}
-		ms, err := at.SystemMessagesNewest(store.ActivityRange{After: t.msgPos, Limit: limit})
+		msgs, err := messageEntries(at, res, store.ActivityRange{After: t.msgPos, Limit: limit})
 		if err != nil {
 			return err
 		}
-		for _, m := range ms {
-			it := FromMessage(m)
-			it.BriefID = res.messageBrief(m)
-			items = append(items, entry{it, m.ID})
-			t.msgPos = max(t.msgPos, m.ID)
+		for _, e := range audits {
+			t.auditPos = max(t.auditPos, e.seq)
 		}
+		for _, e := range msgs {
+			t.msgPos = max(t.msgPos, e.seq)
+		}
+		items = append(audits, msgs...)
 		return nil
 	})
 	if err != nil || !publish {

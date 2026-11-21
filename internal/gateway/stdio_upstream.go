@@ -11,6 +11,8 @@ import (
 	"slices"
 	"sync"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const (
@@ -92,7 +94,7 @@ func (s *stdioUpstream) current(ctx context.Context) (*stdioProc, error) {
 				s.failures = 0
 			}
 			s.failures++
-			s.retryAt = s.now().Add(backoff(s.failures))
+			s.retryAt = s.now().Add(retryq.Exp(restartBase, restartMax, s.failures))
 			s.proc = nil
 		default:
 			return s.proc, nil
@@ -104,19 +106,11 @@ func (s *stdioUpstream) current(ctx context.Context) (*stdioProc, error) {
 	p, err := s.start(ctx)
 	if err != nil {
 		s.failures++
-		s.retryAt = s.now().Add(backoff(s.failures))
+		s.retryAt = s.now().Add(retryq.Exp(restartBase, restartMax, s.failures))
 		return nil, err
 	}
 	s.proc, s.startedAt = p, s.now()
 	return p, nil
-}
-
-func backoff(n int) time.Duration {
-	d := restartBase
-	for i := 1; i < n && d < restartMax; i++ {
-		d *= 2
-	}
-	return min(d, restartMax)
 }
 
 func (s *stdioUpstream) start(ctx context.Context) (*stdioProc, error) {

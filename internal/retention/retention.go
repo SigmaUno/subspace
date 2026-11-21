@@ -199,63 +199,92 @@ func (s *Service) archiveAll(ctx context.Context, rep *Report) error {
 	return nil
 }
 
+type batch struct {
+	rows   []row
+	seq    int64
+	anchor model.AuditHead
+}
+
 func (s *Service) archiveNext(ctx context.Context, k Kind, cutoff time.Time) (*Segment, error) {
+	b, err := s.selectBatch(ctx, k, cutoff)
+	if err != nil || len(b.rows) == 0 {
+		return nil, err
+	}
+	now := s.now().UTC()
+	seg := &Segment{Kind: k, Seq: b.seq, File: segmentName(k, b.seq), Rows: int64(len(b.rows)), Cutoff: cutoff.UTC(),
+		Status: StatusPending, CreatedAt: now, UpdatedAt: now}
+	if specs[k].keys[0] == "id" {
+		seg.FirstID, seg.LastID = b.rows[0].int("id"), b.rows[len(b.rows)-1].int("id")
+	}
+	if k == Audit {
+		if err := chainAudit(seg, b); err != nil {
+			return nil, err
+		}
+	}
+	if seg.Bytes, seg.SHA256, err = writeSegment(s.dir, seg.File, b.rows); err != nil {
+		return nil, err
+	}
+	if err := s.step("written"); err != nil {
+		return nil, err
+	}
+	if err := s.recordSegment(ctx, seg); err != nil {
+		return nil, err
+	}
+	if err := s.step("manifest"); err != nil {
+		return nil, err
+	}
+	if err := s.prune(ctx, *seg); err != nil {
+		return nil, err
+	}
+	seg.Status = StatusArchived
+	return seg, nil
+}
+
+func (s *Service) selectBatch(ctx context.Context, k Kind, cutoff time.Time) (batch, error) {
 	sp := specs[k]
-	var (
-		rows   []row
-		seq    int64
-		anchor model.AuditHead
-	)
+	var b batch
 	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
-		if seq, err = scalar(q, `SELECT COALESCE(MAX(seq), 0) + 1 FROM retention_segments WHERE kind = ?`, string(k)); err != nil {
+		if b.seq, err = scalar(q, `SELECT COALESCE(MAX(seq), 0) + 1 FROM retention_segments WHERE kind = ?`, string(k)); err != nil {
 			return err
 		}
 		if k != Audit {
-			rows, err = queryRows(q, `SELECT * FROM `+sp.table+` WHERE `+sp.ts+` < ? ORDER BY `+strings.Join(sp.keys, ", ")+` LIMIT ?`, //nolint:gosec // fixed identifiers
+			b.rows, err = queryRows(q, `SELECT * FROM `+sp.table+` WHERE `+sp.ts+` < ? ORDER BY `+strings.Join(sp.keys, ", ")+` LIMIT ?`, //nolint:gosec // fixed identifiers
 				cutoff.UnixMilli(), s.pol.SegmentRows)
 			return err
 		}
-		if anchor, err = auditAnchor(q); err != nil {
+		if b.anchor, err = auditAnchor(q); err != nil {
 			return err
 		}
 		head, err := scalar(q, `SELECT COALESCE(MAX(id), 0) FROM audit`)
 		if err != nil {
 			return err
 		}
-		rows, err = queryRows(q, `SELECT * FROM audit WHERE id > ? AND id < ? ORDER BY id LIMIT ?`, anchor.ID, head, s.pol.SegmentRows)
+		b.rows, err = queryRows(q, `SELECT * FROM audit WHERE id > ? AND id < ? ORDER BY id LIMIT ?`, b.anchor.ID, head, s.pol.SegmentRows)
 		n := 0
-		for n < len(rows) && rows[n].int("ts") < cutoff.UnixMilli() {
+		for n < len(b.rows) && b.rows[n].int("ts") < cutoff.UnixMilli() {
 			n++
 		}
-		rows = rows[:n]
+		b.rows = b.rows[:n]
 		return err
 	}))
-	if err != nil || len(rows) == 0 {
-		return nil, err
-	}
-	now := s.now().UTC()
-	seg := &Segment{Kind: k, Seq: seq, File: segmentName(k, seq), Rows: int64(len(rows)), Cutoff: cutoff.UTC(),
-		Status: StatusPending, CreatedAt: now, UpdatedAt: now}
-	if sp.keys[0] == "id" {
-		seg.FirstID, seg.LastID = rows[0].int("id"), rows[len(rows)-1].int("id")
-	}
-	if k == Audit {
-		c := audit.Chain{HeadID: anchor.ID, HeadHash: anchor.Hash}
-		for _, r := range rows {
-			if !c.Add(record(r), r.str("hash")) {
-				return nil, model.Conflict("audit chain broken at id %d; refusing to archive", r.int("id"))
-			}
+	return b, err
+}
+
+func chainAudit(seg *Segment, b batch) error {
+	c := audit.Chain{HeadID: b.anchor.ID, HeadHash: b.anchor.Hash}
+	for _, r := range b.rows {
+		if !c.Add(record(r), r.str("hash")) {
+			return model.Conflict("audit chain broken at id %d; refusing to archive", r.int("id"))
 		}
-		seg.PrevHash, seg.LastHash = anchor.Hash, c.HeadHash
 	}
-	if seg.Bytes, seg.SHA256, err = writeSegment(s.dir, seg.File, rows); err != nil {
-		return nil, err
-	}
-	if err := s.step("written"); err != nil {
-		return nil, err
-	}
-	err = s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
+	seg.PrevHash, seg.LastHash = b.anchor.Hash, c.HeadHash
+	return nil
+}
+
+func (s *Service) recordSegment(ctx context.Context, seg *Segment) error {
+	now := seg.CreatedAt
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if _, err := q.Exec(`INSERT INTO retention_segments(kind, seq, file, row_count, bytes, sha256, cutoff, first_id, last_id,
 			prev_hash, last_hash, status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(seg.Kind), seg.Seq, seg.File, seg.Rows, seg.Bytes, seg.SHA256, seg.Cutoff.UnixMilli(), seg.FirstID, seg.LastID,
@@ -271,17 +300,6 @@ func (s *Service) archiveNext(ctx context.Context, k Kind, cutoff time.Time) (*S
 			After: map[string]any{"segment": seg.ID, "kind": string(seg.Kind), "seq": seg.Seq, "rows": seg.Rows,
 				"sha256": seg.SHA256, "first_id": seg.FirstID, "last_id": seg.LastID, "cutoff": seg.Cutoff.UnixMilli()}})
 	}))
-	if err != nil {
-		return nil, err
-	}
-	if err := s.step("manifest"); err != nil {
-		return nil, err
-	}
-	if err := s.prune(ctx, *seg); err != nil {
-		return nil, err
-	}
-	seg.Status = StatusArchived
-	return seg, nil
 }
 
 func (s *Service) prune(ctx context.Context, seg Segment) error {

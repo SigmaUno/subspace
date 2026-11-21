@@ -75,12 +75,16 @@ func (s *Service) Scope(ctx context.Context, taskID string) (*ScopeStatus, error
 
 func (s *Service) Findings(ctx context.Context, taskIDs []string) (map[string][]scope.Finding, error) {
 	out := map[string][]scope.Finding{}
-	for _, id := range taskIDs {
-		st, ok, err := s.status(ctx, id)
-		if err != nil {
+	raws, err := s.st.PRStatusesOf(ctx, taskIDs)
+	if err != nil {
+		return nil, err
+	}
+	for id, raw := range raws {
+		var st Status
+		if err := json.Unmarshal(raw, &st); err != nil {
 			return nil, err
 		}
-		if ok && st.Scope != nil && len(st.Scope.Findings) > 0 {
+		if st.Scope != nil && len(st.Scope.Findings) > 0 {
 			out[id] = st.Scope.Findings
 		}
 	}

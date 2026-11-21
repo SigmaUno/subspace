@@ -3,6 +3,7 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -41,6 +42,30 @@ func (s *Store) PRStatuses(ctx context.Context) ([][]byte, error) {
 			return nil, err
 		}
 		out = append(out, []byte(data))
+	}
+	return out, rows.Err()
+}
+
+func (s *Store) PRStatusesOf(ctx context.Context, ids []string) (map[string][]byte, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	list, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.rdb.QueryContext(ctx, `SELECT task_id, data FROM pr_status WHERE task_id IN (SELECT value FROM json_each(?))`, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var id, data string
+		if err := rows.Scan(&id, &data); err != nil {
+			return nil, err
+		}
+		out[id] = []byte(data)
 	}
 	return out, rows.Err()
 }

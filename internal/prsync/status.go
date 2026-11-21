@@ -75,6 +75,7 @@ func (s Status) ready(taskStatus string) bool {
 type Store interface {
 	PRStatus(ctx context.Context, taskID string) ([]byte, bool, error)
 	PRStatuses(ctx context.Context) ([][]byte, error)
+	PRStatusesOf(ctx context.Context, ids []string) (map[string][]byte, error)
 	SetPRStatus(ctx context.Context, taskID string, data []byte) error
 }
 

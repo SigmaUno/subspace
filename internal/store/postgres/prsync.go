@@ -45,6 +45,26 @@ func (s *Store) PRStatuses(ctx context.Context) ([][]byte, error) {
 	return out, rows.Err()
 }
 
+func (s *Store) PRStatusesOf(ctx context.Context, ids []string) (map[string][]byte, error) {
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	rows, err := s.rdb.QueryContext(ctx, `SELECT task_id, data FROM pr_status WHERE task_id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := map[string][]byte{}
+	for rows.Next() {
+		var id, data string
+		if err := rows.Scan(&id, &data); err != nil {
+			return nil, err
+		}
+		out[id] = []byte(data)
+	}
+	return out, rows.Err()
+}
+
 func (s *Store) SetPRStatus(ctx context.Context, taskID string, data []byte) error {
 	return s.Atomic(ctx, func(st store.Tx) error {
 		t := st.(*tx)

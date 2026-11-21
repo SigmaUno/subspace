@@ -8,6 +8,7 @@ import (
 	"log/slog"
 	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
@@ -193,9 +194,16 @@ func (s *Server) httpServer() *http.Server {
 }
 
 func (s *Server) Run(ctx context.Context) error {
-	go s.Board.Run(ctx)
-	go s.backups.Run(ctx)
+	bctx, stop := context.WithCancel(ctx)
+	var wg sync.WaitGroup
+	wg.Go(func() { s.Board.Run(bctx) })
+	wg.Go(func() { s.backups.Run(bctx) })
+	defer wg.Wait()
+	defer stop()
 	srv := s.httpServer()
+	if c, ok := s.Hub.(interface{ Close() }); ok {
+		srv.RegisterOnShutdown(c.Close)
+	}
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

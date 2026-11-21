@@ -13,6 +13,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/server"
+	"github.com/SigmaUno/subspace/internal/version"
 )
 
 func env(k, def string) string {
@@ -64,7 +65,7 @@ func main() {
 		log.Error("read owner token file", "err", err)
 		os.Exit(2)
 	}
-	board.Version = env("SUBSPACE_VERSION", "dev")
+	board.Version = env("SUBSPACE_VERSION", version.Version)
 	cfg := server.Config{
 		Addr: env("SUBSPACE_ADDR", ":8080"), DBPath: env("SUBSPACE_DB", "/data/subspace.db"), OwnerToken: tok,
 		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),

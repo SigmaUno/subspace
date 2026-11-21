@@ -246,6 +246,8 @@ The snapshots are stored in the database and survive restarts. A poller runs whe
  "repos":{"SigmaUno/subspace":"gh"}}               // repo → host; unmapped repos use the host whose url host matches the PR url
 ```
 
+A PR is only fetched when its repo is the task's `repo` and, for a mapped repo, its url host is the mapped host's `url` host; otherwise `error` is set and nothing is requested. Webhook events likewise only affect tasks whose `repo` is the event's repository.
+
 `token_env` reads the token from that environment variable; tokens are only sent as `Authorization` headers and never logged or stored. Requests are conditional (`If-None-Match` with the last `ETag`, cached in memory). Each request takes a token from the global and the host bucket; when one is empty the task waits for the next cycle. A host answering 429 (or 403 with `X-RateLimit-Remaining: 0`) is paused for `Retry-After` / until `X-RateLimit-Reset`. Other failures set `error` and back the task off with jitter: a random delay between half and all of `interval × 2^(failures-1)`, capped at 32 intervals.
 
 When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
@@ -526,13 +528,13 @@ Agent management with a liveness flag. A bot is an Agent plus `live` (active and
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/bots?role=&status=` | → `{"bots":[Bot]}` |
-| POST | `/api/v1/bots` | `{"name","role","kind","provider","model"}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
-| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model"}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
+| POST | `/api/v1/bots` | `{"name","role","kind","provider","model","expires_in":""}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
+| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model","expires_in":""}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
 | POST | `/api/v1/bots/spawn` | `{"brief_id","kind","model","n":1,"role","provider"}` → `{"spawns":[Spawn]}` (201). Same checks as `request_spawn`; `kind` `other` is rejected. |
 | GET | `/api/v1/bots/{id}` | → `{"bot":Bot}` |
 | DELETE | `/api/v1/bots/{id}` | → `{"bot":Bot}` revoked. 409 if already revoked. |
 | POST | `/api/v1/bots/{id}/revoke` | `{"reason":""}` → `{"bot":Bot}`; same as DELETE. |
-| POST | `/api/v1/bots/{id}/rotate-token` | `{}` → `{"bot":Agent,"connect":Connect}` (new token once). |
+| POST | `/api/v1/bots/{id}/rotate-token` | `{"expires_in":""}` → `{"bot":Agent,"connect":Connect}` (new token once). `expires_in` as for agents. |
 | POST | `/api/v1/bots/{id}/pause` | `{"reason":""}` → `{"bot":Bot}` paused (default reason `paused by owner`). 409 if revoked. |
 | POST | `/api/v1/bots/{id}/resume` | `{}` → `{"bot":Bot}` |
 | POST | `/api/v1/bots/{id}/kill` | `{"reason":""}` → `{"bot":Bot,"stopped":true}`. Pauses the bot (default reason `killed by owner`), then asks the spawner to stop it; `stopped` is `false` when the spawner cannot stop processes. |
@@ -738,7 +740,7 @@ All tools return an object; `task` = Task object above.
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
-- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 
 ### Handoff context
 `get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.

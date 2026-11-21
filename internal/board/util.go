@@ -15,6 +15,8 @@ var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
 var providerRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
 
+var modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
+
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func slug(s string) string {

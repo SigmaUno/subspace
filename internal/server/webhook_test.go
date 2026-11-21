@@ -334,3 +334,33 @@ func TestWebhookNotMountedWithoutSecret(t *testing.T) {
 		t.Fatalf("github unset: %d, want 404", code)
 	}
 }
+
+func TestWebhookIgnoresPullRequestFromAnotherRepo(t *testing.T) {
+	h := newHookEnv(t)
+	bid := h.brief(true)
+	plan := h.must(h.lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": []any{
+		map[string]any{"title": "Work", "spec": "do it", "repo": "o/r"},
+	}})["plan"].(map[string]any)
+	id := plan["tasks"].([]any)[0].(map[string]any)["id"].(string)
+	if code, out := h.rest("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("approve: %d %v", code, out)
+	}
+	foreign := "https://github.com/o/x/pull/7"
+	h.must(h.lead, "assign", map[string]any{"task_id": id, "agent_id": "claude-1"})
+	h.must(h.wk, "claim_task", map[string]any{"task_id": id})
+	h.must(h.wk, "submit", map[string]any{"task_id": id, "pr_url": foreign, "summary": "done"})
+	body, _ := json.Marshal(map[string]any{
+		"action": "closed", "number": 7,
+		"pull_request": map[string]any{"number": 7, "html_url": foreign, "merged": true, "head": map[string]any{"ref": "feature"}},
+		"repository":   map[string]any{"full_name": "o/x"},
+	})
+	if code := h.send(githubReq(body)); code != 200 {
+		t.Fatalf("status %d", code)
+	}
+	if s := h.taskStatus(id); s != "approved" {
+		t.Fatalf("task in o/r became %s after a merge in o/x", s)
+	}
+	if ms := h.hookMessages(id); len(ms) != 0 {
+		t.Fatalf("messages: %v", ms)
+	}
+}

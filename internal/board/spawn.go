@@ -136,8 +136,8 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	if in.Role != model.RoleWorker && in.Role != model.RoleTester {
 		return nil, model.BadRequest("role must be worker or tester")
 	}
-	if in.Model == "" {
-		return nil, model.BadRequest("model is required")
+	if !modelRe.MatchString(in.Model) {
+		return nil, model.BadRequest("model must match [A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
 	}
 	if in.Provider == "" {
 		in.Provider = model.ProviderForKind(in.Kind)

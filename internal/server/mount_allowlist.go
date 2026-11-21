@@ -17,12 +17,6 @@ const (
 	envTrustedProxies  = "SUBSPACE_TRUSTED_PROXIES"
 )
 
-func init() {
-	wraps = append(wraps, func(next http.Handler, d Deps) http.Handler {
-		return newAllowlisted(next, d)
-	})
-}
-
 type allowRule struct {
 	open bool
 	nets []netip.Prefix

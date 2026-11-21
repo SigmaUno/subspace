@@ -291,6 +291,9 @@ func TestPRStatusLifecycleOverHTTP(t *testing.T) {
 	ids := h.setup(2)
 	gh.set("o/gh", 1, func(p *fakePR) {})
 	fj.set("o/fj", 2, func(p *fakePR) { p.Mergeable = ptr(true) })
+	if code, out := h.e.REST("PATCH", "/api/v1/tasks/"+ids[1], map[string]any{"repo": "o/fj"}); code != 200 {
+		t.Fatalf("patch task repo: %d %v", code, out)
+	}
 	h.submit(ids[0], ghURL(1))
 	h.submit(ids[1], fj.URL+"/o/fj/pulls/2")
 

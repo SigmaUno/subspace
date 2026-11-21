@@ -187,6 +187,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
+	h = newAllowlisted(h, deps)
 	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)

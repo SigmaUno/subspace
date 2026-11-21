@@ -436,3 +436,18 @@ func TestConfigFromEnv(t *testing.T) {
 		t.Fatalf("sinks %v", got)
 	}
 }
+
+func TestDeliveryErrorsDoNotLeakSinkURL(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	dead := srv.URL + "/services/T0/B0/hook-secret-part"
+	srv.Close()
+	for _, s := range []Sink{
+		NewSlack(dead, NewClient(true, time.Second)),
+		NewNtfy(dead, NewClient(false, time.Second)),
+	} {
+		err := s.Send(context.Background(), Notification{ID: "Q-1"})
+		if err == nil || strings.Contains(err.Error(), "hook-secret-part") {
+			t.Fatalf("%s: error %v", s.Name(), err)
+		}
+	}
+}

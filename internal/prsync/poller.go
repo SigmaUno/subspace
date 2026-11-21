@@ -187,14 +187,18 @@ func (p *Poller) load(ctx context.Context) error {
 }
 
 func (p *Poller) hostFor(repo, prURL string) *host {
-	if name, ok := p.cfg.Repos[strings.ToLower(repo)]; ok {
-		return p.hosts[name]
-	}
 	u, err := url.Parse(prURL)
 	if err != nil {
 		return nil
 	}
-	return p.byWeb[strings.ToLower(u.Host)]
+	web := strings.ToLower(u.Host)
+	if name, ok := p.cfg.Repos[strings.ToLower(repo)]; ok {
+		if h := p.hosts[name]; h != nil && h.web == web {
+			return h
+		}
+		return nil
+	}
+	return p.byWeb[web]
 }
 
 func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) error {
@@ -204,6 +208,9 @@ func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) err
 		return p.failed(ctx, base, "invalid pull request url", now)
 	}
 	base.Repo, base.Number = repo, number
+	if !strings.EqualFold(repo, t.Repo) {
+		return p.failed(ctx, base, "pull request is not in the task repo "+t.Repo, now)
+	}
 	h := p.hostFor(repo, *t.PRURL)
 	if h == nil {
 		return p.failed(ctx, base, "no git host configured for "+repo, now)

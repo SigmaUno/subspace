@@ -81,8 +81,9 @@ func spendCostReports(next http.Handler, d Deps, g *spendguard.Guard) http.Handl
 		}
 		head, _ := io.ReadAll(io.LimitReader(r.Body, spendguardBodyMax+1))
 		r.Body = readCloser{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
-		next.ServeHTTP(w, r)
-		if len(head) > spendguardBodyMax || !bytes.Contains(head, []byte("update_status")) {
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		next.ServeHTTP(sw, r)
+		if sw.code != http.StatusOK || len(head) > spendguardBodyMax || !bytes.Contains(head, []byte("update_status")) {
 			return
 		}
 		var call struct {
@@ -103,6 +104,26 @@ func spendCostReports(next http.Handler, d Deps, g *spendguard.Guard) http.Handl
 		}()
 	})
 }
+
+type statusWriter struct {
+	http.ResponseWriter
+	code  int
+	wrote bool
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	if !s.wrote {
+		s.code, s.wrote = code, true
+	}
+	s.ResponseWriter.WriteHeader(code)
+}
+
+func (s *statusWriter) Write(b []byte) (int, error) {
+	s.wrote = true
+	return s.ResponseWriter.Write(b)
+}
+
+func (s *statusWriter) Unwrap() http.ResponseWriter { return s.ResponseWriter }
 
 type spendTasks struct{ st store.Store }
 

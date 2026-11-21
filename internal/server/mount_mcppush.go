@@ -29,6 +29,9 @@ func mountMCPPush(d Deps) {
 		}
 	}
 	p.Tasks = callbackOwners{d.Board}
+	if subs, ok := d.MCP.Sessions.(mcp.SubscriptionStore); ok {
+		p.Subs = subs
+	}
 	w := &mcp.PushWatcher{Push: p}
 	p.Start = func() { w.Activate(d.Ctx, d.Hub) }
 	d.MCP.Push = p

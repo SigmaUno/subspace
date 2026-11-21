@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -35,7 +36,16 @@ const (
 	errInvalidResourceArgs = -32602
 )
 
-var errNoSuchResource = errors.New("resource not found")
+var (
+	errNoSuchResource    = errors.New("resource not found")
+	errSubscriptionStore = errors.New("subscriptions are temporarily unavailable")
+)
+
+type SubscriptionStore interface {
+	AddSubscription(ctx context.Context, sid, uri string) error
+	RemoveSubscription(ctx context.Context, sid, uri string) error
+	Subscribers(ctx context.Context, uri string) ([]string, error)
+}
 
 type TaskOwners interface {
 	Owners(ctx context.Context, taskID string) (assignee, reviewer string, ok bool)
@@ -45,6 +55,7 @@ type Push struct {
 	Buffer int
 	Ping   time.Duration
 	Tasks  TaskOwners
+	Subs   SubscriptionStore
 	Start  func()
 
 	once    sync.Once
@@ -314,6 +325,19 @@ func (p *Push) Subscribe(ctx context.Context, sid, agent, uri string) error {
 	if !p.owns(ctx, agent, uri) {
 		return errNoSuchResource
 	}
+	if err := p.subscribeLocal(sid, agent, uri); err != nil {
+		return err
+	}
+	if p.Subs != nil {
+		if err := p.Subs.AddSubscription(ctx, sid, uri); err != nil {
+			p.unsubscribeLocal(sid, uri)
+			return errSubscriptionStore
+		}
+	}
+	return nil
+}
+
+func (p *Push) subscribeLocal(sid, agent, uri string) error {
 	st := p.stream(sid, agent)
 	p.mu.Lock()
 	defer p.mu.Unlock()
@@ -336,7 +360,14 @@ func (p *Push) Subscribe(ctx context.Context, sid, agent, uri string) error {
 	return nil
 }
 
-func (p *Push) Unsubscribe(sid, uri string) {
+func (p *Push) Unsubscribe(ctx context.Context, sid, uri string) {
+	p.unsubscribeLocal(sid, uri)
+	if p.Subs != nil {
+		_ = p.Subs.RemoveSubscription(ctx, sid, uri)
+	}
+}
+
+func (p *Push) unsubscribeLocal(sid, uri string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 	st, ok := p.streams[sid]
@@ -349,13 +380,33 @@ func (p *Push) Unsubscribe(sid, uri string) {
 	p.unindexLocked(uri, sid)
 }
 
-func (p *Push) Updated(ctx context.Context, uri string) {
+func (p *Push) subscribers(ctx context.Context, uri string) []*stream {
 	p.mu.Lock()
 	subs := make([]*stream, 0, len(p.byURI[uri]))
 	for _, st := range p.byURI[uri] {
 		subs = append(subs, st)
 	}
+	attached := len(p.streams) > 0
 	p.mu.Unlock()
+	if p.Subs == nil || !attached {
+		return subs
+	}
+	ids, err := p.Subs.Subscribers(ctx, uri)
+	if err != nil {
+		return subs
+	}
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, id := range ids {
+		if st, ok := p.streams[id]; ok && !slices.Contains(subs, st) {
+			subs = append(subs, st)
+		}
+	}
+	return subs
+}
+
+func (p *Push) Updated(ctx context.Context, uri string) {
+	subs := p.subscribers(ctx, uri)
 	if len(subs) == 0 {
 		return
 	}

@@ -30,8 +30,11 @@ func (s sqlSessions) CreateSession(ctx context.Context, id, agent string, now ti
 		if _, err := q.Exec(`INSERT INTO mcp_sessions (id, agent_id, created_at) VALUES (?, ?, ?)`, id, agent, now.UnixMilli()); err != nil {
 			return err
 		}
-		_, err := q.Exec(`DELETE FROM mcp_sessions WHERE agent_id = ? AND id NOT IN
-  (SELECT id FROM mcp_sessions WHERE agent_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)`, agent, agent, mcp.MaxSessionsPerAgent)
+		if _, err := q.Exec(`DELETE FROM mcp_sessions WHERE agent_id = ? AND id NOT IN
+  (SELECT id FROM mcp_sessions WHERE agent_id = ? ORDER BY created_at DESC, id DESC LIMIT ?)`, agent, agent, mcp.MaxSessionsPerAgent); err != nil {
+			return err
+		}
+		_, err := q.Exec(`DELETE FROM mcp_subscriptions WHERE session_id NOT IN (SELECT id FROM mcp_sessions)`)
 		return err
 	}))
 }
@@ -62,7 +65,10 @@ func (s sqlSessions) DropSession(ctx context.Context, id, agent string) (bool, e
 		if err != nil {
 			return err
 		}
-		n, err = res.RowsAffected()
+		if n, err = res.RowsAffected(); err != nil {
+			return err
+		}
+		_, err = q.Exec(`DELETE FROM mcp_subscriptions WHERE session_id = ?`, id)
 		return err
 	}))
 	return n > 0, err

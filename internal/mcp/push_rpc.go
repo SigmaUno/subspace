@@ -49,7 +49,7 @@ func (s *Server) subscription(ctx context.Context, method, sid, agent string, pa
 	}
 	uri := canonicalResource(p.URI, agent)
 	if method == "resources/unsubscribe" {
-		s.Push.Unsubscribe(sid, uri)
+		s.Push.Unsubscribe(ctx, sid, uri)
 		return map[string]any{}, nil
 	}
 	if err := s.Push.Subscribe(ctx, sid, agent, uri); err != nil {

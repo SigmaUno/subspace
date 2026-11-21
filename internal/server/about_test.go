@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func TestAboutReportsDatabaseAndBackups(t *testing.T) {
@@ -12,10 +13,18 @@ func TestAboutReportsDatabaseAndBackups(t *testing.T) {
 	if code != 200 {
 		t.Fatalf("about: %d %v", code, out)
 	}
-	if out["backend"] != "sqlite" || out["version"] == "" || out["uptime_seconds"].(float64) < 0 {
+	backend := "sqlite"
+	if testdb.Postgres() {
+		backend = "postgres"
+	}
+	if out["backend"] != backend || out["version"] == "" || out["uptime_seconds"].(float64) < 0 {
 		t.Fatalf("about: %v", out)
 	}
-	if out["db_bytes"] == nil || out["db_bytes"].(float64) <= 0 {
+	if testdb.Postgres() {
+		if out["db_bytes"] != nil || out["wal_bytes"] != nil {
+			t.Fatalf("postgres reports no file sizes: %v", out)
+		}
+	} else if out["db_bytes"] == nil || out["db_bytes"].(float64) <= 0 {
 		t.Fatalf("db_bytes: %v", out["db_bytes"])
 	}
 	if got := out["backups"].(map[string]any)["count"].(float64); got != 0 {

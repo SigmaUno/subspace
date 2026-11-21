@@ -106,22 +106,26 @@ func (t *tx) AuditHead(maxID int64) (model.AuditHead, error) {
 	var h model.AuditHead
 	err := t.q.QueryRowContext(t.ctx, `SELECT id, hash FROM audit WHERE id <= ? ORDER BY id DESC LIMIT 1`, maxID).Scan(&h.ID, &h.Hash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return h, nil
+		return t.auditAnchor()
 	}
 	return h, err
 }
 
 func (t *tx) VerifyAudit() (model.AuditCheck, error) {
-	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit ORDER BY id`)
+	anchor, err := t.auditAnchor()
+	if err != nil {
+		return model.AuditCheck{}, err
+	}
+	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit WHERE id > ? ORDER BY id`, anchor.ID)
 	if err != nil {
 		return model.AuditCheck{}, err
 	}
 	defer func() { _ = rows.Close() }()
-	return verifyRows(rows)
+	return verifyRows(rows, anchor)
 }
 
-func verifyRows(rows *sql.Rows) (model.AuditCheck, error) {
-	var c audit.Chain
+func verifyRows(rows *sql.Rows, anchor model.AuditHead) (model.AuditCheck, error) {
+	c := audit.Chain{HeadID: anchor.ID, HeadHash: anchor.Hash}
 	for rows.Next() {
 		var (
 			r    audit.Record

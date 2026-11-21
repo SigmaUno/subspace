@@ -893,7 +893,24 @@ Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `p
 | GET | `/api/v1/audit/verify` | `{"ok":true,"events":n,"head":{"id":n,"hash":"..."}}`; when broken, `"ok":false` and `"broken_id":<first bad id>` with `events`/`head` covering the valid prefix. |
 | GET | `/api/v1/audit/export?since=<id>` | `application/x-ndjson`. First line `{"chain":{"since":<id>,"prev_hash":"<hash of the last event <= since>","head":{"id","hash"}}}`, then every AuditEvent with `since < id <= head.id`, ascending. |
 
-`subspace audit-verify --db <path>` checks the chain offline and exits non-zero at the first broken id.
+When audit retention has archived a prefix of the chain, `/audit/verify` starts from the anchor (`id`, `hash`) of the last archived event and validates the remaining events against it, and `/audit/export` reports the anchor hash as `prev_hash` for a `since` below it.
+
+`subspace audit-verify --db <path> [--archive <dir>]` checks the chain offline and exits non-zero at the first broken id; it also checks every archived segment against the manifest (default archive dir `SUBSPACE_RETAIN_DIR` or `<db dir>/retention`).
+
+### Data retention
+
+Audit events, thread messages, usage records and idempotency keys older than a per-kind age are archived into gzip-compressed NDJSON segment files under `<data dir>/retention/<kind>/` (`SUBSPACE_DATA_DIR`, else the database directory; `SUBSPACE_RETAIN_DIR` overrides and is required with Postgres). Each segment is listed in the `retention_segments` manifest with its sha256, row count, cutoff and, for audit, the id range plus the previous and last chain hash. Rows are deleted only after the segment and its manifest row are written, in transactions of `batch` rows; an interrupted run leaves the segment `pending` and the next run finishes it. Audit segments are contiguous id prefixes that never include the newest event, and audit rows may only be deleted while covered by a `pending` or `archived` audit segment; updates and every other delete are still refused. Archiving and restoring append `retention_archive` / `retention_restore` audit events (`agent_id`/`role` `system`).
+
+Policy: `SUBSPACE_RETAIN_AUDIT_DAYS`, `SUBSPACE_RETAIN_MESSAGES_DAYS`, `SUBSPACE_RETAIN_USAGE_DAYS`, `SUBSPACE_RETAIN_IDEMPOTENCY_DAYS` (default `0` = keep forever), `SUBSPACE_RETAIN_INTERVAL` (`1h`, `0` = only on demand), `SUBSPACE_RETAIN_BATCH` (`500`), `SUBSPACE_RETAIN_SEGMENT_ROWS` (`10000`), `SUBSPACE_RETAIN_WAL_AUTOCHECKPOINT` (`1000` pages, SQLite `PRAGMA wal_autocheckpoint`), `SUBSPACE_RETAIN_VACUUM_PAGES` (`2000`, `0` = no vacuum). `SUBSPACE_RETAIN_FILE` names a JSON file with the same settings (`{"audit_days":90,"messages_days":30,"usage_days":0,"idempotency_days":7,"interval":"1h","batch":500,"segment_rows":10000,"wal_autocheckpoint":1000,"vacuum_pages":2000,"dir":""}`); environment variables win. With SQLite every run also does a passive WAL checkpoint; when nothing was written since the previous run it truncates the WAL (`wal_checkpoint(TRUNCATE)`) and, if the database is not yet in incremental auto-vacuum mode and has free pages, switches it with a one-time `VACUUM`; afterwards free pages are returned with `incremental_vacuum(vacuum_pages)`. Postgres relies on autovacuum.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/retention` | → `{"policy":{...},"dir":"...","anchor":{"id","hash"},"segments":[Segment],"last_run":Report or null}`. Segment: `{"id","kind","seq","file","rows","bytes","sha256","cutoff","first_id","last_id","prev_hash","last_hash","status","created_at","updated_at"}`, `status` `pending`, `archived` or `restored`. |
+| POST | `/api/v1/retention/run` | `{}` → Report `{"at","resumed","archived":[Segment],"rows":{"audit":n,...},"wal_frames","checkpointed","vacuumed_pages"}`. 409 `conflict` when the audit chain to be archived is broken (nothing is archived). |
+| GET | `/api/v1/retention/verify` | → `{"ok":true,"segments":n,"rows":n,"anchor":{"id","hash"},"chain":{"ok","events","head"},"broken_segment":0}`: every non-restored segment's file matches its manifest sha256 and row count, audit segments chain from `""` to the anchor, and the live chain continues from it. On failure `ok` is false with `broken_segment` and `error`. |
+| POST | `/api/v1/retention/segments/{id}/restore` | `{}` → Segment with status `restored`. Re-inserts the rows (existing keys are kept). Audit segments are restored newest first (409 otherwise); 409 if already restored, 404 unknown id. Rows still older than the policy are archived again by the next run. |
+
+`subspace retention-restore --db <path> [--dir <archive>] (--list | --segment <id> | --kind <kind>)` does the same offline; `--kind` restores every archived segment of that kind newest first.
 
 ## 4. SSE: `GET /api/v1/events`
 

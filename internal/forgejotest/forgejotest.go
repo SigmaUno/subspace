@@ -275,7 +275,7 @@ func (r *Repo) WaitMergeable(t testing.TB, n int64) {
 
 func (r *Repo) Git(t testing.TB, dir string, args ...string) string {
 	t.Helper()
-	cmd := exec.Command("git", args...)
+	cmd := exec.Command("git", args...) //nolint:gosec // test helper runs git with test arguments
 	cmd.Dir = dir
 	cmd.Env = append(os.Environ(),
 		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",

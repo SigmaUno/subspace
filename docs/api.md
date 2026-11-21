@@ -119,7 +119,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
-| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. |
+| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 
 ### Briefs
 | Method | Path | Body → Response |
@@ -439,7 +439,7 @@ Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:
  "uploaded_by":"owner","project":"B-1","created_at":"..."}
 ```
 
-Files live under `$SUBSPACE_DATA_DIR/artifacts` (default: the database directory).
+Files live under `$SUBSPACE_DATA_DIR/artifacts` (default: the database directory; required when `SUBSPACE_DB` is a `postgres://` URL).
 
 ### Bots
 Agent management with a liveness flag. A bot is an Agent plus `live` (active and seen within twice the lease, or `SUBSPACE_BOTS_LIVE_WINDOW`). `kind` accepts `claude-code`, `codex`, `opencode`, `opencode-anthropic`, `opencode-deepseek` and `other`; `provider` defaults from the kind and `role` defaults to `worker`.

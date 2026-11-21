@@ -32,6 +32,7 @@ import (
 type Config struct {
 	Addr            string
 	DBPath          string
+	DataDir         string
 	OwnerToken      string
 	PublicURL       string
 	CapacityFile    string

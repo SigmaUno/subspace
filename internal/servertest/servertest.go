@@ -45,6 +45,14 @@ func Start(t *testing.T, cfg server.Config) *Env {
 	if cfg.DBPath == "" {
 		cfg.DBPath = DB(t)
 	}
+	if strings.HasPrefix(cfg.DBPath, "postgres") {
+		if cfg.DataDir == "" {
+			cfg.DataDir = t.TempDir()
+		}
+		if cfg.BackupDir == "" {
+			cfg.BackupDir = filepath.Join(cfg.DataDir, "backups")
+		}
+	}
 	if cfg.OwnerToken == "" {
 		cfg.OwnerToken = OwnerToken
 	}

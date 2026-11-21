@@ -22,6 +22,7 @@ func run() int {
 	parallel := flag.Int("parallel", runtime.GOMAXPROCS(0), "seeds run concurrently")
 	shrink := flag.Int("shrink", 400, "max replays when minimizing a failing trace (0 = off)")
 	regressions := flag.String("regressions", "testdata/dst/regressions.txt", "file failing seeds are appended to (empty = off)")
+	mode := flag.String("mode", dst.ModeBoard, "system under test: board or server (full wired server)")
 	flag.Parse()
 	if *seeds < 1 || *steps < 1 || *parallel < 1 {
 		fmt.Fprintln(os.Stderr, "seeds, steps and parallel must be >= 1")
@@ -29,7 +30,16 @@ func run() int {
 	}
 
 	ctx := context.Background()
-	r := &dst.Runner{Factory: dst.NewBoardSystem}
+	var r *dst.Runner
+	switch *mode {
+	case dst.ModeBoard:
+		r = &dst.Runner{Factory: dst.NewBoardSystem}
+	case dst.ModeServer:
+		r = dst.ServerRunner("")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown mode %q\n", *mode)
+		return 2
+	}
 	outs := make([]*dst.Outcome, *seeds)
 	errs := make([]error, *seeds)
 	next := make(chan int)
@@ -62,17 +72,17 @@ func run() int {
 			continue
 		}
 		failed++
-		fmt.Printf("FAIL seed=%d invariant=%s\nreplay: go run ./cmd/subspace-dst -seeds 1 -start %d -steps %d\nminimal trace (%d steps):\n",
-			seed, o.Violation.Invariant, seed, *steps, len(o.Steps))
+		fmt.Printf("FAIL seed=%d invariant=%s\nreplay: go run ./cmd/subspace-dst -mode %s -seeds 1 -start %d -steps %d\nminimal trace (%d steps):\n",
+			seed, o.Violation.Invariant, *mode, seed, *steps, len(o.Steps))
 		o.WriteTrace(os.Stdout)
 		if *regressions != "" {
-			if err := dst.AppendRegression(*regressions, dst.Regression{Seed: seed, Steps: *steps}, o.Violation.Invariant); err != nil {
+			if err := dst.AppendRegression(*regressions, dst.Regression{Seed: seed, Steps: *steps, Mode: *mode}, o.Violation.Invariant); err != nil {
 				fmt.Fprintf(os.Stderr, "regressions: %v\n", err)
 				return 2
 			}
 		}
 	}
-	fmt.Printf("%d seeds [%d..%d], %d steps each: %d failed\n", *seeds, *start, *start+int64(*seeds)-1, *steps, failed)
+	fmt.Printf("%s: %d seeds [%d..%d], %d steps each: %d failed\n", *mode, *seeds, *start, *start+int64(*seeds)-1, *steps, failed)
 	if failed > 0 {
 		return 1
 	}

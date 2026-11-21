@@ -1,0 +1,27 @@
+{
+  "action": "closed",
+  "number": 8,
+  "pull_request": {
+    "id": 1008,
+    "number": 8,
+    "state": "closed",
+    "title": "Add login",
+    "html_url": "https://github.com/SigmaUno/foo/pull/8",
+    "merged": false,
+    "head": {
+      "ref": "sub/t-4-wip",
+      "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "repository": {
+    "id": 1,
+    "name": "foo",
+    "full_name": "SigmaUno/foo"
+  },
+  "sender": {
+    "login": "claude-1"
+  }
+}

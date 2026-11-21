@@ -32,6 +32,15 @@ const (
 	InvAudit        = "audit_append_only_complete"
 	InvClaim        = "claim_preconditions"
 	InvAtomic       = "failed_call_no_effect"
+	InvMerge        = "mergequeue_merges_only_approved"
+	InvAutoEnqueue  = "approved_task_enqueued"
+	InvBackup       = "backup_verifies"
+	InvNotify       = "notification_once_per_decision"
+	InvAutopilot    = "autopilot_within_limits"
+	InvWebhook      = "webhook_delivery"
+	InvInstr        = "instructions_versioned"
+	InvSearch       = "search_matches"
+	InvHarness      = "harness"
 )
 
 var edges = map[[2]string]bool{}
@@ -52,6 +61,7 @@ func init() {
 	s(model.StatusChangesRequested, model.StatusInProgress)
 	s(model.StatusApproved, model.StatusDone)
 	s(model.StatusNeedsOwner, model.StatusReady, model.StatusAssigned, model.StatusDone)
+	s(model.StatusCancelled, model.StatusReady, model.StatusAssigned)
 	for _, st := range model.AllStatuses {
 		if st != model.StatusDone && st != model.StatusCancelled {
 			s(st, model.StatusNeedsOwner, model.StatusCancelled)
@@ -67,9 +77,10 @@ type lease struct {
 type Checker struct {
 	leases map[string]lease
 	audit  []*model.AuditEvent
+	instr  map[string][]string
 }
 
-func NewChecker() *Checker { return &Checker{leases: map[string]lease{}} }
+func NewChecker() *Checker { return &Checker{leases: map[string]lease{}, instr: map[string][]string{}} }
 
 func live(l lease, now time.Time) bool { return !l.expiry.Before(now) }
 
@@ -79,7 +90,7 @@ func holds(t *model.Task, agent string) bool {
 
 func (c *Checker) Check(op Op, res Result, pre, post *State) *Violation {
 	for _, f := range []func(Op, Result, *State, *State) *Violation{
-		c.checkAudit, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkState,
+		c.checkAudit, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkState, c.checkServer,
 	} {
 		if v := f(op, res, pre, post); v != nil {
 			return v
@@ -257,7 +268,7 @@ func (c *Checker) checkLeases(op Op, res Result, pre, post *State) *Violation {
 					}
 				}
 			}
-		case OpRelease, OpSubmit, OpBlock, OpReassign:
+		case OpRelease, OpSubmit, OpBlock, OpReassign, OpCancel:
 			delete(c.leases, op.Task)
 		case OpPauseAll:
 			c.leases = map[string]lease{}

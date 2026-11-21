@@ -1,0 +1,27 @@
+{
+  "action": "synchronize",
+  "number": 7,
+  "pull_request": {
+    "id": 1007,
+    "number": 7,
+    "state": "open",
+    "title": "Add login",
+    "html_url": "https://github.com/SigmaUno/foo/pull/7",
+    "merged": false,
+    "head": {
+      "ref": "sub/t-3-add-login",
+      "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "repository": {
+    "id": 1,
+    "name": "foo",
+    "full_name": "SigmaUno/foo"
+  },
+  "sender": {
+    "login": "claude-1"
+  }
+}

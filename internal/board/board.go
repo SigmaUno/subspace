@@ -63,6 +63,7 @@ type Board struct {
 	expiries map[string][]time.Time
 
 	pauseOp  sync.Mutex
+	capOp    sync.Mutex
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string
@@ -105,22 +106,43 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity,
 		expiries: map[string][]time.Time{}}
 	err := st.View(ctx, func(tx store.Tx) error {
-		if v, ok, err := tx.GetKV("paused"); err != nil {
+		if err := b.loadPaused(tx); err != nil {
 			return err
-		} else if ok && v != "" {
-			b.paused, b.pauseWhy = true, v
 		}
-		if v, ok, err := tx.GetKV("capacity"); err != nil {
-			return err
-		} else if ok {
-			var c capacity.Config
-			if json.Unmarshal([]byte(v), &c) == nil {
-				b.capCfg = c
-			}
-		}
-		return nil
+		return b.loadCapacity(tx)
 	})
 	return b, err
+}
+
+func (b *Board) loadPaused(tx store.Tx) error {
+	v, ok, err := tx.GetKV("paused")
+	if err != nil {
+		return err
+	}
+	b.pausedMu.Lock()
+	b.paused, b.pauseWhy = ok && v != "", v
+	b.pausedMu.Unlock()
+	return nil
+}
+
+func (b *Board) loadCapacity(tx store.Tx) error {
+	v, ok, err := tx.GetKV("capacity")
+	if err != nil || !ok {
+		return err
+	}
+	var c capacity.Config
+	if json.Unmarshal([]byte(v), &c) == nil {
+		b.mu.Lock()
+		b.capCfg = c
+		b.mu.Unlock()
+	}
+	return nil
+}
+
+func (b *Board) resync(ctx context.Context, load func(store.Tx) error) {
+	if err := b.read(context.WithoutCancel(ctx), load); err != nil {
+		b.log.Error("resync after failed write", "err", err)
+	}
 }
 
 func (b *Board) now() time.Time { return b.o.Now() }
@@ -130,6 +152,7 @@ type wctx struct {
 	ctx    context.Context
 	events []pending
 	inval  []string
+	forget []string
 }
 
 type pending struct {
@@ -189,13 +212,17 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
 	w := &wctx{b: b, ctx: ctx}
-	if err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval = nil, nil; return fn(tx, w) }); err != nil {
-		return mapStoreErr(err)
-	}
-	for _, id := range w.inval {
-		if b.o.Invalidate != nil {
+	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget = nil, nil, nil; return fn(tx, w) })
+	if b.o.Invalidate != nil {
+		for _, id := range w.inval {
 			b.o.Invalidate(id)
 		}
+	}
+	if err != nil {
+		return mapStoreErr(err)
+	}
+	for _, id := range w.forget {
+		b.forget(id)
 	}
 	if b.o.Hub != nil {
 		for _, e := range w.events {
@@ -228,7 +255,7 @@ func (b *Board) overlay(t *model.Task) *model.Task {
 	b.mu.Lock()
 	h, ok := b.tasks[t.ID]
 	b.mu.Unlock()
-	if !ok {
+	if !ok || h.assignee != deref(t.Assignee) {
 		return t
 	}
 	cp := *t
@@ -349,6 +376,16 @@ func (b *Board) Flush(ctx context.Context) {
 	})
 	if err != nil {
 		b.log.Error("flush heartbeats", "err", err)
+		b.mu.Lock()
+		for id := range seen {
+			b.dirtyA[id] = struct{}{}
+		}
+		for _, row := range rows {
+			if _, ok := b.tasks[row.TaskID]; ok {
+				b.dirtyT[row.TaskID] = struct{}{}
+			}
+		}
+		b.mu.Unlock()
 		return
 	}
 	if b.o.Hub == nil {

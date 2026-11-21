@@ -79,6 +79,7 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 		return w.audit(tx, model.Owner, "pause_all", "", nil, map[string]any{"paused": true}, reason)
 	})
 	if err != nil {
+		b.resync(ctx, b.loadPaused)
 		return err
 	}
 	b.pausedMu.Lock()
@@ -98,6 +99,7 @@ func (b *Board) ResumeAll(ctx context.Context) error {
 		return w.audit(tx, model.Owner, "resume_all", "", nil, map[string]any{"paused": false}, "")
 	})
 	if err != nil {
+		b.resync(ctx, b.loadPaused)
 		return err
 	}
 	b.pausedMu.Lock()

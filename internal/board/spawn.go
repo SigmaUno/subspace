@@ -90,6 +90,8 @@ func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*Capacity
 	if cfg.Limits == nil {
 		cfg.Limits = []capacity.Limit{}
 	}
+	b.capOp.Lock()
+	defer b.capOp.Unlock()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		raw := jsonString(cfg)
 		if err := tx.SetKV("capacity", raw); err != nil {
@@ -98,6 +100,7 @@ func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*Capacity
 		return w.audit(tx, model.Owner, "set_capacity", "", nil, map[string]any{"global_max_agents": cfg.GlobalMaxAgents, "limits": len(cfg.Limits)}, "")
 	})
 	if err != nil {
+		b.resync(ctx, b.loadCapacity)
 		return nil, err
 	}
 	b.mu.Lock()
@@ -146,11 +149,6 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	if err := checkProvider(in.Kind, in.Provider); err != nil {
 		return nil, err
 	}
-	type launch struct {
-		sp  *model.Spawn
-		tok string
-		ag  *model.Agent
-	}
 	var ls []launch
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
@@ -163,6 +161,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		} else if ok {
 			var c capacity.Config
 			if json.Unmarshal([]byte(v), &c) == nil {
+				c.Gate = cfg.Gate
 				cfg = c
 			}
 		}
@@ -240,6 +239,9 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		return w.audit(tx, a, "request_spawn", "", nil, map[string]any{"brief_id": br.ID, "n": in.N, "kind": in.Kind}, in.Model)
 	})
 	if err != nil {
+		if len(ls) > 0 {
+			b.abandonSpawns(ctx, in.BriefID, ls)
+		}
 		return nil, err
 	}
 	out := make([]*model.Spawn, 0, len(ls))
@@ -247,28 +249,88 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		c := b.ConnectInfo(l.ag.ID, l.tok)
 		serr := b.o.Spawner.Spawn(ctx, spawner.Request{AgentID: l.ag.ID, Kind: l.ag.Kind, Model: l.ag.Model, Provider: l.ag.Provider,
 			JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok})
-		sp := l.sp
-		_ = b.write(context.WithoutCancel(ctx), func(tx store.Tx, w *wctx) error {
-			if serr != nil {
-				sp.Status, sp.Error = "failed", strp(serr.Error())
-				l.ag.Status, l.ag.PauseReason = model.AgentRevoked, strp("spawn failed")
-				if err := tx.UpdateAgent(l.ag); err != nil {
+		sp := *l.sp
+		ag := *l.ag
+		if serr != nil {
+			sp.Status, sp.Error = "failed", strp(serr.Error())
+			ag.Status, ag.PauseReason = model.AgentRevoked, strp("spawn failed")
+		} else {
+			sp.Status = "spawned"
+		}
+		var werr error
+		for range 3 {
+			werr = b.write(context.WithoutCancel(ctx), func(tx store.Tx, w *wctx) error {
+				if serr != nil {
+					if err := tx.UpdateAgent(&ag); err != nil {
+						return err
+					}
+					w.agent(&ag)
+				}
+				if err := tx.UpdateSpawn(&sp); err != nil {
 					return err
 				}
-				w.agent(l.ag)
-			} else {
-				sp.Status = "spawned"
+				cp := sp
+				w.emit([]string{"agents", "brief:" + sp.BriefID}, "spawn.updated", &cp)
+				return nil
+			})
+			if werr == nil {
+				break
 			}
+		}
+		if werr != nil {
+			b.log.Error("record spawn outcome", "spawn", sp.ID, "status", sp.Status, "err", werr)
+			sp = *l.sp
+		}
+		out = append(out, &sp)
+	}
+	return out, nil
+}
+
+type launch struct {
+	sp  *model.Spawn
+	tok string
+	ag  *model.Agent
+}
+
+func (b *Board) abandonSpawns(ctx context.Context, briefID string, ls []launch) {
+	want := make(map[string]launch, len(ls))
+	for _, l := range ls {
+		want[l.sp.ID] = l
+	}
+	err := b.write(context.WithoutCancel(ctx), func(tx store.Tx, w *wctx) error {
+		sps, err := tx.ListSpawns(store.SpawnFilter{BriefID: briefID})
+		if err != nil {
+			return err
+		}
+		for _, sp := range sps {
+			l, ok := want[sp.ID]
+			if !ok || sp.Status != "requested" || sp.AgentID != l.ag.ID {
+				continue
+			}
+			ag, err := tx.GetAgent(sp.AgentID)
+			if err != nil {
+				return err
+			}
+			if ag.TokenHash != l.ag.TokenHash {
+				continue
+			}
+			sp.Status, sp.Error = "failed", strp("spawn request outcome unknown")
 			if err := tx.UpdateSpawn(sp); err != nil {
 				return err
 			}
+			ag.Status, ag.PauseReason = model.AgentRevoked, strp("spawn failed")
+			if err := tx.UpdateAgent(ag); err != nil {
+				return err
+			}
+			w.agent(ag)
 			cp := *sp
 			w.emit([]string{"agents", "brief:" + sp.BriefID}, "spawn.updated", &cp)
-			return nil
-		})
-		out = append(out, sp)
+		}
+		return nil
+	})
+	if err != nil {
+		b.log.Error("abandon spawns", "brief", briefID, "err", err)
 	}
-	return out, nil
 }
 
 func (b *Board) ListSpawns(ctx context.Context, briefID string) ([]*model.Spawn, error) {

@@ -27,7 +27,7 @@ func (b *Board) closeBrief(tx store.Tx, w *wctx, br *model.Brief) error {
 			}
 			cancelled++
 		case model.StatusInProgress:
-			b.endLease(t)
+			b.endLease(w, t)
 			t.BlockedReason = strp(blockedBriefClosed)
 			if err := b.statusChange(tx, w, model.Owner, "close_brief", t, model.StatusBlocked, blockedBriefClosed); err != nil {
 				return err

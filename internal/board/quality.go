@@ -80,7 +80,7 @@ func (b *Board) PromoteGated(ctx context.Context, taskID string) (bool, error) {
 		if err != nil {
 			return err
 		}
-		if br.CrossReview || !br.QualityGates.Enabled() {
+		if needsReview(br, t) || !br.QualityGates.Enabled() {
 			return nil
 		}
 		if err := b.checkQuality(tx, QualityCheck{Ctx: ctx, Op: QualityPromote, Actor: gatesActor, Task: t, Brief: br}); err != nil {

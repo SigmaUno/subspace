@@ -44,7 +44,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 {"id":"B-1","title":"...","body":"markdown brief","repos":["SigmaUno/foo"],"status":"open",   // open|closed
  "budget":{"max_cost_eur":50.0,"max_parallel_agents":10},
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
- "cross_review":true,"auto_done_on_merge":false,
+ "cross_review":true,"risky_paths":[],"auto_done_on_merge":false,   // risky_paths: see Cross review
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected; cost_used includes cancelled tasks
  "leader_id":null,                                         // leader agent that owns the brief; null = any leader
  "quality_gates":{"tests":false,"min_tests_passed":0,"checks":false,"scope":false,   // see Quality gates; all off by default
@@ -272,10 +272,10 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":"","quality_gates":{},"playbook":""}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off; `playbook` names a playbook (empty = none), see Playbooks. |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"risky_paths":[],"leader_id":"","quality_gates":{},"playbook":""}` → Brief (201). `cross_review` defaults to `true`; `risky_paths` limits it to risky paths, see Cross review (400 for an invalid path or without `cross_review`); `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off; `playbook` names a playbook (empty = none), see Playbooks. |
 | GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
-| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
+| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, risky_paths, auto_done_on_merge, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
 | | | `status` is `open` or `closed`. Closing cancels `backlog`/`ready`/`assigned` tasks and moves `in_progress` tasks to `blocked` (`blocked_reason` `brief_closed`, lease released), each with a system message in the task thread; `submitted`, `in_review`, `approved` and every other status stay for the owner to finish. A closed brief rejects claims, spawns, plans and new tasks (409), and its board stays readable. The brief thread gets a system summary (cancelled/blocked counts, tasks per status, cost used). Reopening posts a brief-thread message; tasks cancelled by closing stay cancelled and `brief_closed` tasks stay blocked until unblocked. Setting the current status again changes nothing. Audit events: `close_brief` (one for the brief, one per affected task) and `reopen_brief`. |
 | POST | `/api/v1/briefs/{id}/leader` | `{"agent_id":"rex"}` → Brief. Hands the brief to that leader; `null` or `""` = any leader. 400 without `agent_id` or for an agent that is not a leader, 404 for an unknown brief or agent, 409 for a revoked agent. See Leader scoping. |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
@@ -295,6 +295,7 @@ max_cost_eur: 120
 max_parallel_agents: 8                  # 0 or absent = 10
 allowed_providers: [anthropic, openai]  # [] or absent = all
 cross_review: true                      # absent = true
+risky_paths: [internal/auth/**]         # absent = every task, see Cross review
 leader_id: rex                          # absent = any leader
 playbook: hotfix                        # absent = none, see Playbooks
 task_budget:
@@ -331,6 +332,17 @@ The frontmatter is a strict YAML subset: block mappings and lists indented with 
 // BriefTemplate
 {"id":"feature","title":"Feature","variables":["title","repo","goal","acceptance"],"markdown":"---\ntitle: \"{{title}}\"\n..."}
 ```
+
+#### Cross review
+A brief has one of three review modes:
+
+| mode | setting | submit |
+|---|---|---|
+| on | `cross_review: true`, `risky_paths: []` | every task goes to `submitted` and waits for a reviewer |
+| risky | `cross_review: true`, `risky_paths: ["internal/auth/**"]` | a task whose `paths` overlap a risky path (or that declares no paths) goes to `submitted`; any other task goes straight to `approved` |
+| off | `cross_review: false` | every task goes straight to `approved` |
+
+Without cross review for a task, verification relies on the merge queue, the brief's quality gates (a submission whose gates fail stays `submitted` until they pass or the owner overrides them) and the owner's approval before `done`. `risky_paths` are repository-relative globs with the same syntax as task `paths`, at most 100. Setting `cross_review` to `false` clears `risky_paths`; sending `risky_paths` while cross review is off is 400. A playbook that forces cross review rejects `risky_paths` (400 on create, 409 on `PATCH`). Plan lint treats risky mode like off for the tester-coverage rules, because not every task is reviewed.
 
 #### Leader scoping
 A brief with `leader_id` set belongs to that leader; with `null` every leader may work on it. Leader tools (`get_brief`, `list_briefs`, `propose_plan`, `create_task`, `create_task_from_template`, `update_task`, `assign`, `reassign`, `board`, `request_spawn`, `list_help_requests`, `accept_split`, `get_forecast`, `get_report`, `get_components`, `list_spawns`, `list_decisions`, `get_task`, `post_message`, `read_thread`, `add_note`, `ask_owner` and the artifact tools) only see briefs whose `leader_id` is `null` or the caller. Briefs, plans, tasks, task and brief threads, help requests, spawns, decisions and artifacts of other briefs answer exactly like ids that do not exist (`not_found`, or `forbidden` for artifact scopes), lists leave them out and dependencies on their tasks are unknown. `list_agents`, `capacity`, `agent_stats`, `search` and the knowledge tools are unaffected. The check runs on every call, so a handoff takes effect immediately: the previous leader loses access, the brief thread gets a `system` message (`Leader of B-1 changed: rex → max`), both leaders get a `system` message in their agent thread and a `set_brief_leader` audit event is written. Setting the current leader again changes nothing. A `report_blocker` with `needs` `leader` only notifies leaders who may see the brief. Autopilot acts as a leader without a brief of its own: it plans only for enabled briefs whose `leader_id` is `null`.

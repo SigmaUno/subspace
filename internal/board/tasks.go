@@ -661,7 +661,7 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 			return err
 		}
 		to := model.StatusSubmitted
-		if !br.CrossReview {
+		if !needsReview(br, t) {
 			to = model.StatusApproved
 			pending := *t
 			pending.PRURL = strp(in.PRURL)

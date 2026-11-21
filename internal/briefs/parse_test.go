@@ -21,6 +21,7 @@ func TestParseAcceptsSubset(t *testing.T) {
 		"max_parallel_agents: 4\n" +
 		"allowed_providers: [anthropic, \"deep,seek\" ]\n" +
 		"cross_review: false\n" +
+		"risky_paths: [internal/auth/**]\n" +
 		"task_budget:\n" +
 		"    max_minutes: 90\n" +
 		"    max_cost_eur: 3\n" +
@@ -40,7 +41,7 @@ func TestParseAcceptsSubset(t *testing.T) {
 	want := &briefs.Doc{
 		Title: `It's a "brief"`, Body: "# Body\n\nText with --- and key: value.",
 		Repos: []string{"SigmaUno/subspace", "x/y"}, MaxCostEUR: 12.5, MaxParallel: 4,
-		AllowedProviders: []string{"anthropic", "deep,seek"}, CrossReview: false,
+		AllowedProviders: []string{"anthropic", "deep,seek"}, CrossReview: false, RiskyPaths: []string{"internal/auth/**"},
 		TaskBudget: &briefs.TaskBudget{MaxMinutes: 90, MaxCostEUR: 3},
 		Components: []components.Spec{
 			{Name: "api", Description: "REST: handlers\n\"v1\"", Paths: []string{"internal/api"}, DependsOn: []string{"store"}},

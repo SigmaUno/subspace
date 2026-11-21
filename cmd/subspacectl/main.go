@@ -73,6 +73,8 @@ Commands:
   tasks show TASK_ID
   tasks pr|scope|gates TASK_ID
   tasks override-gates TASK_ID --reason TEXT [--gates checks,tests]
+  tasks transcript TASK_ID [--since OFFSET] [--limit N] [--at TIME] [--q TEXT]
+  tasks transcript-download TASK_ID --out FILE
   tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all

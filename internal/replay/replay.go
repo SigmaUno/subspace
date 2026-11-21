@@ -66,6 +66,8 @@ type KeyEvent struct {
 	TaskID  string    `json:"task_id"`
 	From    string    `json:"from"`
 	To      string    `json:"to"`
+
+	Transcript string `json:"transcript,omitempty"`
 }
 
 type Timeline struct {

@@ -672,7 +672,7 @@ Rules, over the last 24 hours (warning / high):
 Each high finding appears in the decisions feed as kind `alert`, id `insight:<finding id>`, with the suggestion to pause the agent, reassign its tasks or change its instructions (`skip` only).
 
 ### Agent output
-Live terminal output that agents send with the MCP tool `log_output` (see §5). It is held in memory, never written to the audit log and never sent through notifications, callbacks or the main event stream.
+Live terminal output that agents send with the MCP tool `log_output` (see §5). It is held in a ring buffer in memory (task-tagged lines are also kept, see Task transcripts), never written to the audit log and never sent through notifications, callbacks or the main event stream.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -694,6 +694,31 @@ Live terminal output that agents send with the MCP tool `log_output` (see §5). 
 Every agent has a ring buffer of the last `SUBSPACE_OUTPUT_LINES` lines (default `2000`) and at most `SUBSPACE_OUTPUT_AGENT_BYTES` (default `524288`); all buffers together are capped at `SUBSPACE_OUTPUT_MEMORY` bytes (default `67108864`), evicting the oldest lines of the least recently active agent first. Line `seq` is per agent and increases by one per line. The last `SUBSPACE_OUTPUT_PERSIST` lines per agent (default `200`, `0` = off) are written to the `agent_output` table every heartbeat flush interval and reloaded on start, so a restart keeps a short tail.
 
 Text is cleaned before it is stored: at most 4096 bytes per call (longer text is cut at a character boundary and `truncated` is set), invalid UTF-8 replaced, control characters except tab and newline dropped, bidirectional override characters dropped, `\r\n` folded and a line rewritten with `\r` keeps its last segment. Escape sequences are removed (OSC such as terminal titles and hyperlinks, DCS/APC/PM/SOS strings, cursor movement, mode changes), except SGR colour sequences, which are rebuilt from a whitelist: reset, bold, dim, italic, underline, reverse, strike, their resets, the 8/16 foreground and background colours, and `38;5;n`/`48;5;n`/`38;2;r;g;b`/`48;2;r;g;b`. Blink and conceal are dropped. Secrets are masked with the same redaction as notes; a chunk that contains one loses its colours.
+
+### Task transcripts
+Lines that agents send with `log_output` and tag with a `task_id` are also kept per task for post-mortems, in addition to the live ring buffer. They are written as gzip-compressed NDJSON segments under `<data dir>/transcripts/<task id>/` (`SUBSPACE_DATA_DIR`, else the database directory; required with Postgres) and listed in the `task_transcripts` manifest table with the task, brief, offset range, line count, size and sha256 of each file. Untagged output is not kept. Agents have no tool or route to read a transcript: only the owner REST endpoints below serve it (agent tokens answer 401/403).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/tasks/{id}/transcript?since=&limit=&at=&q=` | → TranscriptPage. Lines are oldest first. `since` is an exclusive line offset (default `0`), `limit` default 500, max 2000, `at` (RFC 3339) skips lines before that time, `q` keeps lines containing the text (case-insensitive, at most 200 bytes). Pending lines are flushed first. 400 for a negative or non-integer `since`, a `limit` below 1 or an invalid `at`, 404 for an unknown task. |
+| GET | `/api/v1/tasks/{id}/transcript/download` | → `application/gzip` download named `<task id>.ndjson.gz`: the segments of the task in order, concatenated (a valid multi-member gzip stream) with one `TranscriptLine` per NDJSON line. 404 for an unknown task. |
+
+```jsonc
+// TranscriptPage
+{"task_id":"T-3","lines":[/* TranscriptLine */],
+ "first_offset":1,"last_offset":240,   // retained offset range of the task; 0 when nothing is retained
+ "next_since":40,                      // pass as since to continue; with q or at it is the last line examined
+ "more":false,                         // limit (or the scan cap of 200000 lines) cut the result
+ "gap":false,                          // lines before first_offset were dropped by the size limit or archived
+ "segments":3,"bytes":18234}           // retained segments and their compressed size
+
+// TranscriptLine
+{"offset":40,"ts":"...","agent_id":"claude-1","stream":"stdout","text":"ok  ./internal/api"}
+```
+
+Offsets start at 1, increase by one per line per task across all agents that worked on it and never repeat, also across restarts. Text is redacted again before it is written (the same redaction as notes, applied line by line, plus every line between a `PRIVATE KEY` header and its footer is replaced by `****`), so a secret never reaches a segment file. Segments are flushed when the task becomes `submitted`, `blocked`, `cancelled` or `done`, every `SUBSPACE_TRANSCRIPT_FLUSH` (default `5m`), when a task has about 1 MiB pending, on every read and on shutdown; a segment holds at most 5000 lines or 256 KiB of text. Every read checks the file against the manifest sha256 and refuses a segment that does not match.
+
+`SUBSPACE_TRANSCRIPT_MAX_MB` (default `256`, `0` = unlimited) caps the compressed transcript size per brief: when a flush exceeds it the oldest segments of the brief are deleted (the newest segment always stays) and one `transcript_prune` audit event per segment records its task, offsets, line count, size and sha256. `SUBSPACE_RETAIN_TRANSCRIPTS_DAYS` (default `0` = keep) makes data retention archive the manifest rows older than that many days: the segment files move to `<retention dir>/transcript-files/` after their sha256 is checked against the manifest, the rows go into a retention segment of kind `transcripts`, and `retention verify` checks the archived files against the sha256 stored in the retention segment. Restoring that retention segment checks the files again and moves them back. Archived transcripts are not served until restored. The replay timeline adds a `transcript` link to key events of tasks that have a transcript.
 
 ### Questions
 | Method | Path | Body → Response |
@@ -957,7 +982,7 @@ When enough history exists, `GET /api/v1/briefs/{id}/forecast` uses the estimate
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/briefs/{id}/replay?at=` | → ReplaySnapshot, the brief's board as of `at`: an audit id (every brief event with a lower or equal id applied) or an RFC 3339 time (every brief event at or before it). Without `at` the latest state. 400 for a malformed `at`, 404 for an unknown brief. |
-| GET | `/api/v1/briefs/{id}/replay/timeline` | → ReplayTimeline. 404 for an unknown brief. |
+| GET | `/api/v1/briefs/{id}/replay/timeline` | → ReplayTimeline. 404 for an unknown brief. Key events of tasks that have a transcript carry `"transcript":"/api/v1/tasks/<id>/transcript"`. |
 | GET | `/api/v1/briefs/{id}/replay/diff?from=&to=` | → ReplayDiff, every change caused by brief events after `from` up to and including `to` (each an audit id or RFC 3339 time as for `at`; `from` defaults to the beginning, `to` to the latest). At most 5000 transitions, then `truncated`. 400 when `from` is after `to` or malformed. |
 
 ```jsonc
@@ -1336,9 +1361,9 @@ When audit retention has archived a prefix of the chain, `/audit/verify` starts 
 
 ### Data retention
 
-Audit events, thread messages, usage records and idempotency keys older than a per-kind age are archived into gzip-compressed NDJSON segment files under `<data dir>/retention/<kind>/` (`SUBSPACE_DATA_DIR`, else the database directory; `SUBSPACE_RETAIN_DIR` overrides and is required with Postgres). Each segment is listed in the `retention_segments` manifest with its sha256, row count, cutoff and, for audit, the id range plus the previous and last chain hash. Rows are deleted only after the segment and its manifest row are written, in transactions of `batch` rows; an interrupted run leaves the segment `pending` and the next run finishes it. Audit segments are contiguous id prefixes that never include the newest event, and audit rows may only be deleted while covered by a `pending` or `archived` audit segment; updates and every other delete are still refused. Archiving and restoring append `retention_archive` / `retention_restore` audit events (`agent_id`/`role` `system`).
+Audit events, thread messages, usage records, idempotency keys and task transcript manifests older than a per-kind age are archived into gzip-compressed NDJSON segment files under `<data dir>/retention/<kind>/` (`SUBSPACE_DATA_DIR`, else the database directory; `SUBSPACE_RETAIN_DIR` overrides and is required with Postgres). Each segment is listed in the `retention_segments` manifest with its sha256, row count, cutoff and, for audit, the id range plus the previous and last chain hash. Rows are deleted only after the segment and its manifest row are written, in transactions of `batch` rows; an interrupted run leaves the segment `pending` and the next run finishes it. Audit segments are contiguous id prefixes that never include the newest event, and audit rows may only be deleted while covered by a `pending` or `archived` audit segment; updates and every other delete are still refused. Archiving and restoring append `retention_archive` / `retention_restore` audit events (`agent_id`/`role` `system`).
 
-Policy: `SUBSPACE_RETAIN_AUDIT_DAYS`, `SUBSPACE_RETAIN_MESSAGES_DAYS`, `SUBSPACE_RETAIN_USAGE_DAYS`, `SUBSPACE_RETAIN_IDEMPOTENCY_DAYS` (default `0` = keep forever), `SUBSPACE_RETAIN_INTERVAL` (`1h`, `0` = only on demand), `SUBSPACE_RETAIN_BATCH` (`500`), `SUBSPACE_RETAIN_SEGMENT_ROWS` (`10000`), `SUBSPACE_RETAIN_WAL_AUTOCHECKPOINT` (`1000` pages, SQLite `PRAGMA wal_autocheckpoint`), `SUBSPACE_RETAIN_VACUUM_PAGES` (`2000`, `0` = no vacuum). `SUBSPACE_RETAIN_FILE` names a JSON file with the same settings (`{"audit_days":90,"messages_days":30,"usage_days":0,"idempotency_days":7,"interval":"1h","batch":500,"segment_rows":10000,"wal_autocheckpoint":1000,"vacuum_pages":2000,"dir":""}`); environment variables win. With SQLite every run also does a passive WAL checkpoint; when nothing was written since the previous run it truncates the WAL (`wal_checkpoint(TRUNCATE)`) and, if the database is not yet in incremental auto-vacuum mode and has free pages, switches it with a one-time `VACUUM`; afterwards free pages are returned with `incremental_vacuum(vacuum_pages)`. Postgres relies on autovacuum.
+Policy: `SUBSPACE_RETAIN_AUDIT_DAYS`, `SUBSPACE_RETAIN_MESSAGES_DAYS`, `SUBSPACE_RETAIN_USAGE_DAYS`, `SUBSPACE_RETAIN_IDEMPOTENCY_DAYS`, `SUBSPACE_RETAIN_TRANSCRIPTS_DAYS` (default `0` = keep forever), `SUBSPACE_RETAIN_INTERVAL` (`1h`, `0` = only on demand), `SUBSPACE_RETAIN_BATCH` (`500`), `SUBSPACE_RETAIN_SEGMENT_ROWS` (`10000`), `SUBSPACE_RETAIN_WAL_AUTOCHECKPOINT` (`1000` pages, SQLite `PRAGMA wal_autocheckpoint`), `SUBSPACE_RETAIN_VACUUM_PAGES` (`2000`, `0` = no vacuum). `SUBSPACE_RETAIN_FILE` names a JSON file with the same settings (`{"audit_days":90,"messages_days":30,"usage_days":0,"idempotency_days":7,"transcripts_days":0,"interval":"1h","batch":500,"segment_rows":10000,"wal_autocheckpoint":1000,"vacuum_pages":2000,"dir":""}`); environment variables win. With SQLite every run also does a passive WAL checkpoint; when nothing was written since the previous run it truncates the WAL (`wal_checkpoint(TRUNCATE)`) and, if the database is not yet in incremental auto-vacuum mode and has free pages, switches it with a one-time `VACUUM`; afterwards free pages are returned with `incremental_vacuum(vacuum_pages)`. Postgres relies on autovacuum.
 
 | Method | Path | Body → Response |
 |---|---|---|

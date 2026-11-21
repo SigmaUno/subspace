@@ -6051,6 +6051,9 @@
           },
           "tool": {
             "type": "string"
+          },
+          "transcript": {
+            "type": "string"
           }
         },
         "required": [
@@ -6866,6 +6869,9 @@
           "segment_rows": {
             "type": "integer"
           },
+          "transcripts_days": {
+            "type": "integer"
+          },
           "usage_days": {
             "type": "integer"
           },
@@ -6884,6 +6890,7 @@
           "interval",
           "messages_days",
           "segment_rows",
+          "transcripts_days",
           "usage_days",
           "vacuum_pages",
           "wal_autocheckpoint"
@@ -8532,6 +8539,83 @@
           "pr",
           "result",
           "sha",
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "TranscriptLine": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "offset",
+          "stream",
+          "text",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "TranscriptPage": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "first_offset": {
+            "type": "integer"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "last_offset": {
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "next_since": {
+            "type": "integer"
+          },
+          "segments": {
+            "type": "integer"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "first_offset",
+          "gap",
+          "last_offset",
+          "lines",
+          "more",
+          "next_since",
+          "segments",
           "task_id"
         ],
         "type": "object"
@@ -16189,6 +16273,102 @@
           }
         },
         "summary": "Scope report of the latest pull request snapshot of a task",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/transcript": {
+      "get": {
+        "operationId": "getTasksByIdTranscript",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "at",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Persisted agent output of a task, oldest first; since is an exclusive line offset, at jumps to the first line at or after a time, q filters lines by text",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/transcript/download": {
+      "get": {
+        "operationId": "getTasksByIdTranscriptDownload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Download the whole transcript of a task as gzip-compressed NDJSON",
         "tags": [
           "tasks"
         ]

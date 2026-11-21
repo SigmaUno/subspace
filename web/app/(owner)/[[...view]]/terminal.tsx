@@ -26,7 +26,7 @@ function highlight(text: string, query: string): ReactNode {
   return parts;
 }
 
-function Styled({ text, query = "" }: { text: string; query?: string }) {
+export function Styled({ text, query = "" }: { text: string; query?: string }) {
   return <>{parseAnsi(text).map((segment, index) =>
     <span key={index} style={ansiCss(segment.style)}>{highlight(segment.text, query)}</span>)}</>;
 }

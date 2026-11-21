@@ -36,6 +36,7 @@ type Config struct {
 	Rate       ratelimit.Limit
 	Persist    int
 	Scan       func(ctx context.Context, a model.Actor, text string) string
+	Sink       func(lines []Line)
 	FlushEvery time.Duration
 	Now        func() time.Time
 	Log        *slog.Logger
@@ -77,6 +78,8 @@ func New(st store.Store, dir Directory, cfg Config) *Service {
 }
 
 func (s *Service) Buffer() *Buffer { return s.buf }
+
+func (s *Service) SetSink(f func(lines []Line)) { s.cfg.Sink = f }
 
 func (s *Service) Hub() events.Hub { return s.hub }
 
@@ -179,6 +182,9 @@ func (s *Service) Append(ctx context.Context, a model.Actor, in Input) (*Result,
 	}
 	lines := s.buf.Append(a.ID, task, in.Stream, texts, s.cfg.Now().UTC())
 	s.hub.Publish([]string{TopicAll, TopicPrefix + a.ID}, EventType, Chunk{AgentID: a.ID, TaskID: task, Lines: lines})
+	if task != nil && s.cfg.Sink != nil {
+		s.cfg.Sink(lines)
+	}
 	return &Result{OK: true, Seq: lines[len(lines)-1].Seq, Lines: len(lines), Truncated: truncated}, nil
 }
 

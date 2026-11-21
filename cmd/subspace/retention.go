@@ -23,7 +23,7 @@ func runRetentionRestore(args []string, stdout io.Writer) error {
 	dbPath := fs.String("db", env("SUBSPACE_DB", "/data/subspace.db"), "database path")
 	dir := fs.String("dir", "", "archive directory (default SUBSPACE_RETAIN_DIR or <db dir>/retention)")
 	segment := fs.Int64("segment", 0, "restore one segment by id")
-	kind := fs.String("kind", "", "restore every archived segment of this kind (audit, messages, usage, idempotency), newest first")
+	kind := fs.String("kind", "", "restore every archived segment of this kind (audit, messages, usage, idempotency, transcripts), newest first")
 	list := fs.Bool("list", false, "list segments")
 	if err := fs.Parse(args); err != nil {
 		return err

@@ -216,6 +216,29 @@ var incidentCommands = table{
 	},
 }
 
+var drillCommands = table{
+	"list": listing("drills list", "drills", 1000),
+	"run": func(args []string, _ io.Reader) (command, error) {
+		if err := parseFlags(flags("drills run"), args, 0, 0); err != nil {
+			return nil, err
+		}
+		return confirmed(request{method: http.MethodPost, path: "drills", body: struct{}{}}, "restore drill", drillFailed), nil
+	},
+}
+
+func drillFailed(body []byte) (int, error) {
+	var out struct {
+		Status string `json:"status"`
+	}
+	if err := json.Unmarshal(body, &out); err != nil {
+		return 0, err
+	}
+	if out.Status == "failed" {
+		return 1, nil
+	}
+	return 0, nil
+}
+
 func parseCosts(args []string, _ io.Reader) (command, error) {
 	set := flags("costs")
 	group := set.String("group-by", "", "brief, task, component, agent, kind, model, provider, role or day")

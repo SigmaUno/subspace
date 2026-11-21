@@ -200,6 +200,23 @@ Plan edits post a system message to the brief thread and append an audit event (
 | POST | `/api/v1/agents/{id}/rotate-token` | `{}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead) |
 | POST | `/api/v1/agents/{id}/revoke` | `{"reason":""}` → Agent. Token dead immediately, leases released. |
 | POST | `/api/v1/agents/{id}/resume` | `{}` → Agent (clears loop-protection pause) |
+| GET | `/api/v1/agents/{id}/stats` | → AgentStats. 404 for an unknown agent. |
+| GET | `/api/v1/agent-stats?role=` | → `{"agents":[AgentStats]}` for every agent, best `score` first, then id. |
+
+```jsonc
+// AgentStats
+{"agent_id":"claude-1","role":"worker","provider":"anthropic","status":"active",
+ "tasks_completed":4,                         // tasks assigned to the agent that reached approved or done
+ "avg_duration_seconds":1800,"p90_duration_seconds":3600,   // time in_progress per completed task, summed over claims; 0 without data
+ "review_rounds_per_task":0.25,               // changes_requested reviews per completed task
+ "first_pass_approval_rate":0.75,             // reviewed tasks whose first review approved; null when none was reviewed
+ "blocked":1,"expired":0,                     // times a task went blocked / lost its lease while the agent held it, over all its tasks
+ "cost_per_task":1.2,"tokens_per_task":5300,  // task cost_used and reported usage tokens (in + out) per completed task; tokens 0 without usage records
+ "trend":[{"day":"2026-11-14","completed":0},...],   // 7 UTC days ending today, oldest first
+ "score":0.71}                                // 0..1, 0.5 without history
+```
+
+`score` is `0.5 + (raw - 0.5) * n / (n + 3)` with `raw = 0.5 * first_pass_approval_rate + 0.3 * tasks_completed / n + 0.2 / (1 + review_rounds_per_task)` and `n = tasks_completed + blocked + expired` (a missing first-pass rate counts as 0.5). With `SUBSPACE_AUTOPILOT=on`, autopilot uses it to break ties between equally loaded eligible agents (higher first, then id); load, role, provider and capacity rules are never overridden. Scores used by autopilot are cached for 30s.
 
 ### Questions
 | Method | Path | Body → Response |

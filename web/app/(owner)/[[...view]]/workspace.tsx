@@ -18,6 +18,7 @@ import { OutputTile } from "./terminal";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
+import { IncidentBanner } from "./incident";
 import { Onboarding } from "./onboarding";
 import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
@@ -127,6 +128,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
       <main className={`workspace ${section === "swarm" ? "wide" : ""}`}>
         <Feedback error={error} />
         <ResourceState error={state.error} retry={state.refresh} />
+        <IncidentBanner revision={revisions.control} />
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
         <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
           <div className="stack workspace-content">

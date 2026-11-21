@@ -38,7 +38,7 @@ func simulate(t *testing.T, f dst.Factory, seed int64, steps int) (*dst.State, [
 	if err != nil {
 		t.Fatal(err)
 	}
-	gen := dst.NewGen(seed, w, setup)
+	gen := dst.NewGen(seed, w, setup, true)
 	st, err := sys.Snapshot(ctx)
 	if err != nil {
 		t.Fatal(err)

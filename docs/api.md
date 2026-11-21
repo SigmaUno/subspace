@@ -6,6 +6,7 @@ the server changes, this file changes in the same PR.
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
@@ -665,6 +666,32 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 {"scope":"global","kind":"rules","version":2,"author":"owner","message":"...","created_at":"...","text":"..."}
 ```
 
+### Knowledge
+Per-brief project memory written by agents and the owner. Entries are stored and returned as data: every MCP response carrying entries starts with a fixed `notice` that marks them as untrusted project notes, and entries never change instructions, tool lists or role permissions. Titles are collapsed to one line, bodies are markdown, and secrets in titles and bodies are redacted before storage.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/knowledge?brief_id=&kind=&status=&q=&limit=` | → `{"entries":[KnowledgeEntry]}`, pinned first, then newest; with `q` only matching entries, ranked by matches in title and tags (then body) before that. `status` is `pending`, `active` or `superseded` (default all); `limit` default 20, max 100. |
+| POST | `/api/v1/knowledge` | `{"brief_id","kind","title","body","tags":[],"supersedes":""}` → KnowledgeEntry (201), author `owner`, status `active`. A `supersedes` entry of the same brief becomes `superseded`. |
+| GET | `/api/v1/knowledge/{id}` | → KnowledgeEntry |
+| PATCH | `/api/v1/knowledge/{id}` | any of `kind, title, body, tags` → KnowledgeEntry |
+| DELETE | `/api/v1/knowledge/{id}` | → 204 |
+| POST | `/api/v1/knowledge/{id}/pin` | `{"pinned":true}` (default `true`) → KnowledgeEntry |
+| POST | `/api/v1/knowledge/{id}/approve` | `{}` → KnowledgeEntry. `pending` → `active`, then applies its `supersedes`. 409 when not `pending`. |
+| POST | `/api/v1/knowledge/{id}/supersede` | `{"by":""}` → KnowledgeEntry `superseded` (`by`: optional newer entry of the same brief). 409 when already superseded. |
+
+```jsonc
+// KnowledgeEntry
+{"id":"K-1","brief_id":"B-1","kind":"decision",          // decision|convention|pitfall|howto|glossary
+ "title":"...","body":"markdown","tags":["store"],
+ "author":"claude-1","author_role":"worker",              // owner for owner entries
+ "status":"active",                                       // pending|active|superseded
+ "pinned":false,"supersedes":null,"superseded_by":null,
+ "created_at":"...","updated_at":"..."}
+```
+
+Limits: `title` 1-200 characters, `body` non-empty and at most 8 KiB (413 `too_large` above), at most 10 tags matching `[a-z0-9][a-z0-9_.-]*` (lowercased, at most 40 characters), `kind` one of the five kinds. With `SUBSPACE_KNOWLEDGE_MODERATION` on (default; `off` disables), entries added by agents (leader included) start `pending`: only the leader and the owner can see them until the owner approves; owner entries are always `active`. Deleting an entry is how the owner rejects it. Every change appends an audit event (`add_knowledge`, `update_knowledge`, `delete_knowledge`, `pin_knowledge`, `approve_knowledge`, `supersede_knowledge`).
+
 ### Search
 | Method | Path | Body → Response |
 |---|---|---|
@@ -854,6 +881,8 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_blocker | | ✓ | ✓ | |
 | list_help_requests, accept_split | ✓ | | | |
 | report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
+| add_knowledge, search_knowledge, get_knowledge | ✓ | ✓ | ✓ | ✓ |
+| supersede_knowledge, pin_knowledge | ✓ | | | |
 
 The leader information tools (`get_forecast` … `get_components`) are read-only and exempt from loop protection. Every list they return is cut at 200 items and flagged with `"truncated":true`.
 
@@ -864,10 +893,10 @@ Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, regi
 All tools return an object; `task` = Task object above.
 
 **Common**
-- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions (for workers of kind `claude-code`, `codex` or `opencode`, followed by short kind tips), then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
+- `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions (for workers of kind `claude-code`, `codex` or `opencode`, followed by short kind tips), then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter. With knowledge enabled the result also has `"knowledge":{"notice":"...","titles":[{"id","brief_id","kind","title","pinned"}]}`: titles only of `active` entries (pinned first, then newest, at most 50) of the caller's current brief (leader: every open brief). The `instructions` text never contains knowledge.
 - `whoami {}` → `{"agent":Agent,"paused":false,"server_time":"..."}`
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
-- `get_task {"task_id"}` → `{"task":Task}` or `{"task":Task,"context":TaskContext}` (own/assigned tasks; leader: any). `context` is only present for the task's assignee, see Handoff context.
+- `get_task {"task_id"}` → `{"task":Task}` or `{"task":Task,"context":TaskContext}` (own/assigned tasks; leader: any). `context` is only present for the task's assignee, see Handoff context. When `active` knowledge entries of the task's brief match the task, the result has `"knowledge":{"notice":"...","entries":[{"id","kind","title","body","tags","pinned","truncated"}]}`: at most 5, ranked by tags and words shared with the task title, spec and component id (pinned entries get a bonus), bodies cut to 1500 bytes (`truncated`), the whole object at most 8 KiB.
 - `heartbeat {"task_id?","note?"}` → `{"ok":true,"paused":false,"lease_expires_at":"..."|null}`. Extends leases of my in_progress tasks (or only `task_id`). Cheap (in-memory, batched).
 - `update_status {"task_id","status":"in_progress|blocked","progress_pct?":0-100,"note?","cost_eur?":number}` → `{"task":Task}`. `cost_eur` is cumulative cost spent (0..1000000; a lower value than the recorded cost is ignored). Exceeding task/brief budget forces `blocked`. Cannot set submitted/approved/done.
 - `add_note {"task_id?","body"}` → `{"message":Message}` (task thread, or own agent thread if no task)
@@ -883,6 +912,13 @@ All tools return an object; `task` = Task object above.
 **Usage and provider health** (all roles; never loop-protected)
 - `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are held in memory.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
+
+**Knowledge** (see Knowledge; every result carries `notice`)
+- `add_knowledge {"brief_id?","kind","title","body","tags?":["..."],"supersedes?"}` → `{"notice","entry":KnowledgeEntry}`. `brief_id` defaults to the brief of the caller's current task. Non-leader agents may only write to briefs of tasks where they are assignee or reviewer; `supersedes` is leader only (`forbidden` otherwise). Rate limited per agent (burst 10, then 6 per minute; `rate_limited`). Status `pending` while moderation is on.
+- `search_knowledge {"query?","kind?","brief_id?","limit?":1-100}` → `{"notice","entries":[KnowledgeEntry]}`. Non-leader agents see `active` entries of their briefs; the leader also sees `pending` entries of every brief. Superseded entries are not listed.
+- `get_knowledge {"id"}` → `{"notice","entry":KnowledgeEntry}`; `not_found` for entries the caller may not see.
+- `supersede_knowledge {"id","by?"}` (leader) → `{"notice","entry":KnowledgeEntry}`
+- `pin_knowledge {"id","pinned?":true}` (leader) → `{"notice","entry":KnowledgeEntry}`
 
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.

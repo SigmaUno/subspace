@@ -7,6 +7,7 @@ import { DagPage } from "./dag";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
+import { KnowledgePage } from "./knowledge";
 import { PromptsPage } from "./prompts";
 import { ReplayPage } from "./replay";
 import { ReportPage } from "./report";
@@ -31,6 +32,7 @@ function content(view: string[]) {
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
+  if (root === "knowledge" && view.length === 1) return <KnowledgePage />;
   if (root === "charter" && view.length === 1) return <Workspace section="charter" architecture={false} />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
   if (root === "briefs" && id && subview === "graph" && view.length === 3) return <DagPage id={id} />;

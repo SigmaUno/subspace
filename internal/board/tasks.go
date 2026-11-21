@@ -327,94 +327,119 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 	}
 	var out *model.Task
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
-		t, err := tx.GetTask(taskID)
+		t, ag, err := b.assignTarget(tx, taskID, agentID)
 		if err != nil {
 			return err
-		}
-		ag, err := tx.GetAgent(agentID)
-		if err != nil {
-			return model.NotFound("agent %s not found", agentID)
-		}
-		if ag.Status != model.AgentActive {
-			return model.Conflict("agent %s is %s", agentID, ag.Status)
-		}
-		br, err := tx.GetBrief(t.BriefID)
-		if err != nil {
-			return err
-		}
-		if !b.providerAllowed(br, ag.Provider) {
-			return model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
 		}
 		if as == "reviewer" {
-			if tool == "reassign" {
-				return model.BadRequest("reassign is for assignees")
-			}
-			if ag.Role != model.RoleReviewer {
-				return model.BadRequest("agent %s is not a reviewer", agentID)
-			}
-			if t.Status != model.StatusSubmitted && t.Status != model.StatusInReview {
-				return model.Conflict("task is %s; reviewer can be set on submitted tasks", t.Status)
-			}
-			if err := crossProvider(tx, t, ag.Provider); err != nil {
+			if err := setReviewer(tx, tool, t, ag); err != nil {
 				return err
 			}
-			t.Reviewer = &agentID
 			return b.finishUpdate(tx, w, a, tool, t, model.StatusInReview, &out)
 		}
-		if ag.Role != t.Role {
-			return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
-		}
-		from := t.Status
-		var overlaps []*model.Task
-		if tool == "assign" {
-			if t.Status != model.StatusReady {
-				return model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
-			}
-			if overlaps, err = b.pathConflicts(tx, t, agentID); err != nil {
-				return err
-			}
-			if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
-				return model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
-			}
-		} else {
-			switch t.Status {
-			case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked:
-			default:
-				return model.Conflict("cannot reassign a %s task", t.Status)
-			}
-			if err := leaderMayUnblock(t); err != nil {
-				return err
-			}
-		}
-		if deref(t.Assignee) != agentID {
-			if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
-				return err
-			}
-		}
-		b.endHeldLease(w, t)
-		t.Assignee, t.BlockedReason = &agentID, nil
-		if from == model.StatusChangesRequested {
-			if err := b.saveTask(tx, w, t); err != nil {
-				return err
-			}
-			out = t
-			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
-				return err
-			}
-			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
-		}
-		if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, &out); err != nil {
-			return err
-		}
-		if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
-			return err
-		}
-		if len(overlaps) > 0 {
-			return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
-		}
-		return nil
+		return b.setAssignee(tx, w, a, tool, t, ag, reason, &out)
 	})
 	return out, err
+}
+
+func (b *Board) assignTarget(tx store.Tx, taskID, agentID string) (*model.Task, *model.Agent, error) {
+	t, err := tx.GetTask(taskID)
+	if err != nil {
+		return nil, nil, err
+	}
+	ag, err := tx.GetAgent(agentID)
+	if err != nil {
+		return nil, nil, model.NotFound("agent %s not found", agentID)
+	}
+	if ag.Status != model.AgentActive {
+		return nil, nil, model.Conflict("agent %s is %s", agentID, ag.Status)
+	}
+	br, err := tx.GetBrief(t.BriefID)
+	if err != nil {
+		return nil, nil, err
+	}
+	if !b.providerAllowed(br, ag.Provider) {
+		return nil, nil, model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
+	}
+	return t, ag, nil
+}
+
+func setReviewer(tx store.Tx, tool string, t *model.Task, ag *model.Agent) error {
+	if tool == "reassign" {
+		return model.BadRequest("reassign is for assignees")
+	}
+	if ag.Role != model.RoleReviewer {
+		return model.BadRequest("agent %s is not a reviewer", ag.ID)
+	}
+	if t.Status != model.StatusSubmitted && t.Status != model.StatusInReview {
+		return model.Conflict("task is %s; reviewer can be set on submitted tasks", t.Status)
+	}
+	if err := crossProvider(tx, t, ag.Provider); err != nil {
+		return err
+	}
+	t.Reviewer = &ag.ID
+	return nil
+}
+
+func (b *Board) assignable(tx store.Tx, tool string, t *model.Task, agentID string) ([]*model.Task, error) {
+	if tool != "assign" {
+		switch t.Status {
+		case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked:
+		default:
+			return nil, model.Conflict("cannot reassign a %s task", t.Status)
+		}
+		return nil, leaderMayUnblock(t)
+	}
+	if t.Status != model.StatusReady {
+		return nil, model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
+	}
+	overlaps, err := b.pathConflicts(tx, t, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
+		return nil, model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
+	}
+	return overlaps, nil
+}
+
+func (b *Board) setAssignee(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, ag *model.Agent, reason string, out **model.Task) error {
+	agentID := ag.ID
+	if ag.Role != t.Role {
+		return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
+	}
+	from := t.Status
+	overlaps, err := b.assignable(tx, tool, t, agentID)
+	if err != nil {
+		return err
+	}
+	if deref(t.Assignee) != agentID {
+		if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
+			return err
+		}
+	}
+	b.endHeldLease(w, t)
+	t.Assignee, t.BlockedReason = &agentID, nil
+	if from == model.StatusChangesRequested {
+		if err := b.saveTask(tx, w, t); err != nil {
+			return err
+		}
+		*out = t
+		if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
+			return err
+		}
+		return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
+	}
+	if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, out); err != nil {
+		return err
+	}
+	if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
+		return err
+	}
+	if len(overlaps) > 0 {
+		return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
+	}
+	return nil
 }
 
 func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {

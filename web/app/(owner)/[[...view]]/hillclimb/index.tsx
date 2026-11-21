@@ -5,7 +5,9 @@ import { api, label, useResource, useSubmit, value } from "../../../../lib/clien
 import type { HillclimbJob, HillclimbPoint, HillclimbSeries } from "../../../../lib/hillclimb-types";
 import { EntityLink, Feedback } from "../shared/components";
 import { EmptyState, ResourceState } from "../shared/states";
+import { useLive } from "../shared/live";
 import { PageShell } from "../shell";
+import { AttemptList, formatValue } from "./attempts";
 
 function CreateJobForm({ created }: { created: (job: HillclimbJob) => void }) {
   const form = useSubmit();
@@ -42,7 +44,6 @@ function CreateJobForm({ created }: { created: (job: HillclimbJob) => void }) {
 const chart = { width: 720, height: 300, left: 56, right: 16, top: 16, bottom: 32 };
 const innerWidth = chart.width - chart.left - chart.right;
 const innerHeight = chart.height - chart.top - chart.bottom;
-const formatValue = (amount: number) => Number(amount.toPrecision(4)).toString();
 
 function LossChart({ job, points }: { job: HillclimbJob; points: HillclimbPoint[] }) {
   const plotted = points.filter((point): point is HillclimbPoint & { value: number } => point.value !== null);
@@ -59,6 +60,7 @@ function LossChart({ job, points }: { job: HillclimbJob; points: HillclimbPoint[
   const x = (n: number) => chart.left + (points.length > 1 ? ((n - 1) / (points.length - 1)) * innerWidth : innerWidth / 2);
   const y = (amount: number) => chart.top + (1 - (amount - low) / (high - low)) * innerHeight;
   const best = plotted.find((point) => point.attempt_id === job.best_attempt_id);
+  const frontier = plotted.filter((point) => point.best !== null).map((point) => `${x(point.n).toFixed(1)},${y(point.best!).toFixed(1)}`).join(" ");
   const line = plotted.map((point) => `${x(point.n).toFixed(1)},${y(point.value).toFixed(1)}`).join(" ");
 
   return <svg className="hillclimb-chart" viewBox={`0 0 ${chart.width} ${chart.height}`} role="img" aria-label={`${job.id} attempts over time`}>
@@ -72,6 +74,7 @@ function LossChart({ job, points }: { job: HillclimbJob; points: HillclimbPoint[
       <text className="target-label" x={chart.left + innerWidth} y={y(job.target) - 6} textAnchor="end">target {formatValue(job.target)}</text>
     </>}
     <polyline className="series" points={line} />
+    <polyline className="frontier" points={frontier} />
     {plotted.map((point) => <circle key={point.attempt_id} className="point" cx={x(point.n)} cy={y(point.value)} r={3.5}>
       <title>#{point.n} {point.agent_id}: {formatValue(point.value)}</title>
     </circle>)}
@@ -82,11 +85,12 @@ function LossChart({ job, points }: { job: HillclimbJob; points: HillclimbPoint[
 }
 
 function HillclimbView() {
-  const jobs = useResource<{ jobs: HillclimbJob[] }>("hillclimb/jobs", 0);
+  const { revisions } = useLive("hillclimb");
+  const jobs = useResource<{ jobs: HillclimbJob[] }>("hillclimb/jobs", revisions.metrics);
   const [selected, setSelected] = useState<string>();
   const [showForm, setShowForm] = useState(false);
   const active = selected ?? jobs.data?.jobs[0]?.id;
-  const series = useResource<HillclimbSeries>(active ? `hillclimb/jobs/${encodeURIComponent(active)}/series` : null, 0);
+  const series = useResource<HillclimbSeries>(active ? `hillclimb/jobs/${encodeURIComponent(active)}/series` : null, revisions.metrics);
   const current = series.data?.job.id === active ? series.data : undefined;
 
   return <>
@@ -116,6 +120,7 @@ function HillclimbView() {
         {current && <span className="meta">{current.job.metric_cmd} · since best {current.job.since_best}</span>}</div>
       <ResourceState error={series.error} loading={!current} retry={series.refresh} rows={4} />
       {current && <LossChart job={current.job} points={current.points} />}
+      {current && <AttemptList points={current.points} />}
     </section>}
   </>;
 }

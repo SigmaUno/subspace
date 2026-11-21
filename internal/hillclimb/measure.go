@@ -9,6 +9,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -18,10 +19,17 @@ type Runner interface {
 	Run(ctx context.Context, repo, branch, cmd string) (string, error)
 }
 
+const (
+	Topic        = "hillclimb"
+	EventUpdated = "hillclimb.updated"
+	EventAttempt = "hillclimb.attempt"
+)
+
 type Measurer struct {
 	Store  Store
 	Runner Runner
 	Now    func() time.Time
+	Pub    events.Publisher
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -31,12 +39,29 @@ func NewMeasurer(s Store, r Runner) *Measurer {
 	return &Measurer{Store: s, Runner: r, Now: time.Now, inflight: map[string]int{}}
 }
 
+type AttemptEvent struct {
+	JobID   string `json:"job_id"`
+	BriefID string `json:"brief_id"`
+	Status  string `json:"status"`
+	Point
+}
+
+func (m *Measurer) publish(j Job, typ string, data any) {
+	if m.Pub != nil {
+		m.Pub.Publish([]string{Topic, "brief:" + j.BriefID}, typ, data)
+	}
+}
+
 func (m *Measurer) CreateJob(j *Job) error {
 	if err := j.Validate(); err != nil {
 		return err
 	}
 	j.CreatedAt = m.Now().UTC()
-	return m.Store.CreateJob(j)
+	if err := m.Store.CreateJob(j); err != nil {
+		return err
+	}
+	m.publish(*j, EventUpdated, *j)
+	return nil
 }
 
 func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (*Attempt, *Job, error) {
@@ -79,6 +104,10 @@ func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (
 	if err := m.Store.UpdateJob(j); err != nil {
 		return a, nil, err
 	}
+	m.publish(*j, EventAttempt, AttemptEvent{JobID: j.ID, BriefID: j.BriefID, Status: a.Status, Point: Point{
+		N: j.Attempts, AttemptID: a.ID, AgentID: a.AgentID, Branch: a.Branch, Value: a.Value, Best: j.Best, MeasuredAt: a.MeasuredAt,
+	}})
+	m.publish(*j, EventUpdated, *j)
 	return a, j, nil
 }
 

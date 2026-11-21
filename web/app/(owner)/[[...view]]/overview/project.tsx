@@ -84,7 +84,7 @@ export function SwarmProject({ id, architecture, revisions, recent, openThread }
             <AutopilotPanel revision={revisions.board} spawnRevision={revisions.agents} />
             <div className="project-detail-grid">
               <CapacitySummary revision={revisions.capacity} />
-              <Metrics briefID={id} knownJobs={brief.hillclimb_jobs} revision={revisions.metrics} />
+              <Metrics briefID={id} revision={revisions.metrics} />
             </div>
           </>}
         </div>

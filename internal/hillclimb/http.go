@@ -3,6 +3,7 @@ package hillclimb
 import (
 	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/SigmaUno/subspace/internal/model"
 )
@@ -32,11 +33,14 @@ type createReq struct {
 	PlateauN  int      `json:"plateau_n"`
 }
 
-func (h *Handler) list(w http.ResponseWriter, _ *http.Request) {
+func (h *Handler) list(w http.ResponseWriter, r *http.Request) {
 	js, err := h.M.Store.ListJobs()
 	if err != nil {
 		fail(w, err)
 		return
+	}
+	if brief := r.URL.Query().Get("brief_id"); brief != "" {
+		js = slices.DeleteFunc(js, func(j Job) bool { return j.BriefID != brief })
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": js})
 }

@@ -13675,7 +13675,15 @@
     "/api/v1/hillclimb/jobs": {
       "get": {
         "operationId": "getHillclimbJobs",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

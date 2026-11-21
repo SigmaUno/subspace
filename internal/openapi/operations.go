@@ -193,7 +193,7 @@ var operations = []Op{
 	get("/api/v1/task-templates", "List task templates", list[prompts.Template]("templates")),
 
 	post("/api/v1/hillclimb/jobs", "Create a hill-climb job", HillclimbCreate{}, hillclimb.Job{}).S(created),
-	get("/api/v1/hillclimb/jobs", "List hill-climb jobs", list[hillclimb.Job]("jobs")),
+	get("/api/v1/hillclimb/jobs", "List hill-climb jobs", list[hillclimb.Job]("jobs")).Q("brief_id"),
 	get("/api/v1/hillclimb/jobs/{id}/series", "Attempts of a hill-climb job", obj("job", hillclimb.Job{}, "points", []hillclimb.Point{})),
 
 	post("/api/v1/artifacts", "Upload an artifact (multipart)", nil, artifacts.Artifact{}).Body(mediaMultipt, ArtifactUpload{}).Q("scope name").S(created),

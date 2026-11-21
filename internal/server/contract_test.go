@@ -298,6 +298,7 @@ func (e *env) contractEmitAll() {
 	q := e.must(wk, "ask_owner", map[string]any{"task_id": ids[0], "question": "which?"})["question"].(map[string]any)
 	e.restWant(200, "POST", "/api/v1/questions/"+q["id"].(string)+"/answer", map[string]any{"answer": "a"})
 	e.restWant(200, "PUT", "/api/v1/capacity", map[string]any{"global_max_agents": 300, "limits": []any{}})
+	e.restWant(201, "POST", "/api/v1/hillclimb/jobs", map[string]any{"brief_id": bid, "repo": "o/r", "metric_cmd": "make bench", "direction": "min"})
 	e.must(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "claude-code", "model": "m", "n": 1})
 	e.must(wk, "update_status", map[string]any{"task_id": ids[0], "status": "in_progress", "cost_eur": 0.9})
 	e.restWant(200, "PUT", "/api/v1/limits", map[string]any{"daily_cost_eur": 1})

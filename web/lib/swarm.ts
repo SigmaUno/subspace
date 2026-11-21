@@ -32,26 +32,3 @@ export interface Conversation {
   id: string;
   messages: Message[];
 }
-
-export interface HillclimbJob {
-  id: string;
-  title?: string;
-  metric: string;
-  direction: "min" | "max";
-  status: string;
-  stop_reason?: string;
-  target?: number;
-}
-
-export interface Attempt {
-  id: string;
-  value: number | null;
-  branch?: string;
-  branch_url?: string;
-  created_at: string;
-}
-
-export interface Series {
-  job?: HillclimbJob;
-  attempts: Attempt[];
-}

@@ -1,10 +1,17 @@
 package mcp_test
 
 import (
+	"bufio"
+	"context"
 	"encoding/json"
+	"fmt"
+	"net/http"
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -68,6 +75,39 @@ func TestMeasureToolOverMCP(t *testing.T) {
 	pushEval(t, work, bare, branch+"-v2", "0.3")
 	pushEval(t, work, bare, "main", "0.01")
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	req, _ := http.NewRequestWithContext(ctx, "GET", e.TS.URL+"/api/v1/events?topics=brief:"+br["id"].(string), nil)
+	req.Header.Set("Authorization", "Bearer "+servertest.OwnerToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	var (
+		mu   sync.Mutex
+		seen []string
+	)
+	go func() {
+		sc := bufio.NewScanner(resp.Body)
+		var typ string
+		for sc.Scan() {
+			line := sc.Text()
+			if v, ok := strings.CutPrefix(line, "event: "); ok {
+				typ = v
+			}
+			if v, ok := strings.CutPrefix(line, "data: "); ok && strings.HasPrefix(typ, "hillclimb.") {
+				var ev struct {
+					Data map[string]any `json:"data"`
+				}
+				_ = json.Unmarshal([]byte(v), &ev)
+				mu.Lock()
+				seen = append(seen, fmt.Sprintf("%s %v %v %v", typ, ev.Data["attempts"], ev.Data["value"], ev.Data["best"]))
+				mu.Unlock()
+			}
+		}
+	}()
+
 	code, job := e.REST("POST", "/api/v1/hillclimb/jobs", map[string]any{
 		"brief_id": br["id"], "repo": "o/r", "metric_cmd": "sh eval.sh", "direction": "min", "budget": 2})
 	if code != 201 {
@@ -101,6 +141,33 @@ func TestMeasureToolOverMCP(t *testing.T) {
 
 	if code, s := e.REST("GET", "/api/v1/hillclimb/jobs/"+jid+"/series", nil); code != 200 || len(s["points"].([]any)) != 2 {
 		t.Fatalf("series: %d %v", code, s)
+	}
+	if code, other := e.REST("POST", "/api/v1/hillclimb/jobs", map[string]any{
+		"brief_id": "B-other", "repo": "o/r", "metric_cmd": "sh eval.sh", "direction": "max"}); code != 201 {
+		t.Fatalf("create other job: %d %v", code, other)
+	}
+	for brief, want := range map[string]int{br["id"].(string): 1, "B-other": 1, "B-none": 0, "": 2} {
+		code, l := e.REST("GET", "/api/v1/hillclimb/jobs?brief_id="+brief, nil)
+		if code != 200 || len(l["jobs"].([]any)) != want {
+			t.Fatalf("jobs for %q: %d %v", brief, code, l)
+		}
+	}
+	want := []string{
+		"hillclimb.updated 0 <nil> <nil>",
+		"hillclimb.attempt <nil> 0.8 0.8", "hillclimb.updated 1 <nil> 0.8",
+		"hillclimb.attempt <nil> 0.3 0.3", "hillclimb.updated 2 <nil> 0.3",
+	}
+	var got []string
+	for deadline := time.Now().Add(5 * time.Second); time.Now().Before(deadline); time.Sleep(10 * time.Millisecond) {
+		mu.Lock()
+		got = slices.Clone(seen)
+		mu.Unlock()
+		if len(got) >= len(want) {
+			break
+		}
+	}
+	if !slices.Equal(got, want) {
+		t.Fatalf("hillclimb events = %q, want %q", got, want)
 	}
 	_ = e.Srv.Close()
 	e2 := servertest.Start(t, cfg)

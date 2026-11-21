@@ -197,11 +197,12 @@ func TestSSEReplayHonorsTopics(t *testing.T) {
 
 func TestSSEClientOfPreviousProcessGetsOneResyncThenOnlyNewEvents(t *testing.T) {
 	before := servertest.New(t)
+	start := hubSeq(before)
 	for n := 0; n < 30; n++ {
 		before.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": n})
 	}
 	var lastID string
-	old := dialSSE(t, before, "topics=board", "0", false)
+	old := dialSSE(t, before, "topics=board", start, false)
 	for f := old.next(t); ; f = old.next(t) {
 		if f.event == "probe.updated" {
 			lastID = f.id
@@ -222,8 +223,8 @@ func TestSSEClientOfPreviousProcessGetsOneResyncThenOnlyNewEvents(t *testing.T) 
 	if hello.event != "hello" || resync.event != "resync" || resync.id != hello.id {
 		t.Fatalf("hello %+v resync %+v", hello, resync)
 	}
-	if id, _ := strconv.Atoi(resync.id); id >= oldID {
-		t.Fatalf("restarted sequence %d should be below the client's %d", id, oldID)
+	if id, _ := strconv.Atoi(resync.id); id <= oldID {
+		t.Fatalf("restarted sequence %d should be above the client's %d", id, oldID)
 	}
 
 	after.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": 1001})

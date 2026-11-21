@@ -30,7 +30,10 @@ type options struct {
 	minScore float64
 	list     bool
 	verbose  bool
+	equiv    map[string]bool
 }
+
+const defaultEquivalent = "cmd/subspace-mutate/equivalent.txt"
 
 func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
@@ -48,7 +51,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		_, _ = fmt.Fprintln(stderr, "subspace-mutate:", err)
 		return 2
 	}
-	ms, err := mutants(o)
+	ms, skipped, err := mutants(o)
 	if err != nil {
 		_, _ = fmt.Fprintln(stderr, "subspace-mutate:", err)
 		return 2
@@ -79,6 +82,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 		return 2
 	}
 	score := report(stdout, outs)
+	_, _ = fmt.Fprintf(stdout, "%d known equivalent mutants skipped\n", skipped)
 	if score < o.minScore {
 		_, _ = fmt.Fprintf(stderr, "subspace-mutate: score %.1f%% below minimum %.1f%%\n", score, o.minScore)
 		return 1
@@ -100,6 +104,7 @@ func parseOptions(args []string, stderr io.Writer) (*options, error) {
 	fs.Float64Var(&o.minScore, "min-score", 0, "exit 1 when the mutation score (percent) is below this")
 	fs.BoolVar(&o.list, "list", false, "list mutants without running tests")
 	fs.BoolVar(&o.verbose, "v", false, "print each mutant result")
+	equiv := fs.String("equivalent", defaultEquivalent, "file of known equivalent mutants (path<TAB>source line<TAB>mutation per line), relative to the module root")
 	if err := fs.Parse(args); err != nil {
 		return nil, err
 	}
@@ -136,7 +141,34 @@ func parseOptions(args []string, stderr io.Writer) (*options, error) {
 		return nil, err
 	}
 	o.root = root
+	explicit := false
+	fs.Visit(func(f *flag.Flag) { explicit = explicit || f.Name == "equivalent" })
+	if o.equiv, err = loadEquivalent(filepath.Join(o.root, *equiv), explicit); err != nil {
+		return nil, err
+	}
 	return o, nil
+}
+
+func loadEquivalent(path string, required bool) (map[string]bool, error) {
+	raw, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
+	if errors.Is(err, os.ErrNotExist) && !required {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]bool{}
+	for i, line := range strings.Split(string(raw), "\n") {
+		if strings.TrimSpace(line) == "" {
+			continue
+		}
+		parts := strings.Split(line, "\t")
+		if len(parts) != 3 {
+			return nil, fmt.Errorf("%s:%d: want path<TAB>source line<TAB>mutation", path, i+1)
+		}
+		out[parts[0]+"\t"+strings.TrimSpace(parts[1])+"\t"+parts[2]] = true
+	}
+	return out, nil
 }
 
 func moduleRoot() (string, error) {
@@ -156,15 +188,20 @@ func moduleRoot() (string, error) {
 	}
 }
 
-func mutants(o *options) ([]*mutant, error) {
+func mutants(o *options) ([]*mutant, int, error) {
 	files, err := loadPackages(o.root, o.pkgs, o.files)
 	if err != nil {
-		return nil, err
+		return nil, 0, err
 	}
 	type ref struct{ f, s int }
 	var refs []ref
+	skipped := 0
 	for fi, f := range files {
 		for si := range f.sites {
+			if o.equiv[f.key(si)] {
+				skipped++
+				continue
+			}
 			refs = append(refs, ref{fi, si})
 		}
 	}
@@ -183,11 +220,11 @@ func mutants(o *options) ([]*mutant, error) {
 	for _, r := range refs {
 		m, err := files[r.f].render(r.s)
 		if err != nil {
-			return nil, err
+			return nil, 0, err
 		}
 		out = append(out, m)
 	}
-	return out, nil
+	return out, skipped, nil
 }
 
 type tally struct{ killed, survived, timedOut, invalid int }
@@ -231,7 +268,7 @@ func report(w io.Writer, outs []outcome) float64 {
 		t.add(o.status)
 		total.add(o.status)
 		if o.status == survived {
-			_, _ = fmt.Fprintf(w, "SURVIVED %s\n", o.m)
+			_, _ = fmt.Fprintf(w, "SURVIVED %s\t%s\n", o.m, o.m.Code)
 		}
 	}
 	sort.Strings(names)

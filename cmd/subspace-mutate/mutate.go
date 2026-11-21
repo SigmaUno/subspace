@@ -26,6 +26,7 @@ type mutant struct {
 	Rel  string
 	Line int
 	Desc string
+	Code string
 	src  []byte
 }
 
@@ -42,7 +43,21 @@ type sourceFile struct {
 	pkg, rel string
 	fset     *token.FileSet
 	file     *ast.File
+	lines    []string
 	sites    []site
+}
+
+func (s *sourceFile) site(i int) (line int, code string) {
+	line = s.fset.Position(s.sites[i].pos).Line
+	if line > 0 && line <= len(s.lines) {
+		code = strings.TrimSpace(s.lines[line-1])
+	}
+	return line, code
+}
+
+func (s *sourceFile) key(i int) string {
+	_, code := s.site(i)
+	return s.rel + "\t" + code + "\t" + s.sites[i].desc
 }
 
 func (s *sourceFile) render(i int) (*mutant, error) {
@@ -54,7 +69,8 @@ func (s *sourceFile) render(i int) (*mutant, error) {
 	if err := cfg.Fprint(&buf, s.fset, s.file); err != nil {
 		return nil, err
 	}
-	return &mutant{Pkg: s.pkg, Rel: s.rel, Line: s.fset.Position(st.pos).Line, Desc: st.desc, src: buf.Bytes()}, nil
+	line, code := s.site(i)
+	return &mutant{Pkg: s.pkg, Rel: s.rel, Line: line, Desc: st.desc, Code: code, src: buf.Bytes()}, nil
 }
 
 type listedPackage struct {
@@ -111,6 +127,7 @@ func parsePackage(root string, lp listedPackage, exports map[string]string, filt
 	pkg := filepath.ToSlash(rel)
 	fset := token.NewFileSet()
 	files := make([]*ast.File, 0, len(lp.GoFiles))
+	lines := make([][]string, 0, len(lp.GoFiles))
 	for _, name := range lp.GoFiles {
 		src, err := os.ReadFile(filepath.Join(lp.Dir, name)) //nolint:gosec // listed by go list
 		if err != nil {
@@ -121,6 +138,7 @@ func parsePackage(root string, lp listedPackage, exports map[string]string, filt
 			return nil, err
 		}
 		files = append(files, f)
+		lines = append(lines, strings.Split(string(src), "\n"))
 	}
 	info := &types.Info{Types: map[ast.Expr]types.TypeAndValue{}}
 	lookup := func(path string) (io.ReadCloser, error) {
@@ -143,7 +161,7 @@ func parsePackage(root string, lp listedPackage, exports map[string]string, filt
 		if ast.IsGenerated(f) {
 			continue
 		}
-		out = append(out, &sourceFile{pkg: pkg, rel: rel, fset: fset, file: f, sites: collect(f, info)})
+		out = append(out, &sourceFile{pkg: pkg, rel: rel, fset: fset, file: f, lines: lines[i], sites: collect(f, info)})
 	}
 	return out, nil
 }

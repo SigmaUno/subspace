@@ -29,7 +29,7 @@ func TestFixtureMutants(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ms, err := mutants(o)
+	ms, _, err := mutants(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -96,16 +96,16 @@ func TestFixtureMutants(t *testing.T) {
 
 func TestSampleIsDeterministicSubset(t *testing.T) {
 	o := fixtureOptions(t)
-	all, err := mutants(o)
+	all, _, err := mutants(o)
 	if err != nil {
 		t.Fatal(err)
 	}
 	o.sample, o.seed = 5, 7
-	a, err := mutants(o)
+	a, _, err := mutants(o)
 	if err != nil {
 		t.Fatal(err)
 	}
-	b, err := mutants(o)
+	b, _, err := mutants(o)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -135,11 +135,39 @@ func TestLogCallsAreNotMutated(t *testing.T) {
 	}
 	write("go.mod", "module m\n\ngo 1.27\n")
 	write("m.go", "package m\n\nimport \"log/slog\"\n\nfunc F(n int) {\n\tslog.Info(\"n\", \"big\", n > 10)\n}\n")
-	ms, err := mutants(&options{root: dir, pkgs: []string{"."}})
+	ms, _, err := mutants(&options{root: dir, pkgs: []string{"."}})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(ms) != 0 {
 		t.Fatalf("got mutants inside a log call: %v", ms)
+	}
+}
+
+func TestKnownEquivalentMutantsSkipped(t *testing.T) {
+	o := fixtureOptions(t)
+	path := filepath.Join(t.TempDir(), "equivalent.txt")
+	entry := "fixture.go\t  return n > 0\treplace > with >=\nfixture.go\treturn n > 0\tchange constant 0 to 1\n"
+	if err := os.WriteFile(path, []byte(entry), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	var err error
+	if o.equiv, err = loadEquivalent(path, true); err != nil {
+		t.Fatal(err)
+	}
+	ms, skipped, err := mutants(o)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if skipped != 2 {
+		t.Fatalf("skipped %d, want 2", skipped)
+	}
+	for _, m := range ms {
+		if m.Line == 8 && m.Desc != "replace > with <=" {
+			t.Fatalf("equivalent mutant not skipped: %s", m)
+		}
+	}
+	if _, err := loadEquivalent(filepath.Join(t.TempDir(), "missing.txt"), true); err == nil {
+		t.Fatal("missing explicit file accepted")
 	}
 }

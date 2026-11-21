@@ -61,7 +61,7 @@ func Decide(set []*Compiled, action string, base Facts, now time.Time, overrides
 			res.Steps += steps
 			if err != nil {
 				res.Errors = append(res.Errors, fmt.Sprintf("%s/%s: %v", c.Doc.Name, r.ID, err))
-				continue
+				ok = true
 			}
 			for _, name := range r.expr.Facts {
 				res.Facts[name] = f.Fact(name).Any()

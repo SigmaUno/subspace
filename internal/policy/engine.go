@@ -2,6 +2,9 @@ package policy
 
 import (
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"sync"
@@ -74,7 +77,20 @@ func toRequest(br *board.PolicyRequest) *Request {
 }
 
 func holdKey(r *Request) string {
-	return strings.Join([]string{r.Action, r.Actor.ID, r.ref(), r.target(), r.As}, "|")
+	return strings.Join([]string{r.Action, r.Actor.ID, r.ref(), r.target(), r.As, callDigest(r)}, "|")
+}
+
+func callDigest(r *Request) string {
+	call := struct {
+		Args map[string]string `json:"args"`
+		Task any               `json:"task,omitempty"`
+	}{Args: r.Args}
+	if t := r.Task; t != nil && (r.Action == ActCreateTask || r.Action == ActUpdateTask) {
+		call.Task = []any{t.Title, t.Spec, t.Repo, t.Role, t.Paths, t.AcceptanceCriteria, t.DependsOn, t.Budget, t.Priority, t.ComponentID}
+	}
+	b, _ := json.Marshal(call)
+	sum := sha256.Sum256(b)
+	return hex.EncodeToString(sum[:16])
 }
 
 func (s *Service) Evaluate(tx store.Tx, breq *board.PolicyRequest) (*board.PolicyVerdict, error) {

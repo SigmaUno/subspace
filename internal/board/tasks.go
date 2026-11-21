@@ -662,6 +662,9 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		}
 		to := model.StatusSubmitted
 		if !br.CrossReview {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
+			}
 			to = model.StatusApproved
 			pending := *t
 			pending.PRURL = strp(in.PRURL)
@@ -671,11 +674,6 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 					return qerr
 				}
 				to, held = model.StatusSubmitted, ge
-			}
-		}
-		if to == model.StatusApproved {
-			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
-				return err
 			}
 		}
 		b.endLease(w, t)

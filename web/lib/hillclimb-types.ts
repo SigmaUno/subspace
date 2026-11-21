@@ -1,3 +1,5 @@
+import type { HillclimbPoint } from "./generated-types";
+
 export interface HillclimbJob {
   id: string;
   brief_id: string;
@@ -16,15 +18,7 @@ export interface HillclimbJob {
   created_at: string;
 }
 
-export interface HillclimbPoint {
-  n: number;
-  attempt_id: number;
-  agent_id: string;
-  branch: string;
-  value: number | null;
-  best: number | null;
-  measured_at: string;
-}
+export type { HillclimbPoint };
 
 export interface HillclimbSeries {
   job: HillclimbJob;

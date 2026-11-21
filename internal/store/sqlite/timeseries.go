@@ -46,7 +46,7 @@ func (t *tx) Timeseries(q store.TimeseriesQuery) ([]store.TimeseriesPoint, error
 	if !ok {
 		return nil, fmt.Errorf("unknown metric %q", q.Metric)
 	}
-	rows, err := t.q.QueryContext(t.ctx, sql, q.Since.UnixMilli(), q.Until.UnixMilli(), q.BriefID, q.Bucket.Milliseconds())
+	rows, err := t.q.QueryContext(t.ctx, sql, q.SinceMilli(), q.UntilMilli(), q.BriefID, q.Bucket.Milliseconds())
 	if err != nil {
 		return nil, err
 	}

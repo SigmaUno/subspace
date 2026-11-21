@@ -3,6 +3,21 @@ import { apiError, browserMutation, ownerCookie, ownerStatus, upstream } from ".
 
 type Context = RouteContext<"/api/v1/[...path]">;
 
+const requestHeaders = ["range", "if-range", "if-none-match", "if-modified-since"];
+const responseHeaders = [
+  "content-type",
+  "content-disposition",
+  "content-length",
+  "content-range",
+  "accept-ranges",
+  "etag",
+  "last-modified",
+  "content-security-policy",
+  "x-content-type-options",
+  "www-authenticate",
+  "retry-after",
+];
+
 async function forward(request: NextRequest, context: Context) {
   const session = request.cookies.get(ownerCookie)?.value;
   const bearer = request.headers.get("authorization")?.match(/^Bearer ([^\s,]+)$/i)?.[1];
@@ -20,14 +35,21 @@ async function forward(request: NextRequest, context: Context) {
   }
 
   const events = path.length === 1 && path[0] === "events";
+  const artifact = readOnly && path[0] === "artifacts" && path.length === 2;
   const headers = new Headers({
-    Accept: events ? "text/event-stream" : "application/json",
+    Accept: events ? "text/event-stream" : artifact ? "*/*" : "application/json",
     "Accept-Encoding": "identity",
   });
   const contentType = request.headers.get("content-type");
   if (!readOnly && contentType) headers.set("Content-Type", contentType);
   const lastEventID = request.headers.get("last-event-id");
   if (events && lastEventID) headers.set("Last-Event-ID", lastEventID);
+  if (readOnly) {
+    for (const key of requestHeaders) {
+      const value = request.headers.get(key);
+      if (value) headers.set(key, value);
+    }
+  }
 
   try {
     if (!(readOnly && path.length === 1 && path[0] === "state")) {
@@ -38,16 +60,24 @@ async function forward(request: NextRequest, context: Context) {
     const response = await upstream(`/api/v1/${path.join("/")}${request.nextUrl.search}`, token, {
       method: request.method,
       headers,
-      body: readOnly ? undefined : await request.text(),
+      body: readOnly ? undefined : request.body,
+      duplex: "half",
       signal: request.signal,
-    });
-    const responseHeaders = new Headers({ "Cache-Control": "no-store" });
-    for (const key of ["content-type", "www-authenticate", "retry-after"]) {
+    } as RequestInit & { duplex: "half" });
+    const result = new Headers({ "Cache-Control": "no-store" });
+    for (const key of responseHeaders) {
       const value = response.headers.get(key);
-      if (value) responseHeaders.set(key, value);
+      if (value) result.set(key, value);
     }
-    if (events) responseHeaders.set("X-Accel-Buffering", "no");
-    return new Response(response.body, { status: response.status, headers: responseHeaders });
+    if (events) result.set("X-Accel-Buffering", "no");
+    if (artifact) {
+      result.set("Content-Security-Policy", "sandbox");
+      result.set("X-Content-Type-Options", "nosniff");
+      if (response.ok && !/^attachment\b/i.test(result.get("content-disposition") ?? "")) {
+        result.set("Content-Disposition", "attachment");
+      }
+    }
+    return new Response(response.body, { status: response.status, headers: result });
   } catch {
     return apiError(502, "Subspace API is unavailable.");
   }

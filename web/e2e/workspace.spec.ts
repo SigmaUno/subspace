@@ -1,3 +1,4 @@
+import { createHash, randomBytes } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { apiURL, expect, owner, register, signIn, test, uniqueID } from "./subspace";
 
@@ -104,4 +105,48 @@ test("files upload, list, download and delete round trip", async ({ page }) => {
   await page.getByRole("alertdialog", { name: `Delete ${name}?` }).getByRole("button", { name: "Delete" }).click();
   await expect(row).toHaveCount(0);
   await expect(page.getByText("No files in this scope.")).toBeVisible();
+});
+
+test("binary artifacts survive the proxy intact and are served sandboxed", async ({ page }) => {
+  const agent = await register("bin", "worker", "opencode", "deepseek");
+  const name = `${uniqueID("blob")}.html`;
+  const content = randomBytes(1024 * 1024);
+  const sha256 = createHash("sha256").update(content).digest("hex");
+
+  await signIn(page);
+  await page.goto("/files");
+  await page.getByRole("combobox", { name: "Agent", exact: true }).selectOption(agent.id);
+  await page.getByLabel("Files to upload").setInputFiles({ name, mimeType: "text/html", buffer: content });
+  const row = page.getByRole("row").filter({ hasText: name });
+  await expect(row).toBeVisible();
+
+  const { artifacts } = await owner<{ artifacts: { id: string; sha256: string; size: number }[] }>(`artifacts?scope=agent:${agent.id}`);
+  expect(artifacts).toHaveLength(1);
+  const [artifact] = artifacts;
+  expect(artifact.size).toBe(content.length);
+  expect(artifact.sha256).toBe(sha256);
+
+  const downloading = page.waitForEvent("download");
+  await row.getByRole("link", { name: "Download" }).click();
+  const download = await downloading;
+  const downloaded = await readFile(await download.path());
+  expect(createHash("sha256").update(downloaded).digest("hex")).toBe(artifact.sha256);
+
+  const path = `/api/v1/artifacts/${artifact.id}`;
+  const full = await page.request.get(path);
+  expect(full.status()).toBe(200);
+  expect(full.headers()["content-security-policy"]).toBe("sandbox");
+  expect(full.headers()["content-disposition"]).toMatch(/^attachment/);
+  expect(full.headers()["x-content-type-options"]).toBe("nosniff");
+  expect(full.headers()["etag"]).toBe(`"${artifact.sha256}"`);
+  expect(full.headers()["accept-ranges"]).toBe("bytes");
+
+  const ranged = await page.request.get(path, { headers: { Range: "bytes=100-199" } });
+  expect(ranged.status()).toBe(206);
+  expect(ranged.headers()["content-range"]).toBe(`bytes 100-199/${content.length}`);
+  expect(ranged.headers()["content-security-policy"]).toBe("sandbox");
+  expect(Buffer.from(await ranged.body()).equals(content.subarray(100, 200))).toBe(true);
+
+  const cached = await page.request.get(path, { headers: { "If-None-Match": `"${artifact.sha256}"` } });
+  expect(cached.status()).toBe(304);
 });

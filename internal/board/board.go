@@ -291,7 +291,7 @@ func (b *Board) overlay(t *model.Task) *model.Task {
 	return &cp
 }
 
-func (b *Board) overlayAgent(a *model.Agent) *model.Agent {
+func (b *Board) OverlayAgent(a *model.Agent) *model.Agent {
 	b.mu.Lock()
 	s, ok := b.seen[a.ID]
 	b.mu.Unlock()

@@ -35,7 +35,7 @@ Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token p
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
-In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s `GET /api/v1/me` before forwarding requests to protected handlers. Go also authenticates each protected request.
+In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s `GET /api/v1/me` before forwarding requests to protected handlers. Go also authenticates each protected request. Request bodies are streamed unchanged (binary multipart uploads stay intact). `GET` forwards `Range`, `If-Range`, `If-None-Match` and `If-Modified-Since`; responses keep `Content-Disposition`, `Content-Length`, `Content-Range`, `Accept-Ranges`, `ETag`, `Last-Modified`, `Content-Security-Policy` and `X-Content-Type-Options`. `GET /api/v1/artifacts/{id}` through Next always carries `Content-Security-Policy: sandbox`, `X-Content-Type-Options: nosniff` and an `attachment` disposition.
 
 ## 2. Objects
 

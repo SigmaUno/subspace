@@ -8,7 +8,8 @@ import (
 )
 
 type StoreSource struct {
-	Store store.Store
+	Store   store.Store
+	Overlay func(*model.Agent) *model.Agent
 }
 
 func (s StoreSource) Snapshot(ctx context.Context) (*Snapshot, error) {
@@ -35,6 +36,11 @@ func (s StoreSource) Snapshot(ctx context.Context) (*Snapshot, error) {
 	})
 	if err != nil {
 		return nil, err
+	}
+	if s.Overlay != nil {
+		for i, a := range out.Agents {
+			out.Agents[i] = s.Overlay(a)
+		}
 	}
 	out.Extra = contributed(ctx, s.Store)
 	return &out, nil

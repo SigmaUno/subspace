@@ -112,7 +112,7 @@ func (b *Board) ListAgentsPage(ctx context.Context, role, status, cursor string,
 	err = b.read(ctx, func(tx store.Tx) error {
 		as, err := tx.ListAgents(store.AgentFilter{Role: role, Status: status, AfterID: after, Limit: probe(limit)})
 		for _, a := range as {
-			rows = append(rows, b.overlayAgent(a))
+			rows = append(rows, b.OverlayAgent(a))
 		}
 		return err
 	})

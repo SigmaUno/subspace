@@ -1,0 +1,15 @@
+{
+  "id": "r15-notfound-clean",
+  "title": "GET /api/v1/hillclimb/jobs/{id}",
+  "spec": "Add the single-job endpoint. Unknown ids return 404 not_found with the standard error body.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "an existing job is returned as JSON with status 200",
+    "an unknown id returns 404 with code not_found",
+    "an HTTP test through servertest covers both cases"
+  ],
+  "tests": {"passed": 52, "failed": 0},
+  "pr_title": "Single hillclimb job endpoint",
+  "pr_body": "Handler, route and servertest test.",
+  "defects": []
+}

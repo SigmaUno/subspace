@@ -1,0 +1,44 @@
+diff --git a/internal/prsync/checks.go b/internal/prsync/checks.go
+new file mode 100644
+--- /dev/null
++++ b/internal/prsync/checks.go
+@@ -0,0 +1,39 @@
++package prsync
++
++import (
++	"context"
++	"encoding/json"
++	"fmt"
++	"io"
++	"net/http"
++)
++
++type checkRun struct {
++	Name       string `json:"name"`
++	Status     string `json:"status"`
++	Conclusion string `json:"conclusion"`
++}
++
++func (c *githubClient) CheckRuns(ctx context.Context, repo, sha string) ([]checkRun, error) {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.api+"/repos/"+repo+"/commits/"+sha+"/check-runs", nil)
++	if err != nil {
++		return nil, err
++	}
++	c.auth(req)
++	resp, err := c.hc.Do(req)
++	if err != nil {
++		return nil, err
++	}
++	if resp.StatusCode != http.StatusOK {
++		return nil, fmt.Errorf("check runs: HTTP %d", resp.StatusCode)
++	}
++	defer func() { _ = resp.Body.Close() }()
++	var out struct {
++		CheckRuns []checkRun `json:"check_runs"`
++	}
++	if err := json.NewDecoder(io.LimitReader(resp.Body, 1<<20)).Decode(&out); err != nil {
++		return nil, err
++	}
++	return out.CheckRuns, nil
++}
++

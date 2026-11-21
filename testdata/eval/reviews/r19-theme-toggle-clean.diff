@@ -1,0 +1,56 @@
+diff --git a/lib/theme.ts b/lib/theme.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/theme.ts
+@@ -0,0 +1,20 @@
++export type Theme = "system" | "light" | "dark";
++
++export const THEME_KEY = "subspace.theme";
++const order: Theme[] = ["system", "light", "dark"];
++
++export function readTheme(storage: Pick<Storage, "getItem">): Theme {
++  const v = storage.getItem(THEME_KEY);
++  return order.includes(v as Theme) ? (v as Theme) : "system";
++}
++
++export function nextTheme(t: Theme): Theme {
++  return order[(order.indexOf(t) + 1) % order.length];
++}
++
++export function storeTheme(storage: Pick<Storage, "setItem">, t: Theme): void {
++  storage.setItem(THEME_KEY, t);
++}
++
++export const themeBootScript = `(function(){try{var t=localStorage.getItem("${THEME_KEY}");var d=t==="dark"||((t!=="light")&&matchMedia("(prefers-color-scheme: dark)").matches);document.documentElement.classList.toggle("dark",d)}catch(e){}})()`;
++
+diff --git a/lib/theme.test.ts b/lib/theme.test.ts
+new file mode 100644
+--- /dev/null
++++ b/lib/theme.test.ts
+@@ -0,0 +1,26 @@
++import { describe, expect, it } from "vitest";
++import { nextTheme, readTheme, storeTheme, THEME_KEY } from "./theme";
++
++function memStorage() {
++  const m = new Map<string, string>();
++  return { getItem: (k: string) => m.get(k) ?? null, setItem: (k: string, v: string) => void m.set(k, v) };
++}
++
++describe("theme", () => {
++  it("cycles system, light, dark", () => {
++    expect(nextTheme("system")).toBe("light");
++    expect(nextTheme("light")).toBe("dark");
++    expect(nextTheme("dark")).toBe("system");
++  });
++  it("stores under subspace.theme", () => {
++    const s = memStorage();
++    storeTheme(s, "dark");
++    expect(s.getItem(THEME_KEY)).toBe("dark");
++    expect(readTheme(s)).toBe("dark");
++  });
++  it("falls back to system", () => {
++    const s = memStorage();
++    s.setItem(THEME_KEY, "neon");
++    expect(readTheme(s)).toBe("system");
++  });
++});

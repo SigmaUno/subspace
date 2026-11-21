@@ -1,0 +1,22 @@
+diff --git a/internal/auth/log.go b/internal/auth/log.go
+new file mode 100644
+--- /dev/null
++++ b/internal/auth/log.go
+@@ -0,0 +1,17 @@
++package auth
++
++import (
++	"log/slog"
++	"net/http"
++	"strings"
++)
++
++func logFailure(log *slog.Logger, r *http.Request, addr, reason string) {
++	tok := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
++	log.Warn("mcp auth failed",
++		"addr", addr,
++		"reason", reason,
++		"token", tok,
++	)
++}
++

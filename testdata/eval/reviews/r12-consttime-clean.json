@@ -1,0 +1,15 @@
+{
+  "id": "r12-consttime-clean",
+  "title": "Compare owner tokens in constant time",
+  "spec": "Replace the string comparison of the owner token with a constant-time comparison of SHA-256 hashes.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "the owner token is compared with crypto/subtle on SHA-256 hashes",
+    "an empty configured token never matches",
+    "a test covers match, mismatch and empty token"
+  ],
+  "tests": {"passed": 12, "failed": 0},
+  "pr_title": "Constant-time owner token check",
+  "pr_body": "Uses subtle.ConstantTimeCompare on hashes.",
+  "defects": []
+}

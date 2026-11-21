@@ -1,0 +1,35 @@
+diff --git a/internal/notify/retry.go b/internal/notify/retry.go
+new file mode 100644
+--- /dev/null
++++ b/internal/notify/retry.go
+@@ -0,0 +1,30 @@
++package notify
++
++import (
++	"context"
++	"time"
++)
++
++const (
++	maxAttempts = 5
++	firstDelay  = 2 * time.Second
++	maxDelay    = 2 * time.Minute
++)
++
++func deliverWithRetry(ctx context.Context, send func(context.Context) (retry bool, err error)) error {
++	delay := firstDelay
++	var last error
++	for attempt := 1; attempt <= maxAttempts; attempt++ {
++		retry, err := send(ctx)
++		if err == nil {
++			return nil
++		}
++		last = err
++		if !retry || attempt == maxAttempts {
++			break
++		}
++		time.Sleep(delay)
++		delay *= 2
++	}
++	return last
++}

@@ -1,0 +1,16 @@
+{
+  "id": "r06-no-regression-test",
+  "title": "Fix lease expiry for paused agents",
+  "spec": "When pause_all is active the sweeper must not count lease expiries toward the poison threshold. Add a regression test that reproduces the bug.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "lease expiries during pause_all do not increment lease_expiries",
+    "a regression test reproduces the original bug and passes with the fix"
+  ],
+  "tests": {"passed": 120, "failed": 0},
+  "pr_title": "Do not count expiries while paused",
+  "pr_body": "One-line fix in the sweeper. Existing tests pass.",
+  "defects": [
+    {"file": "internal/board/sweeper.go", "match": "if !b.paused.Load()", "kind": "missing_regression_test", "note": "the fix has no regression test; the PR only changes the sweeper", "criterion": 1}
+  ]
+}

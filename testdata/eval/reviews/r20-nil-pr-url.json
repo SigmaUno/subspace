@@ -1,0 +1,16 @@
+{
+  "id": "r20-nil-pr-url",
+  "title": "Include PR links in the brief report",
+  "spec": "Each task row in GET /api/v1/briefs/{id}/report.md links to its PR when pr_url is set. Tasks without a PR (pr_url null) are listed without a link.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "tasks with pr_url are rendered as markdown links",
+    "tasks without a pr_url are rendered without a link and do not crash the report"
+  ],
+  "tests": {"passed": 33, "failed": 0},
+  "pr_title": "PR links in report.md",
+  "pr_body": "Small rendering change.",
+  "defects": [
+    {"file": "internal/report/markdown.go", "match": "*t.PRURL", "kind": "nil_dereference", "note": "PRURL is dereferenced without a nil check; a task without a PR panics", "criterion": 1}
+  ]
+}

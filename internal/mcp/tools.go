@@ -380,6 +380,7 @@ func NewRegistry(b *board.Board) *Registry {
 		})
 	RegisterArtifacts(r, b)
 	RegisterHelp(r, b)
+	RegisterLeaderInfo(r, b)
 	return r
 }
 

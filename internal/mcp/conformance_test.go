@@ -193,7 +193,8 @@ func toolMatrix() map[string][]string {
 		return out
 	}
 	return map[string][]string{
-		model.RoleLeader:   with("get_brief", "list_briefs", "propose_plan", "create_task", "update_task", "assign", "reassign", "board", "list_agents", "capacity", "request_spawn", "list_help_requests", "accept_split"),
+		model.RoleLeader: with("get_brief", "list_briefs", "propose_plan", "create_task", "update_task", "assign", "reassign", "board", "list_agents", "capacity", "request_spawn", "list_help_requests", "accept_split",
+			"get_forecast", "get_report", "search", "agent_stats", "list_decisions", "list_spawns", "get_components"),
 		model.RoleWorker:   with("claim_task", "release_task", "submit", "request_help", "report_blocker", "suggest_split"),
 		model.RoleTester:   with("claim_task", "release_task", "submit", "report_tests", "request_help", "report_blocker", "suggest_split"),
 		model.RoleReviewer: with("list_reviews", "review", "request_help", "suggest_split"),

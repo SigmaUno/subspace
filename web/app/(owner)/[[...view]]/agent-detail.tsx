@@ -8,6 +8,7 @@ import type { Agent, Connect, Message, Registration, Task } from "../../../lib/t
 import type { UsageSummary } from "../../../lib/usage-types";
 import { AgentQuotaPanel } from "./agent-quota";
 import { Clock, Feedback, Heartbeat, LoadMore } from "./components";
+import { InsightsPanel } from "./insights";
 import { useLive } from "./live";
 import { Secret } from "./operations";
 import { AgentTerminal } from "./terminal";
@@ -228,6 +229,7 @@ export function AgentDetailPage({ id }: { id: string }) {
         {(rotated ?? connect.data) && <ConnectPanel connect={(rotated ?? connect.data)!} rotated={!!rotated} dismiss={() => setRotated(null)} />}
         <Feedback error={connect.error} />
         <AgentQuotaPanel id={id} revision={revisions.agents + revisions.board} revoked={current.status === "revoked"} />
+        <InsightsPanel id={id} revision={revisions.agents + revisions.board + revisions.thread} />
         <AgentTerminal agent={id} />
         <AgentThread id={id} revision={revisions.thread} />
         <Tasks id={id} revision={revisions.board} />

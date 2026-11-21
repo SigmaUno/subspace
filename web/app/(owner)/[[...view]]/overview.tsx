@@ -13,6 +13,7 @@ import { Kanban } from "./board";
 import { OwnerChat } from "./chat";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { ForecastPanel } from "./forecast";
+import { InsightsTile } from "./insights";
 import type { Revisions } from "./live";
 import { Metrics } from "./metrics";
 import { VirtualList } from "./virtual";
@@ -184,6 +185,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
         <div className="panel"><span>Tasks done</span><strong>{complete} / {total}</strong></div>
         <div className={`panel ${blocked || stale ? "needs-attention" : ""}`}><span>Needs attention</span><strong>{blocked} blocked · {stale} stale</strong></div>
         <div className={`panel ${brief.budget.max_cost_eur > 0 && brief.cost_used >= brief.budget.max_cost_eur ? "needs-attention" : ""}`}><span>Spend / budget</span><strong>{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)}</strong></div>
+        <InsightsTile revision={revisions.agents + revisions.board} />
       </div>
       <nav className="view-tabs" aria-label="Project view">
         <Link href={path} aria-current={architecture ? undefined : "page"}>Overview</Link>

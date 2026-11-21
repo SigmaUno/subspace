@@ -6,6 +6,7 @@ import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, v
 import type { AuditEvent, TaskDetail, TaskList, TimelineEntry } from "../../../lib/task-detail-types";
 import { statuses, type Message } from "../../../lib/types";
 import { Feedback, LoadMore } from "./components";
+import { TaskGates } from "./gates";
 import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
 import { AgentTerminal } from "./terminal";
@@ -190,6 +191,8 @@ export function TaskDetailPage({ id }: { id: string }) {
               text={`${current.minutes_used} / ${current.budget.max_minutes} min`} />
           </div>
         </section>
+
+        <TaskGates taskID={current.id} revision={revisions.board + revisions.thread} />
 
         <section className="panel stack">
           <h2>Specification</h2>

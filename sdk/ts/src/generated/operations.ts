@@ -444,8 +444,9 @@ export function getHelpRequests(
 
 export function getHillclimbJobs(
   r: Requester,
+  args?: { query?: { brief_id?: string } },
 ): Promise<{ jobs: T.HillclimbJob[] | null }> {
-  return r.request("GET", "/api/v1/hillclimb/jobs", { response: "json" });
+  return r.request("GET", "/api/v1/hillclimb/jobs", { ...args, response: "json" });
 }
 
 export function getHillclimbJobsByIdSeries(

@@ -140,4 +140,10 @@ func (o Op) Tag() string {
 	return seg
 }
 
-func Routes() []Op { return append([]Op(nil), operations...) }
+var extraOps []Op
+
+func Register(ops ...Op) { extraOps = append(extraOps, ops...) }
+
+func allOps() []Op { return append(append([]Op(nil), operations...), extraOps...) }
+
+func Routes() []Op { return allOps() }

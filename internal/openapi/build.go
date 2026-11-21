@@ -37,7 +37,7 @@ func Build(o Options) ([]byte, error) {
 	paths := map[string]any{}
 	tags := map[string]bool{}
 	ids := map[string]string{}
-	for _, op := range operations {
+	for _, op := range allOps() {
 		if o.Registered != nil && !o.Registered(op.Method, op.Path) {
 			continue
 		}

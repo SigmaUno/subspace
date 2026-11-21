@@ -68,3 +68,5 @@ var extraMounts []func(Deps)
 var wraps []func(http.Handler, Deps) http.Handler
 
 func registerMount(f func(Deps)) { extraMounts = append(extraMounts, f) } //nolint:unused
+
+func unbindOnDone(d Deps, unbind func()) { context.AfterFunc(d.Ctx, unbind) }

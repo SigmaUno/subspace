@@ -13,7 +13,10 @@ var helpServices sync.Map
 
 var helpRoles = []string{model.RoleWorker, model.RoleTester, model.RoleReviewer}
 
-func BindHelp(b *board.Board, s *helpreq.Service) { helpServices.Store(b, s) }
+func BindHelp(b *board.Board, s *helpreq.Service) (unbind func()) {
+	helpServices.Store(b, s)
+	return func() { helpServices.CompareAndDelete(b, s) }
+}
 
 func RegisterHelp(r *Registry, b *board.Board) {
 	svc := func() (*helpreq.Service, error) {

@@ -474,3 +474,31 @@ func TestRepoMappingPicksConfiguredHost(t *testing.T) {
 		t.Fatalf("a=%v b=%v", a.all(), b.all())
 	}
 }
+
+func TestForgetsTasksThatLeaveReview(t *testing.T) {
+	f := newFixture(t, prsync.KindGitHub, "https://sub.example", nil)
+	for i := range 40 {
+		f.host.setHead(int64(i+1), fmt.Sprintf("%040x", i+1))
+	}
+	f.start()
+	for i := range 40 {
+		id := fmt.Sprintf("T-%d", i)
+		f.publish(f.task(id, int64(i+1), model.StatusApproved))
+		f.settle()
+		last := model.StatusDone
+		if i%2 == 1 {
+			last = model.StatusCancelled
+		}
+		f.publish(f.task(id, int64(i+1), last))
+		f.settle()
+	}
+	f.svc.mu.Lock()
+	n := len(f.svc.sent)
+	f.svc.mu.Unlock()
+	if n != 0 {
+		t.Fatalf("%d finished tasks still tracked", n)
+	}
+	if got := len(f.host.all()); got != 40 {
+		t.Fatalf("got %d posts, want one per head", got)
+	}
+}

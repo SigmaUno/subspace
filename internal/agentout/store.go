@@ -68,6 +68,17 @@ func persist(ctx context.Context, st store.Store, batches []batch, keep int) err
 	}))
 }
 
+func forget(ctx context.Context, st store.Store, agents []string) error {
+	return st.Atomic(ctx, withSQL(func(q sqlTx) error {
+		for _, id := range agents {
+			if _, err := q.Exec(`DELETE FROM agent_output WHERE agent_id=?`, id); err != nil {
+				return err
+			}
+		}
+		return nil
+	}))
+}
+
 func load(ctx context.Context, st store.Store) ([]Line, error) {
 	var out []Line
 	err := st.View(ctx, withSQL(func(q sqlTx) error {

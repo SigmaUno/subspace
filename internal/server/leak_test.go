@@ -12,7 +12,9 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"weak"
 
+	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/testdb"
@@ -52,6 +54,44 @@ func TestServerLifecycleReleasesGoroutines(t *testing.T) {
 		cycle()
 	}
 	settleGoroutines(t, base)
+}
+
+func TestServerLifecycleReleasesBoardAndHub(t *testing.T) {
+	dir := t.TempDir()
+	cycle := func() (weak.Pointer[board.Board], weak.Pointer[Server]) {
+		ctx, cancel := context.WithCancel(context.Background())
+		s, err := New(ctx, Config{DBPath: filepath.Join(dir, "t.db"), OwnerToken: ownerTok, Log: slog.New(slog.DiscardHandler)})
+		if err != nil {
+			t.Fatal(err)
+		}
+		b, srv := weak.Make(s.Board), weak.Make(s)
+		cancel()
+		_ = s.Close()
+		return b, srv
+	}
+	var boards []weak.Pointer[board.Board]
+	var servers []weak.Pointer[Server]
+	for range 3 {
+		b, s := cycle()
+		boards, servers = append(boards, b), append(servers, s)
+	}
+	deadline := time.Now().Add(10 * time.Second)
+	for {
+		runtime.GC()
+		live := 0
+		for i := range boards {
+			if boards[i].Value() != nil || servers[i].Value() != nil {
+				live++
+			}
+		}
+		if live == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("%d of %d stopped servers still reachable", live, len(boards))
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
 }
 
 func TestRunShutdownEndsStreamsAndFlushes(t *testing.T) {

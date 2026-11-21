@@ -14,7 +14,7 @@ func init() { registerMount(mountHelpRequests) }
 
 func mountHelpRequests(d Deps) {
 	svc := helpreq.New(d.Store, d.Board)
-	mcp.BindHelp(d.Board, svc)
+	unbindOnDone(d, mcp.BindHelp(d.Board, svc))
 	detach := decisions.Attach(d.Store, svc)
 	go func() {
 		<-d.Ctx.Done()

@@ -163,7 +163,13 @@ func (s *Service) Enqueue(data any) {
 	default:
 		return
 	}
-	if _, _, ok := Map(t.Status); !ok || t.ID == "" || t.PRURL == nil || *t.PRURL == "" {
+	if t.ID == "" {
+		return
+	}
+	if _, _, ok := Map(t.Status); !ok || t.PRURL == nil || *t.PRURL == "" {
+		s.mu.Lock()
+		delete(s.sent, t.ID)
+		s.mu.Unlock()
 		return
 	}
 	s.mu.Lock()
@@ -319,6 +325,10 @@ func (s *Service) remember(taskID, key, pk, state string) {
 		clear(s.posted)
 	}
 	s.posted[pk] = state
+	if strings.HasPrefix(key, model.StatusDone+"|") {
+		delete(s.sent, taskID)
+		return
+	}
 	s.sent[taskID] = key
 }
 

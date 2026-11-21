@@ -10,12 +10,13 @@ import (
 
 var artifactHandlers sync.Map
 
-func BindArtifacts(b *board.Board, tools []*Tool) {
+func BindArtifacts(b *board.Board, tools []*Tool) (unbind func()) {
 	h := make(map[string]Handler, len(tools))
 	for _, t := range tools {
 		h[t.Name] = t.Handler
 	}
 	artifactHandlers.Store(b, h)
+	return func() { artifactHandlers.Delete(b) }
 }
 
 func RegisterArtifacts(r *Registry, b *board.Board) {

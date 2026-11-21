@@ -462,3 +462,28 @@ func TestKeyBlockMaskingFollowsTheAgentThatPrintedIt(t *testing.T) {
 		t.Fatalf("lines: %+v", got)
 	}
 }
+
+func TestPerTaskCachesStayBoundedAndOffsetsContinue(t *testing.T) {
+	r := newRig(t)
+	n := transcript.MaxCachedTasks + 50
+	for i := range n {
+		r.tasks.briefs[fmt.Sprintf("T-%d", 100+i)] = "B-1"
+	}
+	svc := r.service(func(c *transcript.Config) { c.MaxBytes = 0 })
+	for i := range n {
+		svc.Add(burst(fmt.Sprintf("T-%d", 100+i), 0, 1))
+	}
+	if err := svc.Flush(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if c := svc.Cached(); c > transcript.MaxCachedTasks {
+		t.Fatalf("caching %d tasks, limit %d", c, transcript.MaxCachedTasks)
+	}
+	for _, id := range []string{"T-100", fmt.Sprintf("T-%d", 100+n-1)} {
+		svc.Add(burst(id, 1, 2))
+		got := readAll(t, svc, id)
+		if len(got) != 3 || got[0].Offset != 1 || got[1].Offset != 2 || got[2].Offset != 3 {
+			t.Fatalf("%s offsets after the cache dropped it: %+v", id, got)
+		}
+	}
+}

@@ -39,6 +39,7 @@ type ring struct {
 	seq       int64
 	persisted int64
 	clientSeq int64
+	touched   time.Time
 	elem      *list.Element
 }
 
@@ -89,6 +90,9 @@ func (b *Buffer) Append(agent string, taskID *string, stream string, texts []str
 
 func (b *Buffer) append(agent string, taskID *string, stream string, texts []string, ts time.Time) []Line {
 	r := b.ring(agent)
+	if ts.After(r.touched) {
+		r.touched = ts
+	}
 	out := make([]Line, 0, len(texts))
 	for _, t := range texts {
 		r.seq++
@@ -263,6 +267,24 @@ func (b *Buffer) markPersisted(agent string, seq int64) {
 	if r := b.agents[agent]; r != nil && seq > r.persisted {
 		r.persisted = seq
 	}
+}
+
+func (b *Buffer) prune(keep func(agent string) bool, idleBefore time.Time) []string {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	var gone []string
+	for id, r := range b.agents {
+		if keep(id) || !r.touched.Before(idleBefore) {
+			continue
+		}
+		if r.elem != nil {
+			b.lru.Remove(r.elem)
+		}
+		b.bytes -= r.bytes
+		delete(b.agents, id)
+		gone = append(gone, id)
+	}
+	return gone
 }
 
 func (b *Buffer) restore(lines []Line) {

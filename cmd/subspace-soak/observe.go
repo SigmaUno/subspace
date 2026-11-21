@@ -102,17 +102,66 @@ type Sample struct {
 	P99ms       float64 `json:"p99_ms"`
 	SSE         int64   `json:"sse_streams"`
 	Restarted   bool    `json:"restarted"`
+	DataBytes   int64   `json:"data_bytes"`
+	RetainBytes int64   `json:"retention_bytes"`
+
+	Tables map[string]int64 `json:"tables,omitempty"`
 }
 
 var csvHeader = []string{"t_s", "goroutines", "heap_live_bytes", "heap_inuse_bytes", "open_fds", "wal_bytes",
-	"writer_queue", "requests", "errors", "p99_ms", "sse_streams", "restarted"}
+	"writer_queue", "requests", "errors", "p99_ms", "sse_streams", "restarted", "data_bytes", "retention_bytes"}
 
-func (s Sample) record() []string {
+func (s Sample) record(tables []string) []string {
 	f := func(v float64) string { return strconv.FormatFloat(v, 'f', 3, 64) }
 	i := func(v int64) string { return strconv.FormatInt(v, 10) }
-	return []string{f(s.T), i(int64(s.Goroutines)), strconv.FormatUint(s.HeapLive, 10), strconv.FormatUint(s.HeapInuse, 10),
+	out := []string{f(s.T), i(int64(s.Goroutines)), strconv.FormatUint(s.HeapLive, 10), strconv.FormatUint(s.HeapInuse, 10),
 		i(int64(s.FDs)), i(s.WAL), i(int64(s.WriterQueue)), i(s.Requests), i(s.Errors), f(s.P99ms), i(s.SSE),
-		strconv.FormatBool(s.Restarted)}
+		strconv.FormatBool(s.Restarted), i(s.DataBytes), i(s.RetainBytes)}
+	for _, t := range tables {
+		out = append(out, i(s.Tables[t]))
+	}
+	return out
+}
+
+func tableNames(samples []Sample) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, s := range samples {
+		for t := range s.Tables {
+			if !seen[t] {
+				seen[t] = true
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Strings(out)
+	return out
+}
+
+func growth(samples []Sample, warmup time.Duration) []Trend {
+	ys := map[string]func(Sample) float64{
+		"p99_ms":          func(s Sample) float64 { return s.P99ms },
+		"open_fds":        func(s Sample) float64 { return float64(s.FDs) },
+		"wal_mib":         func(s Sample) float64 { return float64(s.WAL) / (1 << 20) },
+		"writer_queue":    func(s Sample) float64 { return float64(s.WriterQueue) },
+		"data_mib":        func(s Sample) float64 { return float64(s.DataBytes) / (1 << 20) },
+		"retention_bytes": func(s Sample) float64 { return float64(s.RetainBytes) },
+	}
+	for _, t := range tableNames(samples) {
+		ys["rows_"+t] = func(s Sample) float64 { return float64(s.Tables[t]) }
+	}
+	names := make([]string, 0, len(ys))
+	for k := range ys {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	out := make([]Trend, 0, len(names))
+	for _, n := range names {
+		t := trend(n, "per_min", samples, warmup, 0, ys[n])
+		t.Exceeded = false
+		out = append(out, t)
+	}
+	return out
 }
 
 func runtimeSample(s *Sample) {
@@ -278,7 +327,18 @@ func (c *checker) check(ctx context.Context, gate *sync.RWMutex) ([]Violation, e
 	chk := dst.NewChecker(c.lease)
 	pre := &dst.State{Now: st.Now, Capacity: st.Capacity, Audit: c.window}
 	if c.prev != nil {
-		pre.Tasks, pre.Paused = c.prev.Tasks, c.prev.Paused
+		pre.Paused = c.prev.Paused
+		reopened := map[string]bool{}
+		for _, e := range st.Audit[min(len(c.window), len(st.Audit)):] {
+			if e.Tool == "reopen" && e.TaskID != nil {
+				reopened[*e.TaskID] = true
+			}
+		}
+		for _, t := range c.prev.Tasks {
+			if !reopened[t.ID] {
+				pre.Tasks = append(pre.Tasks, t)
+			}
+		}
 	}
 	chk.Init(pre)
 	st.Now = st.Now.Add(-sweepSlack)

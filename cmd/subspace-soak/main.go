@@ -45,7 +45,12 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.DurationVar(&cfg.VerifyEvery, "verify-every", 2*time.Minute, "interval between audit hash chain verifications (0 = only at the end)")
 	fs.Float64Var(&cfg.MaxHeapSlope, "max-heap-slope", 0.5, "largest live heap growth after warmup, MiB per minute")
 	fs.Float64Var(&cfg.MaxGoroutineSlope, "max-goroutine-slope", 0.5, "largest goroutine growth after warmup, per minute")
+	fs.BoolVar(&cfg.Features, "features", true, "enable autopilot, merge queue, pr sync, notify, outbound webhooks, retention, drills, schedules and announcements against fake hosts")
+	fs.IntVar(&cfg.Streamers, "streamers", 300, "agents streaming log_output (needs -features)")
+	fs.DurationVar(&cfg.StreamerLife, "streamer-life", 4*time.Minute, "mean streaming agent session before it leaves")
+	fs.StringVar(&cfg.DB, "db", os.Getenv("SUBSPACE_SOAK_DB"), "postgres DSN (default: SQLite in the data directory; env SUBSPACE_SOAK_DB)")
 	fs.StringVar(&cfg.Dir, "dir", "", "data directory (default: a removed temp dir)")
+	fs.StringVar(&cfg.HeapProfile, "heap-profile", "", "write heap and goroutine profiles at <path>.warm and <path>.end (after warmup and at the end, under load)")
 	out := fs.String("out", "soak-report.json", "JSON report path")
 	series := fs.String("csv", "soak-series.csv", "CSV time series path")
 	level := fs.String("log-level", "error", "server log level (debug, info, warn, error)")
@@ -109,9 +114,14 @@ func writeSeries(path string, samples []Sample) error {
 		return err
 	}
 	w := csv.NewWriter(f)
-	_ = w.Write(csvHeader)
+	tables := tableNames(samples)
+	header := append([]string{}, csvHeader...)
+	for _, t := range tables {
+		header = append(header, "rows_"+t)
+	}
+	_ = w.Write(header)
 	for _, s := range samples {
-		_ = w.Write(s.record())
+		_ = w.Write(s.record(tables))
 	}
 	w.Flush()
 	if err := w.Error(); err != nil {

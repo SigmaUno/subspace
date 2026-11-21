@@ -19,6 +19,7 @@ import (
 
 const (
 	queuedOverhead = 64
+	maxCachedTasks = 4096
 	maskedLine     = "****"
 	keyBegin       = "-----BEGIN "
 	keyEnd         = "-----END "
@@ -262,7 +263,7 @@ func (s *Service) flushTask(ctx context.Context, task string, q []queued) error 
 			return err
 		}
 		next = seg.LastOffset + 1
-		s.heads[task] = next
+		s.cacheHead(task, next)
 		q = q[n:]
 		touched = true
 	}
@@ -302,8 +303,18 @@ func (s *Service) brief(ctx context.Context, task string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(s.briefs) >= maxCachedTasks {
+		clear(s.briefs)
+	}
 	s.briefs[task] = info.BriefID
 	return info.BriefID, nil
+}
+
+func (s *Service) cacheHead(task string, next int64) {
+	if _, ok := s.heads[task]; !ok && len(s.heads) >= maxCachedTasks {
+		clear(s.heads)
+	}
+	s.heads[task] = next
 }
 
 func (s *Service) scrub(source, text string) string {

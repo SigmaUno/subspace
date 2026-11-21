@@ -14,5 +14,5 @@ func mountScope(d Deps) {
 	}
 	svc := prsync.NewService(d.Board, st)
 	d.API.Mount(d.Mux, "GET /api/v1/tasks/{id}/scope", svc.ScopeHandler())
-	mcp.BindScope(d.Board, svc)
+	unbindOnDone(d, mcp.BindScope(d.Board, svc))
 }

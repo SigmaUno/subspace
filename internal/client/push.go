@@ -111,6 +111,10 @@ func (m *MCP) openStream(ctx context.Context, lastID string) (*http.Response, er
 }
 
 func (m *MCP) StreamAvailable(ctx context.Context) (bool, error) {
+	if m.pumping.Load() {
+		err := m.NotificationsErr()
+		return err == nil, nil
+	}
 	resp, err := m.openStream(ctx, "")
 	if err != nil {
 		if StatusOf(err) == http.StatusMethodNotAllowed {
@@ -124,6 +128,7 @@ func (m *MCP) StreamAvailable(ctx context.Context) (bool, error) {
 
 func (m *MCP) Notifications(ctx context.Context) <-chan Notification {
 	m.pushOnce.Do(func() {
+		m.pumping.Store(true)
 		m.push = make(chan Notification, notificationBuffer)
 		go m.pump(ctx)
 	})

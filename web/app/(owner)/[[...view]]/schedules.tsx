@@ -37,7 +37,7 @@ function NextRuns({ cron, timezone }: { cron: string; timezone: string }) {
   if (!data) return null;
   return <div className="stack" role="status" aria-label="Next runs">
     <span className="meta">Next runs in {data.timezone}</span>
-    <ol>{data.next.map((iso) => <li key={iso}>{formatTime(iso, data.timezone)} <span className="meta">{iso}</span></li>)}</ol>
+    <ol>{data.next.map((iso) => <li key={iso}>{formatTime(iso, data.timezone)} <span className="meta" style={{ whiteSpace: "nowrap" }}>{iso}</span></li>)}</ol>
   </div>;
 }
 
@@ -151,7 +151,7 @@ function RunsTable({ schedule }: { schedule: Schedule }) {
   return <div className="stack">
     <ResourceState error={runs.error} loading={runs.data === undefined} retry={runs.refresh} rows={2} />
     {runs.data && !rows.length && <EmptyState>No runs yet.</EmptyState>}
-    {!!rows.length && <div className="table-wrap">
+    {!!rows.length && <div className="table-wrap" role="region" aria-label="Schedules" tabIndex={0}>
       <table>
         <thead><tr><th>Scheduled for</th><th>Status</th><th>Result</th><th>Details</th></tr></thead>
         <tbody>{rows.map((run) => <tr key={run.scheduled_for}>

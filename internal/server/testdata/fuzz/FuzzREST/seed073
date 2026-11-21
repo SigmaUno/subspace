@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(1)
+uint8(48)
+uint8(1)
+uint8(3)
+string("")
+string("")
+string("")
+string("scope=agent:worker-1&name=a.txt")
+string("")
+bool(false)
+[]byte("--x\r\nContent-Disposition: form-data; name=\"file\"; filename=\"a.txt\"\r\n\r\nhello\r\n--x--\r\n")

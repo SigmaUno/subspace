@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(1)
+uint8(39)
+uint8(1)
+uint8(0)
+string("q:Q-1")
+string("")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("{\"action\":\"skip\",\"snooze\":\"-1h\"}")

@@ -189,10 +189,45 @@ func (h *handler) Handle(ctx context.Context, r slog.Record) error {
 		return true
 	})
 	h.p.ring.add(Line{TS: r.Time, Level: LevelName(r.Level), Msg: redact.String(r.Message), Attrs: attrs, level: r.Level})
-	if h.inner.Enabled(ctx, r.Level) {
-		return h.inner.Handle(ctx, r)
+	if !h.inner.Enabled(ctx, r.Level) {
+		return nil
 	}
-	return nil
+	out := slog.NewRecord(r.Time, r.Level, redact.String(r.Message), r.PC)
+	r.Attrs(func(a slog.Attr) bool {
+		out.AddAttrs(scrub(a))
+		return true
+	})
+	return h.inner.Handle(ctx, out)
+}
+
+func scrub(a slog.Attr) slog.Attr {
+	v := a.Value.Resolve()
+	switch {
+	case sensitive(a.Key) && v.Kind() != slog.KindGroup:
+		return slog.String(a.Key, masked)
+	case v.Kind() == slog.KindGroup:
+		g := v.Group()
+		out := make([]any, len(g))
+		for i, x := range g {
+			out[i] = scrub(x)
+		}
+		return slog.Group(a.Key, out...)
+	case v.Kind() == slog.KindString:
+		return slog.String(a.Key, redact.String(v.String()))
+	case v.Kind() == slog.KindAny:
+		if err, ok := v.Any().(error); ok {
+			return slog.String(a.Key, redact.String(err.Error()))
+		}
+	}
+	return slog.Attr{Key: a.Key, Value: v}
+}
+
+func scrubAll(as []slog.Attr) []slog.Attr {
+	out := make([]slog.Attr, len(as))
+	for i, a := range as {
+		out[i] = scrub(a)
+	}
+	return out
 }
 
 func (h *handler) WithAttrs(as []slog.Attr) slog.Handler {
@@ -206,7 +241,7 @@ func (h *handler) WithAttrs(as []slog.Attr) slog.Handler {
 	for _, a := range as {
 		flatten(attrs, h.prefix, a)
 	}
-	return &handler{p: h.p, inner: h.inner.WithAttrs(as), prefix: h.prefix, attrs: attrs}
+	return &handler{p: h.p, inner: h.inner.WithAttrs(scrubAll(as)), prefix: h.prefix, attrs: attrs}
 }
 
 func (h *handler) WithGroup(name string) slog.Handler {

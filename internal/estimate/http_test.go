@@ -155,6 +155,9 @@ func (w *world) get(path, token string) (int, []byte) {
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, _ := io.ReadAll(resp.Body)
+	if ct := resp.Header.Get("Content-Type"); resp.StatusCode == 200 && ct != "application/json" {
+		w.e.T.Fatalf("%s: content type %q", path, ct)
+	}
 	return resp.StatusCode, b
 }
 

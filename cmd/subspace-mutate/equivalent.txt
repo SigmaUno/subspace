@@ -33,3 +33,106 @@ internal/redact/redact.go	return spans[i].hi < spans[j].hi	replace < with >=
 internal/redact/redact.go	return spans[i].lo < spans[j].lo	replace < with <=
 internal/redact/redact.go	var freq [256]int	change constant 256 to 255
 internal/redact/redact.go	var freq [256]int	change constant 256 to 257
+internal/retryq/retryq.go	if attempt < 1 {	replace < with <=
+internal/retryq/retryq.go	if attempt < 1 {	change constant 1 to 2
+internal/httpx/httpx.go	return min(Int(r, "limit"), MaxListLimit)	swap arguments Int(r, "limit") and MaxListLimit
+internal/httpx/httpx.go	return min(n, max), nil	swap arguments n and max
+internal/httpx/httpx.go	return 0, model.BadRequest("limit must be a positive integer")	change constant 0 to 1
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "0.0.0.0/8" and "100.64.0.0/10"
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "100.64.0.0/10" and "192.0.0.0/24"
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "192.0.0.0/24" and "192.0.2.0/24"
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "192.0.2.0/24" and "192.88.99.0/24"
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "192.88.99.0/24" and "198.18.0.0/15"
+internal/netguard/netguard.go	"0.0.0.0/8", "100.64.0.0/10", "192.0.0.0/24", "192.0.2.0/24", "192.88.99.0/24", "198.18.0.0/15",	swap arguments "198.18.0.0/15" and "198.51.100.0/24"
+internal/netguard/netguard.go	"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",	swap arguments "198.51.100.0/24" and "203.0.113.0/24"
+internal/netguard/netguard.go	"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",	swap arguments "203.0.113.0/24" and "240.0.0.0/4"
+internal/netguard/netguard.go	"198.51.100.0/24", "203.0.113.0/24", "240.0.0.0/4",	swap arguments "240.0.0.0/4" and "::/96"
+internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "100::/64" and "2001::/32"
+internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "2001::/32" and "2001:db8::/32"
+internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "2001:db8::/32" and "fec0::/10"
+internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "64:ff9b:1::/48" and "100::/64"
+internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "::/96" and "64:ff9b:1::/48"
+internal/netguard/netguard.go	return netip.AddrFrom4([4]byte(b[2:6])), true	change constant 6 to 7
+internal/leakguard/guard.go	if !errors.Is(err, auth.ErrTokenExpired) {	swap arguments err and auth.ErrTokenExpired
+internal/leakguard/guard.go	case errors.Is(err, tokens.ErrRevoked):	swap arguments err and tokens.ErrRevoked
+internal/leakguard/scan.go	return err == nil && len(b) == secretBytes	replace && with ||
+internal/leakguard/store.go	if err := rows.Scan(&l.ID, &l.Kind, &l.Subject, &l.Channel, &l.Author, &ms, &resolved); err != nil {	swap arguments &l.Channel and &l.Author
+internal/quota/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/quota/service.go	taskLimit  = 100000	change constant 100000 to 100001
+internal/quota/service.go	taskLimit  = 100000	change constant 100000 to 99999
+internal/quota/window.go	top = math.Max(top, u.CostEUR/q.MaxCostEURPerDay)	swap arguments top and u.CostEUR / q.MaxCostEURPerDay
+internal/quota/window.go	top = math.Max(top, float64(u.Tasks)/float64(q.MaxTasksPerDay))	swap arguments top and float64(u.Tasks) / float64(q.MaxTasksPerDay)
+internal/quota/window.go	top = math.Max(top, float64(u.ConcurrentTasks)/float64(q.MaxConcurrentTasks))	swap arguments top and float64(u.ConcurrentTasks) / float64(q.MaxConcurrentTasks)
+internal/quota/service.go	if err := rows.Scan(dest...); err != nil {	replace != with ==
+internal/spendguard/window.go	spent := math.Max(Sum(usage, start, upto), Sum(tasks, start, upto))	swap arguments Sum(usage, start, upto) and Sum(tasks, start, upto)
+internal/spendguard/guard.go	return Evaluate(g.limits, g.usage, g.ledger(), now)	swap arguments g.usage and g.ledger()
+internal/spendguard/window.go	if c < 0 || math.IsNaN(c) || math.IsInf(c, 0) {	change constant 0 to 1
+internal/estimate/estimate.go	if i == 0 {	replace == with !=
+internal/estimate/estimate.go	if i == 0 {	change constant 0 to 1
+internal/estimate/estimate.go	out.P80 = max(w*p80+(1-w)*out.P80, out.Median)	swap arguments w * p80 + (1 - w) * out.P80 and out.Median
+internal/estimate/estimate.go	hi := min(lo+1, len(sorted)-1)	swap arguments lo + 1 and len(sorted) - 1
+internal/estimate/estimate.go	slices.SortFunc(s, func(a, b Sample) int { return compareIDs(a.TaskID, b.TaskID) })	swap arguments a.TaskID and b.TaskID
+internal/estimate/totals.go	d := max(s.P80-s.Median, 0)	swap arguments s.P80 - s.Median and 0
+internal/estimate/totals.go	return Range{Low: round2(max(med-half, 0)), Expected: round2(med), High: round2(med + half)}	swap arguments med - half and 0
+internal/estimate/totals.go	best := -1	change constant 1 to 2
+internal/estimate/totals.go	prev[i] = -1	change constant 1 to 2
+internal/estimate/service.go	out = append(out, page...)	swap arguments out and page
+internal/estimate/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/estimate/estimate.go	hi := min(lo+1, len(sorted)-1)	change constant 1 to 0
+internal/estimate/estimate.go	case a < b:	replace < with <=
+internal/estimate/estimate.go	return -1	change constant 1 to 2
+internal/estimate/estimate.go	case a > b:	replace > with <=
+internal/estimate/estimate.go	case a > b:	replace > with >=
+internal/estimate/estimate.go	return 1	change constant 1 to 2
+internal/estimate/estimate.go	return 1	change constant 1 to 0
+internal/estimate/estimate.go	return 0	change constant 0 to 1
+internal/estimate/service.go	taskLimit  = 100000	change constant 100000 to 100001
+internal/estimate/service.go	taskLimit  = 100000	change constant 100000 to 99999
+internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 100001
+internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 99999
+internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 1001
+internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 999
+internal/forecast/forecast.go	cpStart = max(cpStart, cp[d])	swap arguments cpStart and cp[d]
+internal/forecast/forecast.go	d = max(float64(n.task.Budget.MaxMinutes)-n.usedMin, 0)	swap arguments float64(n.task.Budget.MaxMinutes) - n.usedMin and 0
+internal/forecast/forecast.go	dur[i] = max(lognormal(n.expMin, n.sigmaMin*scale, z), n.usedMin) - n.usedMin	swap arguments lognormal(n.expMin, n.sigmaMin * scale, z) and n.usedMin
+internal/forecast/forecast.go	h := max(budget-s.Brief.CostUsed, 0) / b.EURPerHour	swap arguments budget - s.Brief.CostUsed and 0
+internal/forecast/forecast.go	hours := max(s.Now.Sub(earliest).Hours(), minBurnHours)	swap arguments s.Now.Sub(earliest).Hours() and minBurnHours
+internal/forecast/forecast.go	hours := max(s.Now.Sub(first).Hours(), minBurnHours)	swap arguments s.Now.Sub(first).Hours() and minBurnHours
+internal/forecast/forecast.go	if len(order) < len(nodes) {	replace < with <=
+internal/forecast/forecast.go	if mu <= 0 {	replace <= with <
+internal/forecast/forecast.go	if s.Median <= 0 || s.P80 <= s.Median {	replace <= with <
+internal/forecast/forecast.go	if s.Median <= 0 || s.P80 <= s.Median {	replace || with &&
+internal/forecast/forecast.go	if slots <= 0 || slots > f.Tasks.Remaining {	replace > with >=
+internal/forecast/forecast.go	longest = max(longest, finish[i])	swap arguments longest and finish[i]
+internal/forecast/forecast.go	n.expCost = max(e.CostEUR.Median*math.Exp(sigma*sigma/2), n.usedCost)	swap arguments e.CostEUR.Median * math.Exp(sigma * sigma / 2) and n.usedCost
+internal/forecast/forecast.go	n.expCost = max(n.expCost, n.usedCost)	swap arguments n.expCost and n.usedCost
+internal/forecast/forecast.go	n.expMin = max(e.Minutes.Median*math.Exp(sigma*sigma/2), n.usedMin)	swap arguments e.Minutes.Median * math.Exp(sigma * sigma / 2) and n.usedMin
+internal/forecast/forecast.go	n.expMin = max(n.expMin, n.usedMin)	swap arguments n.expMin and n.usedMin
+internal/forecast/forecast.go	path = max(path, cp[i])	swap arguments path and cp[i]
+internal/forecast/forecast.go	remCost += max(lognormal(n.expCost, n.sigmaEUR*scale, z), n.usedCost) - n.usedCost	swap arguments lognormal(n.expCost, n.sigmaEUR * scale, z) and n.usedCost
+internal/forecast/forecast.go	return 0	change constant 0 to 1
+internal/forecast/forecast.go	return 0, false	change constant 0 to 1
+internal/forecast/forecast.go	return min(max(math.Log(s.P80/s.Median)/z80, minSigma), maxSigma)	swap arguments math.Log(s.P80 / s.Median) / z80 and minSigma
+internal/forecast/forecast.go	return min(max(math.Log(s.P80/s.Median)/z80, minSigma), maxSigma)	swap arguments max(math.Log(s.P80 / s.Median) / z80, minSigma) and maxSigma
+internal/forecast/forecast.go	return min(max(math.Sqrt(ss/float64(len(xs)-1)), minSigma), maxSigma)	swap arguments math.Sqrt(ss / float64(len(xs) - 1)) and minSigma
+internal/forecast/forecast.go	return min(max(math.Sqrt(ss/float64(len(xs)-1)), minSigma), maxSigma)	swap arguments max(math.Sqrt(ss / float64(len(xs) - 1)), minSigma) and maxSigma
+internal/forecast/forecast.go	runs = min(runs, maxRuns)	swap arguments runs and maxRuns
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	change constant 1 to 0
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	change constant 1 to 2
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	swap arguments f.Tasks.Remaining and 1
+internal/forecast/forecast.go	span = max(span, fin[i])	swap arguments span and fin[i]
+internal/forecast/forecast.go	start = max(start, fin[d])	swap arguments start and fin[d]
+internal/forecast/forecast.go	start = max(start, finish[d])	swap arguments start and finish[d]
+internal/forecast/forecast.go	start = max(start, free[k])	swap arguments start and free[k]
+internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 100001
+internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 99999
+internal/forecast/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/incident/http.go	if err := dec.Decode(v); err != nil && (!optional || !errors.Is(err, io.EOF)) {	swap arguments err and io.EOF
+internal/incident/incident.go	merged := sortedActions(append(slices.Clone(active.Actions), req.Actions...))	swap arguments slices.Clone(active.Actions) and req.Actions
+internal/incident/incident.go	if slices.Equal(merged, active.Actions) {	swap arguments merged and active.Actions
+internal/incident/snapshot.go	err = tmp.Sync()	remove error assignment
+internal/drill/drill.go	o.Log = o.Log.With("component", "drill")	swap arguments "component" and "drill"
+internal/drill/drill.go	err = dst.Sync()	remove error assignment
+internal/drill/drill.go	return 0, err	change constant 0 to 1
+internal/drill/http.go	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {	swap arguments err and io.EOF
+internal/drill/store.go	rs, err := s.List(ctx, 1)	change constant 1 to 2

@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/SigmaUno/subspace/internal/forecast"
@@ -40,6 +41,9 @@ func TestForecastOverHTTP(t *testing.T) {
 		}
 		defer func() { _ = resp.Body.Close() }()
 		b, _ := io.ReadAll(resp.Body)
+		if ct := resp.Header.Get("Content-Type"); strings.HasSuffix(path, "/forecast") && (resp.StatusCode == 200 || resp.StatusCode == 404) && ct != "application/json" {
+			t.Fatalf("%s: %d content type %q", path, resp.StatusCode, ct)
+		}
 		return resp.StatusCode, b
 	}
 	fetch := func() forecast.Forecast {

@@ -6,9 +6,11 @@ import (
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
 	"sync"
@@ -22,6 +24,8 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/tokens"
 )
 
 type syncBuffer struct {
@@ -604,5 +608,141 @@ func TestLeakOfTokenRotatedAfterLookupKeepsAgent(t *testing.T) {
 	}
 	if c := f.mcpCode(fresh); c != 200 {
 		t.Fatalf("fresh token: %d", c)
+	}
+}
+
+func TestAPITokenLeakNoticeAndReissueKeepExpiry(t *testing.T) {
+	f := setup(t)
+	exp := time.Now().Add(48 * time.Hour).UTC().Truncate(time.Second)
+	code, out := f.REST("POST", "/api/v1/tokens", map[string]any{"name": "ci", "scope": "owner", "expires_at": exp})
+	if code != 201 {
+		t.Fatalf("token: %d %v", code, out)
+	}
+	id, secret := out["token"].(map[string]any)["id"].(string), out["secret"].(string)
+	f.leaked = append(f.leaked, secret)
+	wid, wtok := f.agent("worker", "claude-code")
+	tid := f.task(wid, "worker")
+	f.Must(wtok, "claim_task", map[string]any{"task_id": tid})
+	f.Must(wtok, "add_note", map[string]any{"task_id": tid, "body": "key " + secret})
+
+	d := f.leakDecisions()
+	if len(d) != 1 {
+		t.Fatalf("decisions: %v", d)
+	}
+	leak := strings.TrimPrefix(d[0]["id"].(string), "leak:")
+	if d[0]["title"] != "API token "+id+" leaked and was revoked" || !strings.Contains(d[0]["summary"].(string), "found in a note by "+wid+";") {
+		t.Fatalf("decision: %v", d[0])
+	}
+	want := []string{`"id":"token_leak:` + leak + `"`, `"title":"API token ` + id + ` leaked"`, `"priority":5`}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		f.mu.Lock()
+		feed := f.feed.String()
+		f.mu.Unlock()
+		missing := ""
+		for _, w := range want {
+			if !strings.Contains(feed, w) {
+				missing = w
+			}
+		}
+		if missing == "" {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("alert missing %s in %s", missing, feed)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+
+	req, _ := http.NewRequest("POST", f.TS.URL+"/api/v1/token-leaks/"+leak+"/reissue", strings.NewReader("{}"))
+	req.Header.Set("Authorization", "Bearer "+servertest.OwnerToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var re map[string]any
+	_ = json.NewDecoder(resp.Body).Decode(&re)
+	_ = resp.Body.Close()
+	if resp.StatusCode != 200 || resp.Header.Get("Content-Type") != "application/json" {
+		t.Fatalf("reissue: %d %s %v", resp.StatusCode, resp.Header.Get("Content-Type"), re)
+	}
+	got, _ := time.Parse(time.RFC3339, fmt.Sprint(re["token"].(map[string]any)["expires_at"]))
+	if !got.Equal(exp) {
+		t.Fatalf("reissued expiry %v, want %v", re["token"], exp)
+	}
+	if code, out := f.REST("POST", "/api/v1/token-leaks/"+leak+"/reissue", map[string]any{}); code != 409 {
+		t.Fatalf("second reissue: %d %v", code, out)
+	}
+	a := f.auditOf("reissue_leaked_token")
+	if len(a) != 1 || a[0]["after"].(map[string]any)["leak_id"] != leak || a[0]["after"].(map[string]any)["token_id"] != id {
+		t.Fatalf("reissue audit: %v", a)
+	}
+	f.noTrace(t, "")
+}
+
+type plainTx struct{ store.Tx }
+
+type noSQLStore struct{ store.Store }
+
+func (s noSQLStore) Atomic(ctx context.Context, fn func(store.Tx) error) error {
+	return s.Store.Atomic(ctx, func(tx store.Tx) error { return fn(plainTx{tx}) })
+}
+
+func (s noSQLStore) View(ctx context.Context, fn func(store.Tx) error) error {
+	return s.Store.View(ctx, func(tx store.Tx) error { return fn(plainTx{tx}) })
+}
+
+type failLookup struct{ err error }
+
+func (l failLookup) LookupToken(string) (*model.Agent, error) { return nil, l.err }
+
+func TestLeakResponseFailsSafe(t *testing.T) {
+	f := setup(t)
+	code, out := f.REST("POST", "/api/v1/tokens", map[string]any{"name": "ci", "scope": "owner"})
+	if code != 201 {
+		t.Fatalf("token: %d %v", code, out)
+	}
+	secret := out["secret"].(string)
+	logs := &syncBuffer{}
+	log := slog.New(slog.NewTextHandler(logs, nil))
+	src := board.LeakSource{Channel: board.ChannelMessage, Actor: model.Actor{ID: "a9", Role: "worker"}}
+	g := leakguard.New(leakguard.Options{Board: f.Srv.Board, Store: noSQLStore{f.Srv.Store}, Agents: failLookup{auth.ErrTokenExpired},
+		Tokens: f.Srv.Store.(tokens.Store), Log: log})
+
+	if got := g.Scan(context.Background(), src, "key "+secret+"."); got != "key [redacted:token]." {
+		t.Fatalf("masked = %q", got)
+	}
+	if code, _ := f.RESTAs(secret, "GET", "/api/v1/me", nil); code != 401 {
+		t.Fatalf("api token still works after failed record: %d", code)
+	}
+	if !strings.Contains(logs.String(), "token leak record failed") {
+		t.Fatalf("logs: %s", logs)
+	}
+
+	rec := httptest.NewRecorder()
+	leakguard.Handler(g).ServeHTTP(rec, httptest.NewRequest("POST", "/token-leaks/L-1/reissue", nil))
+	if rec.Code != 500 || !strings.Contains(rec.Body.String(), `"code":"internal"`) || !strings.Contains(logs.String(), "token leak reissue") {
+		t.Fatalf("reissue: %d %s logs=%s", rec.Code, rec.Body, logs)
+	}
+
+	raw := make([]byte, 32)
+	_, _ = rand.Read(raw)
+	agentTok := auth.TokenPrefix + base64.RawURLEncoding.EncodeToString(raw)
+	before := logs.String()
+	if got := g.Scan(context.Background(), src, agentTok); got != agentTok {
+		t.Fatalf("expired token masked: %q", got)
+	}
+	if logs.String() != before {
+		t.Fatalf("expired token logged: %s", strings.TrimPrefix(logs.String(), before))
+	}
+	g = leakguard.New(leakguard.Options{Board: f.Srv.Board, Store: f.Srv.Store, Agents: failLookup{errors.New("db gone")}, Log: log})
+	if got := g.Scan(context.Background(), src, agentTok); got != agentTok {
+		t.Fatalf("unverified token masked: %q", got)
+	}
+	if !strings.Contains(logs.String(), "token leak lookup failed") {
+		t.Fatalf("lookup failure not logged: %s", logs)
+	}
+	if got := g.Scan(context.Background(), src, "x "+secret); got != "x "+secret {
+		t.Fatalf("api token scanned without a token store: %q", got)
 	}
 }

@@ -59,6 +59,7 @@ var covered = map[string]use{
 	"GET /api/v1/artifacts/{id}":                                     {"artifacts download A-1 --out {tmp}", ""},
 	"GET /api/v1/audit":                                              {"audit list", ""},
 	"GET /api/v1/audit/export":                                       {"audit export", ""},
+	"GET /api/v1/about":                                              {"about", ""},
 	"GET /api/v1/audit/verify":                                       {"audit verify", ""},
 	"GET /api/v1/autopilot":                                          {"autopilot status", ""},
 	"GET /api/v1/backups":                                            {"backups list", ""},

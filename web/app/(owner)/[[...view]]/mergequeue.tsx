@@ -8,6 +8,7 @@ import { Feedback } from "./components";
 import { useLive } from "./live";
 import { EmptyState, ResourceState } from "./states";
 import { PageShell } from "./shell";
+import { TrainsPanel } from "./trains";
 
 const stateLabels: Record<CandidateState, string> = {
   queued: "Queued",
@@ -119,5 +120,7 @@ export function MergeQueuePage() {
       </div>}
       {current && <CandidateDetail key={current.id} candidate={current} />}
     </section>
+
+    <TrainsPanel repo={repo} revision={revisions.board} />
   </PageShell>;
 }

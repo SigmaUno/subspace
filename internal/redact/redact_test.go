@@ -96,3 +96,39 @@ func TestConfigurableThreshold(t *testing.T) {
 		t.Errorf("with MinEntropy=100, %q should not be flagged", random)
 	}
 }
+
+func TestGenericDetectorBoundaries(t *testing.T) {
+	const (
+		run32   = "Zq7Xw3Ry8Tv2Ub6Nm4Kp9Ls5Jd1Hg0Fc"
+		exact45 = "ZZYYXXWWVVUUTTSSghijkmnopqrstuvw"
+	)
+	cases := []struct {
+		name, in, want string
+	}{
+		{"run of MinLength is masked", run32, "Zq7X****"},
+		{"run below MinLength is kept", run32[:31], run32[:31]},
+		{"entropy equal to MinEntropy is masked", exact45, "ZZYY****"},
+		{"separate secrets masked separately", "a AKIAIOSFODNN7EXAMPLE b ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789", "a AKIA**** b ghp_****"},
+		{"touching secrets masked as one", "-----BEGIN RSA PRIVATE KEY-----\nMIIE\n-----END RSA PRIVATE KEY-----" + run32, "----****"},
+	}
+	for _, tc := range cases {
+		if got := String(tc.in); got != tc.want {
+			t.Errorf("%s: String(%q) = %q, want %q", tc.name, tc.in, got, tc.want)
+		}
+	}
+}
+
+func TestHexRunsKeptAtAnyEntropy(t *testing.T) {
+	orig := MinEntropy
+	t.Cleanup(func() { MinEntropy = orig })
+	MinEntropy = 0
+	const hex = "0123456789abcdefABCDEF0123456789abcdef"
+	if got := String(hex); got != hex {
+		t.Fatalf("hex run masked: %q", got)
+	}
+	for _, in := range []string{"g" + hex, hex + "g", hex + "G", hex + "/", hex + "z", hex + "Z"} {
+		if got := String(in); got == in {
+			t.Errorf("non-hex run %q kept", in)
+		}
+	}
+}

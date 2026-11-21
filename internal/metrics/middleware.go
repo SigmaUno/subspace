@@ -73,6 +73,8 @@ func validID(id string) bool {
 	return true
 }
 
+func ValidRequestID(id string) bool { return validID(id) }
+
 func (s *Set) Middleware(next http.Handler, o Options) http.Handler {
 	gen := newIDGen()
 	log := o.Log

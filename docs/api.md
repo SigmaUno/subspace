@@ -669,6 +669,31 @@ A digest is a short plain-text summary sent through the notification sinks (`kin
 
 Each variable is its own rule with its own window, which runs from the previous slot of that rule (or from the last evaluation) to now, at most 8 days. A time that does not exist on a daylight-saving day fires right after the gap; an ambiguous time fires once, at its first occurrence. A rule is skipped when nothing changed since its last digest: no tasks done, created or blocked, no cost or tokens, and the same pending decisions, risks, flapping agents and merge-ready PRs. A change to an empty state is sent once. The first evaluation after a fresh start only records the slot, and a missed slot is sent once on the next start. Rule state is kept in the key-value table (`digest.state.daily`, `digest.state.weekly`). Invalid values disable the digest and are logged.
 
+### Logs
+Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner scope. The server keeps the last 2000 log lines in memory, redacted through the secret masker (tokens, keys and credential-looking values; attributes whose key contains `token`, `secret`, `password`, `authorization`, `cookie`, `api_key` or `credential` are always masked).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/logs?level=&since=&limit=` | → `{"lines":[Line]}` ascending by id. `level` is the minimum level (`debug`, `info`, `warn`, `error`; default `debug`). `since` is a line id (only lines after it) or an RFC 3339 timestamp (only lines after it). `limit` default 500, max 2000; the newest matching lines are returned. 400 on any other value. |
+| GET | `/api/v1/log-level` | → `{"level":"info"}` |
+| PUT | `/api/v1/log-level` | `{"level":"debug"}` → `{"level":"debug"}`. Takes effect immediately for new lines; a change appends a `set_log_level` audit event. 400 on an unknown level or field. |
+
+```jsonc
+// Line
+{"id":42,"ts":"2026-11-21T08:00:00Z","level":"info","msg":"request",
+ "attrs":{"method":"GET","route":"/api/v1/tasks/{id}","status":"200","duration":"1.2ms","bytes":"512","request_id":"a1b2c3d4e5f60718","scope":"owner"}}
+```
+
+Every HTTP request is logged once when it finishes (`msg` `request`; level `info`, `warn` for status 500 and above). The attributes are `method`, `route` (the matched route pattern, never the raw path, so tokens in paths such as `/a/{token}` and query strings are never logged; `unmatched` when no route matched), `status`, `duration`, `bytes` (response body bytes), `request_id` (the `X-Request-Id` header, generated when missing or invalid) and, when known, `agent` (the agent id on `/mcp`) or `scope` (`owner` for the owner token, `token` for a managed API token). Request bodies and headers are never logged. Attribute values in `Line.attrs` are strings.
+
+Successful (2xx) health checks, `GET /api/v1/logs` polls and MCP `heartbeat` calls are sampled: a deterministic share of them, chosen by a hash of the request id, is logged. Every other request, and every non-2xx response, is always logged.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_LOG_FORMAT` | `text` | `text` or `json` (slog handlers on stderr); anything else stops the server at start |
+| `SUBSPACE_LOG_LEVEL` | `info` | initial level: `debug`, `info`, `warn` or `error`; changed at runtime with `PUT /api/v1/log-level` |
+| `SUBSPACE_LOG_SAMPLE` | `0.1` | share (0 to 1) of sampled 2xx requests that are logged; `1` logs all, `0` none |
+
 ### Action links
 | Method | Path | Body → Response |
 |---|---|---|

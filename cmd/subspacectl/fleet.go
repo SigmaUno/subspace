@@ -212,6 +212,24 @@ var autopilotCommands = table{
 	},
 	"enable":  autopilotSwitch("enable", true),
 	"disable": autopilotSwitch("disable", false),
+	"spawn":   parseAutopilotSpawn,
+}
+
+func parseAutopilotSpawn(args []string, _ io.Reader) (command, error) {
+	set := flags("autopilot spawn")
+	kind := set.String("worker-kind", "", "claude-code, codex or opencode; empty clears the setting")
+	model := set.String("model", "", "model the spawned worker uses")
+	provider := set.String("provider", "", "provider override")
+	profile := set.String("profile", "", "agent profile supplying kind, model and provider")
+	if err := parseFlags(set, args, 1, 1); err != nil {
+		return nil, err
+	}
+	id, err := identifier(set.Arg(0))
+	if err != nil {
+		return nil, err
+	}
+	body := map[string]string{"worker_kind": *kind, "model": *model, "provider": *provider, "profile": *profile}
+	return call(request{method: http.MethodPut, path: "autopilot/briefs/" + id + "/spawn", body: body}), nil
 }
 
 var mergequeueCommands = table{

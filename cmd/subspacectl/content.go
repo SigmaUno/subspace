@@ -226,6 +226,16 @@ var promptCommands = table{
 	},
 }
 
+var briefCommands = table{
+	"show":         byID("briefs show", "briefs/%s"),
+	"architecture": byID("briefs architecture", "briefs/%s/architecture"),
+	"update":       jsonBody("briefs update", http.MethodPatch, "briefs/%s", true),
+	"leader":       parseBriefLeader,
+	"components": grouped("briefs components", table{
+		"set": jsonBody("briefs components set", http.MethodPut, "briefs/%s/components", true),
+	}),
+}
+
 func parseBriefs(args []string, stdin io.Reader) (command, error) {
 	if len(args) > 0 {
 		switch args[0] {
@@ -234,8 +244,29 @@ func parseBriefs(args []string, stdin io.Reader) (command, error) {
 		case "templates":
 			return parseTemplates(args[1:])
 		}
+		if p, ok := briefCommands[args[0]]; ok {
+			return p(args[1:], stdin)
+		}
 	}
 	return single(parseList("briefs", args))
+}
+
+func parseBriefLeader(args []string, _ io.Reader) (command, error) {
+	set := flags("briefs leader")
+	agent := set.String("agent", "", "leader to hand the brief to; empty = any leader")
+	if err := parseFlags(set, args, 1, 1); err != nil {
+		return nil, err
+	}
+	id, err := identifier(set.Arg(0))
+	if err != nil {
+		return nil, err
+	}
+	if *agent != "" {
+		if _, err := identifier(*agent); err != nil {
+			return nil, err
+		}
+	}
+	return call(request{method: http.MethodPost, path: "briefs/" + id + "/leader", body: map[string]string{"agent_id": *agent}}), nil
 }
 
 func parseImport(args []string, stdin io.Reader) (command, error) {

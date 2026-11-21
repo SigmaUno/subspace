@@ -40,6 +40,10 @@ Commands:
   briefs [--status open|closed] [--limit 1000]
   briefs import (--file FILE | --file -) [--dry-run]
   briefs templates [TEMPLATE_ID [--var name=value ...]]
+  briefs show|architecture BRIEF_ID
+  briefs update BRIEF_ID --file FILE                     (JSON object of brief fields)
+  briefs leader BRIEF_ID [--agent LEADER_ID]             (empty = any leader)
+  briefs components set BRIEF_ID --file FILE             (JSON object with components)
   board BRIEF_ID
   decisions list [--limit N]
   decisions next
@@ -68,6 +72,7 @@ Commands:
   tasks list [--brief ID] [--status S] [--assignee A] [--role R] [--limit N]
   tasks show TASK_ID
   tasks pr|scope|gates TASK_ID
+  tasks override-gates TASK_ID --reason TEXT [--gates checks,tests]
   tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all
@@ -105,6 +110,7 @@ Commands:
   autopilot status
   autopilot enable BRIEF_ID
   autopilot disable BRIEF_ID
+  autopilot spawn BRIEF_ID [--worker-kind KIND] [--model M] [--provider P] [--profile NAME]
   mergequeue list [--repo R]
   mergequeue show CANDIDATE_ID
   mergequeue trains [--repo R] [--limit N]
@@ -182,6 +188,13 @@ Commands:
   digest [--window 24h]
   logs [--level LEVEL] [--since ID] [--limit N]
   questions [--status open|answered] [--limit N]
+  activity [--brief-id ID] [--severity S] [--limit N]
+  prs [--brief-id ID] [--state open|merged|closed] [--limit N]
+  help-requests [--status S] [--brief-id ID] [--task-id ID] [--limit N]
+  threads list agent|task|brief ID [--limit N]
+  threads post agent|task|brief ID (--body TEXT | --body-file FILE)
+  log-level get|set --level debug|info|warn|error
+  token-leaks reissue LEAK_ID
   state
   about
   me
@@ -286,7 +299,7 @@ func action(name string) parser {
 func registry() map[string]entry {
 	return map[string]entry{
 		"create-brief": {parse: func(args []string, stdin io.Reader) (command, error) { return single(parseBrief(args, stdin)) }},
-		"briefs":       {parse: parseBriefs, subs: []string{"import", "templates"}},
+		"briefs":       {parse: parseBriefs, subs: append([]string{"import", "templates"}, names(briefCommands)...)},
 		"board":        {parse: byID("board", "briefs/%s/board")},
 		"decisions":    {parse: grouped("decisions", decisionCommands), subs: names(decisionCommands)},
 		"chat":         {parse: grouped("chat", chatCommands), subs: names(chatCommands)},
@@ -355,6 +368,12 @@ func registry() map[string]entry {
 		"about":          {parse: plain("about", request{method: http.MethodGet, path: "about"})},
 		"me":             {parse: plain("me", request{method: http.MethodGet, path: "me"})},
 		"task-templates": {parse: plain("task-templates", request{method: http.MethodGet, path: "task-templates"})},
+		"activity":       {parse: listing("activity", "activity", 1000, "brief-id", "severity")},
+		"prs":            {parse: listing("prs", "prs", 1000, "brief-id", "state")},
+		"help-requests":  {parse: listing("help-requests", "help-requests", 1000, "status", "brief-id", "task-id")},
+		"threads":        {parse: grouped("threads", threadCommands), subs: names(threadCommands)},
+		"log-level":      {parse: grouped("log-level", logLevelCommands), subs: names(logLevelCommands)},
+		"token-leaks":    {parse: grouped("token-leaks", tokenLeakCommands), subs: names(tokenLeakCommands)},
 	}
 }
 

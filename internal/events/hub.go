@@ -47,6 +47,17 @@ type Hub interface {
 	Subscribers() int
 }
 
+type QuietSubscriber interface {
+	SubscribeQuiet(topics []string) Subscription
+}
+
+func SubscribeQuiet(h Hub, topics []string) Subscription {
+	if q, ok := h.(QuietSubscriber); ok {
+		return q.SubscribeQuiet(topics)
+	}
+	return h.Subscribe(topics)
+}
+
 type Resumed struct {
 	Sub    Subscription
 	Replay []Event

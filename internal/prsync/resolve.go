@@ -18,7 +18,7 @@ const (
 )
 
 func FromRepos(rs []repos.Repo, interval string) (Config, error) {
-	c := Config{Interval: DefaultInterval, Rate: defaultGlobalRate, Hosts: map[string]HostConfig{}, Repos: map[string]string{}}
+	c := Config{Interval: DefaultInterval, Rate: defaultGlobalRate, Hosts: map[string]HostConfig{}, Repos: map[string]string{}, Strict: true}
 	if interval != "" {
 		d, err := time.ParseDuration(interval)
 		if err != nil || d <= 0 {

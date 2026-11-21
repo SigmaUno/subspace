@@ -39,6 +39,7 @@ type sub struct {
 	mark    int64
 	dropped atomic.Int64
 	closed  bool
+	quiet   bool
 }
 
 func NewHub() Hub {
@@ -77,6 +78,17 @@ func (h *hub) Subscribe(topics []string) Subscription {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.subscribe(topics)
+}
+
+func (h *hub) SubscribeQuiet(topics []string) Subscription {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.subscribe(topics)
+	if !s.closed {
+		s.quiet = true
+		h.count--
+	}
+	return s
 }
 
 func (h *hub) subscribe(topics []string) *sub {
@@ -225,6 +237,8 @@ func (h *hub) removeLocked(s *sub) {
 			h.topics[t] = set
 		}
 	}
-	h.count--
+	if !s.quiet {
+		h.count--
+	}
 	close(s.ch)
 }

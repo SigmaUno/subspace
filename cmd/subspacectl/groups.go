@@ -407,8 +407,11 @@ var taskCommands = table{
 		}
 		return get("tasks", setIf(q, "brief_id", *brief, "status", *status, "assignee", *assignee, "role", *role)), nil
 	},
-	"show": byID("tasks show", "tasks/%s"),
-	"bulk": parseTaskBulk,
+	"show":  byID("tasks show", "tasks/%s"),
+	"pr":    byID("tasks pr", "tasks/%s/pr"),
+	"scope": byID("tasks scope", "tasks/%s/scope"),
+	"gates": byID("tasks gates", "tasks/%s/gates"),
+	"bulk":  parseTaskBulk,
 }
 
 func parseTaskBulk(args []string, stdin io.Reader) (command, error) {

@@ -67,6 +67,7 @@ Commands:
   answer QUESTION_ID --answer TEXT
   tasks list [--brief ID] [--status S] [--assignee A] [--role R] [--limit N]
   tasks show TASK_ID
+  tasks pr|scope|gates TASK_ID
   tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all
@@ -77,11 +78,17 @@ Commands:
   revoke-agent AGENT_ID [--reason TEXT]
   agents [--role ROLE] [--status STATUS] [--limit 1000]
   agents stats
+  agents show AGENT_ID
+  agents rotate-token AGENT_ID [--expires-in 720h]
+  agents performance [AGENT_ID] [--role ROLE]
   agents bulk-action pause|resume|revoke|kill AGENT_ID... [--reason TEXT]
   agents register [AGENT_ID | --prefix PREFIX [--count N]] [--profile NAME] [--role ROLE]
                   [--kind KIND] [--model MODEL] [--provider NAME]
   profiles list
   profiles create NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
+                  [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
+  profiles show NAME
+  profiles update NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
                   [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
   profiles delete NAME
   spawns list [--brief ID]
@@ -91,6 +98,8 @@ Commands:
   autopilot disable BRIEF_ID
   mergequeue list [--repo R]
   mergequeue show CANDIDATE_ID
+  mergequeue trains [--repo R] [--limit N]
+  mergequeue train TRAIN_ID
   mergequeue enqueue TASK_ID [--pr N] [--base BRANCH]
   backups list
   backups create
@@ -109,8 +118,72 @@ Commands:
   limits [--provider P] [--model M]
   capacity get
   capacity set --file FILE
+  spend-limits get
+  spend-limits set --daily-eur N --weekly-eur N          (0 = off)
+  quotas show AGENT_ID
+  quotas set AGENT_ID --max-cost-eur-per-day N --max-tasks-per-day N --max-concurrent-tasks N
+  quotas bulk AGENT_ID... --max-cost-eur-per-day N --max-tasks-per-day N --max-concurrent-tasks N
+  schedules list
+  schedules show|enable|disable|delete SCHEDULE_ID
+  schedules create --file FILE
+  schedules edit SCHEDULE_ID --file FILE
+  schedules runs SCHEDULE_ID [--limit N]
+  schedules preview --cron EXPR [--timezone TZ] [--count N]
+  incident list [--limit N]
+  incident start --reason TEXT --actions pause_all,revoke_agents,rotate_leader_tokens,snapshot,notify
+                 [--revoke-role ROLE] [--revoke-provider NAME]
+  incident end INCIDENT_ID [--resume-agents] [--note TEXT]
+  costs [--group-by DIM] [--split-by DIM] [--since TIME] [--until TIME] [--brief ID]
+  estimates brief BRIEF_ID
+  estimates plan PLAN_ID
+  knowledge list [--brief ID] [--kind K] [--status S] [--q TEXT] [--limit N]
+  knowledge show|delete|approve ENTRY_ID
+  knowledge add --brief ID --kind K --title T (--body TEXT | --body-file FILE)
+                [--tags a,b] [--supersedes ENTRY_ID]
+  knowledge edit ENTRY_ID [--kind K] [--title T] [--body TEXT | --body-file FILE] [--tags a,b]
+  knowledge pin ENTRY_ID [--off]
+  knowledge supersede ENTRY_ID [--by ENTRY_ID]
+  announcements list [--status active|all]
+  announcements publish (--text TEXT | --text-file FILE) [--expires-at TIME] [--brief ID]
+  announcements delete ANNOUNCEMENT_ID
+  retention status|run|verify
+  retention restore SEGMENT_ID
+  alerts [--status active|resolved] [--limit N]
+  webhooks-out list
+  webhooks-out show|delete HOOK_ID
+  webhooks-out create --target-url URL --events a.b,c.* [--brief ID]
+  webhooks-out deliveries HOOK_ID [--state pending|delivered|dead] [--limit N]
+  webhooks-out redeliver HOOK_ID DELIVERY_ID
+  breakers list
+  breakers reset PROVIDER
+  tokens list
+  tokens create --name NAME --scope viewer|owner [--expires-at TIME]
+  tokens revoke TOKEN_ID
+  insights [AGENT_ID | --severity warning|high]
+  replay show BRIEF_ID [--at AUDIT_ID|TIME]
+  replay timeline BRIEF_ID
+  replay diff BRIEF_ID [--from AUDIT_ID|TIME] [--to AUDIT_ID|TIME]
+  output tail (AGENT_ID... | --all) [--follow|-f] [--lines N] [--task TASK_ID]
+  output latest
+  charter get
+  charter set (--text TEXT | --text-file FILE)
+  notify status|test
+  digest [--window 24h]
+  logs [--level LEVEL] [--since ID] [--limit N]
+  questions [--status open|answered] [--limit N]
+  state
+  me
+  task-templates
+  reload
+  openapi [--out FILE]
+  doctor
   join-snippet AGENT_ID
   completion bash|zsh|fish
+
+doctor runs the server's local diagnostics against this machine's environment and
+needs no credentials; it exits 1 when it finds errors. incident start, incident end and
+retention verify print the result and exit 1 when an action failed. output tail --follow
+streams until interrupted.
 
 Use "-" for stdin with --body-file, --text-file, --spec-file or --file, and for
 --out to write raw data to stdout. Registration results contain one-time
@@ -124,6 +197,7 @@ type parser func(args []string, stdin io.Reader) (command, error)
 type entry struct {
 	parse parser
 	subs  []string
+	local bool
 }
 
 func main() {
@@ -158,7 +232,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 		return finish(failf(exitUsage, "%s", err), opts.json)
 	}
 	var c *conn
-	if args[0] != "completion" {
+	if !registry()[args[0]].local {
 		if c, err = connect(opts, getenv); err != nil {
 			return finish(err, opts.json)
 		}
@@ -235,8 +309,35 @@ func registry() map[string]entry {
 		"capacity": {parse: func(args []string, stdin io.Reader) (command, error) {
 			return single(parseCapacity(args, stdin))
 		}, subs: []string{"get", "set"}},
-		"join-snippet": {parse: byID("join-snippet", "agents/%s/connect")},
-		"completion":   {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}},
+		"join-snippet":   {parse: byID("join-snippet", "agents/%s/connect")},
+		"completion":     {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}, local: true},
+		"schedules":      {parse: grouped("schedules", scheduleCommands), subs: names(scheduleCommands)},
+		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
+		"costs":          {parse: parseCosts},
+		"estimates":      {parse: grouped("estimates", estimateCommands), subs: names(estimateCommands)},
+		"knowledge":      {parse: grouped("knowledge", knowledgeCommands), subs: names(knowledgeCommands)},
+		"announcements":  {parse: grouped("announcements", announcementCommands), subs: names(announcementCommands)},
+		"quotas":         {parse: grouped("quotas", quotaCommands), subs: names(quotaCommands)},
+		"retention":      {parse: grouped("retention", retentionCommands), subs: names(retentionCommands)},
+		"alerts":         {parse: listing("alerts", "alerts", 1000, "status")},
+		"webhooks-out":   {parse: grouped("webhooks-out", webhookCommands), subs: names(webhookCommands)},
+		"breakers":       {parse: grouped("breakers", breakerCommands), subs: names(breakerCommands)},
+		"spend-limits":   {parse: grouped("spend-limits", spendLimitCommands), subs: names(spendLimitCommands)},
+		"tokens":         {parse: grouped("tokens", tokenCommands), subs: names(tokenCommands)},
+		"insights":       {parse: parseInsights},
+		"replay":         {parse: grouped("replay", replayCommands), subs: names(replayCommands)},
+		"reload":         {parse: plain("reload", request{method: http.MethodPost, path: "reload", body: struct{}{}})},
+		"doctor":         {parse: parseDoctor, local: true},
+		"openapi":        {parse: parseOpenAPI},
+		"output":         {parse: grouped("output", outputCommands), subs: names(outputCommands)},
+		"charter":        {parse: grouped("charter", charterCommands), subs: names(charterCommands)},
+		"notify":         {parse: grouped("notify", notifyCommands), subs: names(notifyCommands)},
+		"digest":         {parse: parseDigest},
+		"logs":           {parse: parseLogs},
+		"questions":      {parse: listing("questions", "questions", 1000, "status")},
+		"state":          {parse: plain("state", request{method: http.MethodGet, path: "state"})},
+		"me":             {parse: plain("me", request{method: http.MethodGet, path: "me"})},
+		"task-templates": {parse: plain("task-templates", request{method: http.MethodGet, path: "task-templates"})},
 	}
 }
 

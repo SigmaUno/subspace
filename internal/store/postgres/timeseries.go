@@ -42,7 +42,7 @@ func (t *tx) Timeseries(q store.TimeseriesQuery) ([]store.TimeseriesPoint, error
 		}
 		p.At = time.UnixMilli(at).UTC()
 		return p, nil
-	}, sql, q.Since.UnixMilli(), q.Until.UnixMilli(), q.BriefID, q.Bucket.Milliseconds())
+	}, sql, q.SinceMilli(), q.UntilMilli(), q.BriefID, q.Bucket.Milliseconds())
 }
 
 func (t *tx) PutUsage(r store.UsageRecord) error {

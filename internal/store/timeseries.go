@@ -19,6 +19,16 @@ type TimeseriesQuery struct {
 	BriefID string
 }
 
+func (q TimeseriesQuery) SinceMilli() int64 { return q.Since.UnixMilli() }
+
+func (q TimeseriesQuery) UntilMilli() int64 {
+	ms := q.Until.UnixMilli()
+	if q.Until.Nanosecond()%int(time.Millisecond) != 0 {
+		ms++
+	}
+	return ms
+}
+
 type TimeseriesPoint struct {
 	At    time.Time
 	Value float64

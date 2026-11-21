@@ -124,4 +124,15 @@ func scenarioTimeseries(t *testing.T, s store.Store) {
 	if len(fine) != 1 || !fine[0].At.Equal(base) || fine[0].Value != 165 {
 		t.Fatalf("5m buckets: %+v", fine)
 	}
+
+	var sub []store.TimeseriesPoint
+	read(t, s, func(tx store.Tx) (err error) {
+		sub, err = tx.(store.TimeseriesTx).Timeseries(store.TimeseriesQuery{
+			Metric: store.MetricTokens, Since: base, Until: at(m + 300*time.Microsecond), Bucket: 5 * m,
+		})
+		return
+	})
+	if len(sub) != 1 || sub[0].Value != 150 {
+		t.Fatalf("event within the last millisecond of the window: %+v", sub)
+	}
 }

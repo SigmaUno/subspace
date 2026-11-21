@@ -53,6 +53,21 @@ fi
 started=1
 `
 
+const openCodeExited = 3
+
+const openCodeStopScript = `set -u
+session=$1 window=$2
+tmux has-session -t "=$session" 2>/dev/null || exit 0
+tmux list-windows -t "=$session" -F '#{window_name}' | grep -qxF -- "$window" || exit 0
+tmux kill-window -t "=$session:=$window"
+`
+
+const openCodeStatusScript = `set -u
+session=$1 window=$2
+tmux has-session -t "=$session" 2>/dev/null || exit 3
+tmux list-windows -t "=$session" -F '#{window_name}' | grep -qxF -- "$window" || exit 3
+`
+
 type Exec func(ctx context.Context, stdin []byte, name string, args ...string) error
 
 type OpenCode struct {
@@ -75,14 +90,7 @@ func (o *OpenCode) Spawn(ctx context.Context, r Request) error {
 	if run == nil {
 		run = execStdin(r.Token)
 	}
-	name, argv := "sh", append([]string{"-c", script, "sh"}, args...)
-	if o.Host != "" {
-		quoted := make([]string, 0, len(argv)+1)
-		for _, a := range append([]string{"sh"}, argv...) {
-			quoted = append(quoted, shellQuote(a))
-		}
-		name, argv = "ssh", []string{"-o", "BatchMode=yes", "--", o.Host, strings.Join(quoted, " ")}
-	}
+	name, argv := o.command(script, args)
 	if err := run(ctx, stdin, name, argv...); err != nil {
 		msg := err.Error()
 		if r.Token != "" {
@@ -93,9 +101,76 @@ func (o *OpenCode) Spawn(ctx context.Context, r Request) error {
 	return nil
 }
 
+func (o *OpenCode) command(script string, args []string) (string, []string) {
+	argv := append([]string{"-c", script, "sh"}, args...)
+	if o.Host == "" {
+		return "sh", argv
+	}
+	quoted := make([]string, 0, len(argv)+1)
+	for _, a := range append([]string{"sh"}, argv...) {
+		quoted = append(quoted, shellQuote(a))
+	}
+	return "ssh", []string{"-o", "BatchMode=yes", "--", o.Host, strings.Join(quoted, " ")}
+}
+
+func (o *OpenCode) target(agentID string) (string, error) {
+	if !agentIDRe.MatchString(agentID) {
+		return "", fmt.Errorf("spawner opencode: invalid agent id %q", agentID)
+	}
+	if strings.HasPrefix(o.Host, "-") {
+		return "", errors.New("spawner opencode: invalid host")
+	}
+	session := o.Session
+	if session == "" {
+		session = DefaultOpenCodeSession
+	}
+	if !sessionRe.MatchString(session) {
+		return "", fmt.Errorf("spawner opencode: invalid tmux session %q", session)
+	}
+	return session, nil
+}
+
+func (o *OpenCode) Stop(ctx context.Context, agentID string) error {
+	session, err := o.target(agentID)
+	if err != nil {
+		return err
+	}
+	if err := o.run(ctx, openCodeStopScript, session, agentID); err != nil {
+		return errors.New("spawner opencode: stop: " + err.Error())
+	}
+	return nil
+}
+
+func (o *OpenCode) Status(ctx context.Context, agentID string) (Status, error) {
+	session, err := o.target(agentID)
+	if err != nil {
+		return StatusUnknown, err
+	}
+	err = o.run(ctx, openCodeStatusScript, session, agentID)
+	var ec interface{ ExitCode() int }
+	switch {
+	case err == nil:
+		return StatusRunning, nil
+	case errors.As(err, &ec) && ec.ExitCode() == openCodeExited:
+		return StatusExited, nil
+	default:
+		return StatusUnknown, errors.New("spawner opencode: status: " + err.Error())
+	}
+}
+
+func (o *OpenCode) run(ctx context.Context, script string, args ...string) error {
+	run := o.Exec
+	if run == nil {
+		run = execStdin("")
+	}
+	name, argv := o.command(script, args)
+	return run(ctx, nil, name, argv...)
+}
+
 func (o *OpenCode) plan(r Request) (string, []string, []byte, error) {
-	if !agentIDRe.MatchString(r.AgentID) {
-		return "", nil, nil, fmt.Errorf("spawner opencode: invalid agent id %q", r.AgentID)
+	session, err := o.target(r.AgentID)
+	if err != nil {
+		return "", nil, nil, err
 	}
 	provider, ok := openCodeProviders[r.Kind]
 	if !ok {
@@ -104,18 +179,8 @@ func (o *OpenCode) plan(r Request) (string, []string, []byte, error) {
 	if r.Provider != "" && r.Provider != provider {
 		return "", nil, nil, fmt.Errorf("spawner opencode: kind %q requires provider %q, got %q", r.Kind, provider, r.Provider)
 	}
-	if strings.HasPrefix(o.Host, "-") {
-		return "", nil, nil, errors.New("spawner opencode: invalid host")
-	}
 	if !absPathRe.MatchString(o.Root) || strings.Contains(o.Root, "..") {
 		return "", nil, nil, fmt.Errorf("spawner opencode: root must be an absolute path, got %q", o.Root)
-	}
-	session := o.Session
-	if session == "" {
-		session = DefaultOpenCodeSession
-	}
-	if !sessionRe.MatchString(session) {
-		return "", nil, nil, fmt.Errorf("spawner opencode: invalid tmux session %q", session)
 	}
 	bin := o.Bin
 	if bin == "" {

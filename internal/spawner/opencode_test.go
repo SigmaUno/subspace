@@ -283,3 +283,56 @@ func TestOpenCodeScriptCleansEnvFileOnFailure(t *testing.T) {
 		t.Fatalf("env file left behind: %v %v", left, err)
 	}
 }
+
+const fakeTmuxWindows = `#!/bin/sh
+echo "$@" >>"$FAKE_TMUX_LOG"
+case "$1" in
+has-session) [ -n "$FAKE_TMUX_WINDOWS" ] ;;
+list-windows) printf '%s\n' $FAKE_TMUX_WINDOWS ;;
+esac
+`
+
+func TestOpenCodeStopAndStatus(t *testing.T) {
+	if _, err := exec.LookPath("sh"); err != nil {
+		t.Skip("sh not available")
+	}
+	tmp := t.TempDir()
+	if err := os.WriteFile(filepath.Join(tmp, "tmux"), []byte(fakeTmuxWindows), 0o755); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	log := filepath.Join(tmp, "tmux.log")
+	t.Setenv("PATH", tmp+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("FAKE_TMUX_LOG", log)
+	t.Setenv("FAKE_TMUX_WINDOWS", "claude-b1-10 claude-b1-1")
+	ctx := context.Background()
+	o := &OpenCode{Root: "/srv/a", Session: "crew"}
+
+	for id, want := range map[string]Status{"claude-b1-1": StatusRunning, "claude-b1-2": StatusExited} {
+		if got, err := o.Status(ctx, id); err != nil || got != want {
+			t.Errorf("status %s = %s %v, want %s", id, got, err, want)
+		}
+	}
+	for _, id := range []string{"claude-b1-1", "claude-b1-2"} {
+		if err := o.Stop(ctx, id); err != nil {
+			t.Fatal(err)
+		}
+	}
+	logged, err := os.ReadFile(log) //nolint:gosec
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(logged), "kill-window"); n != 1 || !strings.Contains(string(logged), "kill-window -t =crew:=claude-b1-1\n") {
+		t.Fatalf("tmux log: %s", logged)
+	}
+
+	t.Setenv("FAKE_TMUX_WINDOWS", "")
+	if got, err := o.Status(ctx, "claude-b1-1"); err != nil || got != StatusExited {
+		t.Fatalf("status without session = %s %v", got, err)
+	}
+	if err := o.Stop(ctx, "claude-b1-1"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := o.Status(ctx, "../x"); err == nil {
+		t.Fatal("invalid agent id accepted")
+	}
+}

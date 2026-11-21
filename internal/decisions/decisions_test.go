@@ -87,6 +87,13 @@ func (f *fake) move(id, to, call string) (*model.Task, error) {
 	return nil, model.NotFound("task %s not found", id)
 }
 
+func (f *fake) RotateToken(_ context.Context, id string, expiresIn time.Duration) (any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.record("rotate " + id + " " + expiresIn.String())
+	return nil, nil
+}
+
 func (f *fake) Skip(_ context.Context, id string, until time.Time) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()

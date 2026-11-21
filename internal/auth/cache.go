@@ -34,10 +34,14 @@ type Cache struct {
 var _ AgentLookup = (*Cache)(nil)
 
 func NewCache(load func(hash string) (*model.Agent, error), ttl time.Duration) *Cache {
+	return NewCacheClock(load, ttl, time.Now)
+}
+
+func NewCacheClock(load func(hash string) (*model.Agent, error), ttl time.Duration, now func() time.Time) *Cache {
 	return &Cache{
 		load:    load,
 		ttl:     ttl,
-		now:     time.Now,
+		now:     now,
 		pos:     make(map[string]posEntry),
 		byAgent: make(map[string]map[string]struct{}),
 		neg:     make(map[string]time.Time),
@@ -56,7 +60,7 @@ func (c *Cache) LookupToken(token string) (*model.Agent, error) {
 		if now.Before(e.expires) {
 			a := e.agent
 			c.mu.Unlock()
-			return &a, nil
+			return live(&a, now)
 		}
 		c.removePosLocked(hash, e.agent.ID)
 	}
@@ -100,7 +104,14 @@ func (c *Cache) LookupToken(token string) (*model.Agent, error) {
 		set[hash] = struct{}{}
 	}
 	out := cp
-	return &out, nil
+	return live(&out, now)
+}
+
+func live(a *model.Agent, now time.Time) (*model.Agent, error) {
+	if a.TokenExpiresAt != nil && !now.Before(*a.TokenExpiresAt) {
+		return nil, ErrTokenExpired
+	}
+	return a, nil
 }
 
 func (c *Cache) Invalidate(agentID string) {

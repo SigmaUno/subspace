@@ -67,6 +67,7 @@ type Server struct {
 	handler http.Handler
 	backups *backup.Scheduler
 	reload  *reload.Manager
+	reg     *mcp.Registry
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -225,7 +226,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, drain: make(chan struct{})}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -269,6 +270,14 @@ func bodyDeadline(h http.Handler, d time.Duration) http.Handler {
 }
 
 func (s *Server) Handler() http.Handler { return s.handler }
+
+func (s *Server) ToolNames() map[string][]string {
+	out := make(map[string][]string, len(mcp.AllRoles))
+	for _, role := range mcp.AllRoles {
+		out[role] = s.reg.Names(role)
+	}
+	return out
+}
 
 func (s *Server) Close() error {
 	s.beginDrain()

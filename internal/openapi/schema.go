@@ -9,6 +9,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/SigmaUno/subspace/internal/retention"
 )
 
 type Free struct{}
@@ -16,10 +18,11 @@ type Free struct{}
 type Binary []byte
 
 var (
-	timeType   = reflect.TypeFor[time.Time]()
-	rawType    = reflect.TypeFor[json.RawMessage]()
-	freeType   = reflect.TypeFor[Free]()
-	binaryType = reflect.TypeFor[Binary]()
+	timeType     = reflect.TypeFor[time.Time]()
+	rawType      = reflect.TypeFor[json.RawMessage]()
+	freeType     = reflect.TypeFor[Free]()
+	binaryType   = reflect.TypeFor[Binary]()
+	durationType = reflect.TypeFor[retention.Duration]()
 )
 
 type schemas struct {
@@ -40,6 +43,8 @@ func (s *schemas) typeOf(t reflect.Type) map[string]any {
 	switch t {
 	case timeType:
 		return map[string]any{"type": "string", "format": "date-time"}
+	case durationType:
+		return map[string]any{"type": "string"}
 	case rawType, freeType:
 		return map[string]any{}
 	case binaryType:

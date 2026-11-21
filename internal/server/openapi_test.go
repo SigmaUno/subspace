@@ -97,7 +97,7 @@ func openapiRegisteredPatterns(t *testing.T) []string {
 		}
 	}
 	if len(out) < 60 {
-		t.Fatalf("scanned only %d registered patterns", len(out))
+		t.Fatalf("scanned only %d registered patterns in internal/server/mount_*.go; update openapiPatternCall in internal/server/openapi_test.go if the mount helpers changed", len(out))
 	}
 	sort.Strings(out)
 	return out
@@ -131,22 +131,22 @@ func TestOpenAPIServedAndValid(t *testing.T) {
 	e := contractEnv(t)
 	doc, raw := e.openapiDoc()
 	if probs := openapi.Validate(raw); len(probs) > 0 {
-		t.Fatalf("served document is invalid:\n%s", strings.Join(probs, "\n"))
+		t.Fatalf("served document is invalid; fix internal/openapi/operations.go or internal/openapi/build.go:\n%s", strings.Join(probs, "\n"))
 	}
 	if doc["openapi"] != "3.1.0" {
-		t.Fatalf("openapi = %v", doc["openapi"])
+		t.Fatalf("openapi = %v, want 3.1.0: edit SpecVersion in internal/openapi/build.go", doc["openapi"])
 	}
 	if servers, _ := doc["servers"].([]any); len(servers) != 1 || servers[0].(map[string]any)["url"] != "http://sub.test" {
-		t.Fatalf("servers = %v", doc["servers"])
+		t.Fatalf("servers = %v: edit internal/openapi/build.go and internal/server/mount_openapi.go", doc["servers"])
 	}
 	schemes := doc["components"].(map[string]any)["securitySchemes"].(map[string]any)
 	if b, _ := schemes["bearer"].(map[string]any); b["type"] != "http" || b["scheme"] != "bearer" {
-		t.Fatalf("bearer scheme = %v", schemes["bearer"])
+		t.Fatalf("bearer scheme = %v: edit internal/openapi/build.go", schemes["bearer"])
 	}
 
 	again, rawAgain := e.openapiDoc()
 	if string(raw) != string(rawAgain) || !reflect.DeepEqual(doc, again) {
-		t.Fatal("document changes between requests")
+		t.Fatal("document changes between requests: make internal/openapi/build.go deterministic")
 	}
 }
 
@@ -168,7 +168,7 @@ func TestOpenAPIRequiresOwnerToken(t *testing.T) {
 			want = http.StatusForbidden
 		}
 		if resp.StatusCode != want {
-			t.Errorf("%s token: status %d, want %d", name, resp.StatusCode, want)
+			t.Errorf("%s token: status %d, want %d: fix auth of the openapi mount in internal/server/mount_openapi.go", name, resp.StatusCode, want)
 		}
 	}
 }
@@ -186,7 +186,7 @@ func TestOpenAPIListsMCPToolsPerRole(t *testing.T) {
 		res, _ := e.rpc(tok, "tools/list", map[string]any{})["result"].(map[string]any)
 		list, _ := res["tools"].([]any)
 		if len(list) == 0 {
-			t.Fatalf("no tools for %s", role)
+			t.Fatalf("no tools for %s: check internal/mcp/registry.go", role)
 		}
 		for _, x := range list {
 			m := x.(map[string]any)
@@ -199,14 +199,14 @@ func TestOpenAPIListsMCPToolsPerRole(t *testing.T) {
 	}
 	listed, _ := doc["x-mcp-tools"].([]any)
 	if len(listed) != len(want) {
-		t.Fatalf("x-mcp-tools lists %d tools, tools/list exposes %d", len(listed), len(want))
+		t.Fatalf("x-mcp-tools lists %d tools, tools/list exposes %d: fix mcpTools in internal/server/mount_openapi.go", len(listed), len(want))
 	}
 	for _, x := range listed {
 		m := x.(map[string]any)
 		name := m["name"].(string)
 		w := want[name]
 		if w == nil {
-			t.Errorf("tool %s is not exposed over MCP", name)
+			t.Errorf("tool %s is in x-mcp-tools but not exposed over MCP: fix mcpTools in internal/server/mount_openapi.go", name)
 			continue
 		}
 		var roles []string
@@ -215,10 +215,10 @@ func TestOpenAPIListsMCPToolsPerRole(t *testing.T) {
 		}
 		sort.Strings(w.roles)
 		if !slices.Equal(roles, w.roles) {
-			t.Errorf("tool %s roles = %v, tools/list says %v", name, roles, w.roles)
+			t.Errorf("tool %s roles = %v, tools/list says %v: fix mcpTools in internal/server/mount_openapi.go", name, roles, w.roles)
 		}
 		if !reflect.DeepEqual(m["inputSchema"], w.schema) {
-			t.Errorf("tool %s inputSchema differs from tools/list", name)
+			t.Errorf("tool %s inputSchema differs from tools/list: fix mcpTools in internal/server/mount_openapi.go", name)
 		}
 	}
 }
@@ -227,12 +227,12 @@ func TestOpenAPICoversEveryRegisteredRoute(t *testing.T) {
 	ops := openapi.Routes()
 	for _, p := range openapiRegisteredPatterns(t) {
 		if !openapiHasOperation(p, ops) {
-			t.Errorf("registered pattern %q has no operation in internal/openapi", p)
+			t.Errorf("registered pattern %q has no operation: add it to internal/openapi/operations.go (and name new schema types in internal/openapi/names.go)", p)
 		}
 	}
 	for _, r := range contractRoutes(t) {
 		if !openapiHasOperation(r.method+" "+r.path, ops) {
-			t.Errorf("documented route %s %s has no operation in internal/openapi", r.method, r.path)
+			t.Errorf("documented route %s %s has no operation: add it to internal/openapi/operations.go, or remove the row from docs/api.md", r.method, r.path)
 		}
 	}
 }
@@ -243,7 +243,7 @@ func TestOpenAPIDocumentedRoutesAreServedOperations(t *testing.T) {
 	served := openapiOps(t, doc)
 	for _, r := range contractRoutes(t) {
 		if !served[r.method+" "+r.path] {
-			t.Errorf("documented route %s %s is missing from the served document", r.method, r.path)
+			t.Errorf("documented route %s %s is missing from the served document: add an operation in internal/openapi/operations.go and mount the route in internal/server/mount_*.go, or remove the row from docs/api.md", r.method, r.path)
 		}
 	}
 }
@@ -267,15 +267,15 @@ func TestOpenAPIOperationsExistOnServer(t *testing.T) {
 			e.t = t
 			code, body := e.contractDo(method, contractDummyPath(path))
 			if contractRouteMissing(code, body) {
-				t.Fatalf("%s is in the document but not served: %d %s", k, code, body)
+				t.Fatalf("%s is in the document but not served (%d %s): remove the operation from internal/openapi/operations.go or mount the route in internal/server/mount_*.go", k, code, body)
 			}
 			if code >= 500 {
-				t.Fatalf("%s: %d %s", k, code, body)
+				t.Fatalf("%s answered %d %s: fix the handler registered in internal/server/mount_*.go", k, code, body)
 			}
 		})
 	}
 	if checked < 100 {
-		t.Fatalf("checked only %d operations", checked)
+		t.Fatalf("checked only %d operations: internal/openapi/operations.go lost entries", checked)
 	}
 }
 
@@ -284,11 +284,11 @@ func TestOpenAPIOnlyListsMountedRoutes(t *testing.T) {
 	ops := openapiOps(t, plain)
 	for _, k := range []string{"GET /api/v1/autopilot", "POST /hooks/github", "POST /hooks/forgejo"} {
 		if ops[k] {
-			t.Errorf("%s is listed although it is not mounted", k)
+			t.Errorf("%s is listed although it is not mounted: fix muxRegistered in internal/server/mount_openapi.go", k)
 		}
 	}
 	if !ops["GET /healthz"] || !ops["POST /mcp"] || !ops["GET /api/v1/metrics"] {
-		t.Fatalf("always-mounted routes missing: %v", ops)
+		t.Fatalf("always-mounted routes missing from the document: add them to internal/openapi/operations.go: %v", ops)
 	}
 
 	t.Setenv("SUBSPACE_AUTOPILOT", "on")
@@ -296,20 +296,20 @@ func TestOpenAPIOnlyListsMountedRoutes(t *testing.T) {
 	e := newFlowEnv(t, func(c *Config) { c.Spawner = spawner.Noop{} })
 	enabled, raw := e.openapiDoc()
 	if probs := openapi.Validate(raw); len(probs) > 0 {
-		t.Fatalf("invalid document:\n%s", strings.Join(probs, "\n"))
+		t.Fatalf("invalid document; fix internal/openapi/operations.go:\n%s", strings.Join(probs, "\n"))
 	}
 	ops = openapiOps(t, enabled)
 	for _, k := range []string{"GET /api/v1/autopilot", "POST /api/v1/autopilot/briefs/{id}", "POST /hooks/github"} {
 		if !ops[k] {
-			t.Errorf("%s is mounted but not listed", k)
+			t.Errorf("%s is mounted but not listed: add it to internal/openapi/operations.go", k)
 		}
 	}
 	if ops["POST /hooks/forgejo"] {
-		t.Error("forgejo webhook listed without a secret")
+		t.Error("forgejo webhook listed without a secret: fix muxRegistered in internal/server/mount_openapi.go")
 	}
 	code, body := e.contractDo("GET", "/api/v1/autopilot")
 	if contractRouteMissing(code, body) {
-		t.Fatalf("autopilot listed but missing: %d %s", code, body)
+		t.Fatalf("autopilot listed but missing (%d %s): fix internal/server/mount_autopilot.go or internal/openapi/operations.go", code, body)
 	}
 }
 
@@ -349,18 +349,18 @@ func TestOpenAPISchemasMatchEncodedObjects(t *testing.T) {
 		t.Run(name, func(t *testing.T) {
 			def, ok := defs[name].(map[string]any)
 			if !ok {
-				t.Fatalf("component %s missing", name)
+				t.Fatalf("component %s missing from the document: name the type in internal/openapi/names.go", name)
 			}
 			props := def["properties"].(map[string]any)
 			for k := range sample {
 				if _, ok := props[k]; !ok {
-					t.Errorf("encoded field %s is not in the schema", k)
+					t.Errorf("%s: encoded field %s is not in the schema: add the json field to the Go type behind it (or to internal/openapi/types.go for wrappers)", name, k)
 				}
 			}
 			required, _ := def["required"].([]any)
 			for _, r := range required {
 				if _, ok := sample[r.(string)]; !ok {
-					t.Errorf("required field %s is not encoded", r)
+					t.Errorf("%s: required field %s is not encoded: mark it omitempty in the Go type behind it (or in internal/openapi/types.go for wrappers)", name, r)
 				}
 			}
 		})

@@ -7,6 +7,7 @@ import urllib.error
 import urllib.request
 from dataclasses import dataclass
 from email.message import Message
+from typing import IO, Any
 
 from .errors import TransportError
 
@@ -18,9 +19,23 @@ class HTTPResult:
     body: bytes
 
 
+class _NoRedirect(urllib.request.HTTPRedirectHandler):
+    def redirect_request(
+        self, req: urllib.request.Request, fp: IO[bytes], code: int, msg: str, headers: Message, newurl: str
+    ) -> None:
+        return None
+
+
+_opener = urllib.request.build_opener(_NoRedirect)
+
+
+def urlopen(request: urllib.request.Request, timeout: float) -> Any:
+    return _opener.open(request, timeout=timeout)
+
+
 def send(request: urllib.request.Request, timeout: float) -> HTTPResult:
     try:
-        with urllib.request.urlopen(request, timeout=timeout) as resp:
+        with urlopen(request, timeout=timeout) as resp:
             return HTTPResult(resp.status, resp.headers, resp.read())
     except urllib.error.HTTPError as e:
         try:

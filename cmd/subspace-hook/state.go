@@ -26,12 +26,16 @@ var rules = map[string]rule{
 	"log":       {2 * time.Second, 1},
 	"status":    {10 * time.Minute, 4},
 	"note":      {10 * time.Minute, 4},
+
+	"usage":          {time.Minute, 120},
+	"provider-error": {time.Minute, 20},
 }
 
 type state struct {
 	DownUntil int64              `json:"down_until"`
 	Seq       int64              `json:"seq"`
 	Calls     map[string][]int64 `json:"calls"`
+	Offsets   map[string]int64   `json:"offsets,omitempty"`
 }
 
 type limiter struct {
@@ -98,6 +102,29 @@ func (l *limiter) markDown() {
 	st := l.load()
 	st.DownUntil = l.now().Add(downFor).UnixMilli()
 	_ = l.save(st)
+}
+
+func (l *limiter) offset(path string) (int64, bool) {
+	unlock, ok := l.lock()
+	if !ok {
+		return 0, false
+	}
+	defer unlock()
+	return l.load().Offsets[path], true
+}
+
+func (l *limiter) setOffset(path string, off int64) error {
+	unlock, ok := l.lock()
+	if !ok {
+		return errors.New("state locked")
+	}
+	defer unlock()
+	st := l.load()
+	if st.Offsets == nil {
+		st.Offsets = map[string]int64{}
+	}
+	st.Offsets[path] = off
+	return l.save(st)
 }
 
 func (l *limiter) load() *state {

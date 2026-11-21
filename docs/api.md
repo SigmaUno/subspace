@@ -99,7 +99,8 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "before":{"status":"assigned"},"after":{"status":"in_progress"},"note":null,"hash":"<sha256 hex>"}
 
 // CapacityLimit
-{"provider":"anthropic","model":"*","max_concurrency":20,"requests_per_min":600,"in_use":4,"available":16}
+{"provider":"anthropic","model":"*","max_concurrency":20,"requests_per_min":600,"in_use":4,"available":16,
+ "key_env":"ANTHROPIC_API_KEY","base_url":"https://api.anthropic.com"}   // optional; see Provider probes. key_env must match [A-Z][A-Z0-9_]* and not start with SUBSPACE_; base_url is http(s) without credentials
 
 // Spawn
 {"id":"S-1","brief_id":"B-1","agent_id":"claude-b1-1","kind":"claude-code","model":"...","provider":"anthropic",
@@ -871,7 +872,7 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12,"paused":false}` |
-| PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
+| PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min","key_env?","base_url?"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
 | GET | `/api/v1/spawns?brief_id=&cursor=&limit=` | → `{"spawns":[SpawnLifecycle],"next_cursor":null}` ordered by `created_at`, then id. |
 | POST | `/api/v1/spawns/{id}/stop` | `{}` → SpawnLifecycle. Revokes the agent, asks the spawner to stop the process and marks the spawn `stopped` (`stop_reason` `owner`). 404 unknown spawn, 409 if the spawn is not `spawned`, 500 if the spawner fails to stop it (the agent stays revoked and the reaper retries). |
 
@@ -890,13 +891,20 @@ Durations use Go syntax; `0` disables a rule. The `noop` spawner cannot stop or 
 |---|---|---|
 | GET | `/api/v1/breakers` | → `{"breakers":[Breaker]}` sorted by provider, then model. Only provider/model pairs that reported at least one sample appear. |
 | POST | `/api/v1/breakers/{provider}/reset` | `{}` → `{"breakers":[Breaker]}`. Closes every breaker of the provider and clears its samples. 404 when the provider has no breaker. |
+| GET | `/api/v1/providers` | → `{"providers":[ProviderProbe]}` sorted by provider, then model: one entry per probed capacity limit. |
 
 ```jsonc
 // Breaker
 {"provider":"anthropic","model":"claude-sonnet-5-5","state":"open",   // closed|open|half_open
  "error_rate":0.62,"samples":13,"errors":8,"threshold":0.5,           // closed: current window; open/half_open: the window that tripped it
  "opened_at":null,"half_open_at":null}                                // opened_at null when closed; half_open_at only while open
+
+// ProviderProbe
+{"provider":"deepseek","model":"deepseek-chat","ok":true,"latency_ms":412,
+ "checked_at":"...","error":"status 500","breaker":"closed"}          // checked_at null before the first probe; error only when not ok
 ```
+
+Provider probes: every capacity limit with a concrete provider and model (not `*`) and a `key_env` is probed when the server starts and then every `SUBSPACE_PROVIDER_PROBE_INTERVAL` (default `5m`, `0` = off) with a 1-token completion using the API key in the server environment variable named by `key_env`. `anthropic` uses the Messages API, `openai` and `deepseek` the chat completions API, and any other provider an OpenAI-compatible API at `base_url` (required for them; optional for the others). A success, a 408, 429 or 5xx response, a timeout or a network error is a breaker sample like a usage report; other 4xx responses (bad key or model) and an unset variable mark the entry `ok: false` without a sample. Probe results are held in memory per server process; the key is never logged or returned.
 
 Samples are usage reports (`report_usage`; `rate_limited: true` counts as an error) and `report_provider_error` calls, kept per provider/model in memory for a rolling window. A breaker opens when the window holds at least `SUBSPACE_BREAKER_MIN_SAMPLES` samples (default 10) and the error rate is above `SUBSPACE_BREAKER_ERROR_RATE` (default `0.5`, window `SUBSPACE_BREAKER_WINDOW`, default `5m`). While open, `request_spawn`, `POST /api/v1/bots/spawn` and autopilot start no agents of that provider/model (409 `capacity`) and autopilot assigns it no tasks; running agents continue. After `SUBSPACE_BREAKER_COOLDOWN` (default `1m`) it half-opens: one probe agent (`n` = 1) may be spawned and autopilot assigns one task when no agent of that provider/model has work. The next sample decides: a success closes the breaker, an error opens it again. An unused probe grant expires after another cooldown. Breakers are held in memory per server process. An open or half-open breaker appears in the decision inbox as `breaker:<provider>:<model>` (`skip` only); resetting or closing removes it.
 
@@ -1033,6 +1041,18 @@ The feed turns audit events and `system` thread messages into short sentences (`
 ```
 
 Every completed `report_usage` request (and every usage record collected from agent sessions) is stored in the `cost_records` table with its brief, task, component, agent, agent kind, agent role, provider and model. Brief and component come from the task, kind and role from the reporting agent. Rate-limit reports carry no cost and are not stored; a repeated `request_id` replaces its record. Costs are in EUR, converted from the record's USD cost at the configured rate. An empty `key` groups records without that attribute. Groups are ordered by cost, descending (`day` ascending by date, UTC), then key. The viewer scope may read it.
+
+### Usage
+Usage records of the running server process (`report_usage`, including rate-limit reports), in USD. `from` and `to` are RFC 3339 (`to` defaults to the next minute, `from` to 24 h before `to`); `agent_id`, `brief_id`, `task_id`, `provider`, `model` and `source` filter. `group_by` is `all` (default), `agent`, `task`, `brief`, `model`, `provider` or `source`.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/usage/summary?group_by=&from=&to=` | → `{"from","to","group_by","totals":Totals,"groups":[{"key",...Totals}],"credits":{...},"briefs":[...]}`; Totals is `{"requests","tokens_in","tokens_out","cache_read","cache_write","cost_usd","rate_limited"}`. |
+| GET | `/api/v1/usage/series?bucket=minute\|hour\|day&group_by=&from=&to=` | → `{"from","to","bucket","group_by","series":[{"key","points":[{"ts",...Totals}]}]}` |
+| GET | `/api/v1/usage/providers` | → `{"providers":[{"provider","status","requests_1m","rate_limited_5m","rate_limited_1h","last_rate_limited_at","max_concurrency","in_use","concurrency_headroom","requests_per_min","rpm_headroom"}]}` |
+| GET | `/api/v1/usage/capacity` | → live capacity per provider/model with headroom and spawnable agents. |
+
+Agent harnesses report usage through `subspace-hook`: `subspace-hook usage` reads `{"provider","model","input_tokens","output_tokens","cache_read_tokens?","cache_write_tokens?","cost_usd?","rate_limited?","request_id?"}` from stdin and calls `report_usage` (with `-task` or `SUBSPACE_TASK_ID` as `task_id`); given a Claude Code hook payload with `transcript_path` instead, it sums the usage of the assistant messages added to the transcript since its last report into one report per model (attributed to the agent's `in_progress` task) and reports Claude Code API error messages with `report_provider_error`. `subspace-hook provider-error` reads `{"provider?","model?","status?"}` and calls `report_provider_error`. The Claude Code kit runs `subspace-hook usage` on `Stop`; the OpenCode plugin reports every finished model step and every provider failure.
 
 ### Reports & architecture
 | Method | Path | Body → Response |

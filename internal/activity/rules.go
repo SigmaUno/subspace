@@ -22,6 +22,8 @@ var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {to
 
 var rules = map[string]rule{
 	"log_output":            {icon: "terminal", text: "{actor} streamed output{task? on }"},
+	"report_usage":          {icon: "activity", text: "{actor} reported model usage{task? on }"},
+	"report_provider_error": {icon: "alert", severity: SevWarning, text: "{actor} reported a provider error"},
 	"incident_start":        {icon: "alert", severity: SevError, text: "{actor} declared incident {a.id}: {a.reason}"},
 	"incident_end":          {icon: "check", severity: SevSuccess, text: "{actor} ended incident {a.id}{a.note?: }"},
 	"redeliver_webhook_out": {icon: "webhook", text: "{actor} redelivered outbound webhook delivery {a.id}"},

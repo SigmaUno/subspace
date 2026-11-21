@@ -142,3 +142,13 @@ export interface Capacity {
   limits: CapacityLimit[] | null;
   agents_in_use: number;
 }
+
+export interface ProviderProbe {
+  provider: string;
+  model: string;
+  ok: boolean;
+  latency_ms: number;
+  checked_at: string | null;
+  error?: string;
+  breaker: "closed" | "open" | "half_open";
+}

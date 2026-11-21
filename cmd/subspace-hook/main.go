@@ -21,7 +21,7 @@ const (
 	budget   = 1700 * time.Millisecond
 	backstop = 1950 * time.Millisecond
 	redacted = "<redacted>"
-	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|instructions [flags] [text | -]"
+	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|usage|provider-error|instructions [flags] [text | -]"
 )
 
 type config struct {
@@ -49,7 +49,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
-	case "heartbeat", "log", "status", "note", "notify", "instructions":
+	case "heartbeat", "log", "status", "note", "notify", "usage", "provider-error", "instructions":
 	default:
 		_, _ = fmt.Fprintln(stderr, usage)
 		return exitUsage
@@ -136,6 +136,10 @@ func (h *hook) dispatch(ctx context.Context, cmd string, args []string, stderr i
 		return h.note(ctx, *task, text)
 	case "notify":
 		return h.notify(ctx, *task, text)
+	case "usage":
+		return h.usage(ctx, *task)
+	case "provider-error":
+		return h.providerError(ctx)
 	}
 	return h.instructions(ctx)
 }

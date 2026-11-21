@@ -251,7 +251,14 @@ var exempt = map[string]string{
 	"POST /api/v1/agents/bulk-action":     perItem,
 	"POST /api/v1/tasks/bulk":             perItem,
 	"POST /api/v1/spawns/{id}/stop":       "spawns stop kills the agent through /bots/{id}/kill",
+	"GET /api/v1/providers":               "read-only probe status for the web overview; breakers list shows the resulting breaker state",
+	"GET /api/v1/usage/summary":           usageDashboard,
+	"GET /api/v1/usage/series":            usageDashboard,
+	"GET /api/v1/usage/providers":         usageDashboard,
+	"GET /api/v1/usage/capacity":          usageDashboard,
 }
+
+const usageDashboard = "in-memory usage dashboard data for the web Usage page; costs covers persisted spend"
 
 var (
 	docRoute    = regexp.MustCompile("^\\| ([A-Z/]+) \\| `(/api/v1/[^`?]*)[^`]*` \\|")

@@ -151,6 +151,8 @@ export interface CapacityLimit {
   model: string;
   max_concurrency: number;
   requests_per_min: number;
+  key_env?: string;
+  base_url?: string;
   in_use: number;
   available: number;
 }
@@ -160,6 +162,8 @@ export interface CapacityLimitConfig {
   model: string;
   max_concurrency: number;
   requests_per_min: number;
+  key_env?: string;
+  base_url?: string;
 }
 
 export interface CapacityView {

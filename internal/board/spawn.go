@@ -60,6 +60,16 @@ func (b *Board) capConfig() capacity.Config {
 	return cfg
 }
 
+func (b *Board) CapacityUsage(ctx context.Context) (cfg capacity.Config, u capacity.Usage, err error) {
+	cfg = b.capConfig()
+	cfg.Gate = nil
+	err = b.read(ctx, func(tx store.Tx) error {
+		u, _, err = b.usage(tx)
+		return err
+	})
+	return cfg, u, err
+}
+
 func (b *Board) SetCapacityGate(g capacity.Gate) {
 	b.mu.Lock()
 	b.capGate = g

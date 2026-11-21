@@ -39,7 +39,7 @@ func bulkCall(t *testing.T, e *servertest.Env, path string, body map[string]any)
 	return code, r
 }
 
-func mcpStatus(t *testing.T, e *servertest.Env, tok string) int {
+func bulkMCPStatus(t *testing.T, e *servertest.Env, tok string) int {
 	t.Helper()
 	req, _ := http.NewRequest("POST", e.TS.URL+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"ping"}`))
 	req.Header.Set("Authorization", "Bearer "+tok)
@@ -289,7 +289,7 @@ func TestBulkAgentActions(t *testing.T) {
 			fresh[res.ID] = res.Connect.Token
 		}
 	}
-	if code := mcpStatus(t, e, tokens["a1"]); code != http.StatusUnauthorized {
+	if code := bulkMCPStatus(t, e, tokens["a1"]); code != http.StatusUnauthorized {
 		t.Fatalf("old token: %d", code)
 	}
 	e.Must(fresh["a1"], "whoami", map[string]any{})

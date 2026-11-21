@@ -471,6 +471,8 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `capacity.changed` | capacity object (as GET /capacity) | control |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
+On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
+
 Slow subscribers have a bounded buffer; when it overflows, oldest events are dropped and a `lagged` event is delivered.
 
 ## 5. MCP: `POST /mcp` (agent token)

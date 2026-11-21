@@ -29,6 +29,8 @@ type HostConfig struct {
 	Token    string `json:"token"`
 	TokenEnv string `json:"token_env"`
 	Rate     *Rate  `json:"rate"`
+
+	Authors []string `json:"authors"`
 }
 
 type Config struct {

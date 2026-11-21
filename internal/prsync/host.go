@@ -15,11 +15,14 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/githost"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
+	"github.com/SigmaUno/subspace/internal/scope"
 )
 
 const (
 	globalKey = "global"
 	pageSize  = 50
+
+	maxCommitPages = 20
 )
 
 var errLimited = errors.New("prsync: local rate limit reached")
@@ -56,6 +59,8 @@ type host struct {
 	web   string
 	api   string
 	token string
+
+	authors []string
 }
 
 func hostKey(name string) string { return "host:" + name }
@@ -149,6 +154,7 @@ type pull struct {
 	reviews     []Review
 	decision    string
 	forcePushed bool
+	diff        *scope.Diff
 }
 
 type apiPull struct {
@@ -160,6 +166,7 @@ type apiPull struct {
 	Mergeable *bool   `json:"mergeable"`
 	Head      struct {
 		SHA string `json:"sha"`
+		Ref string `json:"ref"`
 	} `json:"head"`
 }
 
@@ -172,7 +179,22 @@ type apiReview struct {
 }
 
 type apiCommit struct {
-	SHA string `json:"sha"`
+	SHA    string `json:"sha"`
+	Author struct {
+		Login string `json:"login"`
+	} `json:"author"`
+	Commit struct {
+		Author struct {
+			Email string `json:"email"`
+		} `json:"author"`
+	} `json:"commit"`
+}
+
+type apiFile struct {
+	Filename         string `json:"filename"`
+	PreviousFilename string `json:"previous_filename"`
+	Additions        int    `json:"additions"`
+	Deletions        int    `json:"deletions"`
 }
 
 type apiStatus struct {
@@ -187,7 +209,7 @@ type apiCheckRuns struct {
 	} `json:"check_runs"`
 }
 
-func (f *fetcher) fetch(ctx context.Context, h *host, repo string, number int64, prevSHA string) (pull, error) {
+func (f *fetcher) fetch(ctx context.Context, h *host, repo string, number int64, prev *Status) (pull, error) {
 	owner, name, _ := strings.Cut(repo, "/")
 	base := fmt.Sprintf("%s/repos/%s/%s", h.api, url.PathEscape(owner), url.PathEscape(name))
 	prURL := fmt.Sprintf("%s/pulls/%d", base, number)
@@ -237,16 +259,93 @@ func (f *fetcher) fetch(ctx context.Context, h *host, repo string, number int64,
 		out.checks = combine(states)
 	}
 
-	if prevSHA != "" && out.headSHA != "" && prevSHA != out.headSHA {
-		var commits []apiCommit
-		if err := f.get(ctx, h, prURL+"/commits"+page, &commits); err != nil {
-			return pull{}, err
-		}
-		if len(commits) < pageSize && !slices.ContainsFunc(commits, func(c apiCommit) bool { return c.SHA == prevSHA }) {
-			out.forcePushed = true
-		}
+	if out.headSHA == "" {
+		return out, nil
+	}
+	if prev != nil && prev.Diff != nil && prev.Diff.HeadSHA == out.headSHA {
+		d := *prev.Diff
+		d.HeadRef = p.Head.Ref
+		out.diff = &d
+		return out, nil
+	}
+	d := scope.Diff{HeadSHA: out.headSHA, HeadRef: p.Head.Ref}
+	if err := f.files(ctx, h, prURL, page, &d); err != nil {
+		return pull{}, err
+	}
+	commits, complete, err := f.commits(ctx, h, prURL, page)
+	if err != nil {
+		return pull{}, err
+	}
+	d.Authors = authors(commits)
+	out.diff = &d
+	if prev != nil && prev.HeadSHA != "" && prev.HeadSHA != out.headSHA && complete {
+		out.forcePushed = !slices.ContainsFunc(commits, func(c apiCommit) bool { return c.SHA == prev.HeadSHA })
 	}
 	return out, nil
+}
+
+func pageURL(base, page string, n int) string { return base + page + "&page=" + strconv.Itoa(n) }
+
+func (f *fetcher) files(ctx context.Context, h *host, prURL, page string, d *scope.Diff) error {
+	seen := map[string]bool{}
+	for n := 1; ; n++ {
+		var batch []apiFile
+		if err := f.get(ctx, h, pageURL(prURL+"/files", page, n), &batch); err != nil {
+			return err
+		}
+		fresh := false
+		for _, af := range batch {
+			if af.Filename == "" || seen[af.Filename] {
+				continue
+			}
+			fresh = true
+			if len(d.Files) == scope.MaxFiles {
+				d.Truncated = true
+				return nil
+			}
+			seen[af.Filename] = true
+			d.Files = append(d.Files, af.Filename)
+			d.Additions += af.Additions
+			d.Deletions += af.Deletions
+			if af.PreviousFilename != "" && !seen[af.PreviousFilename] && len(d.Files) < scope.MaxFiles {
+				seen[af.PreviousFilename] = true
+				d.Files = append(d.Files, af.PreviousFilename)
+			}
+		}
+		if len(batch) < pageSize || !fresh {
+			return nil
+		}
+	}
+}
+
+func (f *fetcher) commits(ctx context.Context, h *host, prURL, page string) ([]apiCommit, bool, error) {
+	var all []apiCommit
+	for n := 1; n <= maxCommitPages; n++ {
+		var batch []apiCommit
+		if err := f.get(ctx, h, pageURL(prURL+"/commits", page, n), &batch); err != nil {
+			return nil, false, err
+		}
+		all = append(all, batch...)
+		if len(batch) < pageSize {
+			return all, true, nil
+		}
+	}
+	return all, false, nil
+}
+
+func authors(commits []apiCommit) []string {
+	var out []string
+	for _, c := range commits {
+		id := c.Author.Login
+		if id == "" {
+			id = c.Commit.Author.Email
+		}
+		if id != "" && !slices.Contains(out, id) {
+			out = append(out, id)
+		}
+	}
+	slices.Sort(out)
+	return out
 }
 
 func decide(raw []apiReview) ([]Review, string) {

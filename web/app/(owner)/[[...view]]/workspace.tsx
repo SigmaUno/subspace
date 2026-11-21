@@ -12,6 +12,7 @@ import { Leaderboard } from "./leaderboard";
 import { ThreadPanel } from "./thread";
 import { TrendsView } from "./trends";
 import { UsageView } from "./usage";
+import { CostsView } from "./costs";
 import { useLive } from "./live";
 import { SettingsView } from "./settings";
 import { OutputTile } from "./terminal";
@@ -86,6 +87,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "capacity", name: "Capacity", href: "/capacity" },
     { id: "charter", name: "Charter", href: "/charter" },
     { id: "usage", name: "Usage", href: "/usage" },
+    { id: "costs", name: "Costs", href: "/costs" },
     { id: "trends", name: "Trends", href: "/trends" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "knowledge", name: "Knowledge", href: "/knowledge" },
@@ -142,6 +144,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
             {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}
+            {section === "costs" && <CostsView revision={revisions.board} />}
             {section === "trends" && <TrendsView revision={revisions.board} />}
             {section === "files" && <FilesView />}
             {section === "settings" && <SettingsView revisions={revisions} />}

@@ -8,6 +8,8 @@ import (
 	"context"
 	"errors"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/githost"
 )
 
 var (
@@ -34,6 +36,7 @@ type PR struct {
 	Merged    bool
 	Draft     bool
 	Branch    string // head branch
+	HeadSHA   string
 	BaseRef   string
 	Author    string
 	MergedBy  string
@@ -60,6 +63,7 @@ type Event struct {
 // Host is the git host interface implemented by this package.
 type Host interface {
 	GetPR(ctx context.Context, ref PRRef) (*PR, error)
+	PostStatus(ctx context.Context, repo, sha string, status githost.CommitStatus) error
 	ParsePRURL(url string) (PRRef, error)
 	VerifyWebhook(header map[string][]string, body []byte) error
 	ValidateBranch(branch string) error

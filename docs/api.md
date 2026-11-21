@@ -268,6 +268,17 @@ With `SUBSPACE_REVIEWSYNC` set, a reviewer's `review` is also posted to the task
 The comment starts with the marker `<!-- subspace:review task=<id> -->` and holds the verdict, the task link (`SUBSPACE_PUBLIC_URL/tasks/<id>`), round, reviewer, the acceptance criteria with a result each, and the review comments as a quote. Task specs are never included. A criterion result is read from review comment lines such as `criterion 2: fail ...` or `AC1 = pass` (`pass`, `passed`, `met`, `ok`, `fail`, `failed`, `unmet`); without one it is `not reported`, or `met` on an approval. Everything taken from tasks or reviews is redacted for secrets and escaped: HTML, markdown, `@mentions`, `#123`, `!123` and `GH-123` references and `://` or `www.` links are neutralized, control and bidirectional characters are dropped. At most 20 criteria of 200 characters, a title of 100 and review comments of 3000 characters are shown, and the whole comment is at most 8000 bytes.
 
 The work runs asynchronously from the event hub, one comment at a time. A transient failure (network error, 5xx, 408, 429 or an exhausted rate limit) is retried up to 6 attempts with a delay doubling from 1s to 1m, or the host's `Retry-After`; other failures are logged and dropped. The comment id, the PR url, the last handled review message and a digest of the posted body are stored in the `review_comments` table, so a restart keeps updating the same comment and a repeated or unchanged review does not touch the host. Events are not replayed: a review that happens while the server is down is not posted.
+### Forge status checks
+With `SUBSPACE_PRSYNC_CONFIG` set (same hosts and `repos` mapping as the PR poller), every change of a task's review state is reported to the git host as a commit status on the head commit of the task's PR: context `subspace/review`, so a required check in the forge can block the owner's merge until Subspace approves. No endpoint is added; the statuses are posted from the `board` events of tasks that have a `pr_url` in a mapped repo.
+
+| task status | commit status | description |
+|---|---|---|
+| `submitted`, `in_review` | `pending` | Awaiting Subspace review / Subspace review in progress |
+| `changes_requested` | `failure` | Subspace reviewer requested changes |
+| `approved`, `done` | `success` | Approved by Subspace review / Task done in Subspace |
+| `needs_owner` | `error` | Needs an owner decision in Subspace |
+
+Other statuses post nothing. `target_url` is `<SUBSPACE_PUBLIC_URL>/tasks/<task id>` when the public URL is `https://`, and omitted otherwise. The head commit is read from the PR when the status is posted. A status is posted once per repository, head sha and state (kept in memory), so repeated events and several tasks on one PR cost nothing. Requests share the host and global token buckets configured for the PR poller. A transient failure (network error, 5xx, 429 or an exhausted rate limit) is retried up to 4 times with exponential backoff from 1s to 30s, honouring `Retry-After` and `X-RateLimit-Reset`; other failures are logged and dropped, and the next change of the task tries again. Posting runs in background workers: a failing or slow host never delays or fails a board operation. Descriptions are fixed texts and tokens never leave the `Authorization` header. The host token needs permission to write commit statuses.
 
 Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
 
@@ -288,7 +299,6 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
 | POST | `/api/v1/agents/quota-bulk` | `{"ids":["claude-1"],"quota":{...}}` → `{"results":[{"id","ok","error"?:{"code","message"}}],"succeeded","failed"}`. Applies the quota to up to 500 agents, one id at a time with its own audit event; duplicate ids are applied once and `ok:false` results carry the error the single endpoint would return. 400 for an empty or oversized `ids`, empty id values, or a missing or invalid `quota`; nothing is applied then. |
 | POST | `/api/v1/agents/bulk-action` | `{"ids":["claude-1"],"action":"pause","params":{}}` → `{"action","results":[{"id","ok","error"?,"connect"?}],"succeeded","failed"}`. See Bulk operations. |
 
-<<<<<<< HEAD
 ### Agent callbacks
 MCP is pull-only, so an idle agent can miss work. An agent can have one optional callback URL; the server then POSTs a small signed wake-up event to it. `POST /api/v1/agents` and `POST /api/v1/agents/{id}/rotate-token` accept `callback_url` (owner token only):
 
@@ -317,7 +327,6 @@ The event carries ids only, never task titles, specs or message bodies; the agen
 
 Delivery is best effort and never blocks board operations. Events for the same agent that arrive within the coalescing window (default 2s) are merged into one event with deduplicated reasons; events that arrive while a delivery is in flight wait for it and go out as the next event. Every agent has at most one delivery in flight and the queue holds at most 1024 agents, further events are dropped. A response in `2xx` is success. Network errors, `408`, `429` and `5xx` are retried up to 6 attempts with exponential backoff from 1s capped at 1 minute (±20% jitter), reusing the event id; other responses are final. Each attempt has a 10s timeout and the response body is discarded after 4 KiB. Callbacks are lost on restart; agents must still poll on start.
 
-=======
 ### Agent quotas
 Owner-set daily limits per agent: `max_cost_eur_per_day`, `max_tasks_per_day` and `max_concurrent_tasks`, each `0` = unlimited. The day is the UTC calendar day (00:00 to 00:00). Consumption is recorded as it happens: cost is the increase of a task's `cost_used` reported by the agent's `update_status` calls, tasks are the distinct tasks the agent claimed that day, concurrent tasks are its `in_progress` tasks. Limits are stored in the `agent_quotas` table, usage in `agent_quota_days` and `agent_quota_tasks`.
 
@@ -331,7 +340,6 @@ Owner-set daily limits per agent: `max_cost_eur_per_day`, `max_tasks_per_day` an
 {"max_cost_eur_per_day":5,"max_tasks_per_day":10,"max_concurrent_tasks":2}
 ```
 
->>>>>>> origin/ws/server/b-agent-quotas
 ### Bulk operations
 `POST /api/v1/tasks/bulk` and `POST /api/v1/agents/bulk-action` apply one action to up to 500 ids, one id at a time, in request order (duplicate ids are applied once). Each id is its own operation with its own audit event and SSE update (`task.updated` / `agent.updated`), exactly as the single-item endpoints. Partial success is allowed: the response is `200` with a result per id, `ok:false` results carry the error `code` and `message` the single-item endpoint would have returned (`not_found`, `conflict`, `forbidden`, ...). The request itself is rejected with `400` for an empty or oversized `ids`, empty id values, an unknown `action` or missing/invalid `params`; nothing is applied then.
 

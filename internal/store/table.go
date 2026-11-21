@@ -57,17 +57,17 @@ type Column[T any] struct {
 	target func(*T) (any, func() error)
 }
 
-func (c Column[T]) Fixed() Column[T] {
+func (c Column[T]) immutable() Column[T] {
 	c.fixed = true
 	return c
 }
 
-func (c Column[T]) SetExpr(format string) Column[T] {
+func (c Column[T]) withSet(format string) Column[T] {
 	c.set = format
 	return c
 }
 
-func (c Column[T]) DefaultValue(v string) Column[T] {
+func (c Column[T]) withDefault(v string) Column[T] {
 	c.Default = v
 	return c
 }
@@ -76,7 +76,7 @@ func (c Column[T]) writable() bool { return c.expr == "" }
 
 func (c Column[T]) updatable() bool { return c.writable() && !c.fixed }
 
-func Field[T, V any](name string, kind ColumnKind, f func(*T) *V) Column[T] {
+func field[T, V any](name string, kind ColumnKind, f func(*T) *V) Column[T] {
 	return Column[T]{
 		ColumnDef: ColumnDef{Name: name, Kind: kind},
 		value:     func(x *T) (any, error) { return *f(x), nil },
@@ -84,7 +84,7 @@ func Field[T, V any](name string, kind ColumnKind, f func(*T) *V) Column[T] {
 	}
 }
 
-func Codec[T, V any](name string, kind ColumnKind, enc func(*T) (any, error), dec func(*T, V) error) Column[T] {
+func codec[T, V any](name string, kind ColumnKind, enc func(*T) (any, error), dec func(*T, V) error) Column[T] {
 	return Column[T]{
 		ColumnDef: ColumnDef{Name: name, Kind: kind},
 		value:     enc,
@@ -95,34 +95,34 @@ func Codec[T, V any](name string, kind ColumnKind, enc func(*T) (any, error), de
 	}
 }
 
-func Computed[T, V any](expr string, dec func(*T, V)) Column[T] {
-	c := Codec(expr, KindText, nil, func(x *T, v V) error { dec(x, v); return nil })
+func computed[T, V any](expr string, dec func(*T, V)) Column[T] {
+	c := codec(expr, KindText, nil, func(x *T, v V) error { dec(x, v); return nil })
 	c.expr = expr
 	return c
 }
 
-func OptText[T any](name string, f func(*T) **string) Column[T] {
-	return Codec(name, KindText,
+func optText[T any](name string, f func(*T) **string) Column[T] {
+	return codec(name, KindText,
 		func(x *T) (any, error) { return Str(*f(x)), nil },
-		func(x *T, v string) error { *f(x) = StrPtr(v); return nil })
+		func(x *T, v string) error { *f(x) = strPtr(v); return nil })
 }
 
-func Time[T any](name string, f func(*T) *time.Time) Column[T] {
-	return Codec(name, KindMillis,
+func timeCol[T any](name string, f func(*T) *time.Time) Column[T] {
+	return codec(name, KindMillis,
 		func(x *T) (any, error) { return Millis(*f(x)), nil },
 		func(x *T, v int64) error { *f(x) = FromMillis(v); return nil })
 }
 
-func OptTime[T any](name string, f func(*T) **time.Time) Column[T] {
-	return Codec(name, KindMillis,
-		func(x *T) (any, error) { return MillisPtr(*f(x)), nil },
-		func(x *T, v int64) error { *f(x) = FromMillisPtr(v); return nil })
+func optTime[T any](name string, f func(*T) **time.Time) Column[T] {
+	return codec(name, KindMillis,
+		func(x *T) (any, error) { return millisPtr(*f(x)), nil },
+		func(x *T, v int64) error { *f(x) = fromMillisPtr(v); return nil })
 }
 
-func List[T any](name string, f func(*T) *[]string) Column[T] {
-	return Codec(name, KindJSON,
-		func(x *T) (any, error) { return ListJSON(*f(x)) },
-		func(x *T, v string) (err error) { *f(x), err = ParseList(v); return err })
+func list[T any](name string, f func(*T) *[]string) Column[T] {
+	return codec(name, KindJSON,
+		func(x *T) (any, error) { return listJSON(*f(x)) },
+		func(x *T, v string) (err error) { *f(x), err = parseList(v); return err })
 }
 
 type Table[T any] struct {
@@ -247,7 +247,7 @@ func Millis(t time.Time) int64 {
 	return t.UnixMilli()
 }
 
-func MillisPtr(t *time.Time) int64 {
+func millisPtr(t *time.Time) int64 {
 	if t == nil {
 		return 0
 	}
@@ -261,7 +261,7 @@ func FromMillis(v int64) time.Time {
 	return time.UnixMilli(v).UTC()
 }
 
-func FromMillisPtr(v int64) *time.Time {
+func fromMillisPtr(v int64) *time.Time {
 	if v == 0 {
 		return nil
 	}
@@ -276,14 +276,14 @@ func Str(p *string) string {
 	return *p
 }
 
-func StrPtr(s string) *string {
+func strPtr(s string) *string {
 	if s == "" {
 		return nil
 	}
 	return &s
 }
 
-func ListJSON(v []string) (string, error) {
+func listJSON(v []string) (string, error) {
 	if v == nil {
 		v = []string{}
 	}
@@ -291,7 +291,7 @@ func ListJSON(v []string) (string, error) {
 	return string(b), err
 }
 
-func ParseList(s string) ([]string, error) {
+func parseList(s string) ([]string, error) {
 	out := []string{}
 	if s == "" {
 		return out, nil

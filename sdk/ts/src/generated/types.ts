@@ -551,6 +551,8 @@ export interface BulkResult {
 
 export interface Candidate {
   base: string;
+  deploy_log?: string;
+  deploy_state?: string;
   enqueued_at: string;
   head: string;
   id: string;
@@ -1759,6 +1761,7 @@ export interface Repo {
   base_url: string;
   created_at: string;
   default_branch: string;
+  deploy_command: string[] | null;
   enabled: boolean;
   host: string;
   merge_test_command: string[] | null;
@@ -1772,6 +1775,7 @@ export interface Repo {
 export interface RepoInput {
   base_url?: string;
   default_branch?: string;
+  deploy_command?: string[] | null;
   enabled?: boolean | null;
   host: string;
   merge_test_command?: string[] | null;
@@ -2270,6 +2274,8 @@ export interface Train {
   base: string;
   base_sha: string;
   created_at: string;
+  deploy_log?: string;
+  deploy_state?: string;
   id: string;
   log?: string;
   members: TrainMember[] | null;

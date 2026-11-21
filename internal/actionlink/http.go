@@ -71,15 +71,16 @@ func (h *Handler) resolve(ctx context.Context, c Claims) (*target, error) {
 	if d == nil {
 		return nil, model.NotFound("decision %s is not pending", c.Decision)
 	}
-	if !slices.Contains(d.Actions, c.Action) {
+	action := d.Resolve(c.Action)
+	if !slices.Contains(d.Actions, action) {
 		return nil, model.Conflict("action %q is not available for %s", c.Action, d.ID)
 	}
-	if c.Action != decisions.ActionAnswer && c.Option != 0 {
+	if action != decisions.ActionAnswer && c.Option != 0 {
 		return nil, model.BadRequest("option is only valid for answer")
 	}
 	t := &target{decision: d}
 	var p map[string]string
-	switch c.Action {
+	switch action {
 	case decisions.ActionAnswer:
 		opts, err := h.Options(ctx, strings.TrimPrefix(d.ID, "q:"))
 		if err != nil {
@@ -94,6 +95,8 @@ func (h *Handler) resolve(ctx context.Context, c Claims) (*target, error) {
 	case decisions.ActionReject:
 		t.label, p = "Reject plan", map[string]string{"reason": actionNote}
 	case decisions.ActionMerge:
+		t.label, p = "Enqueue merge", map[string]string{"note": actionNote}
+	case decisions.ActionMarkDone:
 		t.label, p = "Mark merged", map[string]string{"note": actionNote}
 	case decisions.ActionUnblock:
 		t.label, p = "Unblock", map[string]string{"note": actionNote}

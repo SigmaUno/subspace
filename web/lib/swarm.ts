@@ -10,6 +10,7 @@ export interface Decision {
   agent_id?: string;
   pr_url?: string;
   options?: string[];
+  actions?: string[];
   impact?: number;
   created_at: string;
 }

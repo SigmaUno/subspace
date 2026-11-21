@@ -12,6 +12,7 @@ type RepoInput struct {
 	ProtectedBranches []string `json:"protected_branches,omitempty"`
 	MergeTestCommand  []string `json:"merge_test_command,omitempty"`
 	MergeWorkDir      string   `json:"merge_work_dir,omitempty"`
+	DeployCommand     []string `json:"deploy_command,omitempty"`
 	TokenEnv          string   `json:"token_env,omitempty"`
 	Enabled           *bool    `json:"enabled,omitempty"`
 }

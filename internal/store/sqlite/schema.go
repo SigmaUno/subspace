@@ -252,8 +252,12 @@ func chainExisting(t *sql.Tx) ([]model.AuditHead, error) {
 }
 
 func addColumn(t *sql.Tx, c columnDef) error {
-	var n int
-	err := t.QueryRow(`SELECT count(*) FROM pragma_table_info('`+c.table+`') WHERE name=?`, c.column).Scan(&n)
+	var tables, n int
+	err := t.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, c.table).Scan(&tables)
+	if err != nil || tables == 0 {
+		return err
+	}
+	err = t.QueryRow(`SELECT count(*) FROM pragma_table_info('`+c.table+`') WHERE name=?`, c.column).Scan(&n)
 	if err != nil || n > 0 {
 		return err
 	}

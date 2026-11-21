@@ -2,22 +2,30 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/chat"
 	"github.com/SigmaUno/subspace/internal/components"
+	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/prsync"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-type decisionActions struct{ b *board.Board }
+type decisionActions struct {
+	b  *board.Board
+	st store.Store
+	mq *atomic.Pointer[mqHandler]
+}
 
 func (d decisionActions) AnswerQuestion(ctx context.Context, id, answer string) (*model.Question, error) {
 	return d.b.Answer(ctx, id, answer)
@@ -31,8 +39,56 @@ func (d decisionActions) RejectPlan(ctx context.Context, id, reason string) (*mo
 	return d.b.RejectPlan(ctx, id, reason)
 }
 
-func (d decisionActions) ApproveMerge(ctx context.Context, taskID, note string) (*model.Task, error) {
+func (d decisionActions) MergeAction(ctx context.Context, t *model.Task) (string, error) {
+	h := d.queue(ctx, t)
+	if h == nil {
+		return decisions.ActionMarkDone, nil
+	}
+	active, err := h.st.Active(ctx, t.ID)
+	if err != nil || active {
+		return "", err
+	}
+	return decisions.ActionMerge, nil
+}
+
+func (d decisionActions) Merge(ctx context.Context, taskID, note string) (any, error) {
+	t, err := d.b.GetTask(ctx, model.Owner, taskID)
+	if err != nil {
+		return nil, err
+	}
+	h := d.queue(ctx, t)
+	if h == nil {
+		return d.b.MarkDone(ctx, taskID, note)
+	}
+	return h.add(ctx, taskID, 0, "")
+}
+
+func (d decisionActions) MarkDone(ctx context.Context, taskID, note string) (*model.Task, error) {
 	return d.b.MarkDone(ctx, taskID, note)
+}
+
+func (d decisionActions) queue(ctx context.Context, t *model.Task) *mqHandler {
+	if d.mq == nil {
+		return nil
+	}
+	h := d.mq.Load()
+	if h == nil || !h.serves(t.Repo) || d.prMerged(ctx, t.ID) {
+		return nil
+	}
+	return h
+}
+
+func (d decisionActions) prMerged(ctx context.Context, taskID string) bool {
+	ps, ok := d.st.(prStatusReader)
+	if !ok {
+		return false
+	}
+	raw, found, err := ps.PRStatus(ctx, taskID)
+	if err != nil || !found {
+		return false
+	}
+	var s prsync.Status
+	return json.Unmarshal(raw, &s) == nil && s.State == prsync.StateMerged
 }
 
 func (d decisionActions) Unblock(ctx context.Context, taskID, to, note string) (*model.Task, error) {

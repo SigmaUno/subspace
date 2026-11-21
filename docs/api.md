@@ -518,16 +518,22 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
  "base_sha":"0a1b...","tip":"9f8e...",             // tip: the merge commit pushed to base
  "members":[{"candidate_id":"MQ-7","task_id":"T-4","pr":12,"head":"sub/T-4-x","sha":"3c4d...",
              "result":"merged"}],                  // pending|merging|merged|ejected|requeued
- "runs":1,"log":"$ git fetch ...","created_at":"...","updated_at":"..."}
+ "runs":1,"log":"$ git fetch ...",
+ "deploy_state":"succeeded","deploy_log":"$ make deploy ...",   // running|succeeded|failed; omitted without a deploy command
+ "created_at":"...","updated_at":"..."}
 ```
 
-The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged. After a successful push to a Forgejo-hosted repository the queue marks the pull request merged through the host API (`manually-merged`, because a pushed head leaves a Forgejo PR open); the repository must allow the "Manually merged" merge style, otherwise the merge stays and the task thread gets a warning.
+The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged. After a successful push to a Forgejo-hosted repository the queue marks the pull request merged through the host API (`manually-merged`, because a pushed head leaves a Forgejo PR open); the repository must allow the "Manually merged" merge style, otherwise the merge stays and the task thread gets a warning. For a GitHub-hosted repository the queue waits up to 10s for GitHub to mark the pull request merged from the push and closes it (`PATCH state=closed`) when it does not. Both use the PR status sync host (`SUBSPACE_PRSYNC_CONFIG` or the registry) whose `url` host matches the remote, with its token.
+
+With a deploy command (`deploy` in the file, `deploy_command` in the registry) the queue runs it after every successful push in the merge worktree checked out at the pushed commit, with the merge queue environment, a timeout (`deploy_timeout`, default `10m`) and output capped to the last 16 KiB. The result is stored on the Train (`deploy_state`, `deploy_log`), or on the Candidate (same fields) when the repo merges one PR at a time, posted to every merged task thread (a failure with the log tail) and published as the event `train.deployed` or `train.deploy_failed` (SSE topics `board` and `task:<id>`, outbound webhooks; data `{"id","kind":"deploy","status","title","task_id","tasks":[{"id"}],"repo","base","sha","train_id","prs","log","at"}`, webhooks carry `id`, `kind`, `status`, `title`, `task_id` and `tasks`). While the latest deploy of a repo failed, the inbox holds an `alert` decision `deploy:<train or candidate id>`. A failed or timed-out deploy never reverts the merge. Repos without a deploy command are unchanged.
 
 ```jsonc
 {"workdir":"/data/mergequeue","interval":"30s",
  "repos":{"o/r":{"remote":"https://git.example/o/r.git","verify":["make","test"],"base":"main",
                  "train":4,                        // max PRs per merge train; 0 = one PR at a time (rebase + fast-forward)
-                 "required":["checks"]}}}          // required status contexts
+                 "required":["checks"],            // required status contexts
+                 "deploy":["make","deploy"],       // optional, run after each push
+                 "deploy_timeout":"10m"}}}
 ```
 
 With `train` > 0 each repo processes one train at a time. Queued candidates of the same base are ordered by task priority (higher first), then enqueue order, and a PR never goes ahead of a task it `depends_on`: a dependency must be `done` or earlier in the same train, otherwise the PR stays queued. The first `train` PRs are merged with `git merge --no-ff` onto the base in a scratch worktree and `verify` runs once on the result. If it passes, the base is pushed to the last merge commit (lease on the old base) and every member is `merged` with its own merge commit. If it fails, the train is bisected over its prefixes (at most ⌈log2 n⌉ further runs for a single culprit): the first failing PR is `ejected`, the passing prefix is merged and the PRs after the culprit return to the queue for the next train. A PR that conflicts with the base or the PRs ahead of it is ejected with the conflicting PRs named. Required contexts come from the task's PR status snapshot (context `checks`); when a snapshot exists every required context must be `success` for its current head, `failure` or `error` ejects the PR and anything else keeps it queued. Ejections post a `system` message with the log tail to the task thread and tell the worker in their agent thread; merges post to the task thread and mark the task `done`. Trains are stored, so a restart resumes: a train interrupted after its push completes as merged, any other unfinished train is `aborted` and its PRs return to the queue.
@@ -538,7 +544,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/repos` | → `{"repos":[Repo]}` sorted by name. |
-| POST | `/api/v1/repos` | `{"name","host","base_url","default_branch","protected_branches":[],"merge_test_command":[],"merge_work_dir":"","token_env":"","enabled":true}` → Repo (201). 400 on invalid or unknown fields, 409 if the name exists (case-insensitive). |
+| POST | `/api/v1/repos` | `{"name","host","base_url","default_branch","protected_branches":[],"merge_test_command":[],"merge_work_dir":"","deploy_command":[],"token_env":"","enabled":true}` → Repo (201). 400 on invalid or unknown fields, 409 if the name exists (case-insensitive). |
 | GET | `/api/v1/repos/{owner}/{name}` | → Repo. 404 for an unknown repository. |
 | PUT | `/api/v1/repos/{owner}/{name}` | Same fields as create, replaces the repository → Repo. The name cannot change (400), 404 for an unknown repository. |
 | DELETE | `/api/v1/repos/{owner}/{name}` | → 204. 404 for an unknown repository. Existing tasks keep their `repo`. |
@@ -552,6 +558,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
  "protected_branches":["main","release/*"],        // glob patterns: * within a segment, ** across segments, ?
  "merge_test_command":["make","test"],             // [] = the merge queue skips this repository
  "merge_work_dir":"/data/mergequeue",              // absolute path; "" = <db dir>/mergequeue
+ "deploy_command":["make","deploy"],               // [] = no deploy step; needs merge_test_command (see Merge queue)
  "token_env":"GITHUB_TOKEN",                       // name of the environment variable holding the host token
  "enabled":true,"created_at":"...","updated_at":"..."}
 
@@ -566,7 +573,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
 
 `health` calls `GET /repos/{owner}/{name}` and `GET /repos/{owner}/{name}/branches/{default_branch}` on the host's API, with the token read from `token_env` in an `Authorization` header. `reachable` is false when the host does not answer; `token_hint` says whether a token is configured, accepted and able to write (from the host's `permissions`, plus the `X-OAuth-Scopes` of a GitHub classic token); `ok` needs a reachable host, no `error` and an existing default branch. Responses carry no token.
 
-The PR poller, forge status checks, review comments and the merge queue read the registry when the server starts, using its enabled repositories: hosts are grouped by kind, `base_url` and `token_env`, the merge queue takes every repository with a `merge_test_command` (clone URL `<base_url>/<name>.git`, base `default_branch`, check interval `SUBSPACE_MQ_INTERVAL`, default `30s`). Changes to the registry apply to them after a restart. While no repository is enabled (or none has a `merge_test_command` for the merge queue) they fall back to `SUBSPACE_PRSYNC_CONFIG` and `SUBSPACE_MQ_CONFIG`, which are deprecated: the server logs one warning per file when it uses them.
+The PR poller, forge status checks, review comments and the merge queue read the registry when the server starts, using its enabled repositories: hosts are grouped by kind, `base_url` and `token_env`, the merge queue takes every repository with a `merge_test_command` (clone URL `<base_url>/<name>.git`, base `default_branch`, deploy step `deploy_command`, check interval `SUBSPACE_MQ_INTERVAL`, default `30s`). Changes to the registry apply to them after a restart. While no repository is enabled (or none has a `merge_test_command` for the merge queue) they fall back to `SUBSPACE_PRSYNC_CONFIG` and `SUBSPACE_MQ_CONFIG`, which are deprecated: the server logs one warning per file when it uses them.
 
 While the registry holds at least one repository, a brief's `repos` and the `repo` of every task created by `propose_plan`, `create_task`, plan task adds, task edits or brief import must be a registered, enabled repository, otherwise 400 `bad_request` listing the known repositories. The generated task branch must not match the repository's `protected_branches`. An empty registry checks nothing.
 
@@ -1155,7 +1162,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 |---|---|---|
 | `question` | `answer`, `skip` | `answer` `{"answer":"..."}` (required) → Question |
 | `plan` | `approve`, `reject`, `skip` | `approve` `{"note":""}` → Plan; `reject` `{"reason":""}` (or `note`) → Plan |
-| `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
+| `merge` | `merge` or `mark_done`, `skip` | `merge` `{"note":""}` → Candidate (enqueues the task's pull request like `POST /api/v1/mergequeue/candidates`; the task stays `approved` until the queue merges it, and the decision disappears while the candidate is queued or running) when the merge queue serves the task's repo and its PR status snapshot is not `merged`; otherwise `mark_done` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`). `merge` sent to a `mark_done` decision marks the task done. |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
 | `help` | `skip` | – (an open `help` request; the agent's details are the summary) |
@@ -1394,7 +1401,7 @@ The document is built on first request from the schema registry in `internal/ope
 | GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
 | POST | `/api/v1/notify/test` | `{}` → `{"results":[{"sink":"webhook","ok":true},{"sink":"slack","ok":false,"error":"slack: status 400"}]}`. Sends one notification marked `[TEST]` (kind `test`, no action links) directly through every configured sink, once and without retries, and reports each result. `results` is empty when no sink is configured. Errors never contain sink URLs. Test sends are not counted in `sent` or `failed`. |
 
-When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
+When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Merge`, `Snooze 1h`; the confirmation page says `Enqueue merge` or `Mark merged` depending on the decision's action) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
 
 ### Digest
 | Method | Path | Body → Response |

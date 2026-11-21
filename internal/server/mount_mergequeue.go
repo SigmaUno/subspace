@@ -16,7 +16,9 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/githost/forgejo"
+	"github.com/SigmaUno/subspace/internal/githost/github"
 	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -29,12 +31,13 @@ const mqSchema = `
 CREATE TABLE IF NOT EXISTS mq_candidates (
   id TEXT PRIMARY KEY, repo TEXT NOT NULL, pr INTEGER NOT NULL, head TEXT NOT NULL, base TEXT NOT NULL,
   task_id TEXT NOT NULL, state TEXT NOT NULL, merged_sha TEXT NOT NULL DEFAULT '', log TEXT NOT NULL DEFAULT '',
-  enqueued_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  enqueued_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  deploy_state TEXT NOT NULL DEFAULT '', deploy_log TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS mq_candidates_repo ON mq_candidates(repo, state);
 `
 
-const mqCols = `id,repo,pr,head,base,task_id,state,merged_sha,log,enqueued_at,updated_at`
+const mqCols = `id,repo,pr,head,base,task_id,state,merged_sha,log,enqueued_at,updated_at,deploy_state,deploy_log`
 
 var mqRunner mergequeue.Runner
 
@@ -42,16 +45,20 @@ var mqSystem = model.Actor{ID: "mergequeue", Role: "system"}
 
 func init() {
 	registerSchema(mqSchema, "mq_candidates")
+	registerColumn("mq_candidates", "deploy_state", "TEXT NOT NULL DEFAULT ''")
+	registerColumn("mq_candidates", "deploy_log", "TEXT NOT NULL DEFAULT ''")
 	registerMount(mountMergeQueue)
 }
 
 type mqRepo struct {
-	Remote   string   `json:"remote"`
-	Verify   []string `json:"verify"`
-	Base     string   `json:"base"`
-	Train    int      `json:"train"`
-	Required []string `json:"required"`
-	WorkDir  string   `json:"workdir"`
+	Remote        string   `json:"remote"`
+	Verify        []string `json:"verify"`
+	Base          string   `json:"base"`
+	Train         int      `json:"train"`
+	Required      []string `json:"required"`
+	WorkDir       string   `json:"workdir"`
+	Deploy        []string `json:"deploy"`
+	DeployTimeout string   `json:"deploy_timeout"`
 }
 
 type mqFile struct {
@@ -87,7 +94,7 @@ func mqConfig(d Deps) (mqFile, bool, error) {
 	f := mqFile{Repos: map[string]mqRepo{}, Interval: os.Getenv(mqIntervalEnv)}
 	for _, r := range rs {
 		if len(r.MergeTestCommand) > 0 {
-			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir}
+			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir, Deploy: r.DeployCommand}
 		}
 	}
 	if len(f.Repos) > 0 {
@@ -133,7 +140,14 @@ func startMergeQueue(d Deps, f mqFile) error {
 	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
 	bases := make(map[string]string, len(f.Repos))
 	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir}
+		var timeout time.Duration
+		if r.DeployTimeout != "" {
+			if timeout, err = time.ParseDuration(r.DeployTimeout); err != nil || timeout <= 0 {
+				return fmt.Errorf("invalid deploy_timeout %q (repo %s)", r.DeployTimeout, name)
+			}
+		}
+		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir,
+			Deploy: r.Deploy, DeployTimeout: timeout}
 		bases[name] = r.Base
 		if r.Base == "" {
 			bases[name] = "main"
@@ -153,6 +167,7 @@ func startMergeQueue(d Deps, f mqFile) error {
 		Gate:     gate,
 		Tasks:    mqTasks{d.Board},
 		Finisher: mqFinisher(d, f),
+		Deploys:  mqDeploys{d.Hub},
 		Deps:     mqDeps{d.Board},
 		Checks:   checks,
 		Logger:   d.Log,
@@ -161,6 +176,13 @@ func startMergeQueue(d Deps, f mqFile) error {
 		return err
 	}
 	h := &mqHandler{q: q, st: mqStore{st: d.Store}, gate: gate, bases: bases, log: d.Log}
+	if d.MergeQueue != nil {
+		d.MergeQueue.Store(h)
+	}
+	detach := decisions.Attach(d.Store, mqDeployAlerts{mqStore{st: d.Store}})
+	if d.OnClose != nil {
+		d.OnClose(detach)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /mergequeue/candidates", h.list)
 	mux.HandleFunc("GET /mergequeue/candidates/{id}", h.get)
@@ -176,29 +198,39 @@ func startMergeQueue(d Deps, f mqFile) error {
 	return nil
 }
 
+var mqGitHubSettle = 10 * time.Second
+
 func mqFinisher(d Deps, f mqFile) mergequeue.Finisher {
 	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
 	if err != nil || !ok {
 		return nil
 	}
-	clients := mergequeue.ForgejoFinisher{}
+	finishers := mergequeue.Finishers{}
 	for name, r := range f.Repos {
 		remote, err := url.Parse(r.Remote)
 		if err != nil {
 			continue
 		}
+		key := strings.ToLower(name)
 		for _, h := range cfg.Hosts {
-			base, found := strings.CutSuffix(h.APIURL, "/api/v1")
-			if h.Kind == prsync.KindForgejo && found && strings.EqualFold(hostOf(h.URL), remote.Host) {
-				clients[strings.ToLower(name)] = forgejo.New(base, h.Token, nil)
+			if !strings.EqualFold(hostOf(h.URL), remote.Host) {
+				continue
+			}
+			if base, found := strings.CutSuffix(h.APIURL, "/api/v1"); h.Kind == prsync.KindForgejo && found {
+				finishers[key] = mergequeue.ForgejoFinisher{key: forgejo.New(base, h.Token, nil)}
+				break
+			}
+			if h.Kind == prsync.KindGitHub {
+				finishers[key] = mergequeue.GitHubFinisher{Client: github.New(github.Config{APIURL: h.APIURL, Token: h.Token}),
+					Settle: mqGitHubSettle, Poll: time.Second}
 				break
 			}
 		}
 	}
-	if len(clients) == 0 {
+	if len(finishers) == 0 {
 		return nil
 	}
-	return clients
+	return finishers
 }
 
 func hostOf(raw string) string {
@@ -237,9 +269,9 @@ func (s mqStore) Insert(ctx context.Context, c *mergequeue.Candidate) error {
 		if err != nil {
 			return err
 		}
-		if _, err := q.Exec(`INSERT INTO mq_candidates(`+mqCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.Exec(`INSERT INTO mq_candidates(`+mqCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, c.Repo, c.PR, c.Head, c.Base, c.TaskID, c.State, c.MergedSHA, c.Log,
-			c.EnqueuedAt.UnixMilli(), c.UpdatedAt.UnixMilli()); err != nil {
+			c.EnqueuedAt.UnixMilli(), c.UpdatedAt.UnixMilli(), c.DeployState, c.DeployLog); err != nil {
 			return err
 		}
 		c.ID = id
@@ -248,21 +280,47 @@ func (s mqStore) Insert(ctx context.Context, c *mergequeue.Candidate) error {
 }
 
 func (s mqStore) Update(ctx context.Context, c *mergequeue.Candidate) error {
+	landed := false
 	err := s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
-		res, err := q.Exec(`UPDATE mq_candidates SET state=?, merged_sha=?, log=?, updated_at=? WHERE id=?`,
-			c.State, c.MergedSHA, c.Log, c.UpdatedAt.UnixMilli(), c.ID)
+		prev, err := scalar(q, `SELECT state FROM mq_candidates WHERE id=?`, c.ID)
+		if err != nil {
+			return err
+		}
+		res, err := q.Exec(`UPDATE mq_candidates SET state=?, merged_sha=?, log=?, deploy_state=?, deploy_log=?, updated_at=? WHERE id=?`,
+			c.State, c.MergedSHA, c.Log, c.DeployState, c.DeployLog, c.UpdatedAt.UnixMilli(), c.ID)
 		if err != nil {
 			return err
 		}
 		if n, err := res.RowsAffected(); err != nil || n == 0 {
 			return errors.Join(err, store.ErrNotFound)
 		}
+		landed = prev != mergequeue.StateMerged && c.State == mergequeue.StateMerged
 		return nil
 	}))
-	if err != nil || c.State != mergequeue.StateMerged || s.merged == nil {
+	if err != nil || !landed || s.merged == nil {
 		return err
 	}
 	return s.merged(ctx, c)
+}
+
+func scalar(q sqlTx, query string, args ...any) (string, error) {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = rows.Close() }()
+	var v string
+	if rows.Next() {
+		if err := rows.Scan(&v); err != nil {
+			return "", err
+		}
+	}
+	return v, rows.Err()
+}
+
+func (s mqStore) Active(ctx context.Context, taskID string) (bool, error) {
+	cs, err := s.query(ctx, `WHERE task_id=? AND state NOT IN (?,?)`, taskID, mergequeue.StateMerged, mergequeue.StateEjected)
+	return len(cs) > 0, err
 }
 
 func (s mqStore) Get(ctx context.Context, id string) (*mergequeue.Candidate, error) {
@@ -294,7 +352,7 @@ func (s mqStore) query(ctx context.Context, where string, args ...any) ([]*merge
 		for rows.Next() {
 			var c mergequeue.Candidate
 			var enq, upd int64
-			if err := rows.Scan(&c.ID, &c.Repo, &c.PR, &c.Head, &c.Base, &c.TaskID, &c.State, &c.MergedSHA, &c.Log, &enq, &upd); err != nil {
+			if err := rows.Scan(&c.ID, &c.Repo, &c.PR, &c.Head, &c.Base, &c.TaskID, &c.State, &c.MergedSHA, &c.Log, &enq, &upd, &c.DeployState, &c.DeployLog); err != nil {
 				return err
 			}
 			c.EnqueuedAt, c.UpdatedAt = time.UnixMilli(enq).UTC(), time.UnixMilli(upd).UTC()
@@ -421,27 +479,34 @@ func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	if in.TaskID == "" {
-		h.fail(w, model.BadRequest("task_id is required"))
-		return
-	}
-	t, err := h.gate.check(r.Context(), in.TaskID)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	if in.PR == 0 {
-		in.PR = prNumber(t.PRURL)
-	}
-	if in.Base == "" {
-		in.Base = h.bases[t.Repo]
-	}
-	c, err := h.q.Enqueue(r.Context(), mergequeue.Candidate{Repo: t.Repo, PR: in.PR, Head: t.Branch, Base: in.Base, TaskID: t.ID})
+	c, err := h.add(r.Context(), in.TaskID, in.PR, in.Base)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
 	httpx.WriteJSON(w, http.StatusCreated, c)
+}
+
+func (h *mqHandler) add(ctx context.Context, taskID string, pr int, base string) (mergequeue.Candidate, error) {
+	if taskID == "" {
+		return mergequeue.Candidate{}, model.BadRequest("task_id is required")
+	}
+	t, err := h.gate.check(ctx, taskID)
+	if err != nil {
+		return mergequeue.Candidate{}, err
+	}
+	if pr == 0 {
+		pr = prNumber(t.PRURL)
+	}
+	if base == "" {
+		base = h.bases[t.Repo]
+	}
+	return h.q.Enqueue(ctx, mergequeue.Candidate{Repo: t.Repo, PR: pr, Head: t.Branch, Base: base, TaskID: t.ID})
+}
+
+func (h *mqHandler) serves(repo string) bool {
+	_, ok := h.bases[repo]
+	return ok
 }
 
 func (h *mqHandler) fail(w http.ResponseWriter, err error) {

@@ -16,9 +16,10 @@ import (
 )
 
 type fake struct {
-	mu    sync.Mutex
-	snap  decisions.Snapshot
-	calls []string
+	mu     sync.Mutex
+	snap   decisions.Snapshot
+	calls  []string
+	queued map[string]bool
 }
 
 func (f *fake) Snapshot(context.Context) (*decisions.Snapshot, error) {
@@ -66,8 +67,28 @@ func (f *fake) decide(id, status, note string) (*model.Plan, error) {
 	return nil, model.NotFound("plan %s not found", id)
 }
 
-func (f *fake) ApproveMerge(_ context.Context, id, note string) (*model.Task, error) {
-	return f.move(id, model.StatusDone, "merge "+id+" "+note)
+func (f *fake) MergeAction(_ context.Context, t *model.Task) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	switch queued, ok := f.queued[t.ID]; {
+	case !ok:
+		return decisions.ActionMarkDone, nil
+	case queued:
+		return "", nil
+	}
+	return decisions.ActionMerge, nil
+}
+
+func (f *fake) Merge(_ context.Context, id, note string) (any, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.queued[id] = true
+	f.record("enqueue " + id + " " + note)
+	return map[string]string{"task_id": id, "state": "queued"}, nil
+}
+
+func (f *fake) MarkDone(_ context.Context, id, note string) (*model.Task, error) {
+	return f.move(id, model.StatusDone, "mark_done "+id+" "+note)
 }
 
 func (f *fake) Unblock(_ context.Context, id, to, note string) (*model.Task, error) {
@@ -239,7 +260,7 @@ func TestInboxFlow(t *testing.T) {
 	if m.Priority != 60+48 || m.Links.PR != "https://git/pr/1" || m.Links.Thread != "task:T-1" || m.AgentID != "claude-1" {
 		t.Fatalf("merge decision: %+v", m)
 	}
-	eq(t, m.Actions, []string{"merge", "skip"})
+	eq(t, m.Actions, []string{"mark_done", "skip"})
 	eq(t, byID["plan:P-1"].Actions, []string{"approve", "reject", "skip"})
 	if q := byID["q:Q-1"]; q.TaskID != "T-3" || q.BriefID != "B-1" || q.Links.Thread != "task:T-3" {
 		t.Fatalf("question decision: %+v", q)
@@ -302,11 +323,41 @@ func TestInboxFlow(t *testing.T) {
 	eq(t, e.ids(), []string{"stale:oc-1", "stale:claude-1"})
 
 	eq(t, e.src.calls, []string{
-		"merge T-1 merged #1",
+		"mark_done T-1 merged #1",
 		"answer Q-1 jwt",
 		"rejected P-1 too big",
 		"unblock T-2 assigned raised budget",
 		"unblock T-4 ready ",
 		"skip stale:oc-1 2026-11-20T12:30:00Z",
 	})
+}
+
+func TestMergeDecisionEnqueuesWhenTheRepoHasAQueue(t *testing.T) {
+	e := setup(t)
+	e.src.queued = map[string]bool{"T-1": false}
+
+	var full struct{ Decisions []decisions.Decision }
+	e.do("GET", "/decisions", nil, &full)
+	if len(full.Decisions) == 0 || full.Decisions[0].ID != "merge:T-1" {
+		t.Fatalf("decisions %+v", full.Decisions)
+	}
+	eq(t, full.Decisions[0].Actions, []string{"merge", "skip"})
+
+	var errb struct{ Error struct{ Code string } }
+	if c := e.do("POST", "/decisions/merge:T-1", map[string]string{"action": "mark_done"}, &errb); c != 409 {
+		t.Fatalf("mark_done with a queue: %d", c)
+	}
+	var out struct {
+		Result map[string]string
+	}
+	if c := e.do("POST", "/decisions/merge:T-1", map[string]string{"action": "merge", "note": "ship"}, &out); c != 200 || out.Result["state"] != "queued" {
+		t.Fatalf("enqueue: %d %+v", c, out)
+	}
+	if c := e.do("POST", "/decisions/merge:T-1", map[string]string{"action": "merge"}, &errb); c != 404 {
+		t.Fatalf("queued task still offered: %d", c)
+	}
+	eq(t, e.src.calls, []string{"enqueue T-1 ship"})
+	if s := e.src.snap.Tasks[0].Status; s != model.StatusApproved {
+		t.Fatalf("task moved to %s", s)
+	}
 }

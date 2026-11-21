@@ -34,8 +34,9 @@ function DecisionCard({ item, acting, next, openThread }: {
   const [text, setText] = useState("");
   const question = item.kind === "question";
   const unblock = item.kind === "unblock";
-  const primary = question ? "Answer" : unblock ? "Unblock" : "Approve";
-  const allowReject = !question && !unblock;
+  const merge = item.kind === "merge" ? (item.actions?.includes("merge") ? "merge" : "mark_done") : undefined;
+  const primary = question ? "Answer" : unblock ? "Unblock" : merge === "merge" ? "Enqueue merge" : merge ? "Mark merged" : "Approve";
+  const allowReject = !question && !unblock && !merge;
   const pr = diffURL(item.pr_url);
   const thread = useMemo(() => decisionThread({ task_id: item.task_id, agent_id: item.agent_id, brief_id: item.brief_id }),
     [item.task_id, item.agent_id, item.brief_id]);
@@ -72,7 +73,7 @@ function DecisionCard({ item, acting, next, openThread }: {
     void submit(event, async (fields) => {
       const detail = value(fields, "response");
       if ((question || reject) && !detail) throw new Error(question ? "Enter an answer." : "Enter a rejection reason.");
-      const action = question ? "answer" : unblock ? "unblock" : reject ? "reject" : "approve";
+      const action = question ? "answer" : unblock ? "unblock" : reject ? "reject" : merge ?? "approve";
       await api(`decisions/${encodeURIComponent(item.id)}`, "POST", {
         action,
         ...(question ? { answer: detail } : { note: detail }),

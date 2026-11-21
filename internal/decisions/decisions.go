@@ -28,13 +28,14 @@ const (
 )
 
 const (
-	ActionAnswer  = "answer"
-	ActionApprove = "approve"
-	ActionReject  = "reject"
-	ActionMerge   = "merge"
-	ActionUnblock = "unblock"
-	ActionRotate  = "rotate"
-	ActionSkip    = "skip"
+	ActionAnswer   = "answer"
+	ActionApprove  = "approve"
+	ActionReject   = "reject"
+	ActionMerge    = "merge"
+	ActionMarkDone = "mark_done"
+	ActionUnblock  = "unblock"
+	ActionRotate   = "rotate"
+	ActionSkip     = "skip"
 )
 
 const (
@@ -97,7 +98,9 @@ type Actions interface {
 	AnswerQuestion(ctx context.Context, id, answer string) (*model.Question, error)
 	ApprovePlan(ctx context.Context, id, note string) (*model.Plan, error)
 	RejectPlan(ctx context.Context, id, reason string) (*model.Plan, error)
-	ApproveMerge(ctx context.Context, taskID, note string) (*model.Task, error)
+	MergeAction(ctx context.Context, t *model.Task) (string, error)
+	Merge(ctx context.Context, taskID, note string) (any, error)
+	MarkDone(ctx context.Context, taskID, note string) (*model.Task, error)
 	Unblock(ctx context.Context, taskID, to, note string) (*model.Task, error)
 	RotateToken(ctx context.Context, agentID string, expiresIn time.Duration) (any, error)
 	Skip(ctx context.Context, decisionID string, until time.Time) error
@@ -197,6 +200,7 @@ func (f *Feed) Act(ctx context.Context, id, action string, raw json.RawMessage) 
 	if d == nil {
 		return nil, model.NotFound("decision %s not found", id)
 	}
+	action = d.Resolve(action)
 	if !contains(d.Actions, action) {
 		return nil, model.Conflict("action %q not available for %s (allowed: %s)", action, id, strings.Join(d.Actions, ", "))
 	}
@@ -228,7 +232,9 @@ func (f *Feed) dispatch(ctx context.Context, d *Decision, action string, p paylo
 		}
 		return f.act.RejectPlan(ctx, ref, reason)
 	case ActionMerge:
-		return f.act.ApproveMerge(ctx, ref, p.Note)
+		return f.act.Merge(ctx, ref, p.Note)
+	case ActionMarkDone:
+		return f.act.MarkDone(ctx, ref, p.Note)
 	case ActionUnblock:
 		to := p.Status
 		if to == "" {
@@ -328,7 +334,14 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 		extra := 0
 		switch t.Status {
 		case model.StatusApproved:
-			d.ID, d.Kind, d.Actions = "merge:"+t.ID, KindMerge, []string{ActionMerge}
+			action, err := f.act.MergeAction(ctx, t)
+			if err != nil {
+				return nil, err
+			}
+			if action == "" {
+				continue
+			}
+			d.ID, d.Kind, d.Actions = "merge:"+t.ID, KindMerge, []string{action}
 			d.Title = fmt.Sprintf("Merge %s: %s", t.ID, t.Title)
 			d.Summary = mergeSummary(t)
 		case model.StatusBlocked, model.StatusNeedsOwner:
@@ -387,6 +400,13 @@ func (f *Feed) collect(ctx context.Context) ([]*Decision, error) {
 		return a.ID < b.ID
 	})
 	return out, nil
+}
+
+func (d *Decision) Resolve(action string) string {
+	if action == ActionMerge && !contains(d.Actions, ActionMerge) && contains(d.Actions, ActionMarkDone) {
+		return ActionMarkDone
+	}
+	return action
 }
 
 func tokenDecision(a *model.Agent, now time.Time) *Decision {

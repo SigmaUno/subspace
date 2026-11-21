@@ -6,6 +6,7 @@ export type Repo = {
   protected_branches: string[];
   merge_test_command: string[];
   merge_work_dir: string;
+  deploy_command?: string[];
   token_env: string;
   enabled: boolean;
   created_at: string;

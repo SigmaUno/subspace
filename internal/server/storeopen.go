@@ -31,3 +31,8 @@ func registerSchema(ddl string, tables ...string) {
 	sqlite.RegisterSchema(ddl)
 	postgres.RegisterSchema(ddl, tables...)
 }
+
+func registerColumn(table, column, def string) {
+	sqlite.RegisterColumn(table, column, def)
+	postgres.RegisterSchema(`ALTER TABLE ` + table + ` ADD COLUMN IF NOT EXISTS ` + column + ` ` + def)
+}

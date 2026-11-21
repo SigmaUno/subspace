@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
@@ -229,7 +230,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest := &api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}
 	rest.Register(mux)
 
-	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{Now: cfg.Now})
+	mqRoute := &atomic.Pointer[mqHandler]{}
+	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b: b, st: st, mq: mqRoute}, decisions.Options{Now: cfg.Now})
 	rest.Mount(mux, "/api/v1/decisions", decisions.Handler(feed, cfg.Log))
 	rest.Mount(mux, "/api/v1/decisions/", decisions.Handler(feed, cfg.Log))
 
@@ -274,7 +276,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	var closers []func()
 	deps := Deps{Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
 		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
-		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
+		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env), MergeQueue: mqRoute}
 	rl.Register("capacity", board.CapacityReloadKeys, b)
 	rl.Register("trusted-proxies", []string{envTrustedProxies}, deps.Trust)
 	level := &reload.LogLevel{Pipe: cfg.LogPipe}

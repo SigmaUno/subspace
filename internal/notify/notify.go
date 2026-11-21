@@ -185,7 +185,7 @@ func withActions(n Notification, mint Minter) Notification {
 	case strings.HasPrefix(n.decision, "plan:"):
 		want = []link{{"Approve", "approve", 0}, {"Reject", "reject", 0}}
 	case strings.HasPrefix(n.decision, "merge:"):
-		want = []link{{"Mark merged", "merge", 0}}
+		want = []link{{"Merge", "merge", 0}}
 	}
 	if len(want) < maxActions {
 		want = append(want, link{"Snooze 1h", "skip", 0})

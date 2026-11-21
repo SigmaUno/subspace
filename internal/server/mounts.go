@@ -5,6 +5,7 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"sync/atomic"
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -45,9 +46,10 @@ type Deps struct {
 
 	OnClose func(func())
 
-	Env    func(string) string
-	Reload *reload.Manager
-	Trust  *proxyTrust
+	Env        func(string) string
+	Reload     *reload.Manager
+	Trust      *proxyTrust
+	MergeQueue *atomic.Pointer[mqHandler]
 }
 
 func (d Deps) getenv() func(string) string {

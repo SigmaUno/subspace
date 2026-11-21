@@ -31,6 +31,37 @@ export interface Component {
   last_activity_at?: string;
 }
 
+export interface ArchitectureNode {
+  id: string;
+  name: string;
+  description?: string;
+  depends_on?: string[];
+  paths?: string[];
+  owners?: { agent_id: string; task_ids?: string[] }[];
+  status?: {
+    counts?: Partial<Record<TaskStatus, number>>;
+    progress_avg?: number;
+    stale?: number;
+    last_activity?: string | null;
+  };
+}
+
+export function toComponent(node: ArchitectureNode): Component {
+  return {
+    id: node.id,
+    name: node.name,
+    description: node.description,
+    depends_on: node.depends_on,
+    paths: node.paths,
+    owner_agent_ids: node.owners?.map((owner) => owner.agent_id),
+    task_ids: node.owners?.flatMap((owner) => owner.task_ids ?? []),
+    status_counts: node.status?.counts,
+    progress_pct: node.status?.progress_avg,
+    stale_count: node.status?.stale,
+    last_activity_at: node.status?.last_activity ?? undefined,
+  };
+}
+
 export interface Conversation {
   id: string;
   messages: Message[];

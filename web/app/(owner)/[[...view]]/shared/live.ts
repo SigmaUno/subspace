@@ -137,7 +137,7 @@ export function useLive(topics: string) {
       invalidate(["thread", "chat"]);
     });
     on("task.updated", (event) => {
-      invalidate(["board"]);
+      invalidate(["board", "architecture"]);
       try {
         const { data } = JSON.parse(event.data) as { data?: { id: string; status: string } };
         if (data && taskStatuses.get(data.id) !== data.status) {

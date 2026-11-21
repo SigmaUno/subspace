@@ -51,6 +51,7 @@ type Service struct {
 	src        Source
 	now        func() time.Time
 	StaleAfter time.Duration
+	Changed    func(ctx context.Context, actor model.Actor, briefID string, count int) error
 }
 
 func NewService(store Store, src Source, now func() time.Time) *Service {
@@ -60,7 +61,7 @@ func NewService(store Store, src Source, now func() time.Time) *Service {
 	return &Service{store: store, src: src, now: now, StaleAfter: DefaultStaleAfter}
 }
 
-func (s *Service) SetPlan(ctx context.Context, briefID string, specs []Spec) ([]Component, error) {
+func (s *Service) SetPlan(ctx context.Context, actor model.Actor, briefID string, specs []Spec) ([]Component, error) {
 	if _, err := s.src.Brief(ctx, briefID); err != nil {
 		return nil, err
 	}
@@ -88,6 +89,11 @@ func (s *Service) SetPlan(ctx context.Context, briefID string, specs []Spec) ([]
 	}
 	if err := s.store.Replace(ctx, briefID, comps); err != nil {
 		return nil, err
+	}
+	if s.Changed != nil {
+		if err := s.Changed(ctx, actor, briefID, len(comps)); err != nil {
+			return nil, err
+		}
 	}
 	return comps, nil
 }

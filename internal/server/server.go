@@ -238,8 +238,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/conversations", router.Handler())
 	rest.Mount(mux, "/api/v1/conversations/", router.Handler())
 
-	compStore := components.NewMemory()
+	compStore := components.NewKV(st)
 	comps := components.NewService(compStore, componentSource{b, st}, nil)
+	comps.Changed = b.AuditComponents
 	b.SetComponentPaths(func(briefID, id string) []string { return comps.Paths(ctx, briefID, id) })
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
@@ -274,7 +275,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	var closers []func()
 	deps := Deps{Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
-		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
+		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore, Comps: comps,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)
 	rl.Register("trusted-proxies", []string{envTrustedProxies}, deps.Trust)

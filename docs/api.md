@@ -1807,7 +1807,7 @@ Every resource is at most 256 KiB. Markdown is cut at that size with a `[truncat
 | add_knowledge, add_note, ask_owner, get_artifact, get_instructions, get_knowledge, get_task, heartbeat, list_artifacts, list_my_tasks, log_output, post_message, put_artifact, read_thread, report_provider_error, report_usage, search_knowledge, update_status, whoami | ✓ | ✓ | ✓ | ✓ |
 | request_help, suggest_split | | ✓ | ✓ | ✓ |
 | claim_task, release_task, report_blocker, submit | | ✓ | ✓ | |
-| accept_split, agent_stats, assign, board, capacity, create_task, create_task_from_template, get_brief, get_components, get_forecast, get_report, list_agents, list_briefs, list_decisions, list_help_requests, list_prompts, list_spawns, pin_knowledge, propose_plan, reassign, render_prompt, request_spawn, search, supersede_knowledge, update_task | ✓ | | | |
+| accept_split, agent_stats, assign, board, capacity, create_task, create_task_from_template, get_brief, get_components, get_forecast, get_report, list_agents, list_briefs, list_decisions, list_help_requests, list_prompts, list_spawns, pin_knowledge, propose_plan, reassign, render_prompt, request_spawn, search, set_components, supersede_knowledge, update_task | ✓ | | | |
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
 
@@ -1893,6 +1893,7 @@ All tools return an object; `task` = Task object above.
 - `list_decisions {}` → `{"decisions":[{"id","kind","title","brief_id?","task_id?","agent_id?"}],"truncated":bool}`: the owner inbox (see Decisions) without summaries, links and actions, in inbox order.
 - `list_spawns {"brief_id?"}` → `{"spawns":[Spawn],"truncated":bool}`; a failed spawn's `error` is replaced by a generic message.
 - `get_components {"brief_id"}` → `{"components":[Component],"truncated":bool}`. 404 `not_found` for an unknown brief.
+- `set_components {"brief_id","components":[{"name","description?","paths?","depends_on?"}]}` → `{"components":[Component]}`. Replaces the component plan like `PUT /api/v1/briefs/{id}/components` (same validation, 400 `bad_request`), appends a `set_components` audit event for the calling leader and publishes `architecture.updated`. 404 `not_found` for an unknown brief. Component plans are stored in the database and survive restarts.
 
 ### Handoff context
 `get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.

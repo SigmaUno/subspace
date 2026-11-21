@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useContext, useMemo, useState } from "react";
 import { money, optionalResource, useResource } from "../../../../lib/client";
 import type { Agent, Board, Message, Thread } from "../../../../lib/types";
-import type { Component } from "../../../../lib/swarm";
+import { toComponent, type ArchitectureNode, type Component } from "../../../../lib/swarm";
 import { Kanban } from "../board";
 import { InsightsTile } from "../insights";
 import { Clock, staleAt } from "../shared/components";
@@ -30,8 +30,9 @@ export function SwarmProject({ id, architecture, revisions, recent, openThread }
   const registry = useResource<{ agents: Agent[] }>("agents?limit=1000&include=last_message", revisions.agents);
   const [chat, setChat] = useState<string | null>(null);
   const componentFeed = useResource(`briefs/${encodeURIComponent(id)}/architecture`,
-    revisions.architecture, optionalResource<{ components: Component[] }>);
-  const components = componentFeed.data?.components ?? emptyComponents;
+    revisions.architecture, optionalResource<{ nodes: ArchitectureNode[] }>);
+  const nodes = componentFeed.data?.nodes;
+  const components = useMemo(() => nodes?.map(toComponent) ?? emptyComponents, [nodes]);
   const agents = registry.data?.agents ?? emptyAgents;
   const taskList = useMemo(() => Object.values(board.data?.columns ?? {}).flatMap((column) => column ?? []), [board.data]);
   const now = useContext(Clock);

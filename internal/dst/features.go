@@ -109,6 +109,10 @@ func (leaderInfo) Components(context.Context, string) ([]components.Component, e
 	return nil, errNotSimulated
 }
 
+func (leaderInfo) SetComponents(context.Context, model.Actor, string, []components.Spec) ([]components.Component, error) {
+	return nil, errNotSimulated
+}
+
 func (leaderInfo) AgentStats(context.Context, string) ([]any, error) { return nil, errNotSimulated }
 
 type limiterClock struct{ c *Clock }

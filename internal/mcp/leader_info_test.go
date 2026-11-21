@@ -230,3 +230,49 @@ func TestLeaderInfoToolsExemptFromLoopProtection(t *testing.T) {
 		t.Fatalf("leader %v", a)
 	}
 }
+
+func TestSetComponentsOverMCPFeedsArchitecture(t *testing.T) {
+	e := newInfoEnv(t)
+	out := e.Must(e.lead, "set_components", map[string]any{"brief_id": e.brief, "components": []any{
+		map[string]any{"name": "core", "paths": []string{"internal/core"}},
+		map[string]any{"name": "web", "depends_on": []string{"core"}},
+	}})
+	cs := list(t, out, "components")
+	if len(cs) != 2 || cs[1].(map[string]any)["depends_on"].([]any)[0] != "C-1" {
+		t.Fatalf("components %v", cs)
+	}
+	if got := list(t, e.Must(e.lead, "get_components", map[string]any{"brief_id": e.brief}), "components"); len(got) != 2 {
+		t.Fatalf("get_components after replace: %v", got)
+	}
+	linked := e.Must(e.lead, "create_task", map[string]any{"brief_id": e.brief, "title": "core work", "spec": "s", "repo": "o/r", "component_id": "C-1"})["task"].(map[string]any)["id"].(string)
+	e.Must(e.lead, "assign", map[string]any{"task_id": linked, "agent_id": "w1"})
+	code, arch := e.REST("GET", "/api/v1/briefs/"+e.brief+"/architecture", nil)
+	if code != 200 {
+		t.Fatalf("architecture: %d %v", code, arch)
+	}
+	nodes := list(t, arch, "nodes")
+	if len(nodes) != 2 || nodes[0].(map[string]any)["name"] != "core" || len(list(t, arch, "edges")) != 1 {
+		t.Fatalf("architecture %v", arch)
+	}
+	owners := list(t, nodes[0].(map[string]any), "owners")
+	if len(owners) != 1 || owners[0].(map[string]any)["agent_id"] != "w1" {
+		t.Fatalf("owners %v", owners)
+	}
+
+	_, audit := e.REST("GET", "/api/v1/audit?tool=set_components", nil)
+	if evs := list(t, audit, "events"); len(evs) != 2 || evs[0].(map[string]any)["agent_id"] != "owner" || evs[1].(map[string]any)["agent_id"] != "rex" {
+		t.Fatalf("audit %v", audit)
+	}
+
+	bad, isErr := e.Call(e.lead, "set_components", map[string]any{"brief_id": e.brief, "components": []any{
+		map[string]any{"name": "a", "depends_on": []string{"b"}}, map[string]any{"name": "b", "depends_on": []string{"a"}},
+	}})
+	if !isErr || bad["error"].(map[string]any)["code"] != "bad_request" {
+		t.Fatalf("cyclic plan: %v", bad)
+	}
+	for name, tok := range map[string]string{"worker": e.worker, "tester": e.tester, "reviewer": e.reviewer} {
+		if res, _ := e.Call(tok, "set_components", map[string]any{"brief_id": e.brief, "components": []any{map[string]any{"name": "x"}}}); res["rpc_error"] == nil {
+			t.Errorf("%s set components: %v", name, res)
+		}
+	}
+}

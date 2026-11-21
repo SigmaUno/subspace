@@ -23,6 +23,7 @@ type InfoSource interface {
 	Search(ctx context.Context, q, kind string, limit int) ([]search.Result, error)
 	Decisions(ctx context.Context) ([]*decisions.Decision, error)
 	Components(ctx context.Context, briefID string) ([]components.Component, error)
+	SetComponents(ctx context.Context, actor model.Actor, briefID string, specs []components.Spec) ([]components.Component, error)
 	AgentStats(ctx context.Context, agentID string) ([]any, error)
 }
 
@@ -288,6 +289,43 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			}
 			out, cut := truncate(cs)
 			return map[string]any{"components": out, "truncated": cut}, nil
+		},
+	})
+
+	r.Register(&Tool{
+		Name: "set_components",
+		Description: "Replace the architecture component plan of a brief. Components are numbered C-1, C-2, ... in list order; depends_on names other components of the same list. " +
+			"Tasks link to a component with component_id. Rejects an empty plan, duplicate names, unknown, self or cyclic dependencies and absolute or escaping paths.",
+		Roles: LeaderOnly,
+		Schema: obj(map[string]any{
+			"brief_id": str("brief id, e.g. B-1"),
+			"components": map[string]any{"type": "array", "description": "the complete component plan", "items": obj(map[string]any{
+				"name":        str("unique component name"),
+				"description": str("what the component is responsible for"),
+				"paths":       strs("repository-relative paths the component owns"),
+				"depends_on":  strs("names of components this one depends on"),
+			}, "name")},
+		}, "brief_id", "components"),
+		Handler: func(ctx context.Context, c *Call) (any, error) {
+			var in struct {
+				Components []components.Spec `json:"components"`
+			}
+			if err := decode(c, &in); err != nil {
+				return nil, err
+			}
+			id, err := briefArg(ctx, c)
+			if err != nil {
+				return nil, err
+			}
+			s, err := source()
+			if err != nil {
+				return nil, err
+			}
+			cs, err := s.SetComponents(ctx, c.Actor, id, in.Components)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"components": cs}, nil
 		},
 	})
 }

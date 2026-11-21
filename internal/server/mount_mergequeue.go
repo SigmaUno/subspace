@@ -42,9 +42,11 @@ func init() {
 }
 
 type mqRepo struct {
-	Remote string   `json:"remote"`
-	Verify []string `json:"verify"`
-	Base   string   `json:"base"`
+	Remote   string   `json:"remote"`
+	Verify   []string `json:"verify"`
+	Base     string   `json:"base"`
+	Train    int      `json:"train"`
+	Required []string `json:"required"`
 }
 
 type mqFile struct {
@@ -91,13 +93,17 @@ func startMergeQueue(d Deps, path string) error {
 	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
 	bases := make(map[string]string, len(f.Repos))
 	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify}
+		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required}
 		bases[name] = r.Base
 		if r.Base == "" {
 			bases[name] = "main"
 		}
 	}
 	gate := mqGate{d.Board}
+	var checks mergequeue.Checks
+	if ps, ok := d.Store.(prStatusReader); ok {
+		checks = mqChecks{ps}
+	}
 	q, err := mergequeue.New(mergequeue.Config{
 		Repos:    repos,
 		WorkDir:  f.WorkDir,
@@ -106,6 +112,8 @@ func startMergeQueue(d Deps, path string) error {
 		Notifier: mqNotifier{d.Board},
 		Gate:     gate,
 		Tasks:    mqTasks{d.Board},
+		Deps:     mqDeps{d.Board},
+		Checks:   checks,
 		Logger:   d.Log,
 	})
 	if err != nil {

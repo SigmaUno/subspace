@@ -421,6 +421,24 @@ Owner scope only.
 |---|---|---|
 | GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&cursor=&limit=` | → `{"events":[AuditEvent],"next_cursor":null}` ascending by id; `since` returns ids > since, `cursor` continues after the previous page; append-only, no write endpoint. |
 
+### Activity
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/activity?since=&limit=&brief_id=&severity=&cursor=` | → `{"items":[ActivityItem],"next_cursor":"a41.m17"}` newest first. `since` is an RFC 3339 timestamp (only newer items), `limit` default 100, max 1000 (400 if not a positive integer), `brief_id` and `severity` (`info`, `success`, `warning`, `error`) filter the items, `cursor` is the opaque `next_cursor` of the previous page. `next_cursor` is `null` on the last page. 400 for a malformed `since`, `severity` or `cursor`. |
+
+```jsonc
+// ActivityItem
+{"id":"a:42","ts":"2026-11-21T10:04:05Z","source":"audit",         // id is a:<audit id> or m:<message id>; source audit|message
+ "tool":"submit",                                                  // audit items only
+ "actor":{"kind":"agent","id":"claude-3"},                         // kind agent|owner|system
+ "text":"claude-3 submitted T-12 (PR #45)",
+ "targets":[{"kind":"task","id":"T-12"}],                          // kind task|plan|brief|agent|question|spawn|help_request|artifact
+ "severity":"success","icon":"send",                               // icon is a name: activity|split|plan|question|check|user|alert|bot|x|play|folder|plus|file|settings|edit|stop|pause|comment|spawn|lock|budget|send
+ "brief_id":"B-1"}                                                 // omitted when the item belongs to no brief
+```
+
+The feed turns audit events and `system` thread messages into short sentences (`rex proposed plan P-3 with 14 tasks`, `owner approved plan P-3`). Every audited tool has a sentence template; an unknown tool falls back to `<actor> used <tool>`. Texts are whitespace-collapsed, cut and redacted for tokens and secrets. `brief_id` comes from the task, plan or brief the event belongs to; agent-thread messages and owner-wide events (`pause_all`, `set_limits`, ...) have none. New items are pushed as `activity.new` on topic `activity` (see SSE), polled from the database about every 500 ms.
+
 ### Reports & architecture
 | Method | Path | Body → Response |
 |---|---|---|
@@ -726,7 +744,7 @@ Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `p
 | GET | `/api/v1/events?topics=&last_event_id=` | → `text/event-stream` (owner token header) |
 
 (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
-Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`.
+Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, `activity`.
 
 Response `text/event-stream`, a `: ping` comment every 15s. Each event:
 ```
@@ -751,6 +769,7 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `spawn.updated` | Spawn | agents, brief:* |
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
 | `spend.warning` | `{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning","starts_at":"..."}` | control |
+| `activity.new` | ActivityItem | activity |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
 | `resync` | `{"seq":n}` — a resume could not be served; refetch | all |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |

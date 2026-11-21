@@ -414,6 +414,9 @@ var taskCommands = table{
 	"gates":          byID("tasks gates", "tasks/%s/gates"),
 	"override-gates": parseGateOverride,
 	"bulk":           parseTaskBulk,
+
+	"transcript":          parseTranscript,
+	"transcript-download": parseTranscriptDownload,
 }
 
 func parseGateOverride(args []string, _ io.Reader) (command, error) {

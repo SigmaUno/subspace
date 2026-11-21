@@ -16,5 +16,6 @@ var ErrorCodes = []string{
 	"agent_paused",
 	"rate_limited",
 	"too_large",
+	"upstream_error",
 	"internal",
 }

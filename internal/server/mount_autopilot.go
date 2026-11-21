@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/agentstats"
 	"github.com/SigmaUno/subspace/internal/autopilot"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -29,7 +30,8 @@ func init() {
 				d.Log.Warn("invalid SUBSPACE_AUTOPILOT_INTERVAL, using default", "value", v, "default", interval)
 			}
 		}
-		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log})
+		stats := agentstats.NewService(agentstats.StoreSource{Store: d.Store}, time.Now)
+		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Scores: stats.Scores})
 		restoreAutopilotFlags(d, ap)
 		h := persistAutopilotFlags(d, ap, autopilot.Handler(ap))
 		d.API.Mount(d.Mux, "/api/v1/autopilot", h)

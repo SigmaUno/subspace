@@ -29,6 +29,7 @@ type Snapshot struct {
 	Agents   []*model.Agent
 	Capacity board.CapacityView
 	Spawn    map[string]SpawnConfig
+	Scores   map[string]float64
 }
 
 type Action struct {
@@ -89,7 +90,7 @@ func Plan(s Snapshot) []Action {
 		if br == nil || t.Status != model.StatusReady {
 			continue
 		}
-		a := pick(s.Agents, load, func(a *model.Agent) bool {
+		a := pick(s.Agents, load, s.Scores, func(a *model.Agent) bool {
 			return a.Role == t.Role && allowed(br, a.Provider)
 		})
 		if a == nil {
@@ -109,7 +110,7 @@ func Plan(s Snapshot) []Action {
 		if t.Assignee != nil && agents[*t.Assignee] != nil {
 			worker = agents[*t.Assignee].Provider
 		}
-		a := pick(s.Agents, revLoad, func(a *model.Agent) bool {
+		a := pick(s.Agents, revLoad, s.Scores, func(a *model.Agent) bool {
 			return a.Role == model.RoleReviewer && allowed(br, a.Provider) && (worker == "" || a.Provider != worker)
 		})
 		if a == nil {
@@ -163,17 +164,27 @@ func Plan(s Snapshot) []Action {
 	return acts
 }
 
-func pick(agents []*model.Agent, load map[string]int, ok func(*model.Agent) bool) *model.Agent {
+func pick(agents []*model.Agent, load map[string]int, scores map[string]float64, ok func(*model.Agent) bool) *model.Agent {
 	var best *model.Agent
 	for _, a := range agents {
 		if a.Status != model.AgentActive || !ok(a) {
 			continue
 		}
-		if best == nil || load[a.ID] < load[best.ID] || (load[a.ID] == load[best.ID] && idLess(a.ID, best.ID)) {
+		if best == nil || better(a, best, load, scores) {
 			best = a
 		}
 	}
 	return best
+}
+
+func better(a, b *model.Agent, load map[string]int, scores map[string]float64) bool {
+	if load[a.ID] != load[b.ID] {
+		return load[a.ID] < load[b.ID]
+	}
+	if scores[a.ID] != scores[b.ID] {
+		return scores[a.ID] > scores[b.ID]
+	}
+	return idLess(a.ID, b.ID)
 }
 
 func allowed(b *model.Brief, provider string) bool {

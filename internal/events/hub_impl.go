@@ -22,6 +22,18 @@ type hub struct {
 	head   int
 	size   int
 	closed bool
+	queue  []pending
+	spare  []pending
+
+	dmu       sync.Mutex
+	delivered int64
+	touched   []*sub
+}
+
+type pending struct {
+	ev     Event
+	topics []string
+	subs   map[string][]*sub
 }
 
 type ringEntry struct {
@@ -36,7 +48,9 @@ type sub struct {
 	all     bool
 	mark    int64
 	dropped atomic.Int64
+	removed bool
 	closed  bool
+	out     []Event
 }
 
 func NewHub() Hub {
@@ -90,15 +104,25 @@ func (h *hub) subscribe(topics []string) *sub {
 	}
 	s.all = slices.Contains(s.topics, TopicAll)
 	if h.closed {
-		s.closed = true
+		s.removed, s.closed = true, true
 		close(s.ch)
 		return s
 	}
+	next := h.cloneTopics()
 	for _, t := range s.topics {
-		h.topics[t] = append(h.topics[t], s)
+		next[t] = append(slices.Clip(next[t]), s)
 	}
+	h.topics = next
 	h.count++
 	return s
+}
+
+func (h *hub) cloneTopics() map[string][]*sub {
+	next := make(map[string][]*sub, len(h.topics)+1)
+	for t, set := range h.topics {
+		next[t] = set
+	}
+	return next
 }
 
 func (h *hub) Resume(topics []string, after int64) Resumed {
@@ -134,27 +158,75 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	ts := time.Now().UTC()
 	payload := encodePayload(typ, ts, data)
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.seq++
 	ev := Event{Seq: h.seq, Type: typ, TS: ts, Data: data, enc: &encoded{}}
 	ev.enc.once.Do(func() { ev.enc.b = frameOf(ev.Seq, typ, payload) })
 	h.record(ev, topics)
-
-	for _, s := range h.topics[TopicAll] {
-		s.send(ev)
+	if !h.closed {
+		h.queue = append(h.queue, pending{ev: ev, topics: topics, subs: h.topics})
 	}
-	for _, t := range topics {
+	seq := h.seq
+	h.mu.Unlock()
+	h.dmu.Lock()
+	if h.delivered < seq {
+		h.deliver()
+	}
+	h.dmu.Unlock()
+}
+
+func (h *hub) deliver() {
+	h.mu.Lock()
+	batch := h.queue
+	h.queue, h.spare = h.spare, nil
+	h.mu.Unlock()
+	touched := h.touched[:0]
+	for i := range batch {
+		touched = collect(&batch[i], touched)
+		h.delivered = batch[i].ev.Seq
+		batch[i] = pending{}
+	}
+	for i, s := range touched {
+		for j := range s.out {
+			s.send(s.out[j])
+			s.out[j] = Event{}
+		}
+		s.out = s.out[:0]
+		if cap(s.out) > SubscriberBuffer {
+			s.out = nil
+		}
+		touched[i] = nil
+	}
+	h.touched = touched[:0]
+	h.mu.Lock()
+	if h.spare == nil {
+		h.spare = batch[:0]
+	}
+	h.mu.Unlock()
+}
+
+func collect(p *pending, touched []*sub) []*sub {
+	add := func(s *sub) {
+		if len(s.out) == 0 {
+			touched = append(touched, s)
+		}
+		s.out = append(s.out, p.ev)
+	}
+	for _, s := range p.subs[TopicAll] {
+		add(s)
+	}
+	for _, t := range p.topics {
 		if t == TopicAll {
 			continue
 		}
-		for _, s := range h.topics[t] {
-			if s.all || s.mark == ev.Seq {
+		for _, s := range p.subs[t] {
+			if s.all || s.mark == p.ev.Seq {
 				continue
 			}
-			s.mark = ev.Seq
-			s.send(ev)
+			s.mark = p.ev.Seq
+			add(s)
 		}
 	}
+	return touched
 }
 
 func (h *hub) record(ev Event, topics []string) {
@@ -167,6 +239,9 @@ func (h *hub) record(ev Event, topics []string) {
 }
 
 func (s *sub) send(ev Event) {
+	if s.closed {
+		return
+	}
 	for {
 		select {
 		case s.ch <- ev:
@@ -188,40 +263,59 @@ func (s *sub) TakeDropped() int { return int(s.dropped.Swap(0)) }
 func (s *sub) Close() {
 	h := s.h
 	h.mu.Lock()
-	defer h.mu.Unlock()
-	h.removeLocked(s)
+	removed := h.removeLocked(s)
+	h.mu.Unlock()
+	if removed {
+		h.closeSubs([]*sub{s})
+	}
 }
 
 func (h *hub) Close() {
 	h.mu.Lock()
-	defer h.mu.Unlock()
 	h.closed = true
+	var all []*sub
+	seen := map[*sub]bool{}
 	for _, set := range h.topics {
-		for _, s := range slices.Clone(set) {
-			h.removeLocked(s)
+		for _, s := range set {
+			if !seen[s] {
+				seen[s] = true
+				s.removed = true
+				all = append(all, s)
+			}
+		}
+	}
+	h.topics = map[string][]*sub{}
+	h.count = 0
+	h.mu.Unlock()
+	h.closeSubs(all)
+}
+
+func (h *hub) closeSubs(subs []*sub) {
+	h.dmu.Lock()
+	defer h.dmu.Unlock()
+	for _, s := range subs {
+		if !s.closed {
+			s.closed = true
+			close(s.ch)
 		}
 	}
 }
 
-func (h *hub) removeLocked(s *sub) {
-	if s.closed {
-		return
+func (h *hub) removeLocked(s *sub) bool {
+	if s.removed {
+		return false
 	}
-	s.closed = true
+	s.removed = true
+	next := h.cloneTopics()
 	for _, t := range s.topics {
-		set := h.topics[t]
-		if i := slices.Index(set, s); i >= 0 {
-			last := len(set) - 1
-			set[i] = set[last]
-			set[last] = nil
-			set = set[:last]
-		}
+		set := slices.DeleteFunc(slices.Clone(next[t]), func(x *sub) bool { return x == s })
 		if len(set) == 0 {
-			delete(h.topics, t)
+			delete(next, t)
 		} else {
-			h.topics[t] = set
+			next[t] = set
 		}
 	}
+	h.topics = next
 	h.count--
-	close(s.ch)
+	return true
 }

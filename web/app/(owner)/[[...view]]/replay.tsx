@@ -148,6 +148,7 @@ export function ReplayPage({ id }: { id: string }) {
               <button type="button" onClick={() => seek(nearest(points, key.audit_id))} aria-current={point?.audit_id === key.audit_id ? "step" : undefined}>
                 <time dateTime={key.at}>{stamp(key.at)}</time> · {describe(key)}
               </button>
+              {key.transcript && <> <Link href={`/tasks/${encodeURIComponent(key.task_id)}#transcript`}>Transcript</Link></>}
             </li>)}
           </ul> : <EmptyState>No key events up to this point.</EmptyState>}
         </section>

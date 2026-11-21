@@ -1,0 +1,8 @@
+.tabs { display: flex; gap: .25rem; border-bottom: 1px solid var(--border); }
+.tabs button[role="tab"] { border: 0; border-bottom: 2px solid transparent; border-radius: 0; background: none; box-shadow: none; padding: .5rem .85rem; color: var(--muted); }
+.tabs button[role="tab"][aria-selected="true"] { color: var(--text); border-bottom-color: var(--action); }
+.transcript-tools { display: flex; align-items: flex-end; gap: .75rem; flex-wrap: wrap; }
+.transcript-tools label { display: grid; gap: .2rem; font-size: .8125rem; color: var(--muted); }
+.transcript-box { max-height: 32rem; }
+.transcript-line { display: grid; grid-template-columns: 4.5rem 5.5rem auto; gap: .6rem; }
+.transcript-meta { color: #858585; user-select: none; }

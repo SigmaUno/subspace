@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import type { ReactNode } from "react";
+import { useState, type ReactNode } from "react";
 import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, value } from "../../../lib/client";
 import type { AuditEvent, TaskDetail, TaskList, TimelineEntry } from "../../../lib/task-detail-types";
 import { statuses, type Message } from "../../../lib/types";
@@ -11,6 +11,8 @@ import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
 import { ScopePanel } from "./scope-report";
 import { AgentTerminal } from "./terminal";
+import { TaskTranscript } from "./transcript";
+import "./transcript.css";
 import { PageShell } from "./shell";
 import { useConfirm, useToast } from "./ui";
 import { stamp } from "./format";
@@ -20,6 +22,10 @@ const statusNames = new Map<string, string>(statuses);
 const settled = ["done", "cancelled"];
 const reopenable = ["needs_owner", "blocked", "cancelled"];
 const completable = ["approved", "needs_owner"];
+
+type Tab = "details" | "transcript";
+
+const startTab = (): Tab => typeof window !== "undefined" && window.location.hash === "#transcript" ? "transcript" : "details";
 
 const stateOf = (state: AuditEvent["before"]) => typeof state?.status === "string" ? state.status : undefined;
 const statusName = (status: string) => statusNames.get(status) ?? label(status);
@@ -138,6 +144,7 @@ export function TaskDetailPage({ id }: { id: string }) {
   const prStatus = usePR(id, revisions.board);
   const reply = useSubmit();
   const toast = useToast();
+  const [tab, setTab] = useState<Tab>(startTab);
 
   const current = task.data;
   const known = new Map(siblings.data?.tasks?.map((item) => [item.id, item]));
@@ -163,103 +170,115 @@ export function TaskDetailPage({ id }: { id: string }) {
       </div>
       {current.blocked_reason && <div className="notice" role="status">{label(current.blocked_reason)}</div>}
 
-      <section className="panel stack">
-        <h2>Overview</h2>
-        <div className="form-grid">
-          <Fact name="Assignee">{current.assignee ?? "Unassigned"}</Fact>
-          <Fact name="Reviewer">{current.reviewer ?? "None"}</Fact>
-          <Fact name="Review rounds">{current.review_rounds}</Fact>
-          <Fact name="Repository">{current.repo}</Fact>
-          <Fact name="Branch">{current.branch || "—"}</Fact>
-          <Fact name="Pull request">{prStatus.data
-            ? <PRBadges pr={prStatus.data} />
-            : pr ? <a href={pr} target="_blank" rel="noreferrer">Open pull request</a> : "No PR"}</Fact>
-          <Fact name="Tests">{current.tests
-            ? <>{current.tests.passed} passed · {current.tests.failed} failed{current.tests.reported_at && <> · <time dateTime={current.tests.reported_at}>{stamp(current.tests.reported_at)}</time></>}</>
-            : "Not reported"}</Fact>
-          <Fact name="Progress">{current.progress_pct}%</Fact>
-          <Fact name="Updated"><time dateTime={current.updated_at}>{stamp(current.updated_at)}</time></Fact>
-        </div>
-        <div className="form-grid">
-          <Burn name="Cost" used={current.cost_used} max={current.budget.max_cost_eur}
-            text={`${money(current.cost_used)} / ${money(current.budget.max_cost_eur)}`} />
-          <Burn name="Minutes" used={current.minutes_used} max={current.budget.max_minutes}
-            text={`${current.minutes_used} / ${current.budget.max_minutes} min`} />
-        </div>
-      </section>
+      <div className="tabs" role="tablist" aria-label="Task sections">
+        {(["details", "transcript"] as const).map((name) =>
+          <button key={name} type="button" role="tab" id={`task-tab-${name}`} aria-selected={tab === name}
+            aria-controls={`task-panel-${name}`} onClick={() => setTab(name)}>{label(name)}</button>)}
+      </div>
 
-      <TaskGates taskID={current.id} revision={revisions.board + revisions.thread} />
+      {tab === "transcript" && <div role="tabpanel" id="task-panel-transcript" aria-labelledby="task-tab-transcript">
+        <TaskTranscript taskID={current.id} revision={revisions.board} />
+      </div>}
 
-      <section className="panel stack">
-        <h2>Specification</h2>
-        <p className="preserve">{current.spec || "No specification."}</p>
-        <h3>Acceptance criteria</h3>
-        {current.acceptance_criteria?.length
-          ? <ul>{current.acceptance_criteria.map((item, index) => <li key={index} className="preserve">{item}</li>)}</ul>
-          : <EmptyState>No acceptance criteria.</EmptyState>}
-        <h3>Dependencies</h3>
-        {current.depends_on?.length
-          ? <ul>{current.depends_on.map((dependency) => {
-            const other = known.get(dependency);
-            return <li key={dependency}>
-              <Link href={`/tasks/${encodeURIComponent(dependency)}`}>{dependency}</Link>
-              {other && <> · {other.title} <span className="pill" data-status={other.status}>{statusName(other.status)}</span></>}
-            </li>;
-          })}</ul>
-          : <EmptyState>No dependencies.</EmptyState>}
-      </section>
+      {tab === "details" && <div className="stack" role="tabpanel" id="task-panel-details" aria-labelledby="task-tab-details">
+        <section className="panel stack">
+          <h2>Overview</h2>
+          <div className="form-grid">
+            <Fact name="Assignee">{current.assignee ?? "Unassigned"}</Fact>
+            <Fact name="Reviewer">{current.reviewer ?? "None"}</Fact>
+            <Fact name="Review rounds">{current.review_rounds}</Fact>
+            <Fact name="Repository">{current.repo}</Fact>
+            <Fact name="Branch">{current.branch || "—"}</Fact>
+            <Fact name="Pull request">{prStatus.data
+              ? <PRBadges pr={prStatus.data} />
+              : pr ? <a href={pr} target="_blank" rel="noreferrer">Open pull request</a> : "No PR"}</Fact>
+            <Fact name="Tests">{current.tests
+              ? <>{current.tests.passed} passed · {current.tests.failed} failed{current.tests.reported_at && <> · <time dateTime={current.tests.reported_at}>{stamp(current.tests.reported_at)}</time></>}</>
+              : "Not reported"}</Fact>
+            <Fact name="Progress">{current.progress_pct}%</Fact>
+            <Fact name="Updated"><time dateTime={current.updated_at}>{stamp(current.updated_at)}</time></Fact>
+          </div>
+          <div className="form-grid">
+            <Burn name="Cost" used={current.cost_used} max={current.budget.max_cost_eur}
+              text={`${money(current.cost_used)} / ${money(current.budget.max_cost_eur)}`} />
+            <Burn name="Minutes" used={current.minutes_used} max={current.budget.max_minutes}
+              text={`${current.minutes_used} / ${current.budget.max_minutes} min`} />
+          </div>
+        </section>
 
-      <ScopePanel taskID={current.id} revision={revisions.board} />
+        <TaskGates taskID={current.id} revision={revisions.board + revisions.thread} />
 
-      <OwnerActions task={current} changed={changed} />
+        <section className="panel stack">
+          <h2>Specification</h2>
+          <p className="preserve">{current.spec || "No specification."}</p>
+          <h3>Acceptance criteria</h3>
+          {current.acceptance_criteria?.length
+            ? <ul>{current.acceptance_criteria.map((item, index) => <li key={index} className="preserve">{item}</li>)}</ul>
+            : <EmptyState>No acceptance criteria.</EmptyState>}
+          <h3>Dependencies</h3>
+          {current.depends_on?.length
+            ? <ul>{current.depends_on.map((dependency) => {
+              const other = known.get(dependency);
+              return <li key={dependency}>
+                <Link href={`/tasks/${encodeURIComponent(dependency)}`}>{dependency}</Link>
+                {other && <> · {other.title} <span className="pill" data-status={other.status}>{statusName(other.status)}</span></>}
+              </li>;
+            })}</ul>
+            : <EmptyState>No dependencies.</EmptyState>}
+        </section>
 
-      {current.assignee && <AgentTerminal agent={current.assignee} taskID={current.id} />}
+        <ScopePanel taskID={current.id} revision={revisions.board} />
 
-      <section className="panel stack">
-        <h2>Timeline</h2>
-        <ResourceState error={audit.error} loading={!audit.loaded && !audit.error} retry={audit.refresh} />
-        {audit.loaded && !entries.length && <EmptyState>No activity yet.</EmptyState>}
-        <div className="messages">
-          {entries.map((entry) => (
-            <article key={entry.key}>
-              <div className="message-meta"><strong>{entry.title}</strong><span>{entry.actor}</span>
-                <time dateTime={entry.at}>{stamp(entry.at)}</time>
-              </div>
-              {entry.detail && <p className="preserve">{entry.detail}</p>}
-            </article>
-          ))}
-          <LoadMore hasMore={audit.hasMore} loading={audit.loading} onMore={audit.loadMore} />
-        </div>
-      </section>
+        <OwnerActions task={current} changed={changed} />
 
-      <section className="panel stack">
-        <h2>Thread</h2>
-        <ResourceState error={messages.error} loading={!messages.loaded && !messages.error} retry={messages.refresh} />
-        {messages.loaded && !log.length && <EmptyState>No messages yet.</EmptyState>}
-        <div className="messages" role="log" aria-label="Messages">
-          {log.map((message) => (
-            <article key={message.id}>
-              <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
-                <time dateTime={message.created_at}>{stamp(message.created_at)}</time>
-              </div>
-              <p className="preserve">{message.body}</p>
-            </article>
-          ))}
-          <LoadMore hasMore={messages.hasMore} loading={messages.loading} onMore={messages.loadMore} />
-        </div>
-        <form className="stack" data-write onSubmit={(event) => reply.submit(event, async (fields, element) => {
-          const body = value(fields, "body");
-          if (!body) throw new Error("Enter a reply.");
-          await api(`threads/task/${path}/messages`, "POST", { body });
-          toast("Reply sent.");
-          element.reset();
-          messages.refresh();
-        })}>
-          <label>Owner reply<textarea name="body" required rows={3} /></label>
-          <Feedback error={reply.error} />
-          <div><button className="primary" disabled={reply.busy}>Send reply</button></div>
-        </form>
-      </section>
+        {current.assignee && <AgentTerminal agent={current.assignee} taskID={current.id} />}
+
+        <section className="panel stack">
+          <h2>Timeline</h2>
+          <ResourceState error={audit.error} loading={!audit.loaded && !audit.error} retry={audit.refresh} />
+          {audit.loaded && !entries.length && <EmptyState>No activity yet.</EmptyState>}
+          <div className="messages">
+            {entries.map((entry) => (
+              <article key={entry.key}>
+                <div className="message-meta"><strong>{entry.title}</strong><span>{entry.actor}</span>
+                  <time dateTime={entry.at}>{stamp(entry.at)}</time>
+                </div>
+                {entry.detail && <p className="preserve">{entry.detail}</p>}
+              </article>
+            ))}
+            <LoadMore hasMore={audit.hasMore} loading={audit.loading} onMore={audit.loadMore} />
+          </div>
+        </section>
+
+        <section className="panel stack">
+          <h2>Thread</h2>
+          <ResourceState error={messages.error} loading={!messages.loaded && !messages.error} retry={messages.refresh} />
+          {messages.loaded && !log.length && <EmptyState>No messages yet.</EmptyState>}
+          <div className="messages" role="log" aria-label="Messages">
+            {log.map((message) => (
+              <article key={message.id}>
+                <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
+                  <time dateTime={message.created_at}>{stamp(message.created_at)}</time>
+                </div>
+                <p className="preserve">{message.body}</p>
+              </article>
+            ))}
+            <LoadMore hasMore={messages.hasMore} loading={messages.loading} onMore={messages.loadMore} />
+          </div>
+          <form className="stack" data-write onSubmit={(event) => reply.submit(event, async (fields, element) => {
+            const body = value(fields, "body");
+            if (!body) throw new Error("Enter a reply.");
+            await api(`threads/task/${path}/messages`, "POST", { body });
+            toast("Reply sent.");
+            element.reset();
+            messages.refresh();
+          })}>
+            <label>Owner reply<textarea name="body" required rows={3} /></label>
+            <Feedback error={reply.error} />
+            <div><button className="primary" disabled={reply.busy}>Send reply</button></div>
+          </form>
+        </section>
+      </div>}
     </>}
   </PageShell>;
 }

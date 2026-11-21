@@ -45,6 +45,7 @@ export interface ReplayKeyEvent {
   task_id: string;
   from: string;
   to: string;
+  transcript?: string;
 }
 
 export interface ReplayTimeline {

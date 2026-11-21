@@ -29,7 +29,7 @@ func init() {
 				d.Log.Warn("invalid SUBSPACE_AUTOPILOT_INTERVAL, using default", "value", v, "default", interval)
 			}
 		}
-		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log})
+		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Breaker: d.Breakers.State})
 		restoreAutopilotFlags(d, ap)
 		h := persistAutopilotFlags(d, ap, autopilot.Handler(ap))
 		d.API.Mount(d.Mux, "/api/v1/autopilot", h)

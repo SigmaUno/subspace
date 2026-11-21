@@ -7,6 +7,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"os"
 	"path/filepath"
 	"time"
 
@@ -15,6 +16,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/chat"
 	"github.com/SigmaUno/subspace/internal/components"
@@ -148,7 +150,13 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
-	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache}
+	brkCfg, err := breaker.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache,
+		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log))}
 	for _, m := range extraMounts {
 		m(deps)
 	}

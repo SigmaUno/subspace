@@ -1,0 +1,16 @@
+{
+  "id": "r02-limit-off-by-one",
+  "title": "Validate limit and offset on GET /api/v1/tasks",
+  "spec": "Add a helper that parses `limit` (default 100, max 1000) and `offset` (default 0) from the query string. Invalid values return 400 bad_request.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "limit defaults to 100 and values above 1000 are rejected with 400",
+    "negative or non-numeric offset is rejected with 400"
+  ],
+  "tests": {"passed": 6, "failed": 0},
+  "pr_title": "Validate pagination parameters",
+  "pr_body": "Adds parsePage.",
+  "defects": [
+    {"file": "internal/server/page.go", "match": "n > maxLimit+1", "kind": "off_by_one", "note": "limit=1001 is accepted; the bound must be n > maxLimit", "criterion": 0}
+  ]
+}

@@ -2,6 +2,7 @@ package storetest
 
 import (
 	"context"
+	"database/sql"
 	"errors"
 	"fmt"
 	"reflect"
@@ -45,6 +46,9 @@ var scenarios = []struct {
 	{"concurrent writes", scenarioConcurrent},
 	{"batch isolation", scenarioBatchIsolation},
 	{"timeseries", scenarioTimeseries},
+	{"search", scenarioSearch},
+	{"extension sql", scenarioExtensionSQL},
+	{"keyset pagination", scenarioKeysetPagination},
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -81,14 +85,14 @@ func testBrief(id string, created time.Time) *model.Brief {
 	return &model.Brief{
 		ID: id, Title: "Title " + id, Body: "# body\nline", Repos: []string{"SigmaUno/foo", "SigmaUno/bar"},
 		Status: "open", Budget: model.BriefBudget{MaxCostEUR: 12.5, MaxParallelAgent: 7},
-		AllowedProviders: []string{"anthropic", "deepseek"}, PlanStatus: "none", CreatedAt: created,
+		AllowedProviders: []string{"anthropic", "deepseek"}, CrossReview: true, PlanStatus: "none", CreatedAt: created,
 	}
 }
 
 func scenarioBriefs(t *testing.T, s store.Store) {
 	b1 := testBrief("B-1", time.UnixMilli(1760000000123).UTC())
 	b2 := testBrief("B-2", time.UnixMilli(1000).UTC())
-	b2.Repos, b2.AllowedProviders, b2.Status = nil, nil, "closed"
+	b2.Repos, b2.AllowedProviders, b2.Status, b2.CrossReview = nil, nil, "closed", false
 	b10 := testBrief("B-10", time.UnixMilli(1000).UTC())
 	write(t, s, func(tx store.Tx) error {
 		for _, b := range []*model.Brief{b1, b2, b10} {
@@ -101,7 +105,7 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 	b2.Repos, b2.AllowedProviders = []string{}, []string{}
 	wantErr(t, store.ErrDuplicate, s.Atomic(context.Background(), func(tx store.Tx) error { return tx.InsertBrief(b1) }))
 
-	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status = "new", 99.25, []string{"openai"}, "closed"
+	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status, b1.AutoDoneOnMerge = "new", 99.25, []string{"openai"}, "closed", true
 	write(t, s, func(tx store.Tx) error { return tx.UpdateBrief(b1) })
 	wantErr(t, store.ErrNotFound, s.Atomic(context.Background(), func(tx store.Tx) error {
 		return tx.UpdateBrief(testBrief("B-404", time.Now()))
@@ -117,21 +121,21 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 		}
 		_, err := tx.GetBrief("B-404")
 		wantErr(t, store.ErrNotFound, err)
-		all, err := tx.ListBriefs("")
+		all, err := tx.ListBriefs(store.BriefFilter{})
 		if err != nil {
 			return err
 		}
 		if len(all) != 3 || all[0].ID != "B-10" || all[1].ID != "B-2" || all[2].ID != "B-1" {
 			t.Fatalf("order: %+v", all)
 		}
-		closed, err := tx.ListBriefs("closed")
+		closed, err := tx.ListBriefs(store.BriefFilter{Status: "closed"})
 		if err != nil {
 			return err
 		}
 		if len(closed) != 2 || closed[0].ID != "B-2" || closed[1].ID != "B-1" {
 			t.Fatalf("closed: %+v", closed)
 		}
-		none, err := tx.ListBriefs("nope")
+		none, err := tx.ListBriefs(store.BriefFilter{Status: "nope"})
 		if err != nil || len(none) != 0 {
 			t.Fatalf("none: %v %v", none, err)
 		}
@@ -181,7 +185,7 @@ func scenarioPlans(t *testing.T, s store.Store) {
 			{"", model.PlanProposed, []string{"P-3"}},
 			{"B-9", "", nil},
 		} {
-			got, err := tx.ListPlans(c.brief, c.status)
+			got, err := tx.ListPlans(store.PlanFilter{BriefID: c.brief, Status: c.status})
 			if err != nil {
 				return err
 			}
@@ -227,6 +231,8 @@ func taskFull(id string) *model.Task {
 	x.LeaseExpiries = 2
 	x.Tests = &model.TestResult{Passed: 10, Failed: 1, ReportedAt: hb}
 	x.BlockedReason = ptr("budget_exceeded")
+	x.Priority = 3
+	x.ComponentID = ptr("C-1")
 	return x
 }
 
@@ -295,6 +301,8 @@ func scenarioTaskList(t *testing.T, s store.Store) {
 				x.Status, x.Assignee, x.Role = model.StatusAssigned, ptr("a1"), model.RoleTester
 			case 3:
 				x.Status = model.StatusCancelled
+			case 10:
+				x.Priority = 1
 			case 11:
 				x.BriefID, x.PlanID, x.Reviewer, x.Status = "B-2", "P-2", ptr("r1"), model.StatusInReview
 			}
@@ -309,14 +317,14 @@ func scenarioTaskList(t *testing.T, s store.Store) {
 		f    store.TaskFilter
 		want []string
 	}{
-		{"all", store.TaskFilter{}, []string{"T-1", "T-2", "T-3", "T-10", "T-11"}},
-		{"brief", store.TaskFilter{BriefID: "B-1"}, []string{"T-1", "T-2", "T-3", "T-10"}},
+		{"all", store.TaskFilter{}, []string{"T-10", "T-1", "T-2", "T-3", "T-11"}},
+		{"brief", store.TaskFilter{BriefID: "B-1"}, []string{"T-10", "T-1", "T-2", "T-3"}},
 		{"plan", store.TaskFilter{PlanID: "P-2"}, []string{"T-11"}},
 		{"status in", store.TaskFilter{Status: []string{model.StatusInProgress, model.StatusAssigned}}, []string{"T-1", "T-2"}},
 		{"assignee", store.TaskFilter{Assignee: "a1"}, []string{"T-1", "T-2"}},
 		{"assignee+role", store.TaskFilter{Assignee: "a1", Role: model.RoleTester}, []string{"T-2"}},
 		{"reviewer", store.TaskFilter{Reviewer: "r1"}, []string{"T-11"}},
-		{"limit", store.TaskFilter{Limit: 2}, []string{"T-1", "T-2"}},
+		{"limit", store.TaskFilter{Limit: 2}, []string{"T-10", "T-1"}},
 		{"none", store.TaskFilter{BriefID: "B-9"}, []string{}},
 	}
 	read(t, s, func(tx store.Tx) error {
@@ -662,7 +670,7 @@ func scenarioQuestions(t *testing.T, s store.Store) {
 		_, err := tx.GetQuestion("Q-404")
 		wantErr(t, store.ErrNotFound, err)
 		for status, want := range map[string][]string{"": {"Q-3", "Q-1", "Q-2"}, "open": {"Q-3", "Q-2"}, "answered": {"Q-1"}} {
-			got, err := tx.ListQuestions(status)
+			got, err := tx.ListQuestions(store.QuestionFilter{Status: status})
 			if err != nil {
 				return err
 			}
@@ -753,17 +761,17 @@ func scenarioSpawnsKV(t *testing.T, s store.Store) {
 		return tx.UpdateSpawn(&model.Spawn{ID: "S-99"})
 	}))
 	read(t, s, func(tx store.Tx) error {
-		all, err := tx.ListSpawns("")
+		all, err := tx.ListSpawns(store.SpawnFilter{})
 		if err != nil {
 			return err
 		}
 		same(t, []*model.Spawn{sp1, sp2, sp10}, all)
-		b1, err := tx.ListSpawns("B-1")
+		b1, err := tx.ListSpawns(store.SpawnFilter{BriefID: "B-1"})
 		if err != nil {
 			return err
 		}
 		same(t, []*model.Spawn{sp1, sp10}, b1)
-		if none, err := tx.ListSpawns("B-none"); err != nil || none == nil || len(none) != 0 {
+		if none, err := tx.ListSpawns(store.SpawnFilter{BriefID: "B-none"}); err != nil || none == nil || len(none) != 0 {
 			t.Fatalf("empty: %#v %v", none, err)
 		}
 		if v, ok, err := tx.GetKV("missing"); err != nil || ok || v != "" {
@@ -1074,7 +1082,7 @@ func scenarioBatchIsolation(t *testing.T, s store.Store) {
 				committed++
 			}
 		}
-		briefs, err := tx.ListBriefs("")
+		briefs, err := tx.ListBriefs(store.BriefFilter{})
 		if err != nil {
 			return err
 		}
@@ -1159,6 +1167,124 @@ func scenarioAuditChain(t *testing.T, s store.Store) {
 				return err
 			}
 			same(t, c.want, h)
+		}
+		return nil
+	})
+}
+
+func scenarioSearch(t *testing.T, s store.Store) {
+	t0 := time.UnixMilli(1760000000000).UTC()
+	at := func(sec int) time.Time { return t0.Add(time.Duration(sec) * time.Second) }
+	var msgID, pctID int64
+	write(t, s, func(tx store.Tx) error {
+		b := testBrief("B-1", at(0))
+		b.Title = "Login revamp"
+		if err := tx.InsertBrief(b); err != nil {
+			return err
+		}
+		for i, x := range []struct{ title, spec string }{{"Add LOGIN form", "spec"}, {"other", "fix login bug"}, {"unrelated", "nope"}} {
+			k := taskMin(fmt.Sprintf("T-%d", i+1), "B-1")
+			k.Title, k.Spec, k.UpdatedAt = x.title, x.spec, at(i+1)
+			if err := tx.InsertTask(k); err != nil {
+				return err
+			}
+		}
+		for i, a := range []*model.Agent{
+			{ID: "login-bot", Role: "worker", Kind: "other", Model: "m", Provider: "openai", Status: "active", TokenHash: "s1"},
+			{ID: "x", Role: "worker", Kind: "other", Model: "sonnet-login", Provider: "openai", Status: "active", TokenHash: "s2"},
+		} {
+			a.CreatedAt = at(i + 3)
+			if err := tx.InsertAgent(a); err != nil {
+				return err
+			}
+		}
+		m := &model.Message{ThreadKind: "task", ThreadID: "T-1", AuthorID: "a", AuthorRole: "worker", Kind: "note", Body: "about login", CreatedAt: at(5)}
+		if err := tx.InsertMessage(m); err != nil {
+			return err
+		}
+		msgID = m.ID
+		p := &model.Message{ThreadKind: "task", ThreadID: "T-1", AuthorID: "a", AuthorRole: "worker", Kind: "note", Body: "100% done", CreatedAt: at(6)}
+		if err := tx.InsertMessage(p); err != nil {
+			return err
+		}
+		pctID = p.ID
+		return nil
+	})
+	search := func(q store.SearchQuery) []store.SearchHit {
+		t.Helper()
+		var hits []store.SearchHit
+		read(t, s, func(tx store.Tx) error {
+			st, ok := tx.(store.SearchTx)
+			if !ok {
+				t.Fatal("store does not implement search")
+			}
+			var err error
+			hits, err = st.Search(q)
+			return err
+		})
+		return hits
+	}
+	all := []store.SearchHit{
+		{Kind: "message", ID: fmt.Sprint(msgID), Field: "body", Text: "about login", Weight: 1, At: at(5)},
+		{Kind: "agent", ID: "x", Field: "model", Text: "sonnet-login", Weight: 1, At: at(4)},
+		{Kind: "agent", ID: "login-bot", Field: "id", Text: "login-bot", Weight: 3, At: at(3)},
+		{Kind: "task", ID: "T-2", Field: "spec", Text: "fix login bug", Weight: 1, At: at(2)},
+		{Kind: "task", ID: "T-1", Field: "title", Text: "Add LOGIN form", Weight: 3, At: at(1)},
+		{Kind: "brief", ID: "B-1", Field: "title", Text: "Login revamp", Weight: 3, At: at(0)},
+	}
+	same(t, all, search(store.SearchQuery{Text: "login", Limit: 10}))
+	same(t, all[:2], search(store.SearchQuery{Text: "LOGIN", Limit: 2}))
+	same(t, all[3:5], search(store.SearchQuery{Text: "login", Kind: "task", Limit: 10}))
+	same(t, []store.SearchHit{{Kind: "message", ID: fmt.Sprint(pctID), Field: "body", Text: "100% done", Weight: 1, At: at(6)}},
+		search(store.SearchQuery{Text: "100%", Limit: 10}))
+	if hits := search(store.SearchQuery{Text: "_", Limit: 10}); len(hits) != 0 {
+		t.Fatalf("underscore must match literally: %+v", hits)
+	}
+}
+
+type extensionSQL interface {
+	Exec(q string, args ...any) (sql.Result, error)
+	Query(q string, args ...any) (*sql.Rows, error)
+}
+
+func scenarioExtensionSQL(t *testing.T, s store.Store) {
+	upsert := func(k, v string) {
+		write(t, s, func(tx store.Tx) error {
+			x, ok := tx.(extensionSQL)
+			if !ok {
+				t.Fatal("write tx does not expose SQL")
+			}
+			_, err := x.Exec(`INSERT INTO kv(k, v) VALUES(?, ? || '?') ON CONFLICT(k) DO UPDATE SET v = excluded.v`, k, v)
+			return err
+		})
+	}
+	upsert("ext", "one")
+	upsert("ext", "two")
+	read(t, s, func(tx store.Tx) error {
+		x, ok := tx.(extensionSQL)
+		if !ok {
+			t.Fatal("read tx does not expose SQL")
+		}
+		rows, err := x.Query(`SELECT k, v FROM kv WHERE k = ? AND v <> '?'`, "ext")
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		var got []string
+		for rows.Next() {
+			var k, v string
+			if err := rows.Scan(&k, &v); err != nil {
+				return err
+			}
+			got = append(got, k+"="+v)
+		}
+		if err := rows.Err(); err != nil {
+			return err
+		}
+		same(t, []string{"ext=two?"}, got)
+		v, ok, err := tx.GetKV("ext")
+		if err != nil || !ok || v != "two?" {
+			t.Fatalf("kv: %q %v %v", v, ok, err)
 		}
 		return nil
 	})

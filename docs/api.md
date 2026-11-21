@@ -5,20 +5,22 @@ the server changes, this file changes in the same PR.
 
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
 
 | Surface | Credential | Notes |
 |---|---|---|
-| `/api/v1/*` | `Authorization: Bearer <owner token>` | Owner token from env `SUBSPACE_OWNER_TOKEN` or `SUBSPACE_OWNER_TOKEN_FILE`. Agent tokens are rejected here (403). |
+| `/api/v1/*` | `Authorization: Bearer <owner token>` | The env token `SUBSPACE_OWNER_TOKEN` / `SUBSPACE_OWNER_TOKEN_FILE` (root, break-glass, scope `owner`) or a managed API token (`ssu_`, see Tokens). Agent tokens are rejected here (403). |
 | `/mcp` | `Authorization: Bearer <agent token>` | One token per agent. The owner token is rejected here (403): owner actions are never reachable through MCP. |
 | `/healthz` | none | `{"status":"ok","version":"...","paused":false}` |
 | `POST /hooks/github`, `POST /hooks/forgejo` | HMAC signature (`X-Hub-Signature-256`; `X-Forgejo-Signature` / `X-Gitea-Signature`) | Mounted only when `SUBSPACE_WEBHOOK_SECRET_GITHUB` / `SUBSPACE_WEBHOOK_SECRET_FORGEJO` is set. Body ≤ 1 MiB, `*-Delivery` id required, replayed delivery ids → 202 without effect. |
 | `GET /a/{token}`, `POST /a/{token}` | signed one-time action token in the path | See Action links. Rate limited per client address. |
 
 Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashes are stored; the plaintext is returned exactly once (register / rotate). Comparison is constant-time.
+
+Managed API tokens are 32 random bytes, base64url, prefixed `ssu_`, stored as SHA-256 hashes and returned once on create. Scope `owner` may call every `/api/v1` endpoint. Scope `viewer` may only use `GET`/`HEAD` (including SSE and mounted read endpoints) and never `/api/v1/tokens`; anything else is 403 `forbidden`. This is enforced centrally before any handler runs. Revoked or expired tokens are 401. Every state-changing owner action records the acting token id in the audit `note` as `token=<id>` (`token=root` for the env token), followed by `; <note>` when the action has its own note. `last_used_at` is written at most once per minute per token.
 
 Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` is always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
 
@@ -30,7 +32,7 @@ Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token p
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
-In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s owner state endpoint before forwarding requests to protected handlers. Go also authenticates each protected request.
+In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s `GET /api/v1/me` before forwarding requests to protected handlers. Go also authenticates each protected request.
 
 ## 2. Objects
 
@@ -50,7 +52,8 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "status":"in_progress",
  "progress_pct":40,"last_heartbeat_at":"...","lease_expires_at":"...","pr_url":null,
  "budget":{"max_minutes":120,"max_cost_eur":5.0},"cost_used":0.4,"minutes_used":12,
- "review_rounds":0,"priority":0,"component_id":"","lease_expiries":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
+ "review_rounds":0,"priority":0,"component_id":"","lease_expiries":0,"paths":["internal/api/**"],
+ "tests":null,                                         // or {"passed":10,"failed":1,"reported_at":"..."}
  "blocked_reason":null,                                // string when status is blocked or needs_owner
  "created_at":"...","updated_at":"..."}
 // status: backlog|ready|assigned|in_progress|submitted|in_review|changes_requested|approved|done|blocked|needs_owner|cancelled
@@ -109,17 +112,20 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 
 ## 3. REST `/api/v1` (owner token)
 
-List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
+List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000 (the paginated lists below keep their own defaults).
+
+Briefs, plans, tasks, agents, questions, spawns, thread messages and audit events are cursor-paginated: they accept `?cursor=<opaque>&limit=` and add `"next_cursor"` to the response, a string when more rows follow and `null` on the last page. Pass it back as `cursor` with the same filters to get the next page. Pages use keyset ordering (no offset), so rows inserted while paging are never duplicated and rows present from the first page on are never skipped. Without `cursor` and `limit` the response is unchanged: tasks default to 1000 rows, audit and thread messages to 200, the other lists are unbounded. A malformed or foreign cursor returns 400 `bad_request`.
 
 ### Control & state
 | Method | Path | Body → Response |
 |---|---|---|
+| GET | `/api/v1/me` | → `{"role":"owner","scope":"owner"}`; `scope` is `owner` or `viewer` for the presented token. |
 | GET | `/api/v1/state` | → `{"paused":false,"pause_reason":null,"counts":{"agents":12,"agents_active":10,"tasks":{"ready":3,"in_progress":5,...},"open_questions":2,"proposed_plans":1},"version":"..."}` |
 | POST | `/api/v1/pause-all` | `{"reason":"..."}` → `{"paused":true}`. Revokes all leases (in_progress → assigned), blocks claims. |
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
-| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. |
+| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 
 ### Organization spend limits
 | Method | Path | Body → Response |
@@ -145,7 +151,7 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 | Method | Path | Body → Response |
 |---|---|---|
 | POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true}` → Brief (201). `cross_review` defaults to `true`. |
-| GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
+| GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status` → Brief (set_budget) |
 | | | `status` is `open` or `closed`. Closing cancels `backlog`/`ready`/`assigned` tasks and moves `in_progress` tasks to `blocked` (`blocked_reason` `brief_closed`, lease released), each with a system message in the task thread; `submitted`, `in_review`, `approved` and every other status stay for the owner to finish. A closed brief rejects claims, spawns, plans and new tasks (409), and its board stays readable. The brief thread gets a system summary (cancelled/blocked counts, tasks per status, cost used). Reopening posts a brief-thread message; tasks cancelled by closing stay cancelled and `brief_closed` tasks stay blocked until unblocked. Setting the current status again changes nothing. Audit events: `close_brief` (one for the brief, one per affected task) and `reopen_brief`. |
@@ -198,11 +204,11 @@ Template variables are `{{name}}` placeholders. Values substituted into the fron
 ### Plans
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/plans?status=proposed&brief_id=` | → `{"plans":[Plan]}` |
+| GET | `/api/v1/plans?status=proposed&brief_id=&cursor=&limit=` | → `{"plans":[Plan],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/plans/{id}` | → Plan |
 | POST | `/api/v1/plans/{id}/approve` | `{"note":""}` → Plan. Tasks `backlog → ready`. 409 if not `proposed`. |
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
-| POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{}}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
+| POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{},"priority":0,"component_id":"","paths":[]}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
 | DELETE | `/api/v1/plans/{id}/tasks/{taskId}` | → Plan. Drops a `backlog` task of a `proposed` plan: the task becomes `cancelled` and stays in `tasks`. 409 while a non-cancelled task still lists it in `depends_on` (edit those first, the message names them) or if the plan is not `proposed`; 404 if the task is not part of the plan. |
 
 Plan edits post a system message to the brief thread and append an audit event (`add_plan_task`, `drop_plan_task`).
@@ -210,9 +216,9 @@ Plan edits post a system message to the brief thread and append an audit event (
 ### Tasks
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=` | → `{"tasks":[Task]}` |
+| GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=&cursor=&limit=` | → `{"tasks":[Task],"next_cursor":null}` ordered by `priority` descending, then id. |
 | GET | `/api/v1/tasks/{id}` | → Task |
-| PATCH | `/api/v1/tasks/{id}` | any of `title, spec, acceptance_criteria, depends_on, repo, role, budget` → Task. A body with only `budget` is set_budget (any status; unblocks a budget-blocked task if now within budget). Any other field edits the task and requires status `backlog` or `ready` (409 otherwise). 400 on an empty body, empty title/spec, a repo outside the brief, a role other than `worker|tester`, a role change on an assigned task (409), or a dependency that is unknown, itself, cancelled, in another brief or forms a cycle. A title change regenerates `branch`. Effective edits post a system message to the brief thread and append an `edit_task` audit event with before/after of the changed fields. |
+| PATCH | `/api/v1/tasks/{id}` | any of `title, spec, acceptance_criteria, depends_on, repo, role, budget, paths` → Task. A body with only `budget` is set_budget (any status; unblocks a budget-blocked task if now within budget). Any other field edits the task and requires status `backlog` or `ready` (409 otherwise). 400 on an empty body, empty title/spec, a repo outside the brief, a role other than `worker|tester`, a role change on an assigned task (409), or a dependency that is unknown, itself, cancelled, in another brief or forms a cycle. A title change regenerates `branch`. Effective edits post a system message to the brief thread and append an `edit_task` audit event with before/after of the changed fields. |
 | POST | `/api/v1/tasks/{id}/done` | `{"note":"merged in #123"}` → Task. Only from `approved` (or `needs_owner`). Sets `done`. |
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |
@@ -246,14 +252,18 @@ The snapshots are stored in the database and survive restarts. A poller runs whe
  "repos":{"SigmaUno/subspace":"gh"}}               // repo → host; unmapped repos use the host whose url host matches the PR url
 ```
 
+A PR is only fetched when its repo is the task's `repo` and, for a mapped repo, its url host is the mapped host's `url` host; otherwise `error` is set and nothing is requested. Webhook events likewise only affect tasks whose `repo` is the event's repository.
+
 `token_env` reads the token from that environment variable; tokens are only sent as `Authorization` headers and never logged or stored. Requests are conditional (`If-None-Match` with the last `ETag`, cached in memory). Each request takes a token from the global and the host bucket; when one is empty the task waits for the next cycle. A host answering 429 (or 403 with `X-RateLimit-Remaining: 0`) is paused for `Retry-After` / until `X-RateLimit-Reset`. Other failures set `error` and back the task off with jitter: a random delay between half and all of `interval × 2^(failures-1)`, capped at 32 intervals.
 
 When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
 
+Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
+
 ### Agents
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/agents?role=&status=` | → `{"agents":[Agent]}` |
+| GET | `/api/v1/agents?role=&status=&cursor=&limit=` | → `{"agents":[Agent],"next_cursor":null}` ordered by id. |
 | GET | `/api/v1/agents/{id}` | → Agent |
 | POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":"","expires_in":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic; `expires_in` applies to every agent. |
@@ -301,7 +311,7 @@ When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board
 ### Questions
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/questions?status=open` | → `{"questions":[Question]}` |
+| GET | `/api/v1/questions?status=open&cursor=&limit=` | → `{"questions":[Question],"next_cursor":null}` ordered by `created_at`, then id. |
 | POST | `/api/v1/questions/{id}/answer` | `{"answer":"..."}` → Question. Posts an `answer` message to the task and agent threads. |
 
 ### Help requests
@@ -328,7 +338,7 @@ A request is `open` while it still applies: `help` and `split` while the task is
 Thread key `{kind}/{id}` with kind `agent|task|brief`.
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/threads/{kind}/{id}/messages?since=<message id>&limit=` | → `{"messages":[Message]}` ascending by id; `since` returns ids > since. |
+| GET | `/api/v1/threads/{kind}/{id}/messages?since=<message id>&cursor=&limit=` | → `{"messages":[Message],"next_cursor":null}` ascending by id; `since` returns ids > since, `cursor` continues after the last message of the previous page. |
 | POST | `/api/v1/threads/{kind}/{id}/messages` | `{"body":"..."}` → Message (author_role `owner`, kind `message`) |
 
 ### Capacity & spawns
@@ -336,7 +346,7 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 |---|---|---|
 | GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12,"paused":false}` |
 | PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
-| GET | `/api/v1/spawns?brief_id=` | → `{"spawns":[SpawnLifecycle]}` |
+| GET | `/api/v1/spawns?brief_id=&cursor=&limit=` | → `{"spawns":[SpawnLifecycle],"next_cursor":null}` ordered by `created_at`, then id. |
 | POST | `/api/v1/spawns/{id}/stop` | `{}` → SpawnLifecycle. Revokes the agent, asks the spawner to stop the process and marks the spawn `stopped` (`stop_reason` `owner`). 404 unknown spawn, 409 if the spawn is not `spawned`, 500 if the spawner fails to stop it (the agent stays revoked and the reaper retries). |
 
 A reaper checks `spawned` spawns every `SUBSPACE_SPAWN_REAP_INTERVAL` (default `30s`). Stopping a spawn always revokes its agent, asks the spawner to stop the process and writes a `stop_spawn` audit event and a `spawn.updated` event.
@@ -347,7 +357,7 @@ A reaper checks `spawned` spawns every `SUBSPACE_SPAWN_REAP_INTERVAL` (default `
 - Agent revoked by other means: `stopped` (`agent_revoked`).
 - On server start the spawner's status is asked for every `spawned` spawn: `exited` ones are `stopped` (`exited`), the others record `process`.
 
-Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`.
+Durations use Go syntax; `0` disables a rule. The `noop` spawner cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`. The `hc` spawner stops processes with `hc kill` and reports `process` from `hc` listings (an unparseable or truncated listing stays `unknown`). When the spawner can send text to a running agent (`hc`), a connected agent that has no `in_progress` task and gets a task in `assigned` or `changes_requested` receives one nudge per task and status, pointing it at `list_my_tasks`; nothing is sent while paused.
 
 ### Provider circuit breakers
 | Method | Path | Body → Response |
@@ -364,10 +374,24 @@ Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners canno
 
 Samples are usage reports (`report_usage`; `rate_limited: true` counts as an error) and `report_provider_error` calls, kept per provider/model in memory for a rolling window. A breaker opens when the window holds at least `SUBSPACE_BREAKER_MIN_SAMPLES` samples (default 10) and the error rate is above `SUBSPACE_BREAKER_ERROR_RATE` (default `0.5`, window `SUBSPACE_BREAKER_WINDOW`, default `5m`). While open, `request_spawn`, `POST /api/v1/bots/spawn` and autopilot start no agents of that provider/model (409 `capacity`) and autopilot assigns it no tasks; running agents continue. After `SUBSPACE_BREAKER_COOLDOWN` (default `1m`) it half-opens: one probe agent (`n` = 1) may be spawned and autopilot assigns one task when no agent of that provider/model has work. The next sample decides: a success closes the breaker, an error opens it again. An unused probe grant expires after another cooldown. Breakers are held in memory per server process. An open or half-open breaker appears in the decision inbox as `breaker:<provider>:<model>` (`skip` only); resetting or closing removes it.
 
+### Tokens
+Owner scope only.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/tokens` | `{"name","scope":"viewer or owner","expires_at":null}` → `{"token":Token,"secret":"ssu_..."}` (201; `secret` shown once). 400 for an empty name, an unknown scope or an `expires_at` that is not in the future. |
+| GET | `/api/v1/tokens` | → `{"tokens":[Token]}` ascending by id, revoked ones included. |
+| POST | `/api/v1/tokens/{id}/revoke` | `{}` → Token. Dead immediately. 404 for an unknown id, 409 if already revoked. |
+
+```jsonc
+// Token
+{"id":"K-1","name":"ci dashboard","scope":"viewer","created_at":"...","last_used_at":null,"revoked_at":null,"expires_at":null}
+```
+
 ### Audit
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&limit=` | → `{"events":[AuditEvent]}` ascending; append-only, no write endpoint. |
+| GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&cursor=&limit=` | → `{"events":[AuditEvent],"next_cursor":null}` ascending by id; `since` returns ids > since, `cursor` continues after the previous page; append-only, no write endpoint. |
 
 ### Reports & architecture
 | Method | Path | Body → Response |
@@ -394,10 +418,10 @@ Samples are usage reports (`report_usage`; `rate_limited: true` counts as an err
 {"id":"C-1","brief_id":"B-1","name":"api","description":"...","paths":["internal/api"],"depends_on":["C-2"]}
 ```
 
-Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
+Components are held in memory per server process. Tasks created with a `component_id` and without `paths` copy the component's paths at creation time. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
 
 ### Decisions
-The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes) and active agents whose token expires in less than 24 hours (or already has).
+The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes), active health alerts (see Alerts) and active agents whose token expires in less than 24 hours (or already has).
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -412,6 +436,8 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|budget
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|help
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|merge-ready|breaker
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|budget|token_expiry|help|merge-ready|alert
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|budget|merge-ready|help|conflict
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
@@ -422,6 +448,8 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `help:<help request id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40, help 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status), `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `help:<help request id>`, `merge-ready:<task id>` (see Pull request status), `alert:<alert id>`. Priority is the base for the kind (plan 80, alert 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40, help 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `budget:<cap>`, `merge-ready:<task id>` (see Pull request status), `help:<help request id>`, `conflict:<task id>`. Priority is the base for the kind (plan 80, question 70, budget 65, merge 60, token_expiry 55, unblock 50, stale_agent 40, merge-ready, help and conflict 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -432,7 +460,11 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `stale_agent` | `skip` | – |
 | `help` | `skip` | – (an open `help` request; the agent's details are the summary) |
 | `breaker` | `skip` | – |
+| `alert` | `skip` | – (the decision disappears when the alert resolves) |
 | `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
+| `conflict` | `skip` | – |
+
+A `conflict` decision is a hint for a task held (`assigned`, `in_progress` or `submitted`) whose paths overlap a lower-numbered task in the same repo held by another agent; it disappears once the overlap is gone. None are produced when `SUBSPACE_CONFLICT_MODE=off`.
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
 
@@ -518,7 +550,7 @@ Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:
  "uploaded_by":"owner","project":"B-1","created_at":"..."}
 ```
 
-Files live under `$SUBSPACE_DATA_DIR/artifacts` (default: the database directory).
+Files live under `$SUBSPACE_DATA_DIR/artifacts` (default: the database directory; required when `SUBSPACE_DB` is a `postgres://` URL).
 
 ### Bots
 Agent management with a liveness flag. A bot is an Agent plus `live` (active and seen within twice the lease, or `SUBSPACE_BOTS_LIVE_WINDOW`). `kind` accepts `claude-code`, `codex`, `opencode`, `opencode-anthropic`, `opencode-deepseek` and `other`; `provider` defaults from the kind and `role` defaults to `worker`.
@@ -526,13 +558,13 @@ Agent management with a liveness flag. A bot is an Agent plus `live` (active and
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/bots?role=&status=` | → `{"bots":[Bot]}` |
-| POST | `/api/v1/bots` | `{"name","role","kind","provider","model"}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
-| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model"}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
+| POST | `/api/v1/bots` | `{"name","role","kind","provider","model","expires_in":""}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
+| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model","expires_in":""}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
 | POST | `/api/v1/bots/spawn` | `{"brief_id","kind","model","n":1,"role","provider"}` → `{"spawns":[Spawn]}` (201). Same checks as `request_spawn`; `kind` `other` is rejected. |
 | GET | `/api/v1/bots/{id}` | → `{"bot":Bot}` |
 | DELETE | `/api/v1/bots/{id}` | → `{"bot":Bot}` revoked. 409 if already revoked. |
 | POST | `/api/v1/bots/{id}/revoke` | `{"reason":""}` → `{"bot":Bot}`; same as DELETE. |
-| POST | `/api/v1/bots/{id}/rotate-token` | `{}` → `{"bot":Agent,"connect":Connect}` (new token once). |
+| POST | `/api/v1/bots/{id}/rotate-token` | `{"expires_in":""}` → `{"bot":Agent,"connect":Connect}` (new token once). `expires_in` as for agents. |
 | POST | `/api/v1/bots/{id}/pause` | `{"reason":""}` → `{"bot":Bot}` paused (default reason `paused by owner`). 409 if revoked. |
 | POST | `/api/v1/bots/{id}/resume` | `{}` → `{"bot":Bot}` |
 | POST | `/api/v1/bots/{id}/kill` | `{"reason":""}` → `{"bot":Bot,"stopped":true}`. Pauses the bot (default reason `killed by owner`), then asks the spawner to stop it; `stopped` is `false` when the spawner cannot stop processes. |
@@ -573,12 +605,69 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 
 Buckets are aligned to UTC multiples of the bucket size. A series has at most 2000 buckets: an earlier `since` is moved forward so the series ends with the bucket containing now. Metrics: `tasks_done` counts audit events that moved a task to `done`; `tasks_created` counts tasks by `created_at`; `review_rounds` counts `review` events that requested changes; `active_agents` counts distinct non-owner agents with audit events; `cost_eur` sums increases of a task's `cost_used` reported by `update_status`; `tokens` sums input and output tokens of stored usage records.
 
+### Alerts
+Built-in health rules run every `SUBSPACE_ALERTS_INTERVAL` (default `30s`, `0` or `off` disables them) over a snapshot of the store, the data directory and the SSE streams. A finding raises one alert per key. It stays one alert while the condition holds and resolves on its own when the condition clears. Raising an alert adds an owner decision (`alert:<key>`, see Decisions), publishes `alert.raised` and notifies the configured sinks; resolving removes the decision and publishes `alert.resolved`.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/alerts?status=&limit=` | → `{"alerts":[Alert]}`: active alerts first (oldest raised first), then resolved ones, newest first (the last 100 are kept). `status` is `active` or `resolved`; `limit` default 100, max 1000. 400 on anything else. |
+
+```jsonc
+// Alert
+{"id":"swarm_stalled","severity":"warning",         // warning|critical
+ "title":"Swarm stalled","summary":"3 ready tasks, 2 idle agents of 2, no assignment for 12m0s",
+ "brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // omitted when empty
+ "status":"active","raised_at":"...","resolved_at":null}   // active|resolved
+```
+
+Alerts are held in memory per server process. Every threshold is an env var; a duration or size of `0` (`off` for durations) turns that rule off.
+
+| id | raised when | env (default) |
+|---|---|---|
+| `swarm_stalled` | tasks are `ready`, no worker or tester is active or one is idle, and neither the oldest ready task nor the last `assign`/`reassign` is newer than the limit; not while paused | `SUBSPACE_ALERTS_STALL_AFTER` (`10m`) |
+| `no_progress` | tasks are `in_progress` and no task changed for the limit; not while paused | `SUBSPACE_ALERTS_PROGRESS_AFTER` (`30m`) |
+| `agents_paused` | at least this many agents are `paused` | `SUBSPACE_ALERTS_PAUSED_MAX` (`3`) |
+| `agent_flapping` | at least this many agents are paused for `flapping` | `SUBSPACE_ALERTS_FLAPPING_MAX` (`1`) |
+| `review_stuck` | `submitted` tasks without a reviewer waited longer than the limit | `SUBSPACE_ALERTS_REVIEW_AFTER` (`30m`) |
+| `backup_failing` | automatic backups are on (`SUBSPACE_BACKUP_INTERVAL` above 0) and the newest backup fails `integrity_check` | – |
+| `backup_old` | automatic backups are on and the newest backup (or the server start when there is none) is older than the limit | `SUBSPACE_ALERTS_BACKUP_MAX_AGE` (`48h`) |
+| `disk_low` | free bytes on the data directory's filesystem are below the limit | `SUBSPACE_ALERTS_DISK_MIN_FREE_BYTES` (`1073741824`) |
+| `db_size` | the SQLite file is larger than the limit | `SUBSPACE_ALERTS_DB_MAX_BYTES` (`8589934592`) |
+| `wal_size` | the SQLite `-wal` file is larger than the limit | `SUBSPACE_ALERTS_WAL_MAX_BYTES` (`536870912`) |
+| `sse_lagging` | the share of open event streams that received `lagged` since the last evaluation reaches the limit | `SUBSPACE_ALERTS_SSE_LAGGED_RATIO` (`0.25`) |
+
 ### Notifications
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
 
 When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
+
+### Digest
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/digest/preview?window=` | → Preview of the digest for the last `window` (Go duration above 0 and up to `744h`, default `24h`). 400 for another value. |
+
+```jsonc
+// Preview
+{"digest":{"since":"2026-11-20T08:00:00Z","until":"2026-11-21T08:00:00Z",
+           "tasks":{"done":3,"created":5,"blocked":1},          // blocked: tasks now blocked or needs_owner, last updated in the window
+           "cost_eur":12.5,"tokens":53000,                        // reported cost increases and usage tokens in the window
+           "risks":[{"source":"spend","severity":"high","subject":"daily","message":"daily spend at 100% of its cap"}],   // source spend|forecast, severity high|medium, high first
+           "decisions":{"count":7,"titles":["Approve plan P-1 for B-1"]},   // pending owner decisions without merge-ready ones; up to 5 titles by priority
+           "flapping_agents":["claude-2"],"merge_ready":["T-5"]},          // agents paused with reason flapping; tasks whose PR is merge-ready
+ "title":"Subspace digest: 3 done, 7 decisions pending","text":"Window: ..."}
+```
+
+A digest is a short plain-text summary sent through the notification sinks (`kind` `digest`, same sinks as other notifications). It holds counts, cost, token totals, risks from the spend limits (at least 80% of a cap) and from the open briefs' forecasts, the number and titles of pending decisions, flapping agents and merge-ready PRs. Titles are shortened to 80 characters and secrets in them are masked; task specs, notes and thread messages are never included. The scheduler runs only when at least one notification sink is configured.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_DIGEST_AT` | – | daily digest times, `HH:MM` list such as `08:00,18:00` |
+| `SUBSPACE_DIGEST_WEEKLY` | – | weekly digest times, `day@HH:MM` list such as `mon@09:00,fri@17:00` (`mon`…`sun` or full names) |
+| `SUBSPACE_DIGEST_TZ` | `UTC` | IANA time zone of the times above |
+
+Each variable is its own rule with its own window, which runs from the previous slot of that rule (or from the last evaluation) to now, at most 8 days. A time that does not exist on a daylight-saving day fires right after the gap; an ambiguous time fires once, at its first occurrence. A rule is skipped when nothing changed since its last digest: no tasks done, created or blocked, no cost or tokens, and the same pending decisions, risks, flapping agents and merge-ready PRs. A change to an empty state is sent once. The first evaluation after a fresh start only records the slot, and a missed slot is sent once on the next start. Rule state is kept in the key-value table (`digest.state.daily`, `digest.state.weekly`). Invalid values disable the digest and are logged.
 
 ### Action links
 | Method | Path | Body → Response |
@@ -639,6 +728,8 @@ When the id is older than the oldest retained event, or newer than the server's 
 
 On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
 
+`alert.raised` and `alert.resolved` (topic `alerts`, also `all`) carry `{"id":"alert:<alert id>","kind":"alert","title","text","priority","brief_id"?,"task_id"?,"ts"}` and are emitted only by the alert rules.
+
 Slow subscribers have a bounded buffer; when it overflows, oldest events are dropped and a `lagged` event is delivered. A client that stops reading is disconnected once a write stays blocked for twice the ping interval (30s).
 
 ## 5. MCP: `POST /mcp` (agent token)
@@ -671,11 +762,14 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
 | get_brief, list_briefs, propose_plan, create_task, create_task_from_template, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
+| get_forecast, get_report, search, agent_stats, list_decisions, list_spawns, get_components | ✓ | | | |
 | list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
 | request_help, suggest_split | | ✓ | ✓ | ✓ |
 | report_blocker | | ✓ | ✓ | |
 | list_help_requests, accept_split | ✓ | | | |
 | report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
+
+The leader information tools (`get_forecast` … `get_components`) are read-only and exempt from loop protection. Every list they return is cut at 200 items and flagged with `"truncated":true`.
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
 
@@ -728,17 +822,24 @@ All tools return an object; `task` = Task object above.
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
 - `list_help_requests {"status?":"open|accepted|superseded|closed|all","brief_id?","task_id?","limit?":1-1000}` → `{"requests":[HelpRequest]}` (help requests, blockers and split proposals, newest first; default `open`)
 - `accept_split {"request_id"}` → `{"request":HelpRequest,"tasks":[Task],"original":Task,"rewired":["T-9"]}`. Creates the proposed tasks like `create_task` (ready or backlog), roots depend on the original's dependencies, tasks that depended on the original are re-pointed at the new tasks nothing else in the split depends on (`rewired`), then cancels the original. 409 if the proposal is not `open` or the task is `done`/`cancelled`. On a failure the created tasks are cancelled and the proposal stays open.
-- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
-- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
+- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1","paths?":["internal/api/**"]}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
+- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?", "paths?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval). Tasks blocked for `budget_exceeded` or `poison_task` can only be unblocked by the owner (403, also for `reassign`). `budget` may only add or lower limits; raising or removing one is owner-only (403). `depends_on` follows the same rules as the owner PATCH (400 on unknown, self, cancelled, foreign-brief or cyclic dependencies); `create_task` checks `depends_on` the same way.
 - `create_task_from_template {"brief_id","template_id","vars":{"<variable>":"<value>"},"repo","depends_on?":["T-1"],"priority?":int}` → `{"task":Task}`. Renders a task template (see Task templates) into the task's title, spec, `acceptance_criteria`, `role` and `budget`, then creates it like `create_task` (status `ready` if the brief has an approved plan, else `backlog`). 400 `bad_request` when a declared variable is missing or blank (`task template X: missing variables: a, b (declared: ...)`), a variable is not declared, a value exceeds 4000 bytes (16000 in total) or contains a control character other than newline and tab, or the rendered title is empty or longer than 200 characters or the spec longer than 20000; 404 for an unknown template, listing the available ids.
-- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
-- `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
+- `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider. Path conflicts (`SUBSPACE_CONFLICT_MODE`, default `warn`): when the task's paths overlap a task in the same repo that is `assigned`, `in_progress` or `submitted` for another agent, `warn` assigns and posts a system message naming the overlapping tasks to the task thread, `block` fails with `conflict` listing the overlapping task ids, `off` skips the check. The autopilot never assigns such a task to a different agent: it gives it to the agent already holding the overlapping work once that agent has nothing `assigned` or `in_progress`, and otherwise leaves it `ready` (without requesting spawns for it) until the overlap clears, unless the mode is `off`.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 - `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `get_forecast {"brief_id"}` → `{"forecast":Forecast}`, the same object as `GET /api/v1/briefs/{id}/forecast`. 404 `not_found` for an unknown brief.
+- `get_report {"brief_id"}` → `{"report":Report,"truncated":bool}`, the same object as `GET /api/v1/briefs/{id}/report`; `tasks`, `outliers` and `throughput.hourly` are cut at 200 items.
+- `search {"query","kind?":"task|message|agent|brief","limit?":1-100}` → `{"results":[{"kind","id","field","snippet","at"}],"truncated":bool}`, the same results as `GET /api/v1/search/`. `query` is required, at most 200 characters; `limit` defaults to 20.
+- `agent_stats {"agent_id?"}` → `{"agents":[AgentStats],"truncated":bool}`, the same objects as `GET /api/v1/agent-stats` (best `score` first, then id) or, with `agent_id`, `GET /api/v1/agents/{id}/stats`; 404 `not_found` for an unknown `agent_id`.
+- `list_decisions {}` → `{"decisions":[{"id","kind","title","brief_id?","task_id?","agent_id?"}],"truncated":bool}`: the owner inbox (see Decisions) without summaries, links and actions, in inbox order.
+- `list_spawns {"brief_id?"}` → `{"spawns":[Spawn],"truncated":bool}`; a failed spawn's `error` is replaced by a generic message.
+- `get_components {"brief_id"}` → `{"components":[Component],"truncated":bool}`. 404 `not_found` for an unknown brief.
 
 ### Handoff context
 `get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.

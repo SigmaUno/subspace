@@ -70,7 +70,7 @@ function PlanTask({ task, plan, changed }: { task: Task; plan: Plan; changed: ()
     <p className="preserve">{task.spec}</p>
     {!!task.acceptance_criteria?.length && <ul>{task.acceptance_criteria.map((criterion, index) => <li key={index}>{criterion}</li>)}</ul>}
     {!!task.depends_on?.length && <p className="meta">Depends on {task.depends_on.join(", ")}</p>}
-    <form className="stack" onSubmit={(event) => remove.submit(event, async () => {
+    <form className="stack" data-write onSubmit={(event) => remove.submit(event, async () => {
       await api<Plan>(`plans/${encodeURIComponent(plan.id)}/tasks/${encodeURIComponent(task.id)}`, "DELETE");
       changed();
     })}>
@@ -87,8 +87,8 @@ function AddTask({ plan, changed }: { plan: Plan; changed: () => void }) {
   const [open, setOpen] = useState(false);
   const form = useSubmit();
   const tasks = liveTasks(plan);
-  if (!open) return <div><button onClick={() => setOpen(true)}>Add task</button></div>;
-  return <form className="stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  if (!open) return <div data-write><button onClick={() => setOpen(true)}>Add task</button></div>;
+  return <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     await api<Plan>(`plans/${encodeURIComponent(plan.id)}/tasks`, "POST", taskBody(fields));
     setOpen(false);
     changed();

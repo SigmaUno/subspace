@@ -1,0 +1,50 @@
+diff --git a/internal/server/mount_hillclimb_job.go b/internal/server/mount_hillclimb_job.go
+new file mode 100644
+--- /dev/null
++++ b/internal/server/mount_hillclimb_job.go
+@@ -0,0 +1,20 @@
++package server
++
++import (
++	"net/http"
++)
++
++func init() {
++	registerMount(func(s *Server, mux *http.ServeMux) {
++		mux.Handle("GET /api/v1/hillclimb/jobs/{id}", s.owner(s.getHillclimbJob))
++	})
++}
++
++func (s *Server) getHillclimbJob(w http.ResponseWriter, r *http.Request) {
++	job, err := s.hillclimb.Job(r.Context(), r.PathValue("id"))
++	if err != nil {
++		writeError(w, err)
++		return
++	}
++	writeJSON(w, http.StatusOK, job)
++}
+diff --git a/internal/server/mount_hillclimb_job_test.go b/internal/server/mount_hillclimb_job_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/server/mount_hillclimb_job_test.go
+@@ -0,0 +1,20 @@
++package server_test
++
++import (
++	"net/http"
++	"testing"
++
++	"github.com/SigmaUno/subspace/internal/servertest"
++)
++
++func TestGetHillclimbJob(t *testing.T) {
++	ts := servertest.New(t)
++	b := ts.CreateBrief(t, "B", []string{"o/r"})
++	var job map[string]any
++	ts.Owner(t, http.MethodPost, "/api/v1/hillclimb/jobs", map[string]any{"brief_id": b.ID, "repo": "o/r", "metric_cmd": "true", "direction": "min"}, http.StatusCreated, &job)
++	var got map[string]any
++	ts.Owner(t, http.MethodGet, "/api/v1/hillclimb/jobs/"+job["id"].(string), nil, http.StatusOK, &got)
++	if got["id"] != job["id"] {
++		t.Fatalf("got %v", got)
++	}
++}

@@ -92,14 +92,14 @@ function DecisionCard({ item, acting, next, openThread }: {
     </div>
     {!!item.options?.length && <div className="actions">{item.options.map((option) =>
       <button type="button" key={option} onClick={() => { setText(option); response.current?.focus(); }}>{option}</button>)}</div>}
-    <form id={formID} className="stack" ref={form} onSubmit={decide}>
+    <form id={formID} className="stack" data-write ref={form} onSubmit={decide}>
       <label>{question ? "Answer" : allowReject ? "Note or rejection reason" : "Note"}
         <textarea name="response" rows={2} ref={response} value={text}
           onChange={(event) => setText(event.target.value)} required={question} />
       </label>
       <Feedback error={error} />
     </form>
-    <div className="actions decision-bar">
+    <div className="actions decision-bar" data-write>
       <button type="submit" form={formID} className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
       {allowReject && <button type="submit" form={formID} className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
       <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>

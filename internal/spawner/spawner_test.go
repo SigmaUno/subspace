@@ -31,9 +31,9 @@ type call struct {
 }
 
 func fakeRunner(c *call, err error) Runner {
-	return func(ctx context.Context, name string, args ...string) error {
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		*c = call{name: name, args: args, env: EnvFromContext(ctx)}
-		return err
+		return nil, err
 	}
 }
 

@@ -47,8 +47,14 @@ Settings:
 |---|---|
 | `SUBSPACE_SPAWNER=hc` | select the spawner |
 | `SUBSPACE_HC_BIN` | path to `hc` |
-| `SUBSPACE_HC_HOST` | if set, run through `ssh <host>`; leave empty to run locally |
+| `SUBSPACE_HC_HOST` | if set, run through `ssh <host>`; a comma-separated list picks one host per agent id (stable); empty runs locally |
 | `SUBSPACE_HC_COMMAND` | template with `{agent_id} {kind} {model} {join_line}` |
+| `SUBSPACE_HC_NUDGE_COMMAND` | nudge template with `{agent_id} {text}` (default `send {agent_id} -- {text}`) |
+| `SUBSPACE_HC_STATUS_COMMAND` | listing template (default `ls`); the output is searched for the agent id, JSON or text |
+| `SUBSPACE_HC_STOP_COMMAND` | stop template with `{agent_id}` (default `kill {agent_id}`) |
+| `SUBSPACE_HC_TIMEOUT` | per-command timeout (default `30s`) |
+| `SUBSPACE_HC_MAX_OUTPUT` | bytes of command output kept (default `1048576`) |
+| `SUBSPACE_HC_MAX_PER_HOST` | concurrent commands per host (default `4`) |
 
 The launch runs `hc run --bg --name <agent_id> ...` with the join line
 `Join Subspace at <SUBSPACE_PUBLIC_URL> as <agent-id>. Call get_instructions and follow them.`

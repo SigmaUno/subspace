@@ -273,7 +273,7 @@ func TestShutdownDrainsInFlightRequestsAndClosesStreams(t *testing.T) {
 	var tk *model.Task
 	var agent *model.Agent
 	err = st.View(context.Background(), func(tx store.Tx) (e error) {
-		if briefs, e = tx.ListBriefs(""); e != nil {
+		if briefs, e = tx.ListBriefs(store.BriefFilter{}); e != nil {
 			return
 		}
 		if tk, e = tx.GetTask(l.taskID); e != nil {

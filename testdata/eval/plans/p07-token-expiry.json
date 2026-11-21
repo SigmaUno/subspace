@@ -1,0 +1,18 @@
+{
+  "id": "p07-token-expiry",
+  "title": "Warn before agent tokens expire",
+  "body": "Agents with expiring tokens go dark without warning.\n\n- Seven days and one day before `token_expires_at`, post a system message in the agent thread and send a notification through the configured sinks, at most once per threshold.\n- `subspacectl agents list` shows a column with the remaining lifetime.\n- A tester covers the thresholds with a simulated clock, including restarts between the two warnings (no duplicate messages).",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server, notification sinks in internal/notify, CLI in cmd/subspacectl"}
+  ],
+  "max_cost_eur": 30,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 4,
+  "requirements": [
+    {"id": "warn", "title": "Post expiry warnings seven days and one day before token expiry", "keywords": ["expir", "seven days|7 days|7d", "one day|1 day|24h|24 hours"], "checks": ["once|duplicate", "test"]},
+    {"id": "cli", "title": "Show remaining token lifetime in subspacectl agents list", "keywords": ["subspacectl", "lifetime|remaining|expires"], "checks": ["column|output|test"]},
+    {"id": "simtest", "title": "Simulated clock test for expiry warnings across restarts", "keywords": ["restart", "clock"], "checks": ["duplicate|once"], "role": "tester", "after": ["warn"]}
+  ]
+}

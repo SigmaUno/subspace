@@ -1,0 +1,17 @@
+{
+  "id": "r03-sql-injection",
+  "title": "Filter tasks by status in the SQLite store",
+  "spec": "ListTasks gets an optional status filter. Use bound parameters for every value.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "the status filter is applied when set",
+    "all values are passed as bound query parameters",
+    "an integration test lists tasks filtered by status"
+  ],
+  "tests": {"passed": 31, "failed": 0},
+  "pr_title": "Status filter for ListTasks",
+  "pr_body": "Builds the WHERE clause dynamically. Test included.",
+  "defects": [
+    {"file": "internal/store/sqlite/tasks_filter.go", "match": "fmt.Sprintf(\" AND status = '%s'\"", "kind": "sql_injection", "note": "status is interpolated into the SQL string instead of a ? parameter", "criterion": 1}
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "r18-missing-role-check",
+  "title": "MCP tool set_task_priority for the leader",
+  "spec": "Add an MCP tool set_task_priority(task_id, priority 0..100). Only the leader may call it; it is listed only in the leader's tools/list and the handler re-checks the role. Every call is audited.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "only the leader role can call set_task_priority; other roles get forbidden",
+    "priority outside 0..100 is rejected",
+    "each successful call appends an audit event"
+  ],
+  "tests": {"passed": 64, "failed": 0},
+  "pr_title": "set_task_priority tool",
+  "pr_body": "The tool is registered in the leader tool list, so other roles never see it.",
+  "defects": [
+    {"file": "internal/mcp/tool_priority.go", "match": "func (h *Handler) setTaskPriority(", "kind": "missing_authorization", "note": "the handler never checks that the caller is the leader; hiding the tool from tools/list is not enforcement", "criterion": 0}
+  ]
+}

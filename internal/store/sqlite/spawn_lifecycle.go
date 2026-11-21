@@ -2,7 +2,6 @@ package sqlite
 
 import (
 	"context"
-	"time"
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -17,15 +16,7 @@ func init() {
 	RegisterColumn("spawns", "process_checked_at", "INTEGER NOT NULL DEFAULT 0")
 }
 
-type SpawnLifecycle struct {
-	SpawnID          string
-	ConnectedAt      time.Time
-	IdleSince        time.Time
-	StoppedAt        time.Time
-	StopReason       string
-	Process          string
-	ProcessCheckedAt time.Time
-}
+type SpawnLifecycle = store.SpawnLifecycle
 
 func (s *Store) SpawnLifecycles(ctx context.Context) (map[string]SpawnLifecycle, error) {
 	rows, err := s.rdb.QueryContext(ctx,

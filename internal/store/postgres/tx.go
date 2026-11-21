@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -38,6 +39,36 @@ func (t *tx) NextID(prefix string) (string, error) {
 		return "", err
 	}
 	return prefix + "-" + strconv.FormatInt(n, 10), nil
+}
+
+func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
+	return t.q.ExecContext(t.ctx, rebind(q), args...)
+}
+
+func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
+	return t.q.QueryContext(t.ctx, rebind(q), args...)
+}
+
+func rebind(q string) string {
+	if !strings.Contains(q, "?") {
+		return q
+	}
+	var b strings.Builder
+	n := 0
+	quoted := false
+	for _, r := range q {
+		switch {
+		case r == '\'':
+			quoted = !quoted
+		case r == '?' && !quoted:
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func (t *tx) exec(q string, args ...any) error {
@@ -105,6 +136,40 @@ func (a *args) eq(col, v string) {
 	if v != "" {
 		a.where = append(a.where, col+" = "+a.add(v))
 	}
+}
+
+func (a *args) after(afterID string) {
+	if afterID == "" {
+		return
+	}
+	n := a.add(store.IDNum(afterID))
+	a.where = append(a.where, "("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+a.add(afterID)+"))")
+}
+
+func (a *args) afterCreated(table, afterID string) {
+	if afterID == "" {
+		return
+	}
+	id := a.add(afterID)
+	at := "(SELECT created_at FROM " + table + " WHERE id = " + id + ")"
+	a.where = append(a.where, "(created_at > "+at+" OR (created_at = "+at+" AND id > "+id+"))")
+}
+
+func (a *args) afterCreatedNum(table, afterID string) {
+	if afterID == "" {
+		return
+	}
+	id := a.add(afterID)
+	at := "(SELECT created_at FROM " + table + " WHERE id = " + id + ")"
+	n := a.add(store.IDNum(afterID))
+	a.where = append(a.where, "(created_at > "+at+" OR (created_at = "+at+" AND ("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+id+"))))")
+}
+
+func (a *args) limit(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return " LIMIT " + a.add(n)
 }
 
 func (a *args) clause() string {

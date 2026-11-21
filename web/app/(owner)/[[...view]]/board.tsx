@@ -23,12 +23,12 @@ export function BriefsView({ revision }: { revision: number }) {
   return (
     <>
       <div className="heading"><h1>Briefs</h1><div className="actions">
-        <button onClick={() => setImporting(!importing)}>{importing ? "Close import" : "Import brief"}</button>
-        <button className="primary" onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button>
+        <button data-write onClick={() => setImporting(!importing)}>{importing ? "Close import" : "Import brief"}</button>
+        <button className="primary" data-write onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button>
       </div></div>
       {importing && <ImportBrief />}
       {creating && (
-        <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+        <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
           const brief = await api<Brief>("briefs", "POST", {
             title: value(fields, "title"), body: value(fields, "body"),
             repos: commaList(value(fields, "repos")),

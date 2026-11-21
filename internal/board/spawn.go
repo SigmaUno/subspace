@@ -136,8 +136,8 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	if in.Role != model.RoleWorker && in.Role != model.RoleTester {
 		return nil, model.BadRequest("role must be worker or tester")
 	}
-	if in.Model == "" {
-		return nil, model.BadRequest("model is required")
+	if !modelRe.MatchString(in.Model) {
+		return nil, model.BadRequest("model must match [A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
 	}
 	if in.Provider == "" {
 		in.Provider = model.ProviderForKind(in.Kind)
@@ -187,7 +187,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 				act[deref(t.Assignee)] = true
 			}
 			recent := 0
-			sps, err := tx.ListSpawns(br.ID)
+			sps, err := tx.ListSpawns(store.SpawnFilter{BriefID: br.ID})
 			if err != nil {
 				return err
 			}
@@ -263,7 +263,6 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 }
 
 func (b *Board) ListSpawns(ctx context.Context, briefID string) ([]*model.Spawn, error) {
-	var out []*model.Spawn
-	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListSpawns(briefID); return })
-	return nz(out), err
+	p, err := b.ListSpawnsPage(ctx, briefID, "", 0)
+	return p.Items, err
 }

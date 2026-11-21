@@ -1,0 +1,59 @@
+diff --git a/internal/store/sqlite/tasks_filter.go b/internal/store/sqlite/tasks_filter.go
+new file mode 100644
+--- /dev/null
++++ b/internal/store/sqlite/tasks_filter.go
+@@ -0,0 +1,30 @@
++package sqlite
++
++import (
++	"context"
++	"fmt"
++
++	"github.com/SigmaUno/subspace/internal/model"
++)
++
++type TaskFilter struct {
++	BriefID string
++	Status  string
++}
++
++func (s *Store) ListTasksFiltered(ctx context.Context, f TaskFilter) ([]*model.Task, error) {
++	q := "SELECT " + taskColumns + " FROM tasks WHERE 1=1"
++	var args []any
++	if f.BriefID != "" {
++		q += " AND brief_id = ?"
++		args = append(args, f.BriefID)
++	}
++	if f.Status != "" {
++		q += fmt.Sprintf(" AND status = '%s'", f.Status)
++	}
++	rows, err := s.read.QueryContext(ctx, q+" ORDER BY priority DESC, id", args...)
++	if err != nil {
++		return nil, err
++	}
++	return scanTasks(rows)
++}
+diff --git a/internal/store/sqlite/tasks_filter_test.go b/internal/store/sqlite/tasks_filter_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/store/sqlite/tasks_filter_test.go
+@@ -0,0 +1,19 @@
++package sqlite
++
++import (
++	"context"
++	"testing"
++)
++
++func TestListTasksFilteredByStatus(t *testing.T) {
++	s := openTest(t)
++	seedTasks(t, s, "B-1", "ready", "ready", "done")
++	got, err := s.ListTasksFiltered(context.Background(), TaskFilter{BriefID: "B-1", Status: "ready"})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if len(got) != 2 {
++		t.Fatalf("got %d tasks, want 2", len(got))
++	}
++}
++

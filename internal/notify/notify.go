@@ -34,7 +34,7 @@ type Minter func(decisionID, action string, option int) (string, error)
 
 const maxActions = 3
 
-var Topics = []string{"questions", "plans", "control", "board"}
+var Topics = []string{"questions", "plans", "control", "board", "alerts"}
 
 func describe(ev events.Event) (id, sig string, n *Notification) {
 	switch d := ev.Data.(type) {
@@ -50,6 +50,8 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		return taskEvent(ev, d)
 	case model.Task:
 		return taskEvent(ev, &d)
+	case Notification:
+		return alertEvent(ev, d)
 	}
 	switch ev.Type {
 	case "control.paused":
@@ -175,6 +177,16 @@ func withActions(n Notification, mint Minter) Notification {
 		n.Actions = append(n.Actions, Action{Label: l.label, URL: u})
 	}
 	return n
+}
+
+func alertEvent(ev events.Event, n Notification) (string, string, *Notification) {
+	switch ev.Type {
+	case "alert.raised":
+		return n.ID, ev.Type, &n
+	case "alert.resolved":
+		return n.ID, ev.Type, nil
+	}
+	return "", "", nil
 }
 
 func scope(n *Notification) string {

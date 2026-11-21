@@ -223,14 +223,23 @@ func (t *tx) UpdateSpawn(s *model.Spawn) error {
 	return nil
 }
 
-func (t *tx) ListSpawns(briefID string) ([]*model.Spawn, error) {
-	q := `SELECT ` + spawnCols + ` FROM spawns`
+func (t *tx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
+	q := `SELECT ` + spawnCols + ` FROM spawns WHERE 1=1`
 	var args []any
-	if briefID != "" {
-		q += ` WHERE brief_id = ?`
-		args = append(args, briefID)
+	if f.BriefID != "" {
+		q += ` AND brief_id = ?`
+		args = append(args, f.BriefID)
 	}
-	q += ` ORDER BY created_at, CAST(SUBSTR(id, INSTR(id, '-')+1) AS INTEGER), id`
+	if f.AfterID != "" {
+		c, a := afterCreatedNumClause("spawns", f.AfterID)
+		q += ` AND ` + c
+		args = append(args, a...)
+	}
+	q += ` ORDER BY created_at, ` + idNum + `, id`
+	if f.Limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 	rows, err := t.q.QueryContext(t.ctx, q, args...)
 	if err != nil {
 		return nil, err

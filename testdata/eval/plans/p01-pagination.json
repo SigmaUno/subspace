@@ -1,0 +1,18 @@
+{
+  "id": "p01-pagination",
+  "title": "Paginate the task list API",
+  "body": "The owner UI times out on briefs with thousands of tasks because GET /api/v1/tasks returns everything.\n\n- Add `limit` and `offset` query parameters to GET /api/v1/tasks. Default limit 100, maximum 1000; reject negative or non-numeric values with 400.\n- Add `--limit` and `--offset` flags to `subspacectl tasks list` and follow pages automatically with `--all`.\n- Update docs/api.md so the contract test keeps passing.\n\nOut of scope: cursor-based pagination.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server, MCP tools, subspacectl CLI and docs/api.md (checked by internal/server/contract_test.go)"}
+  ],
+  "max_cost_eur": 30,
+  "max_parallel_agents": 4,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 5,
+  "requirements": [
+    {"id": "api", "title": "Add limit and offset pagination to GET /api/v1/tasks", "keywords": ["limit", "offset", "/api/v1/tasks|tasks endpoint|task list"], "checks": ["400|bad_request|reject", "test"]},
+    {"id": "cli", "title": "Add --limit, --offset and --all to subspacectl tasks list", "keywords": ["subspacectl", "--all|all pages|follow"], "checks": ["test|--all"], "after": ["api"]},
+    {"id": "docs", "title": "Document task list pagination in docs/api.md", "keywords": ["docs/api.md|api.md"], "checks": ["contract"]}
+  ]
+}

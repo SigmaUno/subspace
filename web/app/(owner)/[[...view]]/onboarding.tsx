@@ -188,7 +188,7 @@ export function Onboarding({ revisions }: { revisions: Revisions }) {
     plan: <PlanStep plans={plans.data!.plans ?? []} decided={() => { plans.refresh(); briefs.refresh(); }} />,
   };
 
-  return <section className="panel stack" aria-label="Getting started">
+  return <section className="panel stack" data-write aria-label="Getting started">
     <div className="heading">
       <h2>Getting started</h2>
       <button type="button" onClick={() => write("dismissed")}>Dismiss checklist</button>

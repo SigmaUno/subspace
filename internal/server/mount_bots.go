@@ -48,13 +48,14 @@ type botReason struct {
 }
 
 type botInput struct {
-	Name     string `json:"name"`
-	Prefix   string `json:"prefix"`
-	Count    int    `json:"count"`
-	Role     string `json:"role"`
-	Kind     string `json:"kind"`
-	Provider string `json:"provider"`
-	Model    string `json:"model"`
+	Name      string `json:"name"`
+	Prefix    string `json:"prefix"`
+	Count     int    `json:"count"`
+	Role      string `json:"role"`
+	Kind      string `json:"kind"`
+	Provider  string `json:"provider"`
+	Model     string `json:"model"`
+	ExpiresIn string `json:"expires_in"`
 }
 
 func init() {
@@ -136,7 +137,7 @@ func (h *botsHandler) create(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &in) || !h.valid(w, in.resolve()) {
 		return
 	}
-	reg, err := h.b.RegisterAgent(r.Context(), board.AgentInput{ID: in.Name, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider})
+	reg, err := h.b.RegisterAgent(r.Context(), board.AgentInput{ID: in.Name, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider, ExpiresIn: in.ExpiresIn})
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -149,7 +150,7 @@ func (h *botsHandler) bulk(w http.ResponseWriter, r *http.Request) {
 	if !h.decode(w, r, &in) || !h.valid(w, in.resolve()) {
 		return
 	}
-	regs, err := h.b.RegisterBulk(r.Context(), board.BulkInput{Prefix: in.Prefix, Count: in.Count, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider})
+	regs, err := h.b.RegisterBulk(r.Context(), board.BulkInput{Prefix: in.Prefix, Count: in.Count, Role: in.Role, Kind: in.Kind, Model: in.Model, Provider: in.Provider, ExpiresIn: in.ExpiresIn})
 	if err != nil {
 		h.fail(w, err)
 		return
@@ -195,7 +196,16 @@ func (h *botsHandler) spawn(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *botsHandler) rotate(w http.ResponseWriter, r *http.Request) {
-	reg, err := h.b.RotateToken(r.Context(), r.PathValue("id"))
+	var in botInput
+	if !h.decode(w, r, &in) {
+		return
+	}
+	ttl, err := board.ParseExpiresIn(in.ExpiresIn)
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	reg, err := h.b.RotateTokenFor(r.Context(), r.PathValue("id"), ttl)
 	if err != nil {
 		h.fail(w, err)
 		return

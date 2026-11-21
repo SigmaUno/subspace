@@ -1,0 +1,18 @@
+{
+  "id": "p06-index-migration",
+  "title": "Speed up board queries with indexes",
+  "body": "The board endpoint takes 900 ms on a brief with 20k tasks. Profiling shows full scans of tasks by (brief_id, status) and of messages by (thread_kind, thread_id).\n\n- Add the two indexes as a schema migration in both the SQLite and the Postgres store; the migration must be idempotent and run on startup.\n- Add a Go benchmark that seeds 20k tasks and measures the board query before and after; target p95 under 50 ms.\n- A tester verifies the migration on a copy of a production-sized database and that a downgrade does not break reads.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; internal/store/sqlite and internal/store/postgres implement the Store interface"}
+  ],
+  "max_cost_eur": 35,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 5,
+  "requirements": [
+    {"id": "migration", "title": "Add task and message indexes as an idempotent migration", "keywords": ["index", "brief_id|status", "thread_id|thread_kind|messages"], "checks": ["idempotent|twice|re-run|rerun", "test"]},
+    {"id": "bench", "title": "Benchmark the board query on 20k tasks", "keywords": ["benchmark", "20k|20000|20,000"], "checks": ["50 ms|50ms|p95"], "after": ["migration"]},
+    {"id": "verify", "title": "Verify the index migration on a production-sized database copy", "keywords": ["production-sized|production sized|copy"], "checks": ["downgrade|read"], "role": "tester", "after": ["migration"]}
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "id": "r11-token-logged",
+  "title": "Log failed MCP authentication attempts",
+  "spec": "Log failed bearer authentication on /mcp at warn level with the client address and a reason. Tokens and token prefixes must never be logged.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "failed authentication is logged at warn level with the client address and reason",
+    "no token or token fragment appears in any log line"
+  ],
+  "tests": {"passed": 40, "failed": 0},
+  "pr_title": "Auth failure logging",
+  "pr_body": "Helps debugging misconfigured agents.",
+  "defects": [
+    {"file": "internal/auth/log.go", "match": "\"token\", tok", "kind": "secret_logged", "note": "the bearer token is written to the log", "criterion": 1}
+  ]
+}

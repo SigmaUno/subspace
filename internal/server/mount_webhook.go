@@ -48,7 +48,7 @@ func (s *prSync) handle(ctx context.Context, ev webhook.Event) error {
 	}
 	var errs []error
 	for _, t := range tasks {
-		if t.PRURL != nil && strings.EqualFold(strings.TrimRight(*t.PRURL, "/"), strings.TrimRight(ev.URL, "/")) {
+		if t.PRURL != nil && strings.EqualFold(t.Repo, ev.Repo) && strings.EqualFold(strings.TrimRight(*t.PRURL, "/"), strings.TrimRight(ev.URL, "/")) {
 			errs = append(errs, s.apply(ctx, t, ev))
 		}
 	}

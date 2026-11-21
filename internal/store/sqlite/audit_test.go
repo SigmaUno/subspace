@@ -177,7 +177,7 @@ func TestSpawns(t *testing.T) {
 
 	list := func(brief string) []*model.Spawn {
 		var out []*model.Spawn
-		if err := s.View(ctx, func(tx store.Tx) (e error) { out, e = tx.ListSpawns(brief); return }); err != nil {
+		if err := s.View(ctx, func(tx store.Tx) (e error) { out, e = tx.ListSpawns(store.SpawnFilter{BriefID: brief}); return }); err != nil {
 			t.Fatal(err)
 		}
 		return out

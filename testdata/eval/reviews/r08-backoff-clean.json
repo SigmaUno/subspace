@@ -1,0 +1,16 @@
+{
+  "id": "r08-backoff-clean",
+  "title": "Retry webhook deliveries with backoff",
+  "spec": "Retry network errors and 5xx responses up to 5 attempts with exponential backoff starting at 2s, capped at 2 minutes, with jitter. Stop when the context is cancelled.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "at most 5 attempts are made",
+    "the delay doubles from 2s and never exceeds 2 minutes",
+    "cancelling the context stops retrying immediately",
+    "a test with an injected sleep function covers the delays"
+  ],
+  "tests": {"passed": 17, "failed": 0},
+  "pr_title": "Webhook retries",
+  "pr_body": "deliverWithRetry wraps the existing send.",
+  "defects": []
+}

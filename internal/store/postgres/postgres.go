@@ -22,6 +22,16 @@ const (
 	lockMigrate  = 1
 )
 
+var (
+	extraSchemas []string
+	extraTables  []string
+)
+
+func RegisterSchema(ddl string, tables ...string) {
+	extraSchemas = append(extraSchemas, ddl)
+	extraTables = append(extraTables, tables...)
+}
+
 type wreq struct {
 	ctx  context.Context
 	fn   func(store.Tx) error
@@ -81,6 +91,11 @@ func migrate(db *sql.DB) error {
 	if _, err := t.ExecContext(ctx, schema); err != nil {
 		return err
 	}
+	for _, ddl := range extraSchemas {
+		if _, err := t.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
+	}
 	if err := migrateAuditChain(ctx, t); err != nil {
 		return err
 	}
@@ -124,6 +139,8 @@ func (s *Store) Close() error {
 	})
 	return err
 }
+
+func (s *Store) Done() <-chan struct{} { return s.quit }
 
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}

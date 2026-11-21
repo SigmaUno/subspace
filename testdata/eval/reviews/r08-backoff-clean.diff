@@ -1,0 +1,104 @@
+diff --git a/internal/notify/retry.go b/internal/notify/retry.go
+new file mode 100644
+--- /dev/null
++++ b/internal/notify/retry.go
+@@ -0,0 +1,47 @@
++package notify
++
++import (
++	"context"
++	"math/rand/v2"
++	"time"
++)
++
++const (
++	maxAttempts = 5
++	firstDelay  = 2 * time.Second
++	maxDelay    = 2 * time.Minute
++)
++
++type sleeper func(ctx context.Context, d time.Duration) error
++
++func deliverWithRetry(ctx context.Context, send func(context.Context) (retry bool, err error), sleep sleeper, jitter *rand.Rand) error {
++	delay := firstDelay
++	var last error
++	for attempt := 1; attempt <= maxAttempts; attempt++ {
++		retry, err := send(ctx)
++		if err == nil {
++			return nil
++		}
++		last = err
++		if !retry || attempt == maxAttempts {
++			break
++		}
++		wait := delay/2 + time.Duration(jitter.Int64N(int64(delay/2)+1))
++		if err := sleep(ctx, wait); err != nil {
++			return err
++		}
++		delay = min(delay*2, maxDelay)
++	}
++	return last
++}
++
++func realSleep(ctx context.Context, d time.Duration) error {
++	t := time.NewTimer(d)
++	defer t.Stop()
++	select {
++	case <-t.C:
++		return nil
++	case <-ctx.Done():
++		return ctx.Err()
++	}
++}
+diff --git a/internal/notify/retry_test.go b/internal/notify/retry_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/notify/retry_test.go
+@@ -0,0 +1,47 @@
++package notify
++
++import (
++	"context"
++	"errors"
++	"math/rand/v2"
++	"testing"
++	"time"
++)
++
++func TestDeliverWithRetryDelays(t *testing.T) {
++	var waits []time.Duration
++	sleep := func(_ context.Context, d time.Duration) error { waits = append(waits, d); return nil }
++	calls := 0
++	send := func(context.Context) (bool, error) { calls++; return true, errors.New("503") }
++	err := deliverWithRetry(context.Background(), send, sleep, rand.New(rand.NewPCG(1, 2)))
++	if err == nil || calls != 5 || len(waits) != 4 {
++		t.Fatalf("err %v calls %d waits %v", err, calls, waits)
++	}
++	upper := 2 * time.Second
++	for i, w := range waits {
++		if w > upper || w < upper/2 {
++			t.Fatalf("wait %d = %v, want within [%v, %v]", i, w, upper/2, upper)
++		}
++		upper = min(upper*2, 2*time.Minute)
++	}
++}
++
++func TestDeliverWithRetryStopsOnCancel(t *testing.T) {
++	ctx, cancel := context.WithCancel(context.Background())
++	calls := 0
++	send := func(context.Context) (bool, error) { calls++; cancel(); return true, errors.New("503") }
++	sleep := func(ctx context.Context, _ time.Duration) error { return ctx.Err() }
++	if err := deliverWithRetry(ctx, send, sleep, rand.New(rand.NewPCG(1, 2))); !errors.Is(err, context.Canceled) || calls != 1 {
++		t.Fatalf("err %v calls %d", err, calls)
++	}
++}
++
++func TestDeliverWithRetryPermanentError(t *testing.T) {
++	calls := 0
++	send := func(context.Context) (bool, error) { calls++; return false, errors.New("400") }
++	sleep := func(context.Context, time.Duration) error { t.Fatal("slept"); return nil }
++	if err := deliverWithRetry(context.Background(), send, sleep, rand.New(rand.NewPCG(1, 2))); err == nil || calls != 1 {
++		t.Fatalf("err %v calls %d", err, calls)
++	}
++}
++

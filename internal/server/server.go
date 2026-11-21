@@ -29,12 +29,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 type Config struct {
 	Addr            string
 	DBPath          string
+	DataDir         string
 	OwnerToken      string
 	PublicURL       string
 	CapacityFile    string
@@ -59,6 +59,7 @@ type Server struct {
 	Store   store.Store
 	Board   *board.Board
 	Hub     events.Hub
+	api     *api.API
 	handler http.Handler
 	backups *backup.Scheduler
 
@@ -94,7 +95,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.SweepEvery <= 0 {
 		cfg.SweepEvery = 5 * time.Second
 	}
-	if cfg.BackupDir == "" {
+	if cfg.BackupDir == "" && !isPostgres(cfg.DBPath) {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
 	}
 	var capCfg capacity.Config
@@ -105,18 +106,21 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		}
 		capCfg = c
 	}
-	st, err := sqlite.Open(cfg.DBPath)
+	st, err := openStore(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
 	hub := events.NewHub()
-	backups, err := backup.New(backup.Config{
-		Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
-		Run: st.Backup, Verify: sqlite.IntegrityCheck, Logger: cfg.Log,
-	})
-	if err != nil {
-		_ = st.Close()
-		return nil, err
+	var backups *backup.Scheduler
+	if cfg.BackupDir != "" {
+		backups, err = backup.New(backup.Config{
+			Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
+			Run: st.Backup, Verify: backupVerifier(cfg.DBPath), Logger: cfg.Log,
+		})
+		if err != nil {
+			_ = st.Close()
+			return nil, err
+		}
 	}
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
@@ -155,7 +159,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/conversations", router.Handler())
 	rest.Mount(mux, "/api/v1/conversations/", router.Handler())
 
-	comps := components.NewService(components.NewMemory(), componentSource{b, st}, nil)
+	compStore := components.NewMemory()
+	comps := components.NewService(compStore, componentSource{b, st}, nil)
+	b.SetComponentPaths(func(briefID, id string) []string { return comps.Paths(ctx, briefID, id) })
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
@@ -176,7 +182,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
-		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log))}
+		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore}
 	for _, m := range extraMounts {
 		m(deps)
 	}
@@ -184,7 +190,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, drain: make(chan struct{})}
+	h = newAllowlisted(h, deps)
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -250,7 +257,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	var bg, flusher sync.WaitGroup
 	bg.Go(func() { s.sweepLoop(bgCtx) })
-	bg.Go(func() { s.backups.Run(bgCtx) })
+	if s.backups != nil {
+		bg.Go(func() { s.backups.Run(bgCtx) })
+	}
 	flusher.Go(func() { s.flushLoop(flushCtx) })
 
 	srv := s.httpServer()

@@ -1,0 +1,18 @@
+{
+  "id": "p05-dark-mode",
+  "title": "Dark mode for the owner UI",
+  "body": "Add a dark theme to the web app.\n\n- Follow the operating system preference (prefers-color-scheme) by default.\n- A toggle in the header switches between system, light and dark and is remembered in localStorage.\n- All pages must keep a WCAG AA contrast ratio; add an automated contrast check for the board and the decisions page.",
+  "repos": [
+    {"name": "SigmaUno/subspace-web", "description": "Next.js app with Tailwind; unit tests with vitest, end-to-end tests with Playwright"}
+  ],
+  "max_cost_eur": 20,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 4,
+  "requirements": [
+    {"id": "theme", "title": "Add a dark theme that follows prefers-color-scheme", "keywords": ["dark", "prefers-color-scheme|system preference|operating system"], "checks": ["test|vitest|playwright"]},
+    {"id": "toggle", "title": "Header toggle for system, light and dark stored in localStorage", "keywords": ["toggle", "localstorage"], "checks": ["reload|remember|persist|localstorage"], "after": ["theme"]},
+    {"id": "contrast", "title": "Automated WCAG AA contrast check for the board and decisions pages", "keywords": ["contrast"], "checks": ["aa|4.5"], "role": "tester", "after": ["theme"]}
+  ]
+}

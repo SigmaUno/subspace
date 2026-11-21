@@ -1,0 +1,44 @@
+diff --git a/internal/agentstats/cache.go b/internal/agentstats/cache.go
+new file mode 100644
+--- /dev/null
++++ b/internal/agentstats/cache.go
+@@ -0,0 +1,39 @@
++package agentstats
++
++import (
++	"sync"
++	"time"
++)
++
++const scoreTTL = 30 * time.Second
++
++type entry struct {
++	score float64
++	at    time.Time
++}
++
++type Cache struct {
++	mu      sync.Mutex
++	now     func() time.Time
++	entries map[string]entry
++	compute func(id string) float64
++}
++
++func NewCache(compute func(string) float64, now func() time.Time) *Cache {
++	return &Cache{now: now, entries: map[string]entry{}, compute: compute}
++}
++
++func (c *Cache) Get(id string) float64 {
++	c.mu.Lock()
++	e, ok := c.entries[id]
++	c.mu.Unlock()
++	if ok && c.now().Sub(e.at) < scoreTTL {
++		return e.score
++	}
++	s := c.compute(id)
++	c.entries[id] = entry{score: s, at: c.now()}
++	return s
++}
++
++func (c *Cache) Len() int { c.mu.Lock(); defer c.mu.Unlock(); return len(c.entries) }
++

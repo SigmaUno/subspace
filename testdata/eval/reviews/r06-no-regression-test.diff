@@ -1,0 +1,16 @@
+diff --git a/internal/board/sweeper.go b/internal/board/sweeper.go
+--- a/internal/board/sweeper.go
++++ b/internal/board/sweeper.go
+@@ -41,9 +41,11 @@ func (b *Board) sweep(ctx context.Context, now time.Time) error {
+ 	for _, id := range expired {
+ 		t, err := b.store.GetTask(ctx, id)
+ 		if err != nil {
+ 			return err
+ 		}
+-		t.LeaseExpiries++
++		if !b.paused.Load() {
++			t.LeaseExpiries++
++		}
+ 		t.Status = model.StatusAssigned
+ 		t.LeaseExpiresAt = nil
+ 		if err := b.store.UpdateTask(ctx, t); err != nil {

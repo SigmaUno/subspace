@@ -1,0 +1,18 @@
+{
+  "id": "p09-search-ranking",
+  "title": "Better search ranking",
+  "body": "Search returns matches in id order, so the task the owner is looking for is often on page three.\n\n- Rank results: exact id match first, then title matches, then spec and message matches; ties by most recent activity.\n- Keep a fixture file of 30 real queries with the expected top result and add a test that requires at least 27 of them to rank the expected result first.\n- Add a benchmark; the change must not make a 50k-message search more than 20% slower.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; internal/search implements GET /api/v1/search"}
+  ],
+  "max_cost_eur": 25,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 1,
+  "max_tasks": 4,
+  "requirements": [
+    {"id": "rank", "title": "Rank search results by match field and recency", "keywords": ["rank", "title", "recen"], "checks": ["test"]},
+    {"id": "queries", "title": "Query fixture with 30 expected top results", "keywords": ["30", "quer"], "checks": ["27"]},
+    {"id": "bench", "title": "Benchmark search on 50k messages", "keywords": ["benchmark", "50k|50000|50,000"], "checks": ["20%|20 %|slower"]}
+  ]
+}

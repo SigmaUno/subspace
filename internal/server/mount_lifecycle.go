@@ -6,17 +6,20 @@ import (
 	"log/slog"
 	"net/http"
 	"os"
+	"strconv"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
+const maxListLimit = 1000
+
 type spawnLifecycleStore interface {
-	SpawnLifecycles(ctx context.Context) (map[string]sqlite.SpawnLifecycle, error)
-	SaveSpawnLifecycle(ctx context.Context, l sqlite.SpawnLifecycle, sp *model.Spawn, ev *model.AuditEvent) error
+	SpawnLifecycles(ctx context.Context) (map[string]store.SpawnLifecycle, error)
+	SaveSpawnLifecycle(ctx context.Context, l store.SpawnLifecycle, sp *model.Spawn, ev *model.AuditEvent) error
 }
 
 type lifecycleRecords struct{ s spawnLifecycleStore }
@@ -34,7 +37,7 @@ func (l lifecycleRecords) Records(ctx context.Context) (map[string]lifecycle.Rec
 }
 
 func (l lifecycleRecords) Save(ctx context.Context, rec lifecycle.Record, sp *model.Spawn, ev *model.AuditEvent) error {
-	return l.s.SaveSpawnLifecycle(ctx, sqlite.SpawnLifecycle(rec), sp, ev)
+	return l.s.SaveSpawnLifecycle(ctx, store.SpawnLifecycle(rec), sp, ev)
 }
 
 func init() {
@@ -97,12 +100,18 @@ type lifecycleHandler struct {
 }
 
 func (h *lifecycleHandler) list(w http.ResponseWriter, r *http.Request) {
-	sps, err := h.r.List(r.Context(), r.URL.Query().Get("brief_id"))
+	q := r.URL.Query()
+	limit, _ := strconv.Atoi(q.Get("limit"))
+	sps, next, err := h.r.List(r.Context(), q.Get("brief_id"), q.Get("cursor"), min(limit, maxListLimit))
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	writeLifecycle(w, http.StatusOK, map[string]any{"spawns": sps})
+	var cursor any
+	if next != "" {
+		cursor = next
+	}
+	writeLifecycle(w, http.StatusOK, map[string]any{"spawns": sps, "next_cursor": cursor})
 }
 
 func (h *lifecycleHandler) stop(w http.ResponseWriter, r *http.Request) {

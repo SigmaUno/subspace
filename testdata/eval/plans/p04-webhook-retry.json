@@ -1,0 +1,18 @@
+{
+  "id": "p04-webhook-retry",
+  "title": "Retry outgoing notification webhooks",
+  "body": "Notification webhooks are fire-and-forget today; a 30 second outage on the receiver loses messages.\n\n- Retry failed deliveries (network error or 5xx) with exponential backoff and jitter: 5 attempts, starting at 2s, capped at 2 minutes.\n- After the last attempt store the delivery in a dead-letter table with the last error.\n- Owner endpoint GET /api/v1/notify/dead-letters lists them and POST /api/v1/notify/dead-letters/{id}/redeliver retries one.\n- GET /api/v1/notify/status reports the dead-letter count.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; internal/notify sends webhooks, ntfy and Slack messages; tables are added with sqlite.RegisterSchema"}
+  ],
+  "max_cost_eur": 45,
+  "max_parallel_agents": 4,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 5,
+  "requirements": [
+    {"id": "retry", "title": "Retry failed webhook deliveries with exponential backoff and jitter", "keywords": ["retry|retries", "backoff"], "checks": ["5xx|attempt|backoff", "test"]},
+    {"id": "deadletter", "title": "Store exhausted deliveries in a dead-letter table", "keywords": ["dead-letter|dead letter|deadletter"], "checks": ["test", "error"], "after": ["retry"]},
+    {"id": "endpoints", "title": "Owner endpoints to list and redeliver dead letters", "keywords": ["redeliver"], "checks": ["test|http", "docs/api.md|contract|api.md"], "after": ["deadletter"]}
+  ]
+}

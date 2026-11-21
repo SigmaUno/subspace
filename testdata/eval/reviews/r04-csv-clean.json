@@ -1,0 +1,15 @@
+{
+  "id": "r04-csv-clean",
+  "title": "Escape spreadsheet formulas in the audit CSV export",
+  "spec": "Cells that start with =, +, - or @ must be prefixed with a single quote before they are written.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "values starting with =, +, - or @ are prefixed with a single quote",
+    "other values are written unchanged",
+    "a unit test covers every prefix character"
+  ],
+  "tests": {"passed": 8, "failed": 0},
+  "pr_title": "CSV formula escaping",
+  "pr_body": "Adds csvCell and tests.",
+  "defects": []
+}

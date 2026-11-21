@@ -6,6 +6,7 @@ import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
 import { ImportBrief } from "./brief-import";
+import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { VirtualList } from "./virtual";
 
@@ -63,13 +64,16 @@ export function BriefsView({ revision }: { revision: number }) {
   );
 }
 
-function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; openThread: (thread: Thread) => void }) {
+function TaskCard({ task, agent, agents, bulk, openThread }: {
+  task: Task; agent?: Agent; agents: Agent[]; bulk: Bulk; openThread: (thread: Thread) => void;
+}) {
   const pr = safeURL(task.pr_url);
   const now = useContext(Clock);
   const attention = ["blocked", "needs_owner"].includes(task.status) ||
     task.status === "in_progress" && staleAt(task.last_heartbeat_at, now, task.lease_expires_at);
   return (
     <article className={`task ${attention ? "needs-attention" : ""}`}>
+      <SelectBox id={task.id} bulk={bulk} name={task.title} />
       <button className="text-button task-title" onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button>
       <div className="meta"><Link href={`/tasks/${encodeURIComponent(task.id)}`}>{task.id}</Link> · {task.role}</div>
       <div>
@@ -83,6 +87,7 @@ function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; open
       <div className="meta">{money(task.cost_used)} / {money(task.budget.max_cost_eur)} · {task.minutes_used} / {task.budget.max_minutes} min</div>
       {task.blocked_reason && <span className="stale">{label(task.blocked_reason)}</span>}
       {pr && <a href={pr} target="_blank" rel="noreferrer">Open pull request</a>}
+      <QuickMenu taskID={task.id} agents={agents} bulk={bulk} />
     </article>
   );
 }
@@ -92,14 +97,18 @@ export function Kanban({ board, agents, openThread }: {
 }) {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatus] = useState("");
+  const bulk = useBulk();
   const byID = new Map(agents.map((agent) => [agent.id, agent]));
   const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
   const needle = filter.toLowerCase().trim();
+  const visible = visibleStatuses.flatMap(([status]) => (board.columns[status] ?? []).filter((task) =>
+    !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))));
 
   return <section className="stack">
     <div className="heading">
       <h2>Kanban</h2>
       <div className="actions">
+        <SelectAll ids={visible.map((task) => task.id)} bulk={bulk} name="tasks" />
         <input className="filter-input" type="search" aria-label="Filter tasks" placeholder="Filter tasks"
           value={filter} onChange={(event) => setFilter(event.target.value)} />
         <select className="filter-input" aria-label="Task status" value={statusFilter} onChange={(event) => setStatus(event.target.value)}>
@@ -115,9 +124,11 @@ export function Kanban({ board, agents, openThread }: {
         return <section className="column" aria-label={name} key={status} data-status={status}>
           <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
           <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"
-            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} openThread={openThread} />} />
+            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} agents={agents} bulk={bulk} openThread={openThread} />} />
         </section>;
       })}
     </section>
+    <BulkBar kind="tasks" bulk={bulk} agents={agents} actions={taskActions} />
+    <BulkToast bulk={bulk} />
   </section>;
 }

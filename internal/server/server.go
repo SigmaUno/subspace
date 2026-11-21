@@ -130,6 +130,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	if isPostgres(cfg.DBPath) {
+		if err := store.CheckSQLiteOnly(env); err != nil {
+			return nil, err
+		}
+	}
 	var capCfg capacity.Config
 	if path := env(board.EnvCapacityFile); path != "" {
 		c, err := capacity.Load(path)

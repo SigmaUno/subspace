@@ -17,7 +17,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/retention"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 	"github.com/SigmaUno/subspace/internal/testmain"
 	"github.com/SigmaUno/subspace/internal/testmode"
 )
@@ -55,13 +55,9 @@ type sqlTx interface {
 	Query(q string, args ...any) (*sql.Rows, error)
 }
 
-func openStore(t *testing.T, path string) *sqlite.Store {
+func openStore(t *testing.T, path string) store.Store {
 	t.Helper()
-	st, err := sqlite.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	return st
+	return testdb.Open(t, path)
 }
 
 func newService(t *testing.T, st store.Store, dir string, clk *clock, mut func(*retention.Policy)) *retention.Service {
@@ -78,7 +74,7 @@ func newService(t *testing.T, st store.Store, dir string, clk *clock, mut func(*
 	return svc
 }
 
-func seed(t *testing.T, st *sqlite.Store, r *rand.Rand, n int, body int) {
+func seed(t *testing.T, st store.Store, r *rand.Rand, n int, body int) {
 	t.Helper()
 	ctx := context.Background()
 	for i := 0; i < n; i++ {
@@ -100,7 +96,7 @@ func seed(t *testing.T, st *sqlite.Store, r *rand.Rand, n int, body int) {
 			t.Fatal(err)
 		}
 		rec := &idempotency.Record{Tool: "add_note", ArgsHash: fmt.Sprint(r.Int63()), Result: []byte(`{"ok":true}`), ExpiresAt: t0.Add(1000 * day)}
-		if err := st.PutIdempotency(ctx, fmt.Sprint("a", i%3), fmt.Sprint("k", i), rec, ts); err != nil {
+		if err := st.(idempotency.Store).PutIdempotency(ctx, fmt.Sprint("a", i%3), fmt.Sprint("k", i), rec, ts); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -218,7 +214,7 @@ func TestCrashDuringArchivalResumesIdempotently(t *testing.T) {
 		t.Run(fmt.Sprint("seed", s), func(t *testing.T) {
 			r := rand.New(rand.NewSource(s))
 			dir := t.TempDir()
-			path, arch := filepath.Join(dir, "s.db"), filepath.Join(dir, "retention")
+			path, arch := testdb.Path(t, "s.db"), filepath.Join(dir, "retention")
 			st := openStore(t, path)
 			n := 120 + r.Intn(120)
 			seed(t, st, r, n, 10)
@@ -282,7 +278,7 @@ func TestArchivalWithConcurrentWriters(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	dir := t.TempDir()
-	st := openStore(t, filepath.Join(dir, "s.db"))
+	st := openStore(t, testdb.Path(t, "s.db"))
 	defer func() { _ = st.Close() }()
 	seed(t, st, rand.New(rand.NewSource(7)), 400, 10)
 	clk := &clock{t: t0.Add(60 * day)}
@@ -335,7 +331,7 @@ func TestArchivalWithConcurrentWriters(t *testing.T) {
 func TestAppendOnlyOutsideArchivedSegments(t *testing.T) {
 	ctx := context.Background()
 	dir := t.TempDir()
-	st := openStore(t, filepath.Join(dir, "s.db"))
+	st := openStore(t, testdb.Path(t, "s.db"))
 	defer func() { _ = st.Close() }()
 	seed(t, st, rand.New(rand.NewSource(3)), 100, 10)
 	exec := func(q string) error {
@@ -385,9 +381,12 @@ func TestAppendOnlyOutsideArchivedSegments(t *testing.T) {
 }
 
 func TestCheckpointAndVacuumWhenIdle(t *testing.T) {
+	if testdb.Postgres() {
+		t.Skip("WAL checkpoint and vacuum are SQLite maintenance")
+	}
 	ctx := context.Background()
 	dir := t.TempDir()
-	st := openStore(t, filepath.Join(dir, "s.db"))
+	st := openStore(t, testdb.Path(t, "s.db"))
 	defer func() { _ = st.Close() }()
 	seed(t, st, rand.New(rand.NewSource(5)), 600, 2000)
 	svc := newService(t, st, filepath.Join(dir, "retention"), &clock{t: t0.Add(60 * day)}, nil)

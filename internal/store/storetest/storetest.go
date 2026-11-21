@@ -49,6 +49,7 @@ var scenarios = []struct {
 	{"costs", scenarioCosts},
 	{"search", scenarioSearch},
 	{"extension sql", scenarioExtensionSQL},
+	{"pr, mirror and review links", scenarioLinks},
 	{"keyset pagination", scenarioKeysetPagination},
 }
 

@@ -441,3 +441,24 @@ func toJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestKeyBlockMaskingFollowsTheAgentThatPrintedIt(t *testing.T) {
+	r := newRig(t)
+	svc := r.service(nil)
+	pem := strings.Repeat("-", 5) + "%s RSA PRIVATE KEY" + strings.Repeat("-", 5)
+	body := "QUJDREVGR0g="
+	svc.Add([]agentout.Line{
+		line("T-1", "w1", fmt.Sprintf(pem, "BEGIN"), 0),
+		line("T-1", "t1", "fixture.go:3: "+fmt.Sprintf(pem, "END"), 1),
+		line("T-1", "w1", body, 2),
+		line("T-1", "t1", "tests ok", 3),
+		line("T-1", "w1", fmt.Sprintf(pem, "END"), 4),
+	})
+	if err := svc.Flush(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	got := readAll(t, svc, "T-1")
+	if len(got) != 5 || got[2].Text != "****" || got[3].Text != "tests ok" {
+		t.Fatalf("lines: %+v", got)
+	}
+}

@@ -14,6 +14,8 @@ var (
 	errTooLarge    = errors.New("upstream response too large")
 	errResultShape = errors.New("upstream result is not a valid tool result")
 	errProtocol    = errors.New("upstream spoke invalid JSON-RPC")
+
+	errCommandNotAllowed = errors.New("command is not in SUBSPACE_GATEWAY_COMMANDS")
 )
 
 type rpcError struct {

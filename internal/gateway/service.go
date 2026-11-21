@@ -118,7 +118,7 @@ func (s *Service) conn(g Gateway) *conn {
 	var up upstream
 	secret := s.secret(g)
 	if g.Transport == TransportStdio {
-		up = newStdioUpstream(g, secret, s.now)
+		up = newStdioUpstream(g, secret, s.now, s.Gateways.Commands)
 	} else {
 		up = newHTTPUpstream(g, secret, s.guard)
 	}
@@ -161,7 +161,7 @@ func (s *Service) discover(ctx context.Context, g Gateway, force bool) ([]Discov
 		}
 		return c.tools, c.err
 	}
-	found := vet(g.Name, tools)
+	found := vet(g.Name, tools, s.secret(g))
 	for i := range found {
 		found[i].Allowed = found[i].Refused == "" && g.Allows(found[i].Name)
 	}
@@ -402,6 +402,8 @@ func (s *Service) describe(g Gateway, err error) *model.Error {
 		return model.Errf("too_large", "the result of gateway %s exceeds %d bytes", g.Name, g.MaxResultBytes)
 	case errors.Is(err, errResultShape), errors.Is(err, errProtocol):
 		return model.Errf("upstream_error", "gateway %s: upstream sent an invalid response", g.Name)
+	case errors.Is(err, errCommandNotAllowed):
+		return model.Errf("upstream_error", "gateway %s: command %s is not in SUBSPACE_GATEWAY_COMMANDS", g.Name, g.Command)
 	case errors.Is(err, netguard.ErrBlocked):
 		return model.Errf("upstream_error", "gateway %s: upstream address is not allowed", g.Name)
 	}

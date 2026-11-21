@@ -58,4 +58,5 @@ type CostRow struct {
 type CostsTx interface {
 	PutCost(r CostRecord) error
 	Costs(q CostQuery) ([]CostRow, error)
+	ListCosts(since, until time.Time) ([]CostRecord, error)
 }

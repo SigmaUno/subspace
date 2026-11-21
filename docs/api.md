@@ -1042,15 +1042,49 @@ The feed turns audit events and `system` thread messages into short sentences (`
 
 Every completed `report_usage` request (and every usage record collected from agent sessions) is stored in the `cost_records` table with its brief, task, component, agent, agent kind, agent role, provider and model. Brief and component come from the task, kind and role from the reporting agent. Rate-limit reports carry no cost and are not stored; a repeated `request_id` replaces its record. Costs are in EUR, converted from the record's USD cost at the configured rate. An empty `key` groups records without that attribute. Groups are ordered by cost, descending (`day` ascending by date, UTC), then key. The viewer scope may read it.
 
-### Usage
-Usage records of the running server process (`report_usage`, including rate-limit reports), in USD. `from` and `to` are RFC 3339 (`to` defaults to the next minute, `from` to 24 h before `to`); `agent_id`, `brief_id`, `task_id`, `provider`, `model` and `source` filter. `group_by` is `all` (default), `agent`, `task`, `brief`, `model`, `provider` or `source`.
-
+### Usage, provider availability and live capacity
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/usage/summary?group_by=&from=&to=` | → `{"from","to","group_by","totals":Totals,"groups":[{"key",...Totals}],"credits":{...},"briefs":[...]}`; Totals is `{"requests","tokens_in","tokens_out","cache_read","cache_write","cost_usd","rate_limited"}`. |
-| GET | `/api/v1/usage/series?bucket=minute\|hour\|day&group_by=&from=&to=` | → `{"from","to","bucket","group_by","series":[{"key","points":[{"ts",...Totals}]}]}` |
-| GET | `/api/v1/usage/providers` | → `{"providers":[{"provider","status","requests_1m","rate_limited_5m","rate_limited_1h","last_rate_limited_at","max_concurrency","in_use","concurrency_headroom","requests_per_min","rpm_headroom"}]}` |
-| GET | `/api/v1/usage/capacity` | → live capacity per provider/model with headroom and spawnable agents. |
+| GET | `/api/v1/usage/summary?from=&to=&group_by=&brief_id=&agent_id=&task_id=&provider=&model=&source=` | → UsageSummary. `group_by` is `all` (default), `agent`, `task`, `brief`, `model` (`provider/model`), `provider` or `source` (`mcp`, `claude`, `codex`, `opencode`). `from` and `to` are RFC 3339 (`to` defaults to the end of the current minute, `from` to 24 hours before `to`). 400 for an unknown `group_by` or a malformed or reversed window. |
+| GET | `/api/v1/usage/series?from=&to=&bucket=&group_by=&...` | → `{"from","to","bucket","group_by","series":[{"key","points":[{"ts",...UsageTotals}]}]}`. `bucket` is `minute`, `hour` (default) or `day`; at most 5000 buckets. Same filters as the summary. |
+| GET | `/api/v1/usage/providers` | → `{"providers":[ProviderStatus]}` |
+| GET | `/api/v1/usage/capacity` | → LiveCapacity |
+
+```jsonc
+// UsageSummary
+{"from":"...","to":"...","group_by":"agent",
+ "totals":{"requests":3,"tokens_in":13000,"tokens_out":2300,"cache_read":0,"cache_write":0,"cost_usd":1.0135,"rate_limited":1},
+ "groups":[{"key":"oc-1","requests":1,"tokens_in":10000,"tokens_out":2000,"cache_read":0,"cache_write":0,"cost_usd":1,"rate_limited":0}],
+ "credits":{"total_usd":10,"spent_usd":1.0135,"remaining_usd":8.9865},   // total_usd and remaining_usd are null without SUBSPACE_USAGE_CREDITS_USD
+ "briefs":[{"brief_id":"B-1","title":"...","status":"open","budget_eur":1,"budget_usd":1,"spent_usd":0.0045,"remaining_usd":0.9955}]}   // remaining_usd null without a budget
+```
+
+```jsonc
+// ProviderStatus
+{"provider":"anthropic","status":"throttled",          // ok|throttled|saturated
+ "requests_1m":2,"rate_limited_5m":1,"rate_limited_1h":1,"last_rate_limited_at":"...",
+ "max_concurrency":3,"in_use":1,"concurrency_headroom":2,"requests_per_min":0,"rpm_headroom":-1}   // limits 0 = none, headroom -1 = unlimited
+```
+
+```jsonc
+// LiveCapacity
+{"global_max_agents":10,"agents_in_use":1,"limits":[CapacityLimit],"credits_remaining_usd":8.9865,
+ "models":[{"provider":"anthropic","model":"claude-sonnet-5-5","in_use":1,"requests_1m":2,
+            "spawnable":0,"limited_by":"rate_limited"}]}   // spawnable -1 = no limit
+```
+
+Usage comes from `report_usage` and from collectors that read agent session data on the server host. Records are read back from `cost_records` (cost converted to USD at `SUBSPACE_USAGE_EUR_TO_USD`); rate-limit reports are kept in memory for 24 hours. A missing `cost_usd` is computed from the token counts with the built-in price table. `source` is derived from the record key. A provider is `throttled` while it reported a rate limit within the last 5 minutes and `saturated` when its concurrency or request headroom is 0. `spawnable` is the smallest of: the remaining credits (`0` when spent), the pause flag (`paused`), the provider breaker (`breaker`: `0` open, `1` half-open), a rate limit within the last 5 minutes (`rate_limited`), the global agent limit (`global`) and every matching capacity limit (`concurrency <provider>/<model>`, `rpm <provider>/<model>`, projected from the current requests per agent). `limited_by` names the binding limit. The viewer scope may read all four.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_USAGE_CREDITS_USD` | – | provider credits in USD; enables `credits.remaining_usd` and stops `spawnable` when spent |
+| `SUBSPACE_USAGE_EUR_TO_USD` | `1` | rate used to convert USD usage cost to EUR (`/api/v1/costs`, spend guard) and EUR budgets to USD |
+| `SUBSPACE_USAGE_OPENCODE` | – | comma-separated `[agent-id=]path` of OpenCode databases; usage deltas are read from `session_v2` |
+| `SUBSPACE_USAGE_CLAUDE` | – | comma-separated `[agent-id=]dir` of Claude Code project logs (`*.jsonl`) |
+| `SUBSPACE_USAGE_CODEX` | – | comma-separated `[agent-id=]dir` of Codex session logs (`*.jsonl`) |
+| `SUBSPACE_USAGE_INTERVAL` | `1m` | collector period (minimum `1s`) |
+
+Collectors keep their read position in the key-value table, so a restart neither skips nor re-counts usage. Collected records are attributed to the given agent id. The org spend guard (see Organization spend limits) counts these usage records, so its `budget` decisions in the inbox also cover usage reported this way.
 
 Agent harnesses report usage through `subspace-hook`: `subspace-hook usage` reads `{"provider","model","input_tokens","output_tokens","cache_read_tokens?","cache_write_tokens?","cost_usd?","rate_limited?","request_id?"}` from stdin and calls `report_usage` (with `-task` or `SUBSPACE_TASK_ID` as `task_id`); given a Claude Code hook payload with `transcript_path` instead, it sums the usage of the assistant messages added to the transcript since its last report into one report per model (attributed to the agent's `in_progress` task) and reports Claude Code API error messages with `report_provider_error`. `subspace-hook provider-error` reads `{"provider?","model?","status?"}` and calls `report_provider_error`. The Claude Code kit runs `subspace-hook usage` on `Stop`; the OpenCode plugin reports every finished model step and every provider failure.
 
@@ -1839,7 +1873,7 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Usage and provider health** (all roles; never loop-protected)
-- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). `provider` must match `[a-z0-9][a-z0-9._-]{0,62}` and `model` `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, and neither may look like a secret (400). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). `provider` must match `[a-z0-9][a-z0-9._-]{0,62}` and `model` `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, and neither may look like a secret (400). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); completed requests are stored for `GET /api/v1/costs` and `/api/v1/usage/*`, rate-limit reports are kept in memory for 24 hours.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's. Explicit values follow the `report_usage` rules (400 otherwise).
 
 **Knowledge** (see Knowledge; every result carries `notice`)

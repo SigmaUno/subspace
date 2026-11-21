@@ -46,6 +46,22 @@ export interface ProviderStatus {
   rpm_headroom: number;
 }
 
+export interface ModelCapacity {
+  provider: string;
+  model: string;
+  in_use: number;
+  requests_1m: number;
+  spawnable: number;
+  limited_by: string;
+}
+
+export interface LiveCapacity {
+  global_max_agents: number;
+  agents_in_use: number;
+  models: ModelCapacity[] | null;
+  credits_remaining_usd: number | null;
+}
+
 export interface SpendWindow {
   window: "daily" | "weekly";
   cap_eur: number;

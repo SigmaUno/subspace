@@ -9556,41 +9556,6 @@
         ],
         "type": "object"
       },
-      "Totals": {
-        "properties": {
-          "cache_read": {
-            "type": "integer"
-          },
-          "cache_write": {
-            "type": "integer"
-          },
-          "cost_usd": {
-            "type": "number"
-          },
-          "rate_limited": {
-            "type": "integer"
-          },
-          "requests": {
-            "type": "integer"
-          },
-          "tokens_in": {
-            "type": "integer"
-          },
-          "tokens_out": {
-            "type": "integer"
-          }
-        },
-        "required": [
-          "cache_read",
-          "cache_write",
-          "cost_usd",
-          "rate_limited",
-          "requests",
-          "tokens_in",
-          "tokens_out"
-        ],
-        "type": "object"
-      },
       "Train": {
         "properties": {
           "base": {
@@ -10048,6 +10013,41 @@
         ],
         "type": "object"
       },
+      "UsageSeriesResponse": {
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/UsageSeries"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "from",
+          "group_by",
+          "series",
+          "to"
+        ],
+        "type": "object"
+      },
       "UsageSummary": {
         "properties": {
           "briefs": {
@@ -10083,7 +10083,7 @@
             "type": "string"
           },
           "totals": {
-            "$ref": "#/components/schemas/Totals"
+            "$ref": "#/components/schemas/UsageTotals"
           }
         },
         "required": [
@@ -10094,6 +10094,41 @@
           "groups",
           "to",
           "totals"
+        ],
+        "type": "object"
+      },
+      "UsageTotals": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out"
         ],
         "type": "object"
       },
@@ -19162,39 +19197,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "properties": {
-                    "bucket": {
-                      "type": "string"
-                    },
-                    "from": {
-                      "format": "date-time",
-                      "type": "string"
-                    },
-                    "group_by": {
-                      "type": "string"
-                    },
-                    "series": {
-                      "items": {
-                        "$ref": "#/components/schemas/UsageSeries"
-                      },
-                      "type": [
-                        "array",
-                        "null"
-                      ]
-                    },
-                    "to": {
-                      "format": "date-time",
-                      "type": "string"
-                    }
-                  },
-                  "required": [
-                    "bucket",
-                    "from",
-                    "group_by",
-                    "series",
-                    "to"
-                  ],
-                  "type": "object"
+                  "$ref": "#/components/schemas/UsageSeriesResponse"
                 }
               }
             },

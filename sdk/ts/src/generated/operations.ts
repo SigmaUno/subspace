@@ -893,7 +893,7 @@ export function getUsageProviders(
 export function getUsageSeries(
   r: Requester,
   args?: { query?: { bucket?: string; group_by?: string; from?: string; to?: string; agent_id?: string; brief_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
-): Promise<{ bucket: string; from: string; group_by: string; series: T.UsageSeries[] | null; to: string }> {
+): Promise<T.UsageSeriesResponse> {
   return r.request("GET", "/api/v1/usage/series", { ...args, response: "json" });
 }
 

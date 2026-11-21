@@ -90,6 +90,21 @@ func scenarioCosts(t *testing.T, s store.Store) {
 		}
 	}
 
+	var recs []store.CostRecord
+	read(t, s, func(tx store.Tx) (err error) {
+		recs, err = tx.(store.CostsTx).ListCosts(at(h), at(10*h))
+		return
+	})
+	want := []store.CostRecord{
+		{Key: "c3", TS: at(2 * h), BriefID: "B-1", TaskID: "T-2", ComponentID: "C-2", AgentID: "r1", Kind: "codex", Role: "reviewer",
+			Provider: "openai", Model: "gpt", TokensIn: 20, TokensOut: 10, CostEUR: 2},
+		{Key: "c4", TS: at(3 * h), BriefID: "B-2", TaskID: "T-3", AgentID: "w2", Kind: "opencode", Role: "worker",
+			Provider: "deepseek", Model: "chat", TokensIn: 7, TokensOut: 3, CostEUR: 0.5},
+	}
+	if !reflect.DeepEqual(recs, want) {
+		t.Fatalf("list costs: got %+v want %+v", recs, want)
+	}
+
 	read(t, s, func(tx store.Tx) error {
 		if _, err := tx.(store.CostsTx).Costs(store.CostQuery{GroupBy: "bogus", Since: since, Until: until}); err == nil {
 			t.Fatal("unknown dimension accepted")

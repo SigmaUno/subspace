@@ -22,8 +22,15 @@ func init() {
 		d.API.Mount(d.Mux, "GET /api/v1/breakers", h)
 		d.API.Mount(d.Mux, "POST /api/v1/breakers/{provider}/reset", h)
 
-		svc := usage.New(breakerUsageStore{usage.NewPersisted(d.Store, 1), d.Breakers}, usage.Config{})
+		svc := usage.New(breakerUsageStore{d.Usage, d.Breakers}, d.UsageSetup.Config)
 		svc.Attrib = usage.StoreAttributor(d.Store)
+		svc.Capacity = usage.CapacityFunc(d.Board.CapacityUsage)
+		svc.Briefs = d.Board
+		svc.Breaker = func(provider, mdl string) string { return string(d.Breakers.State(provider, mdl)) }
+		svc.Paused = func() bool { p, _ := d.Board.Paused(); return p }
+		if d.Cfg.Now != nil {
+			svc.Now = d.Cfg.Now
+		}
 		svc.Allow = func(ctx context.Context, a model.Actor, taskID, briefID string) error {
 			if taskID != "" {
 				t, err := d.Board.GetTask(ctx, a, taskID)
@@ -51,17 +58,11 @@ func init() {
 			})
 			return
 		}
-		svc.Capacity = usage.CapacityFunc(d.Board.CapacityUsage)
-		svc.Briefs = d.Board
-		svc.Now = d.Cfg.Now
-		uh := usage.NewHandler(svc)
-		for _, p := range []string{"summary", "series", "providers", "capacity"} {
-			d.API.Mount(d.Mux, "GET /api/v1/usage/"+p, uh)
-		}
 		for _, t := range svc.Tools() {
 			d.Registry.Register(t)
 		}
 		d.Registry.Register(providerErrorTool(d))
+		mountUsage(d, svc)
 
 		mountProbe(d)
 
@@ -106,12 +107,12 @@ func breakerLog(log *slog.Logger) func(breaker.Status) {
 }
 
 type breakerUsageStore struct {
-	usage.Store
+	*usage.Persisted
 	set *breaker.Set
 }
 
 func (s breakerUsageStore) Put(ctx context.Context, recs []usage.Record) error {
-	if err := s.Store.Put(ctx, recs); err != nil {
+	if err := s.Persisted.Put(ctx, recs); err != nil {
 		return err
 	}
 	for _, r := range recs {

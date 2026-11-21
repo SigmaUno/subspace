@@ -366,6 +366,7 @@ func registry() map[string]entry {
 		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
 		"drills":         {parse: grouped("drills", drillCommands), subs: names(drillCommands)},
 		"costs":          {parse: parseCosts},
+		"usage":          {parse: grouped("usage", usageCommands), subs: names(usageCommands)},
 		"estimates":      {parse: grouped("estimates", estimateCommands), subs: names(estimateCommands)},
 		"knowledge":      {parse: grouped("knowledge", knowledgeCommands), subs: names(knowledgeCommands)},
 		"announcements":  {parse: grouped("announcements", announcementCommands), subs: names(announcementCommands)},

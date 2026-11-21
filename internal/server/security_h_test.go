@@ -3,11 +3,15 @@ package server_test
 import (
 	"bytes"
 	"io"
+	"log/slog"
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 )
 
@@ -92,4 +96,40 @@ func TestRequestSpawnRejectsUnsafeModel(t *testing.T) {
 		e.MustFail(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "claude-code", "model": m, "n": 1}, "bad_request")
 	}
 	e.Must(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "claude-code", "model": "anthropic/claude-sonnet-5.5@2026", "n": 1})
+}
+
+type logSink struct {
+	mu sync.Mutex
+	b  bytes.Buffer
+}
+
+func (l *logSink) Write(p []byte) (int, error) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.Write(p)
+}
+
+func (l *logSink) String() string {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	return l.b.String()
+}
+
+func TestSpendGuardIgnoresUnauthenticatedCostReports(t *testing.T) {
+	logs := &logSink{}
+	e := servertest.Start(t, server.Config{PublicURL: "http://sub.test", Lease: time.Minute,
+		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Log: slog.New(slog.NewTextHandler(logs, nil))})
+	wk := e.Register("w1", "worker", "claude-code")
+	e.RPC("not-a-token", "tools/call", map[string]any{"name": "update_status", "arguments": map[string]any{"task_id": "T-anon", "status": "in_progress"}})
+	e.RPC(wk, "tools/call", map[string]any{"name": "update_status", "arguments": map[string]any{"task_id": "T-agent", "status": "in_progress"}})
+	deadline := time.Now().Add(5 * time.Second)
+	for !strings.Contains(logs.String(), "T-agent") {
+		if time.Now().After(deadline) {
+			t.Fatalf("authenticated cost report never checked: %s", logs.String())
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if strings.Contains(logs.String(), "T-anon") {
+		t.Fatalf("unauthenticated request reached the spend guard: %s", logs.String())
+	}
 }

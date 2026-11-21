@@ -25,6 +25,26 @@ func (t *tx) GetAgent(id string) (*model.Agent, error) {
 	return get(t, store.Agents.Scan, agentSelect+` WHERE a.id = $1`, id)
 }
 
+func (t *tx) AgentProviders(ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	rows, err := t.q.QueryContext(t.ctx, `SELECT id, provider FROM agents WHERE id = ANY($1)`, ids)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, p string
+		if err := rows.Scan(&id, &p); err != nil {
+			return nil, err
+		}
+		out[id] = p
+	}
+	return out, rows.Err()
+}
+
 func (t *tx) GetAgentByTokenHash(hash string) (*model.Agent, error) {
 	return get(t, store.Agents.Scan, agentSelect+` WHERE a.token_hash = $1`, hash)
 }

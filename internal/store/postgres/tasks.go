@@ -94,6 +94,17 @@ func (t *tx) BriefCost(briefID string) (float64, error) {
 	return c, err
 }
 
+func (t *tx) ActiveAgents(briefID, agentID string) (int, bool, error) {
+	var (
+		n    int
+		self bool
+	)
+	err := t.q.QueryRowContext(t.ctx,
+		`SELECT COUNT(DISTINCT assignee), COALESCE(BOOL_OR(assignee = $1), false) FROM tasks WHERE brief_id = $2 AND status = $3`,
+		agentID, briefID, model.StatusInProgress).Scan(&n, &self)
+	return n, self, err
+}
+
 func (t *tx) ExtendLeases(rows []store.LeaseRow) error {
 	if len(rows) == 0 {
 		return nil

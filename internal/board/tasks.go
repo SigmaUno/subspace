@@ -548,16 +548,12 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 			return err
 		}
 		if br.Budget.MaxParallelAgent > 0 {
-			ts, err := tx.ListTasks(store.TaskFilter{BriefID: br.ID, Status: []string{model.StatusInProgress}, Limit: 100000})
+			n, self, err := tx.ActiveAgents(br.ID, a.ID)
 			if err != nil {
 				return err
 			}
-			active := map[string]bool{}
-			for _, x := range ts {
-				active[deref(x.Assignee)] = true
-			}
-			if !active[a.ID] && len(active) >= br.Budget.MaxParallelAgent {
-				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
+			if !self && n >= br.Budget.MaxParallelAgent {
+				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, n)
 			}
 		}
 		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
@@ -840,13 +836,17 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 		if err != nil {
 			return err
 		}
-		agents, err := tx.ListAgents(store.AgentFilter{Limit: 100000})
+		var ids []string
+		seen := map[string]bool{}
+		for _, t := range ts {
+			if id := deref(t.Assignee); id != "" && !seen[id] && (t.Reviewer == nil || *t.Reviewer == a.ID) {
+				seen[id] = true
+				ids = append(ids, id)
+			}
+		}
+		providers, err := tx.AgentProviders(ids)
 		if err != nil {
 			return err
-		}
-		providers := make(map[string]string, len(agents))
-		for _, ag := range agents {
-			providers[ag.ID] = ag.Provider
 		}
 		allowed := map[string]bool{}
 		for _, t := range ts {

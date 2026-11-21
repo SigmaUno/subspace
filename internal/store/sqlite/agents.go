@@ -1,6 +1,8 @@
 package sqlite
 
 import (
+	"encoding/json"
+
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -60,4 +62,28 @@ func (t *tx) TouchAgents(seen map[string]int64) error {
 		}
 	}
 	return nil
+}
+
+func (t *tx) AgentProviders(ids []string) (map[string]string, error) {
+	out := make(map[string]string, len(ids))
+	if len(ids) == 0 {
+		return out, nil
+	}
+	list, err := json.Marshal(ids)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := t.q.QueryContext(t.ctx, `SELECT id, provider FROM agents WHERE id IN (SELECT value FROM json_each(?))`, string(list))
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		var id, p string
+		if err := rows.Scan(&id, &p); err != nil {
+			return nil, err
+		}
+		out[id] = p
+	}
+	return out, rows.Err()
 }

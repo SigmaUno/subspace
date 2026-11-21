@@ -81,12 +81,14 @@ type Tx interface {
 	ListTasks(f TaskFilter) ([]*model.Task, error)
 	CountTasksByStatus() (map[string]int, error)
 	BriefCost(briefID string) (float64, error)
+	ActiveAgents(briefID, agentID string) (n int, self bool, err error)
 
 	InsertAgent(a *model.Agent) error
 	GetAgent(id string) (*model.Agent, error)
 	GetAgentByTokenHash(hash string) (*model.Agent, error)
 	UpdateAgent(a *model.Agent) error
 	ListAgents(f AgentFilter) ([]*model.Agent, error)
+	AgentProviders(ids []string) (map[string]string, error)
 
 	TouchAgents(seen map[string]int64) error
 

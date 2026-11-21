@@ -122,6 +122,16 @@ func (t *Tx) BriefCost(briefID string) (float64, error) {
 	return call(t, "BriefCost", func() (float64, error) { return t.in.BriefCost(briefID) })
 }
 
+func (t *Tx) ActiveAgents(briefID, agentID string) (int, bool, error) {
+	var self bool
+	n, err := call(t, "ActiveAgents", func() (int, error) {
+		n, s, err := t.in.ActiveAgents(briefID, agentID)
+		self = s
+		return n, err
+	})
+	return n, self, err
+}
+
 func (t *Tx) InsertAgent(a *model.Agent) error {
 	return t.run("InsertAgent", func() error { return t.in.InsertAgent(a) })
 }
@@ -140,6 +150,10 @@ func (t *Tx) UpdateAgent(a *model.Agent) error {
 
 func (t *Tx) ListAgents(f store.AgentFilter) ([]*model.Agent, error) {
 	return call(t, "ListAgents", func() ([]*model.Agent, error) { return t.in.ListAgents(f) })
+}
+
+func (t *Tx) AgentProviders(ids []string) (map[string]string, error) {
+	return call(t, "AgentProviders", func() (map[string]string, error) { return t.in.AgentProviders(ids) })
 }
 
 func (t *Tx) TouchAgents(seen map[string]int64) error {

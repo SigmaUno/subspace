@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"slices"
 	"strings"
@@ -272,20 +273,42 @@ func (b *Board) checkDeps(tx store.Tx, t *model.Task, deps []string) ([]string, 
 			out = append(out, d)
 		}
 	}
-	all, err := tx.ListTasks(store.TaskFilter{BriefID: t.BriefID, Limit: 100000})
+	cyc, err := reaches(tx, t, out)
 	if err != nil {
 		return nil, err
 	}
-	graph := []*model.Task{{ID: t.ID, DependsOn: out}}
-	for _, x := range liveTasks(all) {
-		if x.ID != t.ID {
-			graph = append(graph, x)
-		}
-	}
-	if hasCycle(graph) {
+	if cyc {
 		return nil, model.BadRequest("dependency cycle through %s", t.ID)
 	}
 	return out, nil
+}
+
+func reaches(tx store.Tx, t *model.Task, from []string) (bool, error) {
+	seen := map[string]bool{}
+	stack := append([]string(nil), from...)
+	for len(stack) > 0 {
+		id := stack[len(stack)-1]
+		stack = stack[:len(stack)-1]
+		if id == t.ID {
+			return true, nil
+		}
+		if seen[id] {
+			continue
+		}
+		seen[id] = true
+		x, err := tx.GetTask(id)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		if x.BriefID != t.BriefID || x.Status == model.StatusCancelled {
+			continue
+		}
+		stack = append(stack, x.DependsOn...)
+	}
+	return false, nil
 }
 
 func checkRepo(br *model.Brief, repo string) error {

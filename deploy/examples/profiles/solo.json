@@ -1,0 +1,8 @@
+[
+  {"name": "solo-worker", "role": "worker", "kind": "claude-code", "model": "claude-sonnet-5-5", "provider": "anthropic",
+   "expires_in": "720h", "count": 1, "description": "Single Claude Code worker for a solo developer"},
+  {"name": "solo-reviewer", "role": "reviewer", "kind": "codex", "model": "gpt-5-codex", "provider": "openai",
+   "expires_in": "720h", "description": "Codex reviewer, a different provider than the worker"},
+  {"name": "solo-tester", "role": "tester", "kind": "opencode", "model": "deepseek/deepseek-chat", "provider": "deepseek",
+   "expires_in": "720h", "description": "Cheap tester on DeepSeek"}
+]

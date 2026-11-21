@@ -2439,6 +2439,25 @@
         ],
         "type": "object"
       },
+      "Check": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "name",
+          "status"
+        ],
+        "type": "object"
+      },
       "Component": {
         "properties": {
           "brief_id": {
@@ -3039,6 +3058,57 @@
           "blocked",
           "created",
           "done"
+        ],
+        "type": "object"
+      },
+      "DrillResult": {
+        "properties": {
+          "backup": {
+            "type": "string"
+          },
+          "backup_bytes": {
+            "type": "integer"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup",
+          "backup_bytes",
+          "checks",
+          "error",
+          "finished_at",
+          "id",
+          "started_at",
+          "status",
+          "trigger"
         ],
         "type": "object"
       },
@@ -12079,6 +12149,83 @@
         ]
       }
     },
+    "/api/v1/drills": {
+      "get": {
+        "operationId": "getDrills",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "drills": {
+                      "items": {
+                        "$ref": "#/components/schemas/DrillResult"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "drills"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List restore drill results, newest first",
+        "tags": [
+          "drills"
+        ]
+      },
+      "post": {
+        "operationId": "postDrills",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrillResult"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Run a restore drill of the newest backup now; the result is 201 even when the drill failed",
+        "tags": [
+          "drills"
+        ]
+      }
+    },
     "/api/v1/events": {
       "get": {
         "operationId": "getEvents",
@@ -16886,6 +17033,9 @@
     },
     {
       "name": "digest"
+    },
+    {
+      "name": "drills"
     },
     {
       "name": "ha"

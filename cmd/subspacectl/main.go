@@ -142,6 +142,8 @@ Commands:
   incident start --reason TEXT --actions pause_all,revoke_agents,rotate_leader_tokens,snapshot,notify
                  [--revoke-role ROLE] [--revoke-provider NAME]
   incident end INCIDENT_ID [--resume-agents] [--note TEXT]
+  drills list [--limit N]
+  drills run
   costs [--group-by DIM] [--split-by DIM] [--since TIME] [--until TIME] [--brief ID]
   estimates brief BRIEF_ID
   estimates plan PLAN_ID
@@ -191,7 +193,7 @@ Commands:
   completion bash|zsh|fish
 
 doctor runs the server's local diagnostics against this machine's environment and
-needs no credentials; it exits 1 when it finds errors. incident start, incident end and
+needs no credentials; it exits 1 when it finds errors. incident start, incident end, drills run and
 retention verify print the result and exit 1 when an action failed. output tail --follow
 streams until interrupted.
 
@@ -326,6 +328,7 @@ func registry() map[string]entry {
 		"completion":     {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}, local: true},
 		"schedules":      {parse: grouped("schedules", scheduleCommands), subs: names(scheduleCommands)},
 		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
+		"drills":         {parse: grouped("drills", drillCommands), subs: names(drillCommands)},
 		"costs":          {parse: parseCosts},
 		"estimates":      {parse: grouped("estimates", estimateCommands), subs: names(estimateCommands)},
 		"knowledge":      {parse: grouped("knowledge", knowledgeCommands), subs: names(knowledgeCommands)},

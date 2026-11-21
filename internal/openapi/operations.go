@@ -18,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/digest"
+	"github.com/SigmaUno/subspace/internal/drill"
 	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/gates"
@@ -82,6 +83,8 @@ var operations = []Op{
 	post("/api/v1/reload", "Re-read SUBSPACE_CONFIG_FILE and the capacity file and apply them atomically", Free{}, reload.Result{}),
 	post("/api/v1/backup", "Create a verified database backup", Free{}, BackupResult{}),
 	get("/api/v1/backups", "List backups, newest first", list[backup.Info]("backups")),
+	get("/api/v1/drills", "List restore drill results, newest first", list[drill.Result]("drills")).Q("limit:integer"),
+	post("/api/v1/drills", "Run a restore drill of the newest backup now; the result is 201 even when the drill failed", Free{}, drill.Result{}).S(created),
 	get("/api/v1/incident", "List incidents, newest first", list[incident.Incident]("incidents")).Q("limit:integer"),
 	post("/api/v1/incident", "Declare an incident or add actions to the active one; rotated tokens are shown once", incident.Request{}, incident.StartOutcome{}).S(created),
 	post("/api/v1/incident/{id}/end", "End an incident: resume all and optionally re-enable paused agents", incident.EndRequest{}, incident.EndOutcome{}),

@@ -622,6 +622,9 @@ func (s *ServerSystem) backupTick(ctx context.Context) {
 }
 
 func (s *ServerSystem) verifyBackup(ctx context.Context, path string) (err error) {
+	if s.pg != nil {
+		return verifyPGBackup(ctx, path, s.expect)
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return err

@@ -19,6 +19,8 @@ var activeStatuses = []string{model.StatusReady, model.StatusInProgress, model.S
 type StoreSource struct {
 	Store          store.Store
 	DBPath         string
+	DataDir        string
+	DBSize         func(ctx context.Context) (int64, error)
 	BackupsEnabled bool
 	Backups        func(ctx context.Context) ([]backup.Info, error)
 	Paused         func() bool
@@ -94,13 +96,21 @@ func (s *StoreSource) lastAssignment(tx store.Tx) (time.Time, error) {
 }
 
 func (s *StoreSource) files(ctx context.Context, snap *Snapshot) {
-	if fi, err := os.Stat(s.DBPath); err == nil {
-		snap.DBBytes = fi.Size()
+	dir := filepath.Dir(s.DBPath)
+	if s.DBSize != nil {
+		if n, err := s.DBSize(ctx); err == nil {
+			snap.DBBytes = n
+		}
+		dir = s.DataDir
+	} else {
+		if fi, err := os.Stat(s.DBPath); err == nil {
+			snap.DBBytes = fi.Size()
+		}
+		if fi, err := os.Stat(s.DBPath + "-wal"); err == nil {
+			snap.WALBytes = fi.Size()
+		}
 	}
-	if fi, err := os.Stat(s.DBPath + "-wal"); err == nil {
-		snap.WALBytes = fi.Size()
-	}
-	if free, err := diskFree(filepath.Dir(s.DBPath)); err == nil {
+	if free, err := diskFree(dir); dir != "" && err == nil {
 		snap.DiskKnown, snap.DiskFree = true, free
 	}
 	if !s.BackupsEnabled || s.Backups == nil {

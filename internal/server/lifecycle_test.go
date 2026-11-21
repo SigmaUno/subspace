@@ -3,7 +3,6 @@ package server_test
 import (
 	"context"
 	"net/http"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -13,6 +12,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 	"github.com/SigmaUno/subspace/internal/spawner"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type lifeSpawner struct {
@@ -200,7 +200,7 @@ func TestSpawnConnectTimeoutFromEnv(t *testing.T) {
 
 func TestSpawnReconcileAfterRestart(t *testing.T) {
 	sp := &lifeSpawner{}
-	db := filepath.Join(t.TempDir(), "t.db")
+	db := testdb.Path(t, "t.db")
 	var sps []map[string]any
 	t.Run("boot", func(t *testing.T) {
 		e := servertest.Start(t, lifeConfig(sp, db))

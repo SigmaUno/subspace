@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
@@ -14,12 +13,13 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func newFlowEnv(t *testing.T, mod func(*Config)) *env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	cfg := Config{DBPath: filepath.Join(t.TempDir(), "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
+	cfg := Config{DBPath: testdb.Path(t, "t.db"), DataDir: testdb.DataDir(t), OwnerToken: ownerTok, PublicURL: "http://sub.test",
 		FlushEvery: 20 * time.Millisecond, SweepEvery: 20 * time.Millisecond, Lease: time.Minute}
 	if mod != nil {
 		mod(&cfg)

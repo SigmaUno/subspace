@@ -4,12 +4,12 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/spawner"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type stopSpawner struct {
@@ -47,7 +47,7 @@ func (s *stopSpawner) Status(_ context.Context, id string) (spawner.Status, erro
 func newBotsEnv(t *testing.T, sp spawner.Spawner) *env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: filepath.Join(t.TempDir(), "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
+	s, err := New(ctx, Config{DBPath: testdb.Path(t, "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute, Spawner: sp})
 	if err != nil {
 		t.Fatal(err)

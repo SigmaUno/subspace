@@ -12,17 +12,17 @@ func TestScenarios(t *testing.T) {
 		t.Skip("short")
 	}
 	think := 5 * time.Millisecond
+	const bound = 5 * time.Minute
 	cases := []Config{
-		{Scenario: ScenarioContention, Agents: 40, Think: think},
-		{Scenario: ScenarioBigPlan, Agents: 20, Tasks: 50, Reviewers: 4, Think: think},
-		{Scenario: ScenarioManyBriefs, Agents: 20, Briefs: 5, Reviewers: 4, Think: think},
-		{Scenario: ScenarioThreadHeavy, Agents: 10, Messages: 200, Think: think},
-		{Scenario: ScenarioReconnectStorm, Agents: 10, SSESubs: 100, Think: think},
-		{Scenario: ScenarioRestart, Agents: 20, SSESubs: 20, TasksPerAgent: 5, Think: think},
+		{Scenario: ScenarioContention, Agents: 40, Think: think, Duration: bound},
+		{Scenario: ScenarioBigPlan, Agents: 20, Tasks: 50, Reviewers: 4, Think: think, Duration: bound},
+		{Scenario: ScenarioManyBriefs, Agents: 20, Briefs: 5, Reviewers: 4, Think: think, Duration: bound},
+		{Scenario: ScenarioThreadHeavy, Agents: 10, Messages: 200, Think: think, Duration: bound},
+		{Scenario: ScenarioReconnectStorm, Agents: 10, SSESubs: 100, Think: think, Duration: 10 * time.Second},
+		{Scenario: ScenarioRestart, Agents: 20, SSESubs: 20, TasksPerAgent: 5, Think: think, Duration: bound},
 	}
 	for _, cfg := range cases {
 		t.Run(cfg.Scenario, func(t *testing.T) {
-			cfg.Duration = 10 * time.Second
 			rep, err := Run(context.Background(), cfg)
 			if err != nil {
 				t.Fatal(err)

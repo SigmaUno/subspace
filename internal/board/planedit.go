@@ -23,13 +23,25 @@ type TaskEdit struct {
 }
 
 func (e TaskEdit) budgetOnly() bool {
-	return e.Budget != nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
+	rest := e
+	rest.Budget = nil
+	return e.Budget != nil && rest.empty()
 }
 
 func (e TaskEdit) empty() bool {
-	return e.Budget == nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
+	return e == TaskEdit{}
+}
+
+type changeSet struct {
+	before, after map[string]any
+	fields        []string
+}
+
+func (c *changeSet) set(field string, from, to any, differs bool) {
+	if differs {
+		c.before[field], c.after[field] = from, to
+		c.fields = append(c.fields, field)
+	}
 }
 
 func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Task, error) {
@@ -52,103 +64,102 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 		if err != nil {
 			return err
 		}
-		before, after := map[string]any{}, map[string]any{}
-		var changed []string
-		set := func(field string, from, to any, differs bool) {
-			if differs {
-				before[field], after[field] = from, to
-				changed = append(changed, field)
-			}
+		c, err := b.applyEdit(tx, br, t, e)
+		if err != nil {
+			return err
 		}
-		if e.Title != nil {
-			if strings.TrimSpace(*e.Title) == "" {
-				return model.BadRequest("title must not be empty")
-			}
-			set("title", t.Title, *e.Title, t.Title != *e.Title)
-			t.Title = *e.Title
-		}
-		if e.Spec != nil {
-			if strings.TrimSpace(*e.Spec) == "" {
-				return model.BadRequest("spec must not be empty")
-			}
-			set("spec", t.Spec, *e.Spec, t.Spec != *e.Spec)
-			t.Spec = *e.Spec
-		}
-		if e.AcceptanceCriteria != nil {
-			ac := nz(*e.AcceptanceCriteria)
-			set("acceptance_criteria", t.AcceptanceCriteria, ac, !slices.Equal(t.AcceptanceCriteria, ac))
-			t.AcceptanceCriteria = ac
-		}
-		if e.Repo != nil {
-			if err := checkRepo(br, *e.Repo); err != nil {
-				return err
-			}
-			if err := b.checkRegistry(tx, *e.Repo, t.Branch); err != nil {
-				return err
-			}
-			set("repo", t.Repo, *e.Repo, t.Repo != *e.Repo)
-			t.Repo = *e.Repo
-		}
-		if e.Role != nil {
-			if *e.Role != model.RoleWorker && *e.Role != model.RoleTester {
-				return model.BadRequest("task role must be worker or tester")
-			}
-			if t.Assignee != nil && *e.Role != t.Role {
-				return model.Conflict("task %s is assigned to %s; role cannot change", t.ID, *t.Assignee)
-			}
-			set("role", t.Role, *e.Role, t.Role != *e.Role)
-			t.Role = *e.Role
-		}
-		if e.Budget != nil {
-			if e.Budget.MaxMinutes < 0 || e.Budget.MaxCostEUR < 0 {
-				return model.BadRequest("budget must be >= 0")
-			}
-			set("budget", t.Budget, *e.Budget, t.Budget != *e.Budget)
-			t.Budget = *e.Budget
-		}
-		if e.Paths != nil {
-			ps, err := conflict.NormalizeAll(*e.Paths)
-			if err != nil {
-				return model.BadRequest("paths: %v", err)
-			}
-			np := model.Paths(ps)
-			if len(np) == 0 {
-				np = nil
-			}
-			set("paths", t.Paths, np, !slices.Equal(t.Paths, np))
-			t.Paths = np
-		}
-		if e.DependsOn != nil {
-			deps, err := b.checkDeps(tx, t, *e.DependsOn)
-			if err != nil {
-				return err
-			}
-			set("depends_on", t.DependsOn, deps, !slices.Equal(t.DependsOn, deps))
-			t.DependsOn = deps
-		}
-		if len(changed) == 0 {
+		if len(c.fields) == 0 {
 			out = t
 			return nil
 		}
-		if _, ok := after["title"]; ok {
+		if _, ok := c.after["title"]; ok {
 			t.Branch = "sub/" + strings.ToLower(t.ID) + "-" + slug(t.Title)
 			if err := b.checkRegistry(tx, t.Repo, t.Branch); err != nil {
 				return err
 			}
 		}
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		out = t
-		msg := fmt.Sprintf("Owner edited %s: %s", t.ID, strings.Join(changed, ", "))
+		msg := fmt.Sprintf("Owner edited %s: %s", t.ID, strings.Join(c.fields, ", "))
 		if err := w.post(tx, model.ThreadBrief, t.BriefID, model.Owner, model.MsgSystem, msg); err != nil {
 			return err
 		}
-		return w.audit(tx, model.Owner, "edit_task", t.ID, before, after, "")
+		return w.audit(tx, model.Owner, "edit_task", t.ID, c.before, c.after, "")
 	})
 	return out, err
+}
+
+func (b *Board) applyEdit(tx store.Tx, br *model.Brief, t *model.Task, e TaskEdit) (*changeSet, error) {
+	c := &changeSet{before: map[string]any{}, after: map[string]any{}}
+	if e.Title != nil {
+		if strings.TrimSpace(*e.Title) == "" {
+			return nil, model.BadRequest("title must not be empty")
+		}
+		c.set("title", t.Title, *e.Title, t.Title != *e.Title)
+		t.Title = *e.Title
+	}
+	if e.Spec != nil {
+		if strings.TrimSpace(*e.Spec) == "" {
+			return nil, model.BadRequest("spec must not be empty")
+		}
+		c.set("spec", t.Spec, *e.Spec, t.Spec != *e.Spec)
+		t.Spec = *e.Spec
+	}
+	if e.AcceptanceCriteria != nil {
+		ac := nz(*e.AcceptanceCriteria)
+		c.set("acceptance_criteria", t.AcceptanceCriteria, ac, !slices.Equal(t.AcceptanceCriteria, ac))
+		t.AcceptanceCriteria = ac
+	}
+	if e.Repo != nil {
+		if err := checkRepo(br, *e.Repo); err != nil {
+			return nil, err
+		}
+		if err := b.checkRegistry(tx, *e.Repo, t.Branch); err != nil {
+			return nil, err
+		}
+		c.set("repo", t.Repo, *e.Repo, t.Repo != *e.Repo)
+		t.Repo = *e.Repo
+	}
+	if e.Role != nil {
+		if *e.Role != model.RoleWorker && *e.Role != model.RoleTester {
+			return nil, model.BadRequest("task role must be worker or tester")
+		}
+		if t.Assignee != nil && *e.Role != t.Role {
+			return nil, model.Conflict("task %s is assigned to %s; role cannot change", t.ID, *t.Assignee)
+		}
+		c.set("role", t.Role, *e.Role, t.Role != *e.Role)
+		t.Role = *e.Role
+	}
+	if e.Budget != nil {
+		if e.Budget.MaxMinutes < 0 || e.Budget.MaxCostEUR < 0 {
+			return nil, model.BadRequest("budget must be >= 0")
+		}
+		c.set("budget", t.Budget, *e.Budget, t.Budget != *e.Budget)
+		t.Budget = *e.Budget
+	}
+	if e.Paths != nil {
+		ps, err := conflict.NormalizeAll(*e.Paths)
+		if err != nil {
+			return nil, model.BadRequest("paths: %v", err)
+		}
+		np := model.Paths(ps)
+		if len(np) == 0 {
+			np = nil
+		}
+		c.set("paths", t.Paths, np, !slices.Equal(t.Paths, np))
+		t.Paths = np
+	}
+	if e.DependsOn != nil {
+		deps, err := b.checkDeps(tx, t, *e.DependsOn)
+		if err != nil {
+			return nil, err
+		}
+		c.set("depends_on", t.DependsOn, deps, !slices.Equal(t.DependsOn, deps))
+		t.DependsOn = deps
+	}
+	return c, nil
 }
 
 func (b *Board) AddPlanTask(ctx context.Context, planID string, in TaskInput) (*model.Plan, error) {
@@ -227,11 +238,10 @@ func (b *Board) DropPlanTask(ctx context.Context, planID, taskID string) (*model
 		if len(refs) > 0 {
 			return model.Conflict("task %s is still a dependency of %s", t.ID, strings.Join(refs, ", "))
 		}
-		t.Status, t.BlockedReason, t.UpdatedAt = model.StatusCancelled, strp("dropped from plan"), b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		t.Status, t.BlockedReason = model.StatusCancelled, strp("dropped from plan")
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		out = p
 		msg := fmt.Sprintf("Owner dropped %s from plan %s: %s", t.ID, p.ID, t.Title)
 		if err := w.post(tx, model.ThreadBrief, p.BriefID, model.Owner, model.MsgSystem, msg); err != nil {

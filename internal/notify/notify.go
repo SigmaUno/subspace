@@ -47,8 +47,29 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		}
 	case "control.resumed":
 		return "control", "resumed", nil
+	case "spend.warning":
+		return spendEvent(ev)
 	}
 	return "", "", nil
+}
+
+func spendEvent(ev events.Event) (string, string, *Notification) {
+	d, ok := ev.Data.(map[string]any)
+	if !ok {
+		return "", "", nil
+	}
+	window, _ := d["window"].(string)
+	spent, _ := d["spent_eur"].(float64)
+	limit, _ := d["cap_eur"].(float64)
+	pct, _ := d["percent"].(float64)
+	level, _ := d["level"].(string)
+	id := "org_budget:" + window
+	n := &Notification{
+		ID: id, Kind: "org_budget", Priority: 5, TS: ev.TS,
+		Title: fmt.Sprintf("Organization %s spend at %.0f%% of its cap", window, pct),
+		Text:  fmt.Sprintf("€%.2f of €%.2f spent (%s)", spent, limit, level),
+	}
+	return id, fmt.Sprintf("%v|%v|%s", d["starts_at"], limit, level), n
 }
 
 func questionEvent(ev events.Event, q *model.Question) (string, string, *Notification) {

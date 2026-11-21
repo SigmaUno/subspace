@@ -113,6 +113,26 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
 | GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. |
 
+### Organization spend limits
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/limits` | → Limits |
+| PUT | `/api/v1/limits` | `{"daily_cost_eur":10,"weekly_cost_eur":50}` → Limits. Replaces both caps (`0` or absent = off); 400 on a negative cap or an unknown field. Appends a `set_limits` audit event and re-evaluates immediately. |
+
+```jsonc
+// Limits
+{"daily_cost_eur":10,"weekly_cost_eur":50,"org_budget_paused":false,   // org_budget_paused: pause_all with reason org_budget is active
+ "windows":[{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning",   // off|ok|warning|exceeded
+             "starts_at":"2026-11-21T00:00:00Z","resets_at":"2026-11-22T00:00:00Z",
+             "projected_exhaustion_at":"2026-11-21T20:10:00Z"},                                // null when unknown or after resets_at
+            {"window":"weekly","cap_eur":50,"spent_eur":8.2,"percent":16.4,"level":"ok",
+             "starts_at":"2026-11-16T00:00:00Z","resets_at":"2026-11-23T00:00:00Z","projected_exhaustion_at":null}]}
+```
+
+The guard covers all briefs. Windows are UTC calendar windows: the day from 00:00, the week from Monday 00:00. Spend in a window is the larger of the usage records (converted to EUR) and the task `cost_used` increases first seen in it, so reported spend is not counted twice. It is evaluated every 10s and after every `update_status` call.
+
+At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budget:org-weekly`) and one `spend.warning` event, delivered by the notification sinks. At 100% it calls pause_all once per window and cap with reason `org_budget`: claims and spawns are refused (423 `paused`). The pause lifts when the window resets or a raised cap puts all windows under 100%, but only while the pause reason is still `org_budget`; an owner pause is never lifted. Resuming manually keeps the guard from pausing again in the same window with the same cap. The caps and the ledger are stored in the key-value table.
+
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
@@ -264,7 +284,7 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 ```jsonc
 // Decision
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|budget
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
@@ -431,6 +451,7 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `plan.proposed` / `plan.approved` / `plan.rejected` | Plan | plans, brief:* |
 | `spawn.updated` | Spawn | agents, brief:* |
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
+| `spend.warning` | `{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning","starts_at":"..."}` | control |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 

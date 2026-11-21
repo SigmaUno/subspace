@@ -4,13 +4,13 @@ test("owner signs in with the owner token and a wrong token is rejected", async 
   await page.goto("/");
   await expect(page).toHaveURL(/\/login$/);
 
-  await page.getByLabel("Owner token").fill(`wrong-${ownerToken()}`);
+  await page.getByLabel("Owner or API token").fill(`wrong-${ownerToken()}`);
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/login\?error=rejected$/);
-  await expect(page.getByRole("alert").filter({ hasText: "Owner token" })).toHaveText("Owner token rejected.");
+  await expect(page.getByRole("alert").filter({ hasText: "Token" })).toHaveText("Token rejected.");
   expect(await page.context().cookies()).toEqual([]);
 
-  await page.getByLabel("Owner token").fill(ownerToken());
+  await page.getByLabel("Owner or API token").fill(ownerToken());
   await page.getByRole("button", { name: "Sign in" }).click();
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole("heading", { name: "Swarm overview" })).toBeVisible();

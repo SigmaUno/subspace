@@ -29,6 +29,7 @@ type PR struct {
 	State      string // open | closed
 	Merged     bool
 	HeadBranch string
+	HeadSHA    string
 	BaseBranch string
 	URL        string
 }
@@ -36,6 +37,7 @@ type PR struct {
 // Host is a git host client.
 type Host interface {
 	GetPR(ctx context.Context, repo string, number int64) (PR, error)
+	PostStatus(ctx context.Context, repo, sha string, status CommitStatus) error
 	ParsePRURL(prURL string) (repo string, number int64, err error)
 	VerifyWebhook(secret string, body []byte, signatureHeader string) bool
 	ValidateBranch(taskID, slug, branch string) error

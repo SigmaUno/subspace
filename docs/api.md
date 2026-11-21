@@ -258,6 +258,18 @@ A PR is only fetched when its repo is the task's `repo` and, for a mapped repo, 
 
 When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
 
+### Forge status checks
+With `SUBSPACE_PRSYNC_CONFIG` set (same hosts and `repos` mapping as the PR poller), every change of a task's review state is reported to the git host as a commit status on the head commit of the task's PR: context `subspace/review`, so a required check in the forge can block the owner's merge until Subspace approves. No endpoint is added; the statuses are posted from the `board` events of tasks that have a `pr_url` in a mapped repo.
+
+| task status | commit status | description |
+|---|---|---|
+| `submitted`, `in_review` | `pending` | Awaiting Subspace review / Subspace review in progress |
+| `changes_requested` | `failure` | Subspace reviewer requested changes |
+| `approved`, `done` | `success` | Approved by Subspace review / Task done in Subspace |
+| `needs_owner` | `error` | Needs an owner decision in Subspace |
+
+Other statuses post nothing. `target_url` is `<SUBSPACE_PUBLIC_URL>/tasks/<task id>` when the public URL is `https://`, and omitted otherwise. The head commit is read from the PR when the status is posted. A status is posted once per repository, head sha and state (kept in memory), so repeated events and several tasks on one PR cost nothing. Requests share the host and global token buckets configured for the PR poller. A transient failure (network error, 5xx, 429 or an exhausted rate limit) is retried up to 4 times with exponential backoff from 1s to 30s, honouring `Retry-After` and `X-RateLimit-Reset`; other failures are logged and dropped, and the next change of the task tries again. Posting runs in background workers: a failing or slow host never delays or fails a board operation. Descriptions are fixed texts and tokens never leave the `Authorization` header. The host token needs permission to write commit statuses.
+
 Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
 
 ### Agents

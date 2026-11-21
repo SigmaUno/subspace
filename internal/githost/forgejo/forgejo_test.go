@@ -2,6 +2,7 @@ package forgejo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -137,5 +138,76 @@ func TestParsePullRequestEvent(t *testing.T) {
 	}
 	if _, err := ParsePullRequestEvent("push", nil); !errors.Is(err, ErrNotPullRequest) {
 		t.Errorf("want ErrNotPullRequest, got %v", err)
+	}
+}
+
+func TestPostStatus(t *testing.T) {
+	const sha = "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+	st := githost.CommitStatus{State: githost.StateSuccess, Context: "subspace/review", Description: "ok", TargetURL: "https://s/tasks/T-1"}
+	tests := []struct {
+		name      string
+		status    int
+		header    map[string]string
+		sha       string
+		repo      string
+		state     string
+		wantErr   error
+		retryable bool
+		anyErr    bool
+	}{
+		{name: "created", status: 201, sha: sha, repo: "o/r", state: "success"},
+		{name: "not found", status: 404, sha: sha, repo: "o/r", state: "success", wantErr: githost.ErrNotFound},
+		{name: "validation", status: 422, sha: sha, repo: "o/r", state: "success", anyErr: true},
+		{name: "server error", status: 502, sha: sha, repo: "o/r", state: "success", anyErr: true, retryable: true},
+		{name: "throttled", status: 429, header: map[string]string{"Retry-After": "7"}, sha: sha, repo: "o/r", state: "success", anyErr: true, retryable: true},
+		{name: "bad sha", sha: "../x", repo: "o/r", state: "success", anyErr: true},
+		{name: "bad state", sha: sha, repo: "o/r", state: "done", anyErr: true},
+		{name: "bad repo", sha: sha, repo: "nope", state: "success", anyErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotAuth, gotMethod string
+			var gotBody githost.CommitStatus
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotAuth, gotMethod = r.URL.Path, r.Header.Get("Authorization"), r.Method
+				_ = json.NewDecoder(r.Body).Decode(&gotBody)
+				for k, v := range tc.header {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+			s := st
+			s.State = tc.state
+			err := New(srv.URL, "tok", srv.Client()).PostStatus(context.Background(), tc.repo, tc.sha, s)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("want %v got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if tc.anyErr {
+				var se *githost.StatusError
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if errors.As(err, &se) && se.Retryable() != tc.retryable {
+					t.Fatalf("retryable = %v", se.Retryable())
+				}
+				if tc.retryable && se == nil {
+					t.Fatalf("want StatusError, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotMethod != "POST" || gotPath != "/api/v1/repos/o/r/statuses/"+sha || gotAuth != "token tok" {
+				t.Errorf("%s %q auth=%q", gotMethod, gotPath, gotAuth)
+			}
+			if gotBody != s {
+				t.Errorf("body %+v want %+v", gotBody, s)
+			}
+		})
 	}
 }

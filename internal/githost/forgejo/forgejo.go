@@ -2,6 +2,7 @@
 package forgejo
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -41,6 +42,7 @@ type apiPR struct {
 	HTMLURL string `json:"html_url"`
 	Head    struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
@@ -50,7 +52,7 @@ type apiPR struct {
 func (p apiPR) toPR(repo string) githost.PR {
 	return githost.PR{
 		Repo: repo, Number: p.Number, Title: p.Title, Body: p.Body, State: p.State, Merged: p.Merged,
-		HeadBranch: p.Head.Ref, BaseBranch: p.Base.Ref, URL: p.HTMLURL,
+		HeadBranch: p.Head.Ref, HeadSHA: p.Head.SHA, BaseBranch: p.Base.Ref, URL: p.HTMLURL,
 	}
 }
 
@@ -125,6 +127,43 @@ func (c *Client) GetPRDiff(ctx context.Context, repo string, number int64) (stri
 		return "", fmt.Errorf("forgejo: read pr diff: %w", err)
 	}
 	return string(b), nil
+}
+
+func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githost.CommitStatus) error {
+	if !validRepo(repo) {
+		return fmt.Errorf("forgejo: invalid repo %q", repo)
+	}
+	if err := status.Validate(sha); err != nil {
+		return err
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	owner, name, _ := strings.Cut(repo, "/")
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/%s/statuses/%s", c.baseURL, url.PathEscape(owner), url.PathEscape(name), sha)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "token "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("forgejo: post status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("%w: %s@%s", githost.ErrNotFound, repo, sha)
+	case resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("forgejo: post status %s@%s: %w", repo, sha, githost.NewStatusError(resp))
+	}
+	return nil
 }
 
 func (c *Client) ParsePRURL(prURL string) (string, int64, error) { return githost.ParsePRURL(prURL) }

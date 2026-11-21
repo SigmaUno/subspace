@@ -1,6 +1,7 @@
 package github
 
 import (
+	"bytes"
 	"context"
 	"crypto/hmac"
 	"crypto/sha256"
@@ -14,6 +15,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/githost"
 )
 
 const defaultAPIURL = "https://api.github.com"
@@ -131,6 +134,7 @@ type ghPR struct {
 	} `json:"merged_by"`
 	Head struct {
 		Ref string `json:"ref"`
+		SHA string `json:"sha"`
 	} `json:"head"`
 	Base struct {
 		Ref string `json:"ref"`
@@ -147,6 +151,7 @@ func (p *ghPR) toPR(repo string) *PR {
 		Merged:    p.Merged || p.MergedAt != nil,
 		Draft:     p.Draft,
 		Branch:    p.Head.Ref,
+		HeadSHA:   p.Head.SHA,
 		BaseRef:   p.Base.Ref,
 		Author:    p.User.Login,
 		MergedAt:  p.MergedAt,
@@ -212,6 +217,45 @@ func (c *Client) getPull(ctx context.Context, ref PRRef, accept string) ([]byte,
 		return nil, fmt.Errorf("github: GET pull %s#%d: status %d", ref.Repo, ref.Number, resp.StatusCode)
 	}
 	return body, nil
+}
+
+func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githost.CommitStatus) error {
+	owner, name, ok := strings.Cut(repo, "/")
+	if !ok || !repoPart.MatchString(owner) || !repoPart.MatchString(name) {
+		return fmt.Errorf("%w: %q", ErrInvalidPRURL, repo)
+	}
+	if err := status.Validate(sha); err != nil {
+		return err
+	}
+	body, err := json.Marshal(status)
+	if err != nil {
+		return err
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/statuses/%s", c.apiURL, owner, name, sha)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "subspace")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("github: post status: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("%w: %s@%s", ErrNotFound, repo, sha)
+	case resp.StatusCode != http.StatusCreated && resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("github: post status %s@%s: %w", repo, sha, githost.NewStatusError(resp))
+	}
+	return nil
 }
 
 type ghWebhook struct {

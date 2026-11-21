@@ -3,6 +3,7 @@ package capacity
 import (
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -33,6 +34,11 @@ func TestLoad(t *testing.T) {
 			want: Config{GlobalMaxAgents: 300, Limits: []Limit{{Provider: "anthropic", Model: "*", MaxConcurrency: 20, RequestsPerMin: 600}}},
 		},
 		{name: "empty object", path: write("empty.json", `{}`), want: Config{}},
+		{
+			name: "zero means unlimited",
+			path: write("zero.json", `{"limits":[{"provider":"x","model":"*","max_concurrency":0,"requests_per_min":0}]}`),
+			want: Config{Limits: []Limit{{Provider: "x", Model: "*"}}},
+		},
 		{name: "missing file", path: filepath.Join(dir, "nope.json"), wantErr: "no such file"},
 		{name: "bad json", path: write("bad.json", `{not json`), wantErr: "capacity file"},
 		{name: "negative global", path: write("neg.json", `{"global_max_agents":-1}`), wantErr: "global_max_agents"},
@@ -124,6 +130,33 @@ func TestCheck(t *testing.T) {
 				t.Fatalf("message %q does not contain %q", me.Message, tc.wantDeny)
 			}
 		})
+	}
+}
+
+func TestCheckGateRunsAfterLimits(t *testing.T) {
+	deny := errors.New("breaker open")
+	var calls []string
+	cfg := Config{
+		Limits: []Limit{{Provider: "anthropic", Model: "*", MaxConcurrency: 1}},
+		Gate: func(provider, mdl string, n int) error {
+			calls = append(calls, fmt.Sprintf("%s/%s/%d", provider, mdl, n))
+			if provider == "openai" {
+				return deny
+			}
+			return nil
+		},
+	}
+	if err := cfg.Check("anthropic", "sonnet", 1, Usage{}); err != nil {
+		t.Fatal(err)
+	}
+	if err := cfg.Check("openai", "gpt", 2, Usage{}); !errors.Is(err, deny) {
+		t.Fatalf("gate error not returned: %v", err)
+	}
+	if err := cfg.Check("anthropic", "sonnet", 1, Usage{{"anthropic", "sonnet"}: 1}); err == nil {
+		t.Fatal("limit not enforced")
+	}
+	if want := []string{"anthropic/sonnet/1", "openai/gpt/2"}; strings.Join(calls, ",") != strings.Join(want, ",") {
+		t.Fatalf("gate calls %v, want %v", calls, want)
 	}
 }
 

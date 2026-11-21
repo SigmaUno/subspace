@@ -3,11 +3,9 @@ package postgres
 import (
 	"context"
 	"database/sql"
-	"encoding/json"
 	"errors"
 	"strconv"
 	"strings"
-	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 
@@ -27,8 +25,13 @@ type tx struct {
 
 var _ store.Tx = (*tx)(nil)
 
-type scanner interface {
-	Scan(dest ...any) error
+type scanner = store.Scanner
+
+func ph(i int) string { return "$" + strconv.Itoa(i) }
+
+func get[T any](t *tx, scan func(scanner) (T, error), q string, args ...any) (T, error) {
+	v, err := scan(t.q.QueryRowContext(t.ctx, q, args...))
+	return v, mapErr(err)
 }
 
 func (t *tx) NextID(prefix string) (string, error) {
@@ -138,14 +141,6 @@ func (a *args) eq(col, v string) {
 	}
 }
 
-func (a *args) after(afterID string) {
-	if afterID == "" {
-		return
-	}
-	n := a.add(store.IDNum(afterID))
-	a.where = append(a.where, "("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+a.add(afterID)+"))")
-}
-
 func (a *args) afterCreated(table, afterID string) {
 	if afterID == "" {
 		return
@@ -181,69 +176,4 @@ func (a *args) clause() string {
 		s += " AND " + w
 	}
 	return s
-}
-
-func ms(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
-func msPtr(t *time.Time) int64 {
-	if t == nil {
-		return 0
-	}
-	return ms(*t)
-}
-
-func fromMS(v int64) time.Time {
-	if v == 0 {
-		return time.Time{}
-	}
-	return time.UnixMilli(v).UTC()
-}
-
-func fromMSPtr(v int64) *time.Time {
-	if v == 0 {
-		return nil
-	}
-	t := time.UnixMilli(v).UTC()
-	return &t
-}
-
-func str(p *string) string {
-	if p == nil {
-		return ""
-	}
-	return *p
-}
-
-func strPtr(s string) *string {
-	if s == "" {
-		return nil
-	}
-	return &s
-}
-
-func toJSON(v []string) (string, error) {
-	if v == nil {
-		v = []string{}
-	}
-	b, err := json.Marshal(v)
-	return string(b), err
-}
-
-func fromJSON(b []byte) ([]string, error) {
-	out := []string{}
-	if len(b) == 0 {
-		return out, nil
-	}
-	if err := json.Unmarshal(b, &out); err != nil {
-		return nil, err
-	}
-	if out == nil {
-		out = []string{}
-	}
-	return out, nil
 }

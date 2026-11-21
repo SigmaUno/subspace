@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -91,6 +92,11 @@ func migrate(db *sql.DB) error {
 	if _, err := t.ExecContext(ctx, schema); err != nil {
 		return err
 	}
+	for _, tb := range store.CoreTables {
+		if _, err := t.ExecContext(ctx, addColumns(tb)); err != nil {
+			return err
+		}
+	}
 	for _, ddl := range extraSchemas {
 		if _, err := t.ExecContext(ctx, ddl); err != nil {
 			return err
@@ -100,6 +106,32 @@ func migrate(db *sql.DB) error {
 		return err
 	}
 	return t.Commit()
+}
+
+func addColumns(tb store.Schema) string {
+	defs := tb.Defs()
+	adds := make([]string, len(defs))
+	for i, c := range defs {
+		adds[i] = "ADD COLUMN IF NOT EXISTS " + c.Name + " " + pgType(c)
+	}
+	return "ALTER TABLE " + tb.Table() + " " + strings.Join(adds, ", ")
+}
+
+func pgType(c store.ColumnDef) string {
+	t := "TEXT"
+	switch c.Kind {
+	case store.KindInt:
+		t = "INTEGER"
+	case store.KindMillis:
+		t = "BIGINT"
+	case store.KindReal:
+		t = "DOUBLE PRECISION"
+	case store.KindBool:
+		t = "BOOLEAN"
+	case store.KindJSON:
+		t = "JSONB"
+	}
+	return t + c.Constraint()
 }
 
 func migrateAuditChain(ctx context.Context, t *sql.Tx) error {

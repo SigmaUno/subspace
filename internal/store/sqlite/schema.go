@@ -6,6 +6,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const schema = `
@@ -89,16 +90,11 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 const auditNoUpdate = `CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
 func migrate(db *sql.DB) error {
-	for _, c := range []struct{ table, column, def string }{
-		{"briefs", "cross_review", "INTEGER NOT NULL DEFAULT 1"},
-		{"briefs", "auto_done_on_merge", "INTEGER NOT NULL DEFAULT 0"},
-		{"tasks", "priority", "INTEGER NOT NULL DEFAULT 0"},
-		{"tasks", "component_id", "TEXT NOT NULL DEFAULT ''"},
-		{"plans", "warnings", "TEXT NOT NULL DEFAULT '[]'"},
-		{"tasks", "lease_expiries", "INTEGER NOT NULL DEFAULT 0"},
-	} {
-		if err := addColumn(db, c.table, c.column, c.def); err != nil {
-			return err
+	for _, t := range store.CoreTables {
+		for _, c := range t.Defs() {
+			if err := addColumn(db, t.Table(), c.Name, sqlType(c)); err != nil {
+				return err
+			}
 		}
 	}
 	for _, c := range extraColumns {
@@ -107,6 +103,17 @@ func migrate(db *sql.DB) error {
 		}
 	}
 	return migrateAuditChain(db)
+}
+
+func sqlType(c store.ColumnDef) string {
+	t := "TEXT"
+	switch c.Kind {
+	case store.KindInt, store.KindMillis, store.KindBool:
+		t = "INTEGER"
+	case store.KindReal:
+		t = "REAL"
+	}
+	return t + c.Constraint()
 }
 
 func migrateAuditChain(db *sql.DB) error {

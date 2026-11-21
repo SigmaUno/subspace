@@ -107,6 +107,7 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 	wantErr(t, store.ErrDuplicate, s.Atomic(context.Background(), func(tx store.Tx) error { return tx.InsertBrief(b1) }))
 
 	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status, b1.AutoDoneOnMerge = "new", 99.25, []string{"openai"}, "closed", true
+	b1.LeaderID, b1.QualityGates = ptr("rex"), model.QualityGates{Tests: true, MinTestsPassed: 3, MaxPRAgeHours: 1.5}
 	write(t, s, func(tx store.Tx) error { return tx.UpdateBrief(b1) })
 	wantErr(t, store.ErrNotFound, s.Atomic(context.Background(), func(tx store.Tx) error {
 		return tx.UpdateBrief(testBrief("B-404", time.Now()))
@@ -234,6 +235,7 @@ func taskFull(id string) *model.Task {
 	x.BlockedReason = ptr("budget_exceeded")
 	x.Priority = 3
 	x.ComponentID = ptr("C-1")
+	x.Paths = model.Paths{"internal/api/**", "web/app/*.tsx"}
 	return x
 }
 

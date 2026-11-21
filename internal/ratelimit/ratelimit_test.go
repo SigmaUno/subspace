@@ -343,3 +343,29 @@ func benchmark(b *testing.B, op func(*Limiter, string)) {
 	}
 	wg.Wait()
 }
+
+func TestSetDefaultRetunesLiveBucketsButNotExplicitLimits(t *testing.T) {
+	l, c := newTest(Options{Default: Limit{PerMinute: 60, Burst: 5}, Limits: map[string]Limit{"vip/*": {PerMinute: 60, Burst: 5}}})
+	for i := 0; i < 5; i++ {
+		l.Allow("a/m")
+		l.Allow("vip/m")
+	}
+	l.SetDefault(Limit{PerMinute: 6, Burst: 2})
+	c.Advance(time.Second)
+	if l.Allow("a/m") {
+		t.Fatal("default bucket kept its old refill rate")
+	}
+	c.Advance(10 * time.Second)
+	if !l.Allow("a/m") || l.Allow("a/m") {
+		t.Fatal("default bucket should refill one token per 10s")
+	}
+	if !l.Allow("vip/m") {
+		t.Fatal("explicit limit was retuned")
+	}
+	l.SetDefault(Limit{})
+	for i := 0; i < 100; i++ {
+		if !l.Allow("a/m") {
+			t.Fatal("unlimited default denied a call")
+		}
+	}
+}

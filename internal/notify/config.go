@@ -5,6 +5,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/reload"
 )
 
 const (
@@ -20,6 +22,19 @@ const (
 	EnvSMTPTo         = "SUBSPACE_NOTIFY_SMTP_TO"
 	EnvSMTPSTARTTLS   = "SUBSPACE_NOTIFY_SMTP_STARTTLS"
 )
+
+var ReloadKeys = []string{
+	EnvWebhookURL, EnvNtfyURL, EnvSlackURL, EnvSigningKey, EnvAllowPrivate, EnvTelegramBot, EnvTelegramChatID,
+	EnvSMTPURL, EnvSMTPFrom, EnvSMTPTo, EnvSMTPSTARTTLS,
+}
+
+func (s *Service) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	cfg, err := ConfigFromEnv(getenv)
+	if err != nil {
+		return reload.Plan{}, err
+	}
+	return reload.Plan{Commit: func() { s.ReplaceSinks(cfg.Sinks) }}, nil
+}
 
 func ConfigFromEnv(getenv func(string) string) (Config, error) {
 	allow := false

@@ -101,6 +101,7 @@ func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*Capacity
 	}
 	b.mu.Lock()
 	b.capCfg = cfg
+	b.capDB = true
 	b.mu.Unlock()
 	v, err := b.Capacity(ctx)
 	if err == nil && b.o.Hub != nil {

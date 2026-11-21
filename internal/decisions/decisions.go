@@ -20,6 +20,7 @@ const (
 	KindUnblock  = "unblock"
 	KindStale    = "stale_agent"
 	KindBudget   = "budget"
+	KindBreaker  = "breaker"
 )
 
 const (
@@ -43,6 +44,7 @@ const (
 var impact = map[string]int{
 	KindPlan:     80,
 	KindQuestion: 70,
+	KindBreaker:  75,
 	KindBudget:   65,
 	KindMerge:    60,
 	KindUnblock:  50,

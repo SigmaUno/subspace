@@ -73,6 +73,11 @@ func (c Config) Check(provider, mdl string, n int, u Usage) error {
 			return model.Errf("capacity", "limit %s/%s: %d in use + %d requested > max %d", l.Provider, l.Model, used, n, l.MaxConcurrency)
 		}
 	}
+	if c.Gate != nil {
+		if err := c.Gate(provider, mdl, n); err != nil {
+			return err
+		}
+	}
 	return nil
 }
 

@@ -7,9 +7,12 @@ type Limit struct {
 	RequestsPerMin int    `json:"requests_per_min"`
 }
 
+type Gate func(provider, model string, n int) error
+
 type Config struct {
 	GlobalMaxAgents int     `json:"global_max_agents"`
 	Limits          []Limit `json:"limits"`
+	Gate            Gate    `json:"-"`
 }
 
 type Usage map[[2]string]int

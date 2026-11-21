@@ -4,6 +4,7 @@ import (
 	"sort"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -29,6 +30,7 @@ type Snapshot struct {
 	Agents   []*model.Agent
 	Capacity board.CapacityView
 	Spawn    map[string]SpawnConfig
+	Breaker  func(provider, model string) breaker.State
 }
 
 type Action struct {
@@ -82,6 +84,7 @@ func Plan(s Snapshot) []Action {
 		}
 	}
 
+	rooms := newRooms(s)
 	var acts []Action
 	need := map[needKey]int{}
 	for _, t := range tasks {
@@ -90,12 +93,13 @@ func Plan(s Snapshot) []Action {
 			continue
 		}
 		a := pick(s.Agents, load, func(a *model.Agent) bool {
-			return a.Role == t.Role && allowed(br, a.Provider)
+			return a.Role == t.Role && allowed(br, a.Provider) && rooms.free(a.Provider, a.Model) > 0
 		})
 		if a == nil {
 			need[needKey{br.ID, t.Role}]++
 			continue
 		}
+		rooms.take(a.Provider, a.Model, 1)
 		load[a.ID]++
 		acts = append(acts, Action{Kind: ActAssign, BriefID: br.ID, TaskID: t.ID, AgentID: a.ID})
 	}
@@ -110,11 +114,13 @@ func Plan(s Snapshot) []Action {
 			worker = agents[*t.Assignee].Provider
 		}
 		a := pick(s.Agents, revLoad, func(a *model.Agent) bool {
-			return a.Role == model.RoleReviewer && allowed(br, a.Provider) && (worker == "" || a.Provider != worker)
+			return a.Role == model.RoleReviewer && allowed(br, a.Provider) && (worker == "" || a.Provider != worker) &&
+				rooms.free(a.Provider, a.Model) > 0
 		})
 		if a == nil {
 			continue
 		}
+		rooms.take(a.Provider, a.Model, 1)
 		revLoad[a.ID]++
 		acts = append(acts, Action{Kind: ActReview, BriefID: br.ID, TaskID: t.ID, AgentID: a.ID})
 	}
@@ -144,7 +150,7 @@ func Plan(s Snapshot) []Action {
 		if !allowed(br, prov) {
 			continue
 		}
-		n := min(need[k], maxSpawnBatch, c.free(prov, cfg.Model))
+		n := min(need[k], maxSpawnBatch, c.free(prov, cfg.Model), rooms.free(prov, cfg.Model))
 		if br.Budget.MaxParallelAgent > 0 {
 			r, ok := room[br.ID]
 			if !ok {
@@ -157,6 +163,7 @@ func Plan(s Snapshot) []Action {
 			continue
 		}
 		c.take(prov, cfg.Model, n)
+		rooms.take(prov, cfg.Model, n)
 		acts = append(acts, Action{Kind: ActSpawn, BriefID: br.ID, Spawn: &board.SpawnInput{
 			BriefID: br.ID, Kind: cfg.Kind, Model: cfg.Model, N: n, Role: k.role, Provider: prov}})
 	}
@@ -234,4 +241,48 @@ func (c *capRoom) free(provider, mdl string) int {
 func (c *capRoom) take(provider, mdl string, n int) {
 	c.taken[[2]string{provider, mdl}] += n
 	c.total += n
+}
+
+const unlimited = 1 << 30
+
+type rooms struct {
+	state    func(provider, model string) breaker.State
+	inflight map[[2]string]int
+	left     map[[2]string]int
+}
+
+func newRooms(s Snapshot) *rooms {
+	r := &rooms{state: s.Breaker, inflight: map[[2]string]int{}, left: map[[2]string]int{}}
+	for _, a := range s.Agents {
+		if a.AssignedCount > 0 {
+			r.inflight[[2]string{a.Provider, a.Model}]++
+		}
+	}
+	return r
+}
+
+func (r *rooms) free(provider, mdl string) int {
+	if r.state == nil {
+		return unlimited
+	}
+	k := [2]string{provider, mdl}
+	if n, ok := r.left[k]; ok {
+		return n
+	}
+	n := unlimited
+	switch r.state(provider, mdl) {
+	case breaker.Open:
+		n = 0
+	case breaker.HalfOpen:
+		n = max(1-r.inflight[k], 0)
+	}
+	r.left[k] = n
+	return n
+}
+
+func (r *rooms) take(provider, mdl string, n int) {
+	if r.free(provider, mdl) == unlimited {
+		return
+	}
+	r.left[[2]string{provider, mdl}] -= n
 }

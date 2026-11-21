@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -27,6 +28,9 @@ type Env struct {
 	T   *testing.T
 	TS  *httptest.Server
 	Srv *server.Server
+
+	stop sync.Once
+	halt func()
 }
 
 func New(t *testing.T) *Env {
@@ -62,11 +66,14 @@ func Start(t *testing.T, cfg server.Config) *Env {
 		cancel()
 		t.Fatal(err)
 	}
-	go s.Board.Run(ctx)
+	go s.RunBackground(ctx)
 	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); cancel(); _ = s.Close() })
-	return &Env{T: t, TS: ts, Srv: s}
+	e := &Env{T: t, TS: ts, Srv: s, halt: func() { cancel(); ts.CloseClientConnections(); ts.Close(); _ = s.Close() }}
+	t.Cleanup(e.Stop)
+	return e
 }
+
+func (e *Env) Stop() { e.stop.Do(e.halt) }
 
 func DB(t *testing.T) string {
 	t.Helper()

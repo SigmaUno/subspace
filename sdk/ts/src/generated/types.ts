@@ -408,6 +408,7 @@ export interface Brief {
   id: string;
   leader_id: string | null;
   plan_status: string;
+  playbook: string;
   quality_gates: QualityGates;
   repos: string[] | null;
   status: string;
@@ -433,6 +434,7 @@ export interface BriefInput {
   leader_id?: string;
   max_cost_eur: number;
   max_parallel_agents: number;
+  playbook?: string;
   quality_gates?: QualityGates | null;
   repos?: string[] | null;
   title: string;
@@ -461,6 +463,7 @@ export interface BriefPreview {
   leader_id: string | null;
   max_cost_eur: number;
   max_parallel_agents: number;
+  playbook: string;
   quality_gates: QualityGates | null;
   repos: string[] | null;
   task_budget: BriefTaskBudget | null;
@@ -644,6 +647,13 @@ export interface CostTotals {
   requests: number;
   tokens_in: number;
   tokens_out: number;
+}
+
+export interface CriteriaRule {
+  name: string;
+  pattern: string;
+  role: string;
+  severity: string;
 }
 
 export interface Decision {
@@ -873,6 +883,22 @@ export interface GatesResult {
   gate: string;
   overridden: boolean;
   passed: boolean;
+}
+
+export interface HAEventStats {
+  dropped: number;
+  received: number;
+}
+
+export interface HAStatus {
+  backend: string;
+  events: HAEventStats;
+  instance: string;
+  leader: boolean;
+  leader_instance: string | null;
+  lease_seconds: number;
+  since: string | null;
+  term: number;
 }
 
 export interface Health {
@@ -1208,6 +1234,40 @@ export interface PlanFinding {
   rule: string;
   severity: string;
   task?: string;
+}
+
+export interface Playbook {
+  allowed_sizes: string[] | null;
+  brief_cost_multiplier: number;
+  builtin: boolean;
+  coverage: string;
+  created_at: string;
+  criteria_rules: CriteriaRule[] | null;
+  cross_review: boolean;
+  default_task_budget: TaskBudget;
+  description: string;
+  instructions: string;
+  name: string;
+  required_tasks: RequiredTask[] | null;
+  updated_at: string;
+}
+
+export interface PlaybookClone {
+  description?: string;
+  name: string;
+}
+
+export interface PlaybookInput {
+  allowed_sizes?: string[] | null;
+  brief_cost_multiplier: number;
+  coverage: string;
+  criteria_rules?: CriteriaRule[] | null;
+  cross_review: boolean;
+  default_task_budget: TaskBudget;
+  description?: string;
+  instructions: string;
+  name: string;
+  required_tasks?: RequiredTask[] | null;
 }
 
 export interface Preview {
@@ -1568,6 +1628,13 @@ export interface Request {
   actions?: string[] | null;
   reason: string;
   revoke: Scope;
+}
+
+export interface RequiredTask {
+  name: string;
+  pattern: string;
+  role: string;
+  severity: string;
 }
 
 export interface Result {

@@ -57,5 +57,5 @@ func mountReviewSync(d Deps) {
 		d.Log.Error("review comment sync disabled", "err", err)
 		return
 	}
-	svc.Start(d.Ctx, d.Hub)
+	svc.Start(d.Ctx, d.Leader.Gate(d.Hub))
 }

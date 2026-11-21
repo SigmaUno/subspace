@@ -13,6 +13,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/ha"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -30,9 +31,13 @@ type Deps struct {
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
 
+	MCP        *mcp.Server
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
 	Components components.Store
+	LocalHub   events.Hub
+	Leader     *ha.Elector
+	KeyLock    func(ctx context.Context, key string) (func(), error)
 
 	Env    func(string) string
 	Reload *reload.Manager

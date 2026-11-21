@@ -44,5 +44,5 @@ func mountDigest(d Deps) {
 	sched := digest.NewScheduler(digest.Options{Rules: cfg.Rules, Source: src, Sink: sink, KV: spendKV{d.Store}, Log: d.Log})
 	d.reloadable("digest-notify", notify.ReloadKeys, sink)
 	d.reloadable("digest", digest.ReloadKeys, sched)
-	go sched.Run(d.Ctx)
+	d.Leader.Go(d.Ctx, sched.Run)
 }

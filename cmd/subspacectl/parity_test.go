@@ -174,6 +174,13 @@ var covered = map[string]use{
 }
 
 var exempt = map[string]string{
+	"DELETE /api/v1/playbooks/{name}":                      pending,
+	"GET /api/v1/ha":                                       pending,
+	"GET /api/v1/playbooks":                                pending,
+	"GET /api/v1/playbooks/{name}":                         pending,
+	"POST /api/v1/playbooks":                               pending,
+	"POST /api/v1/playbooks/{name}/clone":                  pending,
+	"PUT /api/v1/playbooks/{name}":                         pending,
 	"DELETE /api/v1/push/subscriptions":                    "browser push subscriptions are created and removed by the browser itself",
 	"GET /api/v1/push/subscriptions":                       "browser push subscriptions are created and removed by the browser itself",
 	"GET /api/v1/push/vapid-key":                           "browser push subscriptions are created and removed by the browser itself",

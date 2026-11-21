@@ -8,7 +8,7 @@ the server changes, this file changes in the same PR.
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
-- Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
+- Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current on the instance that received the heartbeat and at most one flush interval behind on other instances (see High availability).
 
 ## 1. Auth
 
@@ -48,6 +48,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "leader_id":null,                                         // leader agent that owns the brief; null = any leader
  "quality_gates":{"tests":false,"min_tests_passed":0,"checks":false,"scope":false,   // see Quality gates; all off by default
                   "questions":false,"review":false,"budget":false,"max_pr_age_hours":0},
+ "playbook":"hotfix",                                      // playbook chosen at creation; "" = none, see Playbooks
  "created_at":"..."}
 
 // Task
@@ -204,7 +205,7 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":"","quality_gates":{}}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off. |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":"","quality_gates":{},"playbook":""}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off; `playbook` names a playbook (empty = none), see Playbooks. |
 | GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
@@ -228,6 +229,7 @@ max_parallel_agents: 8                  # 0 or absent = 10
 allowed_providers: [anthropic, openai]  # [] or absent = all
 cross_review: true                      # absent = true
 leader_id: rex                          # absent = any leader
+playbook: hotfix                        # absent = none, see Playbooks
 task_budget:
   max_minutes: 120
   max_cost_eur: 10
@@ -254,6 +256,7 @@ The frontmatter is a strict YAML subset: block mappings and lists indented with 
 // BriefPreview
 {"title":"...","body":"...","repos":[],"max_cost_eur":0,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,
  "leader_id":null,                                      // null when absent
+ "playbook":"",                                         // "" when absent
  "task_budget":{"max_minutes":120,"max_cost_eur":10},   // null when absent
  "quality_gates":null,                                  // QualityGates or null when absent
  "components":[{"name","description","paths":[],"depends_on":[]}]}
@@ -266,6 +269,41 @@ The frontmatter is a strict YAML subset: block mappings and lists indented with 
 A brief with `leader_id` set belongs to that leader; with `null` every leader may work on it. Leader tools (`get_brief`, `list_briefs`, `propose_plan`, `create_task`, `create_task_from_template`, `update_task`, `assign`, `reassign`, `board`, `request_spawn`, `list_help_requests`, `accept_split`, `get_forecast`, `get_report`, `get_components`, `list_spawns`, `list_decisions`, `get_task`, `post_message`, `read_thread`, `add_note`, `ask_owner` and the artifact tools) only see briefs whose `leader_id` is `null` or the caller. Briefs, plans, tasks, task and brief threads, help requests, spawns, decisions and artifacts of other briefs answer exactly like ids that do not exist (`not_found`, or `forbidden` for artifact scopes), lists leave them out and dependencies on their tasks are unknown. `list_agents`, `capacity`, `agent_stats`, `search` and the knowledge tools are unaffected. The check runs on every call, so a handoff takes effect immediately: the previous leader loses access, the brief thread gets a `system` message (`Leader of B-1 changed: rex → max`), both leaders get a `system` message in their agent thread and a `set_brief_leader` audit event is written. Setting the current leader again changes nothing. A `report_blocker` with `needs` `leader` only notifies leaders who may see the brief. Autopilot acts as a leader without a brief of its own: it plans only for enabled briefs whose `leader_id` is `null`.
 
 Template variables are `{{name}}` placeholders. Values substituted into the frontmatter are escaped for double-quoted strings.
+
+### Playbooks
+A playbook is a reusable workflow policy chosen when a brief is created (`playbook` on `POST /api/v1/briefs`, in the import frontmatter, or in the brief create and import screens). It is stored in the `playbooks` table; the brief keeps only the name. Owner scope writes, viewer scope reads. Every create, update and delete appends an audit event (`create_playbook`, `update_playbook`, `delete_playbook`; a clone is a `create_playbook` whose note names the source).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/playbooks` | → `{"playbooks":[Playbook]}` sorted by name. |
+| POST | `/api/v1/playbooks` | Playbook fields without `builtin` → Playbook (201). 400 on invalid or unknown fields, 409 if the name exists. |
+| GET | `/api/v1/playbooks/{name}` | → Playbook. 404 for an unknown name. |
+| PUT | `/api/v1/playbooks/{name}` | Same fields as create, replaces the rules → Playbook. The name cannot change (400), 404 for an unknown name. Built-in playbooks can be edited. |
+| DELETE | `/api/v1/playbooks/{name}` | → 204. 409 for a built-in playbook and while any brief uses the playbook, 404 for an unknown name. |
+| POST | `/api/v1/playbooks/{name}/clone` | `{"name":"hotfix-strict","description":""}` → Playbook (201), a custom copy of the source. 409 if the name exists, 404 for an unknown source. |
+
+```jsonc
+// Playbook
+{"name":"hotfix","description":"...","builtin":true,
+ "coverage":"tester",                       // "" | tester | tester_or_reviewer
+ "required_tasks":[{"name":"rollback","pattern":"roll ?back|revert","role":"","severity":"error"}],
+ "criteria_rules":[{"name":"regression_test","pattern":"regression","role":"worker","severity":"error"}],
+ "allowed_sizes":["s","m"],                 // [] = any; s <= 60, m <= 180, l <= 480, xl above (task budget.max_minutes)
+ "default_task_budget":{"max_minutes":60,"max_cost_eur":3},
+ "brief_cost_multiplier":0.5,               // 0 = off
+ "cross_review":true,
+ "instructions":"Hotfix: keep the change minimal. ...",
+ "created_at":"...","updated_at":"..."}
+```
+
+`name` matches `[a-z0-9][a-z0-9_-]{0,62}`, `description` is at most 500 characters and `instructions` at most 2000. Built-in playbooks `feature`, `hotfix`, `refactor`, `security-audit` and `performance` exist after every start (an edited built-in keeps its edits); they cannot be deleted but can be edited and cloned. Rule patterns are case-insensitive RE2 expressions of at most 200 bytes, at most 10 `required_tasks` and 10 `criteria_rules`; `severity` is `error` (default) or `warning`; `role` is empty (any task), `worker` or `tester`.
+
+What a playbook does:
+
+- **Creation**: an unknown playbook is 400. `brief_cost_multiplier` scales the `max_cost_eur` of the new brief. With `cross_review` set the brief is created with cross review on, `cross_review:false` is 400 and a later `PATCH` to `false` is 409.
+- **Plan lint**: `propose_plan` runs the normal lint plus the playbook rules. Errors reject the plan (400, `plan rejected by lint (playbook <name>): ...`), warnings are stored in the plan's `warnings` and shown on the approval screen. Rules: `playbook_coverage` (every worker task needs a tester task that lists it in `depends_on`; `tester_or_reviewer` is also satisfied when the brief has cross review), `playbook_required_task` (some task's title or spec matches the pattern, for example a rollback task), `playbook_criteria` (every task of the rule's role has an acceptance criterion matching the pattern, for example a regression test) and `playbook_task_size` (the task's size from `budget.max_minutes` is allowed; no `max_minutes` is a warning).
+- **Budgets**: `propose_plan` and `create_task` fill `budget.max_minutes` and `budget.max_cost_eur` from `default_task_budget` where the task leaves them at 0, before linting.
+- **Leader**: MCP `get_brief` returns the playbook (with its rules and `instructions`) next to the brief as `playbook`, and a leader's `get_instructions` ends its role section with one `--- Playbook <name> (<brief ids>) ---` block per playbook of the open briefs it may lead.
 
 ### Plans
 | Method | Path | Body → Response |
@@ -1323,6 +1361,21 @@ Recurring work: a schedule creates a brief, or adds tasks to an existing brief, 
 
 The runner evaluates every `SUBSPACE_SCHEDULE_INTERVAL` (default `30s`). Schedules are stored in the `schedules` table.
 
+### High availability
+
+With the Postgres backend any number of server instances may share one database behind a load balancer. SQLite is single instance; that instance is always the leader.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/ha` | → `{"instance":"host-1a2b3c4d","backend":"postgres","leader":true,"leader_instance":"host-1a2b3c4d","term":3,"since":"...","lease_seconds":5,"events":{"received":120,"dropped":0}}`. `backend` is `single` for SQLite. `leader_instance` is null while no instance holds the lock; `since` is null on followers; `term` counts this instance's leader terms; `events` counts events received from other instances and events this instance failed to forward. |
+
+- **Leader election.** Each instance holds a dedicated Postgres session and polls `pg_try_advisory_lock` every second; the lock is scoped to the database schema. The leader renews its lease every second by checking that its session still holds the lock and steps down when a check fails or takes longer than the lease (5s). The lock session sets `idle_session_timeout` to the lease, so Postgres releases the lock of a stalled or partitioned leader. A stopped or crashed leader is replaced within about one second (lock released with the session), a partitioned one within the lease plus one second. During that window a stalled old leader may still finish work it already started.
+- **Leader-only loops.** Only the leader runs the lease sweeper, the backup scheduler, the retention scheduler, autopilot, the merge queue, PR status polling, the spend guard sweep and cost-report checks, alerts, digests, the spawn lifecycle reaper, the schedule runner, outbound webhook delivery and the event-driven notify, web push, quality gate promotion, mirror, forge status, review comment and agent callback queues. A new leader starts them when it takes over; event-driven queues receive only events published while their instance is leader. The leader reloads autopilot flags, spend limits/state and outbound webhook subscriptions from the database, so changes made through any instance apply. Heartbeat flushing runs on every instance.
+- **Events.** Every event published on one instance is delivered to SSE subscribers on all instances (Postgres `LISTEN`/`NOTIFY`, batched; an event too large for a notification is stored in `ha_events` and fetched by id, rows are pruned after 5 minutes). `activity.new` is produced on every instance from the shared database and is not forwarded. SSE `id`s, the replay buffer and `agent.output` streams are per instance: a client that reconnects to another instance gets `resync`. Events are lost while a notification connection is down: on the sending instance after 3 attempts (counted in `events.dropped`), on a receiving instance until it reconnects.
+- **Shared state.** Writes are serialized across instances by a per-schema advisory transaction lock. An `agent.updated` event from another instance drops that agent from the token cache (revocation and rotation apply everywhere within one event delivery); `control.paused`, `control.resumed` and `capacity.changed` reload the pause flag and capacity. MCP sessions are stored in `mcp_sessions`, so a session opened on one instance is valid on all of them. Idempotency keys live in the database and concurrent duplicates on different instances wait on a Postgres advisory lock for the key.
+- **Leases.** A lease expires only when both the database `lease_expires_at` and the sweeper's in-memory value are in the past. Heartbeats on any instance reach the database within one flush interval; a heartbeat whose database lease would expire within one flush plus one sweep interval is written synchronously. A live agent on a follower is therefore never expired by the leader's sweeper. The flapping counter (3 expiries in 30 minutes) is kept by the leader and restarts on failover.
+- **Per-instance limits.** Loop protection and MCP rate limits are counted per instance: behind a round-robin balancer with N instances an agent may make up to N×5 identical calls in the loop window before it is paused, and the effective MCP rate and burst are N× `SUBSPACE_RATE_MCP`. Auth-failure lockouts, provider breakers, alert lists and autopilot status (`stopped` on followers) are per instance too. A configuration reload (`SIGHUP` or `POST /api/v1/reload`) applies only to the instance that receives it; reload every instance, or give them the same `SUBSPACE_CONFIG_FILE` and send `SIGHUP` to each.
+
 ## 4. SSE: `GET /api/v1/events`
 
 | Method | Path | Body → Response |
@@ -1371,9 +1424,34 @@ Slow subscribers have a bounded buffer; when it overflows, oldest events are dro
 
 ## 5. MCP: `POST /mcp` (agent token)
 
-Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26` accepted). One JSON-RPC message per POST (batching unsupported). `Accept` should include `application/json`; responses are `application/json` (no SSE streaming). Notifications/responses → `202`. `GET /mcp` → 405. `DELETE /mcp` with `Mcp-Session-Id` ends the session.
+Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26` accepted). One JSON-RPC message per POST (batching unsupported). `Accept` should include `application/json`; POST responses are `application/json`. Notifications/responses → `202`. `GET /mcp` opens the server push stream (see Server push stream below); with `SUBSPACE_MCP_PUSH=off` it answers 405 with `Allow: POST, DELETE`. `DELETE /mcp` with `Mcp-Session-Id` ends the session.
 
-`initialize` returns `Mcp-Session-Id` (bound to the agent). The header is optional afterwards, but if sent and unknown/expired → 404 (client re-initializes). Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`, `resources/read`, `resources/templates/list`. `initialize` advertises the `tools`, `prompts` and `resources` capabilities (no `listChanged`, no `subscribe`).
+`initialize` returns `Mcp-Session-Id` (bound to the agent). The header is optional afterwards, but if sent and unknown/expired → 404 (client re-initializes). Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/subscribe`, `resources/unsubscribe`. `initialize` advertises the `tools`, `prompts` and `resources` capabilities; `tools.listChanged` and `resources.subscribe` are true while the push stream is enabled.
+
+### Server push stream
+`GET /mcp` with `Accept: text/event-stream`, the agent bearer and a valid `Mcp-Session-Id` returns a long-lived `text/event-stream` carrying JSON-RPC notifications, so an idle agent can wake without polling. Authentication, the allowlist and session binding are the same as for POST. Errors: 401/403 as for POST, 406 when `Accept` lacks `text/event-stream`, 400 without `Mcp-Session-Id` or with a malformed `Last-Event-ID`, 404 for an unknown, expired or foreign session. The owner token is rejected (403).
+
+Each notification is one SSE event `event: message` with an `id` that increases by one per session, `data:` being the JSON-RPC notification. A fresh stream starts at the present; `Last-Event-ID` resumes after that event, replaying what the session's ring buffer (default 256 notifications, `SUBSPACE_MCP_PUSH_BUFFER`) still holds. Notifications are buffered per session even while no stream is connected, once the session has opened a stream or subscribed. When the requested events are no longer buffered (or the id is unknown) the stream first sends `notifications/subspace/resync` with `{"reason":"overflow","dropped":n}` (`unknown_event_id` for an unknown id) and no event `id`, then the oldest buffered events: the buffer drops its oldest entries and the client must re-read state with the tools. A server-side event hub overflow sends the same notification to every stream. Heartbeats are the comment `: ping` every 15s (`SUBSPACE_MCP_PUSH_PING`).
+
+A session has one stream. A second `GET /mcp` on the same session replaces the first: the old stream receives `event: close` with `{"reason":"replaced","status":409}` and ends, the new one carries on. `event: close` with `{"reason":"session_ended"}` follows `DELETE /mcp`, `{"reason":"shutdown"}` follows a graceful server shutdown (clients reconnect).
+
+| Notification | Params | Sent to |
+|---|---|---|
+| `notifications/subspace/event` | `{"type":"task_assigned","task_id"}` | the assignee when the task becomes `assigned` to it, and the reviewer when it is set |
+| | `{"type":"changes_requested","task_id"}` | the assignee |
+| | `{"type":"message","thread":"task:T-1","task_id","message_id"}` or `{"type":"message","thread":"agent:<id>","message_id"}` | the agent thread owner, or the assignee and reviewer of the task thread, except the author; kind `message` only |
+| | `{"type":"answer","question_id","task_id"?}` | the agent that asked |
+| | `{"type":"paused","scope":"agent"}`, `{"type":"resumed","scope":"agent"}` | the agent when paused or resumed |
+| | `{"type":"paused","scope":"all"}`, `{"type":"resumed","scope":"all"}` | every stream on `pause_all` / `resume_all` |
+| `notifications/resources/updated` | `{"uri"}` | sessions subscribed to that resource |
+| `notifications/tools/list_changed` | none | supported by the server, not sent by any current feature |
+| `notifications/subspace/resync` | `{"reason","dropped"}` | see above |
+
+Events carry ids only, never titles, specs or message bodies; read the details with `get_task`, `read_thread` and `list_my_tasks`.
+
+Subscribable resources are `subspace://task/<task id>`, `subspace://thread/task/<task id>` and `subspace://thread/agent/<agent id>` (`subspace://thread/agent/me` is accepted and notifications carry your agent id URI); `subspace://me`, `subspace://instructions`, brief threads and threads with a `since` query are not subscribable. Use `resources/read` for the content. `resources/subscribe {"uri"}` and `resources/unsubscribe {"uri"}` need the `Mcp-Session-Id` header; up to 100 subscriptions per session. Only the caller's own resources can be subscribed: tasks where it is assignee or reviewer, their threads and its own agent thread. Anything else, including unknown ids, fails with JSON-RPC error `-32002 resource not found`. Ownership is checked again on every delivery, so an agent that loses a task stops receiving its updates.
+
+`internal/client` reads the stream with `MCP.Notifications(ctx)`: a channel of `Notification` that reconnects with backoff and `Last-Event-ID`, re-initializes after a 404 and closes when the server has no stream (`ErrStreamUnsupported`), the token is rejected or the stream was replaced; `NotificationsErr()` tells why. `MCP.StreamAvailable` probes the stream; `subspace-join` prints the result in its `notify:` line.
 
 `tools/list` returns only tools the caller's role may call. `tools/call` re-checks; calling a tool outside the role → JSON-RPC error `-32601 method not found` style `tool not available for role`.
 
@@ -1482,7 +1560,7 @@ All tools return an object; `task` = Task object above.
 - `review {"task_id","verdict":"approve|changes_requested","comments"}` → `{"task":Task}`. approve → `approved`; changes_requested → `changes_requested` (`review_rounds`+1); at 3 rounds → `needs_owner`. An approve held by quality gates leaves the task `in_review` and fails with `gates_failed` and `details` (see Quality gates).
 
 **Leader**
-- `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s). Every leader tool is limited to briefs the caller may lead, see Leader scoping.
+- `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s); `get_brief` adds `"playbook":Playbook` when the brief has one, see Playbooks. Every leader tool is limited to briefs the caller may lead, see Leader scoping.
 - `list_help_requests {"status?":"open|accepted|superseded|closed|all","brief_id?","task_id?","limit?":1-1000}` → `{"requests":[HelpRequest]}` (help requests, blockers and split proposals, newest first; default `open`)
 - `accept_split {"request_id"}` → `{"request":HelpRequest,"tasks":[Task],"original":Task,"rewired":["T-9"]}`. Creates the proposed tasks like `create_task` (ready or backlog), roots depend on the original's dependencies, tasks that depended on the original are re-pointed at the new tasks nothing else in the split depends on (`rewired`), then cancels the original. 409 if the proposal is not `open` or the task is `done`/`cancelled`. On a failure the created tasks are cancelled and the proposal stays open.
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1","paths?":["internal/api/**"]}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.

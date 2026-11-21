@@ -22,6 +22,6 @@ func mountGates(d Deps) {
 	d.API.Mount(d.Mux, "GET /api/v1/tasks/{id}/gates", h)
 	d.API.Mount(d.Mux, "POST /api/v1/tasks/{id}/gates/override", h)
 	if pr != nil && d.Hub != nil && os.Getenv("SUBSPACE_PRSYNC_CONFIG") != "" {
-		go svc.Run(d.Ctx, d.Hub)
+		go svc.Run(d.Ctx, d.Leader.Gate(d.Hub))
 	}
 }

@@ -14,9 +14,14 @@ const shortcuts = [
   { sequence: ["Ctrl+K"], action: "Open the command palette" },
   { sequence: ["?"], action: "Show or hide this list" },
   { sequence: ["Esc"], action: "Close dialogs" },
+  { sequence: ["Shift+B"], action: "Board: toggle blocked tasks" },
+  { sequence: ["Shift+S"], action: "Board: toggle stale-heartbeat tasks" },
+  { sequence: ["Shift+M"], action: "Board: toggle merge-ready tasks" },
+  { sequence: ["Shift+D"], action: "Board: toggle compact cards" },
+  { sequence: ["Shift+X"], action: "Board: clear filters" },
 ];
 
-function typing(target: EventTarget | null) {
+export function typing(target: EventTarget | null) {
   return target instanceof HTMLElement && (target.isContentEditable || ["INPUT", "TEXTAREA", "SELECT"].includes(target.tagName));
 }
 

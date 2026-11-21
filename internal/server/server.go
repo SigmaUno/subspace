@@ -203,7 +203,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
-		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
+		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)
 	rl.Register("trusted-proxies", []string{envTrustedProxies}, deps.Trust)

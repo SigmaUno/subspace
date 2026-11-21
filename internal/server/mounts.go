@@ -30,6 +30,7 @@ type Deps struct {
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
 
+	MCP        *mcp.Server
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
 	Components components.Store

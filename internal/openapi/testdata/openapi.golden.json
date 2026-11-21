@@ -16133,6 +16133,45 @@
           "mcp"
         ]
       },
+      "get": {
+        "operationId": "getMcp",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "Mcp-Session-Id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "Last-Event-ID",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Server push stream of an MCP session (Streamable HTTP, text/event-stream): JSON-RPC notifications for tool list changes, subscribed resources and Subspace wake events. A second stream on the same session replaces the first",
+        "tags": [
+          "mcp"
+        ]
+      },
       "post": {
         "operationId": "postMcp",
         "parameters": [

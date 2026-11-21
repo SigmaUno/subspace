@@ -25,6 +25,10 @@ type MCP struct {
 
 	mu      sync.Mutex
 	session string
+
+	pushOnce sync.Once
+	push     chan Notification
+	pushErr  error
 }
 
 func NewMCP(url, token string, opts ...Option) *MCP {

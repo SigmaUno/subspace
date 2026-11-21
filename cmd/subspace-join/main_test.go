@@ -92,6 +92,9 @@ func TestReport(t *testing.T) {
 	if strings.Contains(out, "propose_plan") {
 		t.Fatalf("worker report lists leader tools:\n%s", out)
 	}
+	if !strings.Contains(out, "notify:       push stream available") {
+		t.Fatalf("report does not show the push stream:\n%s", out)
+	}
 	_, out, _ = join(t, nil, "-url", e.TS.URL, "-token", leader)
 	if !strings.Contains(out, "propose_plan") || strings.Contains(out, "claim_task") {
 		t.Fatalf("leader report has wrong tools:\n%s", out)
@@ -187,4 +190,14 @@ func TestPrintConfig(t *testing.T) {
 			t.Fatalf("exit %d\n%s", code, stdout)
 		}
 	})
+}
+
+func TestReportPushStreamUnavailable(t *testing.T) {
+	t.Setenv("SUBSPACE_MCP_PUSH", "off")
+	e := servertest.New(t)
+	worker := e.Register("wally", "worker", "claude-code")
+	code, out, _ := join(t, nil, "-url", e.TS.URL, "-token", worker)
+	if code != exitOK || !strings.Contains(out, "notify:       push stream unavailable") || !strings.Contains(out, "ready") {
+		t.Fatalf("exit %d\n%s", code, out)
+	}
 }

@@ -2,7 +2,7 @@ package forgejo_test
 
 import (
 	"context"
-		"errors"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"

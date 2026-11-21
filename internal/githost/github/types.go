@@ -29,6 +29,7 @@ type PR struct {
 	Ref       PRRef
 	URL       string
 	Title     string
+	Body      string
 	State     string // open | closed | merged
 	Merged    bool
 	Draft     bool

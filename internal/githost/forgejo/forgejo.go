@@ -35,6 +35,7 @@ func New(baseURL, token string, httpClient *http.Client) *Client {
 type apiPR struct {
 	Number  int64  `json:"number"`
 	Title   string `json:"title"`
+	Body    string `json:"body"`
 	State   string `json:"state"`
 	Merged  bool   `json:"merged"`
 	HTMLURL string `json:"html_url"`
@@ -48,7 +49,7 @@ type apiPR struct {
 
 func (p apiPR) toPR(repo string) githost.PR {
 	return githost.PR{
-		Repo: repo, Number: p.Number, Title: p.Title, State: p.State, Merged: p.Merged,
+		Repo: repo, Number: p.Number, Title: p.Title, Body: p.Body, State: p.State, Merged: p.Merged,
 		HeadBranch: p.Head.Ref, BaseBranch: p.Base.Ref, URL: p.HTMLURL,
 	}
 }
@@ -90,6 +91,40 @@ func (c *Client) GetPR(ctx context.Context, repo string, number int64) (githost.
 		return githost.PR{}, fmt.Errorf("forgejo: decode pr: %w", err)
 	}
 	return p.toPR(repo), nil
+}
+
+// GetPRDiff fetches the unified diff of a pull request, at most 8 MiB.
+func (c *Client) GetPRDiff(ctx context.Context, repo string, number int64) (string, error) {
+	if !validRepo(repo) || number <= 0 {
+		return "", fmt.Errorf("forgejo: invalid repo %q or number %d", repo, number)
+	}
+	owner, name, _ := strings.Cut(repo, "/")
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d.diff", c.baseURL, url.PathEscape(owner), url.PathEscape(name), number)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return "", err
+	}
+	req.Header.Set("Accept", "text/plain")
+	if c.token != "" {
+		req.Header.Set("Authorization", "token "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return "", fmt.Errorf("forgejo: get pr diff: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return "", fmt.Errorf("%w: %s#%d", githost.ErrNotFound, repo, number)
+	case resp.StatusCode != http.StatusOK:
+		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		return "", fmt.Errorf("forgejo: get pr diff %s#%d: unexpected status %d", repo, number, resp.StatusCode)
+	}
+	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	if err != nil {
+		return "", fmt.Errorf("forgejo: read pr diff: %w", err)
+	}
+	return string(b), nil
 }
 
 func (c *Client) ParsePRURL(prURL string) (string, int64, error) { return githost.ParsePRURL(prURL) }

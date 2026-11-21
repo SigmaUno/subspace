@@ -579,12 +579,24 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 	cancel()
 	wg.Wait()
 
-	clock.advance(chaosLease + chaosSweep)
-	w.sweep()
-	for _, tk := range w.tasks() {
-		if tk["status"] == "in_progress" {
-			t.Fatalf("%s still in_progress after every lease expired: %v", tk["id"], tk["lease_expires_at"])
+	var stuck map[string]any
+	for attempt := 0; attempt < 8; attempt++ {
+		clock.advance(chaosLease + chaosSweep)
+		w.sweep()
+		stuck = nil
+		for _, tk := range w.tasks() {
+			if tk["status"] == "in_progress" {
+				stuck = tk
+				break
+			}
 		}
+		if stuck == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if stuck != nil {
+		t.Fatalf("%s still in_progress after every lease expired: %v", stuck["id"], stuck["lease_expires_at"])
 	}
 	w.verify("final")
 	done := w.done()

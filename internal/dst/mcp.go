@@ -7,9 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"maps"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -32,6 +34,7 @@ type MCPSystem struct {
 	o       MCPOptions
 	faults  *faultTransport
 	clients map[string]*client.MCP
+	extend  func(*mcp.Registry)
 }
 
 type tokenLookup struct{ b *board.Board }
@@ -42,26 +45,99 @@ func (l tokenLookup) LookupToken(tok string) (*model.Agent, error) {
 
 func NewMCPSystem(o MCPOptions) Factory {
 	return func(dir string, clock *Clock, lease time.Duration) (System, error) {
-		s, err := NewBoardSystem(dir, clock, lease)
+		s, err := newBoardSystem(dir, clock, lease, nil)
 		if err != nil {
 			return nil, err
 		}
-		ft := &faultTransport{r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
-		m := &MCPSystem{BoardSystem: s.(*BoardSystem), o: o, faults: ft, clients: map[string]*client.MCP{}}
-		m.wire()
-		return m, nil
+		return newMCP(s, o, nil), nil
 	}
+}
+
+func newMCP(s *BoardSystem, o MCPOptions, extend func(*mcp.Registry)) *MCPSystem {
+	ft := &faultTransport{r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
+	m := &MCPSystem{BoardSystem: s, o: o, faults: ft, clients: map[string]*client.MCP{}, extend: extend}
+	m.wire()
+	return m
 }
 
 func (s *MCPSystem) wire() {
 	lookup := tokenLookup{s.b}
-	srv := mcp.NewServer(lookup, mcp.NewRegistry(s.b))
+	reg := mcp.NewRegistry(s.b)
+	if s.extend != nil {
+		s.extend(reg)
+	}
+	srv := mcp.NewServer(lookup, reg)
 	srv.Now = s.clock.Now
 	var h http.Handler = srv
 	if !s.o.NoIdempotency {
 		h = idempotency.Wrap(h, idempotency.Options{Store: s.st, Agents: lookup, Now: s.clock.Now, Log: discard})
 	}
-	s.faults.h = h
+	s.faults.h = s.checkHints(h)
+}
+
+func (s *MCPSystem) checkHints(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		next.ServeHTTP(rec, r)
+		s.inspectHint(body, rec.Body.Bytes())
+		maps.Copy(w.Header(), rec.Header())
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+	})
+}
+
+func (s *MCPSystem) inspectHint(req, resp []byte) {
+	var in struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(req, &in) != nil || in.Method != "tools/call" {
+		return
+	}
+	var out struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			Structured struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+					Hint    string `json:"hint"`
+				} `json:"error"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(resp, &out) != nil || !out.Result.IsError {
+		return
+	}
+	e := out.Result.Structured.Error
+	want := mcp.Hint(e.Code, in.Params.Name)
+	var text struct {
+		Error struct {
+			Hint string `json:"hint"`
+		} `json:"error"`
+	}
+	if len(out.Result.Content) > 0 {
+		_ = json.Unmarshal([]byte(out.Result.Content[0].Text), &text)
+	}
+	switch {
+	case e.Hint != want:
+		s.fault(InvHint, "%s error %s carries hint %q, want %q", in.Params.Name, e.Code, e.Hint, want)
+	case text.Error.Hint != want:
+		s.fault(InvHint, "%s error %s: hint missing from the text content", in.Params.Name, e.Code)
+	case want != "" && e.Message != "" && strings.Contains(e.Hint, e.Message):
+		s.fault(InvHint, "%s error %s: hint echoes the message %q", in.Params.Name, e.Code, e.Message)
+	}
 }
 
 func (s *MCPSystem) client(op Op) *client.MCP {
@@ -114,7 +190,7 @@ func (s *MCPSystem) Do(ctx context.Context, op Op) Result {
 	case OpBlock:
 		_, err = s.client(op).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
 	case OpSubmit:
-		_, err = s.client(op).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: "https://git.example/pr/" + op.Task, Summary: "done"})
+		_, err = s.client(op).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: prURL(op.Task), Summary: "done"})
 	case OpRelease:
 		_, err = s.client(op).ReleaseTask(ctx, op.Task, "dst")
 	case OpReview:
@@ -128,11 +204,15 @@ func (s *MCPSystem) Do(ctx context.Context, op Op) Result {
 	default:
 		return s.BoardSystem.Do(ctx, op)
 	}
+	return Result{Err: toolErr(err)}
+}
+
+func toolErr(err error) error {
 	var ce *client.Error
 	if errors.As(err, &ce) && ce.Code != "" {
-		err = &model.Error{Code: ce.Code, Message: ce.Message}
+		return &model.Error{Code: ce.Code, Message: ce.Message}
 	}
-	return Result{Err: err}
+	return err
 }
 
 var errDropped = errors.New("dst: response dropped")

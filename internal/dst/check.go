@@ -52,6 +52,17 @@ const (
 	InvSearch       = "search_matches"
 	InvHarness      = "harness"
 	InvLeaderScope  = "leader_sees_only_own_briefs"
+	InvQuota        = "agent_quota_never_exceeded"
+	InvAnnounce     = "announcement_reaches_audience_once"
+	InvSchedule     = "schedule_runs_once_per_instant"
+	InvRetention    = "audit_chain_valid_across_archive"
+	InvContext      = "handoff_context_for_assignee_only"
+	InvSplit        = "split_acceptance_atomic"
+	InvKnowledge    = "knowledge_moderated"
+	InvHint         = "tool_errors_carry_hints"
+	InvEstimate     = "estimates_consistent"
+	InvIncident     = "incident_containment"
+	InvGates        = "no_approval_with_failing_gates"
 )
 
 const spawnGrace = 10 * time.Minute
@@ -93,10 +104,21 @@ type Checker struct {
 	tokens   map[string]int
 	instr    map[string][]string
 	auditLen int
+	faults   int
+	fm       *featureModel
 }
 
 func NewChecker(d time.Duration) *Checker {
-	return &Checker{lease: d, leases: map[string]lease{}, tokens: map[string]int{}, instr: map[string][]string{}}
+	return &Checker{lease: d, leases: map[string]lease{}, tokens: map[string]int{}, instr: map[string][]string{}, fm: newFeatureModel()}
+}
+
+func (c *Checker) checkFaults(_ *step, _, post *State) *Violation {
+	if len(post.Faults) > c.faults {
+		v := post.Faults[c.faults]
+		c.faults = len(post.Faults)
+		return v
+	}
+	return nil
 }
 
 func (c *Checker) Init(s *State) {
@@ -141,13 +163,13 @@ func (c *Checker) Check(op Op, res Result, pre, post *State) *Violation {
 	if op.Kind == OpBatch {
 		st.ops, st.rs = op.Sub, res.Sub
 	}
-	checks := []func(*step, *State, *State) *Violation{c.checkAudit, c.checkReplay, c.checkMonotonic}
+	checks := []func(*step, *State, *State) *Violation{c.checkFaults, c.checkAudit, c.checkReplay, c.checkMonotonic}
 	if op.Kind == OpBatch {
 		checks = append(checks, c.checkBatchClaims, c.checkBatchLeases)
 	} else {
 		checks = append(checks, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkRestart)
 	}
-	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkLeaderScope, c.checkServer)
+	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkLeaderScope, c.checkServer, c.checkFeatures)
 	for _, f := range checks {
 		if v := f(st, pre, post); v != nil {
 			return v
@@ -373,6 +395,13 @@ func (c *Checker) checkAtomic(st *step, pre, post *State) *Violation {
 	if op.Kind == OpUpdate && res.Code() == "budget_exceeded" {
 		return nil
 	}
+	if op.Kind == OpReview && res.Code() == "gates_failed" {
+		return nil
+	}
+	switch op.Kind {
+	case OpAcceptSplit, OpScheduleTick, OpIncidentStart, OpIncidentEnd, OpRetention, OpRestore, OpAnnounce:
+		return nil
+	}
 	if ch := changed(pre, post); len(ch) > 0 {
 		return violation(InvAtomic, "%s failed (%v) but changed %v", op.Kind, res.Err, ch)
 	}
@@ -523,9 +552,9 @@ func (c *Checker) checkLeases(st *step, pre, post *State) *Violation {
 					c.leases[id] = lease{op.Actor, *t.LeaseExpiresAt}
 				}
 			}
-		case OpRelease, OpSubmit, OpBlock, OpReassign, OpCancel:
+		case OpRelease, OpSubmit, OpBlock, OpReassign, OpCancel, OpAcceptSplit:
 			delete(c.leases, op.Task)
-		case OpPauseAll:
+		case OpPauseAll, OpIncidentStart:
 			c.leases = map[string]lease{}
 		}
 	}
@@ -653,6 +682,9 @@ func (c *Checker) checkTokens(st *step, _, post *State) *Violation {
 		if !op.Authenticated() || (st.op.Kind == OpBatch && rotated[op.Actor]) {
 			return false
 		}
+		if a := post.Agent(op.Actor); a != nil && a.Status == model.AgentRevoked {
+			return false
+		}
 		cur := c.tokens[op.Actor]
 		if op.Token < cur && r.Code() != "unauthorized" {
 			v = violation(InvToken, "%s by %s with token #%d accepted after rotation to #%d (%v)", op.Kind, op.Actor, op.Token, cur, r.Err)
@@ -670,6 +702,9 @@ func (c *Checker) checkTokens(st *step, _, post *State) *Violation {
 	st.each(func(op Op, r Result) bool {
 		if op.Kind == OpRotate && r.Err == nil {
 			c.tokens[op.Target]++
+		}
+		for _, id := range r.Rotated {
+			c.tokens[id]++
 		}
 		return false
 	})
@@ -906,9 +941,16 @@ func (c *Checker) checkLeaderScope(st *step, pre, _ *State) *Violation {
 	st.each(func(op Op, r Result) bool {
 		briefID := ""
 		switch op.Kind {
-		case OpAssign, OpAssignReviewer, OpReassign:
+		case OpAssign, OpAssignReviewer, OpReassign, OpAcceptSplit:
 			if t := pre.Task(op.Task); t != nil {
 				briefID = t.BriefID
+			}
+		case OpLeaderRead:
+			briefID = op.Target
+			if op.Text == "get_task" {
+				if t := pre.Task(op.Task); t != nil {
+					briefID = t.BriefID
+				}
 			}
 		case OpPropose, OpSpawn:
 			if len(pre.Briefs) > 0 {

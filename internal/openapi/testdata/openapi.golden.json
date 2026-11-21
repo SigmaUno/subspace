@@ -1361,6 +1361,29 @@
         ],
         "type": "object"
       },
+      "Backups": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "latest_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "count",
+          "latest_at",
+          "latest_verified"
+        ],
+        "type": "object"
+      },
       "BoardView": {
         "properties": {
           "brief": {
@@ -3906,6 +3929,48 @@
         ],
         "type": "object"
       },
+      "Info": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backups": {
+            "$ref": "#/components/schemas/Backups"
+          },
+          "db_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "wal_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "backend",
+          "backups",
+          "db_bytes",
+          "started_at",
+          "uptime_seconds",
+          "version",
+          "wal_bytes"
+        ],
+        "type": "object"
+      },
       "Input": {
         "properties": {
           "action": {
@@ -5154,6 +5219,117 @@
           "role",
           "spec",
           "title"
+        ],
+        "type": "object"
+      },
+      "PushSubscription": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_success_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "expires_at",
+          "failures",
+          "host",
+          "id",
+          "last_success_at",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionInput": {
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "expirationTime": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "expirationTime",
+          "keys",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionKeys": {
+        "properties": {
+          "auth": {
+            "type": "string"
+          },
+          "p256dh": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth",
+          "p256dh"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionRemove": {
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "id"
+        ],
+        "type": "object"
+      },
+      "PushVAPIDKey": {
+        "properties": {
+          "public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key"
         ],
         "type": "object"
       },
@@ -8061,6 +8237,31 @@
         "summary": "Perform the action of a one-time action link",
         "tags": [
           "action-links"
+        ]
+      }
+    },
+    "/api/v1/about": {
+      "get": {
+        "operationId": "getAbout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Info"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Version, uptime, database size and backup state",
+        "tags": [
+          "about"
         ]
       }
     },
@@ -13539,6 +13740,127 @@
         ]
       }
     },
+    "/api/v1/push/subscriptions": {
+      "delete": {
+        "operationId": "deletePushSubscriptions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionRemove"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove a Web Push subscription by id or endpoint",
+        "tags": [
+          "push"
+        ]
+      },
+      "get": {
+        "operationId": "getPushSubscriptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "subscriptions": {
+                      "items": {
+                        "$ref": "#/components/schemas/PushSubscription"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "subscriptions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List Web Push subscriptions",
+        "tags": [
+          "push"
+        ]
+      },
+      "post": {
+        "operationId": "postPushSubscriptions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscription"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Subscribe a browser to Web Push notifications; 200 when the endpoint was already subscribed",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/api/v1/push/vapid-key": {
+      "get": {
+        "operationId": "getPushVapidKey",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushVAPIDKey"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "VAPID public key for browser push subscriptions",
+        "tags": [
+          "push"
+        ]
+      }
+    },
     "/api/v1/questions": {
       "get": {
         "operationId": "getQuestions",
@@ -15460,6 +15782,9 @@
   ],
   "tags": [
     {
+      "name": "about"
+    },
+    {
       "name": "action-links"
     },
     {
@@ -15569,6 +15894,9 @@
     },
     {
       "name": "prs"
+    },
+    {
+      "name": "push"
     },
     {
       "name": "questions"

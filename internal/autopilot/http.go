@@ -43,7 +43,7 @@ func (s *Service) set(w http.ResponseWriter, r *http.Request) {
 		Enabled *bool `json:"enabled"`
 	}
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody)).Decode(&in); err != nil {
-		fail(w, model.BadRequest("invalid JSON: %v", err))
+		fail(w, model.BadRequest("invalid JSON body"))
 		return
 	}
 	if in.Enabled == nil {

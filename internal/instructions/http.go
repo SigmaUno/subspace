@@ -143,7 +143,7 @@ func (h *handler) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	if err := json.Unmarshal(raw, v); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON: %v", err))
+		h.fail(w, model.BadRequest("invalid JSON body"))
 		return false
 	}
 	return true

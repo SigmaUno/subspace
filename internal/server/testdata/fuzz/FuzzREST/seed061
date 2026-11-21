@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(0)
+uint8(38)
+uint8(1)
+uint8(0)
+string("")
+string("")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("")

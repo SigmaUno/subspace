@@ -38,7 +38,7 @@ func bind[T any](fn func(ctx context.Context, actor model.Actor, in T) (any, err
 		var in T
 		if len(c.Args) > 0 && string(c.Args) != "null" {
 			if err := json.Unmarshal(c.Args, &in); err != nil {
-				return nil, model.BadRequest("invalid arguments: %v", err)
+				return nil, model.BadRequest("invalid arguments")
 			}
 		}
 		return fn(ctx, c.Actor, in)

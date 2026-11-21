@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(0)
+uint8(63)
+uint8(1)
+uint8(0)
+string("global")
+string("rules")
+string("")
+string("from=1&to=2")
+string("")
+bool(false)
+[]byte("")

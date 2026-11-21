@@ -1,0 +1,10 @@
+go test fuzz v1
+byte('\x01')
+byte('\x06')
+byte('\x01')
+string("")
+string("put_artifact")
+string("\x10")
+string("")
+string("")
+[]byte("0")

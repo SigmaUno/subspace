@@ -172,7 +172,7 @@ func (f *Feed) Act(ctx context.Context, id, action string, raw json.RawMessage) 
 	var p payload
 	if len(raw) > 0 {
 		if err := json.Unmarshal(raw, &p); err != nil {
-			return nil, model.BadRequest("invalid payload: %v", err)
+			return nil, model.BadRequest("invalid payload")
 		}
 	}
 	all, err := f.collect(ctx)

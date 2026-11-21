@@ -1,0 +1,10 @@
+go test fuzz v1
+uint8(1)
+uint8(6)
+uint8(1)
+string("")
+string("list_artifacts")
+string("1")
+string("")
+string("")
+[]byte("{\"scope\":\"agent:worker-1\",\"limit\":1}")

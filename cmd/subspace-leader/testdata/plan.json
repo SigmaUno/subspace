@@ -1,0 +1,45 @@
+{
+  "responses": [
+    {
+      "usage": {"input_tokens": 1200, "output_tokens": 640, "cache_read_input_tokens": 0, "cache_creation_input_tokens": 0},
+      "json": {
+        "note": "API first, then UI and tests in parallel.",
+        "tasks": [
+          {
+            "ref": "api",
+            "title": "Add GET /items endpoint",
+            "spec": "Add a GET /items handler in internal/api that lists items from the store as JSON, ordered by id.",
+            "acceptance_criteria": ["GET /items returns 200 with a JSON array", "an integration test covers the empty and non-empty store", "go test ./... passes"],
+            "repo": "SigmaUno/demo",
+            "depends_on": [],
+            "role": "worker",
+            "budget": {"max_minutes": 90, "max_cost_eur": 4},
+            "priority": 10
+          },
+          {
+            "ref": "ui",
+            "title": "Show items in the web list view",
+            "spec": "Render the items returned by GET /items in web/app/items/page.tsx as a table with id and name.",
+            "acceptance_criteria": ["the items page shows every item from the API", "pnpm build succeeds", "a component test checks the empty state"],
+            "repo": "SigmaUno/demo",
+            "depends_on": ["api"],
+            "role": "worker",
+            "budget": {"max_minutes": 60, "max_cost_eur": 3},
+            "priority": 0
+          },
+          {
+            "ref": "tests",
+            "title": "End-to-end test for item listing",
+            "spec": "Write an end-to-end test that creates two items through the API and checks GET /items returns both in order.",
+            "acceptance_criteria": ["the e2e test fails before the api task and passes after it", "the test runs in CI with make test"],
+            "repo": "SigmaUno/demo",
+            "depends_on": ["api"],
+            "role": "tester",
+            "budget": {"max_minutes": 45, "max_cost_eur": 2},
+            "priority": 0
+          }
+        ]
+      }
+    }
+  ]
+}

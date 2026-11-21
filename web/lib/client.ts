@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { commaList, label, safeURL } from "./text";
+
+export { commaList, label, safeURL };
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -136,19 +139,5 @@ export function value(form: FormData, key: string): string {
   return String(form.get(key) ?? "").trim();
 }
 
-export function commaList(input: string) {
-  return input.split(/[,\n]/).map((entry) => entry.trim()).filter(Boolean);
-}
-
 const euro = new Intl.NumberFormat("en", { style: "currency", currency: "EUR" });
 export const money = (amount: number) => euro.format(amount);
-export const label = (status: string) => status.replaceAll("_", " ");
-
-export function safeURL(input?: string | null): string | undefined {
-  if (!input) return undefined;
-  try {
-    const url = new URL(input);
-    if (url.protocol === "https:" || url.protocol === "http:") return url.href;
-  } catch {
-  }
-}

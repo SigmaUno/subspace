@@ -2,7 +2,8 @@
 
 import Link from "next/link";
 import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
-import { api, optionalResource, safeURL, useResource, useSubmit, value } from "../../../lib/client";
+import { api, optionalResource, useResource, useSubmit, value } from "../../../lib/client";
+import { decisionThread, diffURL, orderDecisions, pickDecision } from "../../../lib/decision-queue";
 import type { Decision } from "../../../lib/swarm";
 import type { Thread } from "../../../lib/types";
 import { Feedback } from "./components";
@@ -35,12 +36,9 @@ function DecisionCard({ item, acting, next, openThread }: {
   const unblock = item.kind === "unblock";
   const primary = question ? "Answer" : unblock ? "Unblock" : "Approve";
   const allowReject = !question && !unblock;
-  const pullRequest = safeURL(item.pr_url);
-  const pr = pullRequest ? new URL(pullRequest) : null;
-  if (pr && /\/pulls?\/\d+\/?$/.test(pr.pathname)) pr.pathname = pr.pathname.replace(/\/$/, "") + "/files";
-  const thread = useMemo<Thread | null>(() => item.task_id ? { kind: "task", id: item.task_id }
-    : item.agent_id ? { kind: "agent", id: item.agent_id }
-    : item.brief_id ? { kind: "brief", id: item.brief_id } : null, [item.task_id, item.agent_id, item.brief_id]);
+  const pr = diffURL(item.pr_url);
+  const thread = useMemo(() => decisionThread({ task_id: item.task_id, agent_id: item.agent_id, brief_id: item.brief_id }),
+    [item.task_id, item.agent_id, item.brief_id]);
 
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
 
@@ -122,13 +120,10 @@ export function DecisionInbox({ feed, count, revision, refresh, close, openThrea
   const [skipped, setSkipped] = useState<string[]>([]);
   const [resolved, setResolved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>();
-  const queue = (feed?.decisions ?? [])
-    .filter((item) => !resolved.includes(item.id))
-    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0) || a.created_at.localeCompare(b.created_at));
+  const queue = orderDecisions(feed?.decisions ?? [], resolved);
   const serverNext = next.data?.decision;
   const eligible = queue.filter((item) => !skipped.includes(item.id));
-  const item = eligible.find((item) => item.id === selected) ??
-    (serverNext && !resolved.includes(serverNext.id) && !skipped.includes(serverNext.id) ? serverNext : eligible[0]);
+  const item = pickDecision(eligible, selected, serverNext, resolved, skipped);
   if (item?.id !== selected) setSelected(item?.id);
 
   return <aside className="panel stack decision-panel" aria-label="Decision inbox">

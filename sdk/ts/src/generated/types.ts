@@ -590,6 +590,12 @@ export interface ChatMessage {
   to: string;
 }
 
+export interface Check {
+  detail: string;
+  name: string;
+  status: string;
+}
+
 export interface Component {
   brief_id: string;
   depends_on: string[] | null;
@@ -742,6 +748,18 @@ export interface DigestTasks {
   blocked: number;
   created: number;
   done: number;
+}
+
+export interface DrillResult {
+  backup: string;
+  backup_bytes: number;
+  checks: Check[] | null;
+  error: string;
+  finished_at: string;
+  id: string;
+  started_at: string;
+  status: string;
+  trigger: string;
 }
 
 export interface EndOutcome {

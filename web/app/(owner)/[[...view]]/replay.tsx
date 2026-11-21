@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useEffect, useState, type MouseEvent } from "react";
 import { label, money, useResource } from "../../../lib/client";
 import type { ReplayKeyEvent, ReplayPoint, ReplaySnapshot, ReplayTask, ReplayTimeline } from "../../../lib/replay-types";
+import { changedTasks, clampStep, nearest, seekIndex, stack, strip, stripHigh } from "../../../lib/replay";
 import { statuses } from "../../../lib/types";
 import { useLive } from "./live";
 import { PageShell } from "./shell";
@@ -12,50 +13,14 @@ import { stamp } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 const speeds = [1, 2, 5, 10, 25];
-const strip = { width: 1000, height: 72, keys: 10 };
-
-
-function same(a: ReplayTask, b: ReplayTask) {
-  return a.status === b.status && a.assignee === b.assignee && a.reviewer === b.reviewer &&
-    a.progress_pct === b.progress_pct && a.cost_used === b.cost_used;
-}
-
-function changedTasks(current?: ReplaySnapshot, previous?: ReplaySnapshot) {
-  const out = new Set<string>();
-  if (!current || !previous) return out;
-  const before = new Map(Object.values(previous.columns).flatMap((tasks) => tasks ?? []).map((task) => [task.id, task]));
-  for (const task of Object.values(current.columns).flatMap((tasks) => tasks ?? [])) {
-    const old = before.get(task.id);
-    if (!old || !same(old, task)) out.add(task.id);
-  }
-  return out;
-}
-
-function nearest(points: ReplayPoint[], auditID: number) {
-  const index = points.findIndex((point) => point.audit_id >= auditID);
-  return index < 0 ? points.length - 1 : index;
-}
-
-function stack(counts: Record<string, number> | null, high: number, area: number) {
-  const out: { status: string; y: number; height: number }[] = [];
-  let y = strip.height;
-  for (const [status] of statuses) {
-    const n = counts?.[status] ?? 0;
-    if (!n) continue;
-    const height = (n / high) * area;
-    y -= height;
-    out.push({ status, y, height });
-  }
-  return out;
-}
 
 function Strip({ points, keys, index, seek }: { points: ReplayPoint[]; keys: ReplayKeyEvent[]; index: number; seek: (index: number) => void }) {
   const width = strip.width / Math.max(points.length, 1);
-  const high = Math.max(1, ...points.map((point) => Object.values(point.counts ?? {}).reduce((sum, n) => sum + n, 0)));
+  const high = stripHigh(points);
   const area = strip.height - strip.keys;
   function click(event: MouseEvent<SVGSVGElement>) {
     const box = event.currentTarget.getBoundingClientRect();
-    seek(Math.min(points.length - 1, Math.max(0, Math.floor(((event.clientX - box.left) / box.width) * points.length))));
+    seek(seekIndex(event.clientX - box.left, box.width, points.length));
   }
   return <svg className="replay-strip" viewBox={`0 0 ${strip.width} ${strip.height}`} preserveAspectRatio="none" onClick={click} aria-hidden="true">
     {points.map((point, i) => <g key={point.audit_id}>
@@ -108,7 +73,7 @@ export function ReplayPage({ id }: { id: string }) {
 
   const view = shown.current;
   const changed = changedTasks(view, shown.previous);
-  const seek = (next: number) => { setPlaying(false); setPicked(Math.max(0, Math.min(last, next))); };
+  const seek = (next: number) => { setPlaying(false); setPicked(clampStep(next, last)); };
   const toggle = () => {
     if (!playing && index >= last) setPicked(0);
     setPlaying(!playing);

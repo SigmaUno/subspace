@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useContext, useState } from "react";
 import { money, useResource } from "../../../lib/client";
+import { barParts, chart, chartScale, share, shorten, sinceSlot, stackColors, stackFor, stackKeys } from "../../../lib/cost-chart";
 import type { CostBreakdown, CostDimension, CostGroup } from "../../../lib/costs-types";
 import type { Brief } from "../../../lib/types";
 import { Clock } from "./components";
@@ -27,36 +28,20 @@ const ranges = [
   { id: "30d", ms: 30 * 86_400_000 },
 ] as const;
 
-const slotMs = 300_000;
-const maxBars = 12;
-const chart = { width: 720, row: 28, left: 150, right: 80, top: 8, bottom: 8 };
-const barWidth = chart.width - chart.left - chart.right;
-
-const stackFor = (by: CostDimension): CostDimension => by === "provider" ? "model" : "provider";
-const shorten = (text: string) => text.length > 20 ? `${text.slice(0, 19)}…` : text;
-const color = (index: number) => `hsl(${(index * 47 + 210) % 360} 55% 48%)`;
-
 function StackedBars({ groups, colors, by, stack }: { groups: CostGroup[]; colors: Map<string, string>; by: CostDimension; stack: CostDimension }) {
-  const shown = groups.slice(0, maxBars);
-  const high = Math.max(...shown.map((group) => group.cost_eur), 0) || 1;
-  const height = chart.top + shown.length * chart.row + chart.bottom;
+  const { shown, high, height } = chartScale(groups);
   return <svg className="hillclimb-chart" viewBox={`0 0 ${chart.width} ${height}`} role="img" aria-label={`Cost by ${by}, stacked by ${stack}`}>
     <line className="axis" x1={chart.left} x2={chart.left} y1={chart.top} y2={height - chart.bottom} />
     {shown.map((group, row) => {
       const y = chart.top + row * chart.row;
-      const parts: { key: string; cost_eur: number }[] = group.split?.length ? group.split : [{ key: "", cost_eur: group.cost_eur }];
-      let offset = 0;
+      const { parts, end } = barParts(group, high);
       return <g key={group.key}>
         <text className="tick" x={chart.left - 8} y={y + chart.row / 2} textAnchor="end" dominantBaseline="middle">{shorten(group.key || "—")}</text>
-        {parts.map((part) => {
-          const width = part.cost_eur / high * barWidth;
-          const x = chart.left + offset;
-          offset += width;
-          return <rect key={part.key} x={x} y={y + 4} width={Math.max(width, 0)} height={chart.row - 8} fill={colors.get(part.key) ?? "var(--action)"}>
+        {parts.map((part) =>
+          <rect key={part.key} x={part.x} y={y + 4} width={part.width} height={chart.row - 8} fill={colors.get(part.key) ?? "var(--action)"}>
             <title>{group.key || "—"}{part.key ? ` · ${part.key}` : ""}: {money(part.cost_eur)}</title>
-          </rect>;
-        })}
-        <text className="tick" x={chart.left + offset + 6} y={y + chart.row / 2} dominantBaseline="middle">{money(group.cost_eur)}</text>
+          </rect>)}
+        <text className="tick" x={end + 6} y={y + chart.row / 2} dominantBaseline="middle">{money(group.cost_eur)}</text>
       </g>;
     })}
   </svg>;
@@ -83,7 +68,7 @@ function Key({ by, id, briefID }: { by: CostDimension; id: string; briefID: stri
 function CostTable({ breakdown, by, briefID, drill }: { breakdown: CostBreakdown; by: CostDimension; briefID: string; drill: (id: string) => void }) {
   const groups = breakdown.groups ?? [];
   if (!groups.length) return <EmptyState>No costs recorded in this range.</EmptyState>;
-  const total = breakdown.total.cost_eur || 1;
+  const total = breakdown.total.cost_eur;
   return <div className="table-wrap">
     <table>
       <thead><tr><th>{dimensions.find((dimension) => dimension.id === by)!.name}</th><th>Cost</th><th>Share</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th>{by === "brief" && <th>Drill down</th>}</tr></thead>
@@ -91,7 +76,7 @@ function CostTable({ breakdown, by, briefID, drill }: { breakdown: CostBreakdown
         <tr key={group.key}>
           <th scope="row"><Key by={by} id={group.key} briefID={briefID} /></th>
           <td>{money(group.cost_eur)}</td>
-          <td>{Math.round(group.cost_eur / total * 100)}%</td>
+          <td>{share(group.cost_eur, total)}%</td>
           <td>{count.format(group.requests)}</td>
           <td>{count.format(group.tokens_in)}</td>
           <td>{count.format(group.tokens_out)}</td>
@@ -111,14 +96,13 @@ export function CostsView({ revision }: { revision: number }) {
   const briefs = useResource<{ briefs: Brief[] }>("briefs", revision);
   const range = ranges.find((item) => item.id === rangeID)!;
   const stack = stackFor(by);
-  const since = now ? new Date(Math.floor((now - range.ms) / slotMs) * slotMs).toISOString() : "";
+  const since = now ? sinceSlot(now, range.ms) : "";
   const query = new URLSearchParams({ group_by: by, split_by: stack, since });
   if (briefID) query.set("brief_id", briefID);
   const costs = useResource<CostBreakdown>(since ? `costs?${query}` : null, revision);
   const current = costs.data?.group_by === by && (costs.data.brief_id ?? "") === briefID ? costs.data : undefined;
   const groups = current?.groups ?? [];
-  const keys = [...new Set(groups.slice(0, maxBars).flatMap((group) => (group.split ?? []).map((part) => part.key)))].sort();
-  const colors = new Map<string, string>(keys.map((key, index): [string, string] => [key, color(index)]));
+  const colors = stackColors(stackKeys(groups));
 
   return <>
     <div className="heading"><h1>Costs</h1>

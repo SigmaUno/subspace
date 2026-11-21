@@ -25,7 +25,12 @@ func (s *Server) serveStream(w http.ResponseWriter, r *http.Request, sid, agent 
 		http.Error(w, "Mcp-Session-Id required", http.StatusBadRequest)
 		return
 	}
-	if !s.sessionOK(sid, agent) {
+	ok, err := s.checkSession(r.Context(), sid, agent)
+	if err != nil {
+		http.Error(w, "internal error", http.StatusInternalServerError)
+		return
+	}
+	if !ok {
 		http.Error(w, "unknown session", http.StatusNotFound)
 		return
 	}

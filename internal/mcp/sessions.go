@@ -39,5 +39,9 @@ func (s *Server) closeSession(ctx context.Context, id, agent string) (bool, erro
 	if s.Sessions == nil {
 		return s.dropSession(id, agent), nil
 	}
-	return s.Sessions.DropSession(ctx, id, agent)
+	ok, err := s.Sessions.DropSession(ctx, id, agent)
+	if ok && s.Push != nil {
+		s.Push.Drop(id)
+	}
+	return ok, err
 }

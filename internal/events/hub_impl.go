@@ -1,6 +1,7 @@
 package events
 
 import (
+	"slices"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -13,7 +14,7 @@ const SubscriberBuffer = 256
 type hub struct {
 	mu     sync.Mutex
 	seq    int64
-	topics map[string]map[*sub]struct{}
+	topics map[string][]*sub
 	count  int
 }
 
@@ -21,12 +22,14 @@ type sub struct {
 	h       *hub
 	ch      chan Event
 	topics  []string
+	all     bool
+	mark    int64
 	dropped atomic.Int64
 	once    sync.Once
 }
 
 func NewHub() Hub {
-	return &hub{topics: make(map[string]map[*sub]struct{})}
+	return &hub{topics: make(map[string][]*sub)}
 }
 
 func (h *hub) Seq() int64 {
@@ -43,28 +46,19 @@ func (h *hub) Subscribers() int {
 
 func (h *hub) Subscribe(topics []string) Subscription {
 	s := &sub{h: h, ch: make(chan Event, SubscriberBuffer)}
-	seen := make(map[string]struct{}, len(topics))
 	for _, t := range topics {
-		if t == "" {
+		if t == "" || slices.Contains(s.topics, t) {
 			continue
 		}
-		if _, ok := seen[t]; ok {
-			continue
-		}
-		seen[t] = struct{}{}
 		s.topics = append(s.topics, t)
 	}
 	if len(s.topics) == 0 {
 		s.topics = []string{TopicAll}
 	}
+	s.all = slices.Contains(s.topics, TopicAll)
 	h.mu.Lock()
 	for _, t := range s.topics {
-		set := h.topics[t]
-		if set == nil {
-			set = make(map[*sub]struct{})
-			h.topics[t] = set
-		}
-		set[s] = struct{}{}
+		h.topics[t] = append(h.topics[t], s)
 	}
 	h.count++
 	h.mu.Unlock()
@@ -77,28 +71,18 @@ func (h *hub) Publish(topics []string, typ string, data any) {
 	h.seq++
 	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
 
-	all := h.topics[TopicAll]
-	for s := range all {
+	for _, s := range h.topics[TopicAll] {
 		s.send(ev)
 	}
-	var delivered map[*sub]struct{}
-	for i, t := range topics {
+	for _, t := range topics {
 		if t == TopicAll {
 			continue
 		}
-		for s := range h.topics[t] {
-			if _, ok := all[s]; ok {
+		for _, s := range h.topics[t] {
+			if s.all || s.mark == ev.Seq {
 				continue
 			}
-			if _, ok := delivered[s]; ok {
-				continue
-			}
-			if i < len(topics)-1 {
-				if delivered == nil {
-					delivered = make(map[*sub]struct{})
-				}
-				delivered[s] = struct{}{}
-			}
+			s.mark = ev.Seq
 			s.send(ev)
 		}
 	}
@@ -129,11 +113,17 @@ func (s *sub) Close() {
 		h.mu.Lock()
 		defer h.mu.Unlock()
 		for _, t := range s.topics {
-			if set := h.topics[t]; set != nil {
-				delete(set, s)
-				if len(set) == 0 {
-					delete(h.topics, t)
-				}
+			set := h.topics[t]
+			if i := slices.Index(set, s); i >= 0 {
+				last := len(set) - 1
+				set[i] = set[last]
+				set[last] = nil
+				set = set[:last]
+			}
+			if len(set) == 0 {
+				delete(h.topics, t)
+			} else {
+				h.topics[t] = set
 			}
 		}
 		h.count--

@@ -2,6 +2,7 @@ package client_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"slices"
 	"strings"
@@ -185,6 +186,18 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 	_, err := uc.ReportUsage(ctx, client.UsageReport{})
 	if !client.IsCode(err, client.CodeBadRequest) {
 		t.Fatalf("empty usage report: %v", err)
+	}
+
+	for _, call := range []func() (json.RawMessage, error){
+		func() (json.RawMessage, error) { return tm.leader.GetForecast(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.GetReport(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.Search(ctx, "impl", "task", 5) },
+		func() (json.RawMessage, error) { return tm.leader.AgentStats(ctx, "wally") },
+		func() (json.RawMessage, error) { return tm.leader.ListDecisions(ctx) },
+		func() (json.RawMessage, error) { return tm.leader.ListSpawns(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.GetComponents(ctx, br.ID) },
+	} {
+		_ = must(call())
 	}
 
 	_, _ = uc.ListArtifacts(ctx, "", 1)

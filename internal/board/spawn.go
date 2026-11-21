@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"strconv"
 	"strings"
@@ -143,11 +144,19 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		ag  *model.Agent
 	}
 	var ls []launch
-	cfg := b.capConfig()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
 		if err := pausedTx(tx); err != nil {
 			return err
+		}
+		cfg := b.capConfig()
+		if v, ok, err := tx.GetKV("capacity"); err != nil {
+			return err
+		} else if ok {
+			var c capacity.Config
+			if json.Unmarshal([]byte(v), &c) == nil {
+				cfg = c
+			}
 		}
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {

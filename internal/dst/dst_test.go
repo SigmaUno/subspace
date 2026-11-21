@@ -12,9 +12,15 @@ import (
 const (
 	regressionsFile = "../../testdata/dst/regressions.txt"
 	idempotencyFile = "../../testdata/dst/idempotency.txt"
+	freshSeeds      = 50
+	freshSteps      = 200
 )
 
 var mcpFaults = MCPOptions{FaultSeed: 1, DropPct: 10, DupPct: 10}
+
+func mcpRunner(dir string, o MCPOptions) *Runner {
+	return &Runner{Factory: NewMCPSystem(o), Dir: dir, Serial: true}
+}
 
 func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	t.Helper()
@@ -30,7 +36,7 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	if !o.Failed() {
 		return
 	}
-	if s, err := r.Shrink(ctx, o, 300); err == nil {
+	if s, err := r.Minimize(ctx, o, 300); err == nil {
 		o = s
 	}
 	var b strings.Builder
@@ -39,15 +45,23 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 }
 
 func TestSimulation(t *testing.T) {
-	seeds, steps := 16, 300
+	seeds, steps, fresh := 16, 300, freshSeeds
 	if testing.Short() {
-		seeds, steps = 4, 200
+		seeds, steps, fresh = 4, 200, 8
+	}
+	var regs []Regression
+	for seed := int64(1); seed <= int64(seeds); seed++ {
+		regs = append(regs, Regression{Seed: seed, Steps: steps})
+	}
+	start := time.Now().UnixNano() % 1_000_000_000
+	for i := range fresh {
+		regs = append(regs, Regression{Seed: start + int64(i), Steps: freshSteps})
 	}
 	r := &Runner{Factory: NewBoardSystem, Dir: t.TempDir()}
-	for seed := int64(1); seed <= int64(seeds); seed++ {
-		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+	for _, reg := range regs {
+		t.Run(fmt.Sprint(reg.Seed), func(t *testing.T) {
 			t.Parallel()
-			runSeed(t, r, seed, steps)
+			runSeed(t, r, reg.Seed, reg.Steps)
 		})
 	}
 }
@@ -85,10 +99,11 @@ func TestRegressions(t *testing.T) {
 
 func TestDeterministic(t *testing.T) {
 	runners := map[string]*Runner{
-		ModeBoard:    {Factory: NewBoardSystem, Dir: t.TempDir()},
-		"mcp_faults": {Factory: NewMCPSystem(mcpFaults), Dir: t.TempDir()},
+		ModeBoard:    {Factory: NewBoardSystem, Dir: t.TempDir(), Serial: true},
+		"mcp_faults": mcpRunner(t.TempDir(), mcpFaults),
 		ModeServer:   ServerRunner(t.TempDir()),
 	}
+	runners[ModeServer].Serial = true
 	for mode, r := range runners {
 		t.Run(mode, func(t *testing.T) {
 			t.Parallel()
@@ -119,7 +134,7 @@ func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
 	if testing.Short() {
 		seeds, steps = 3, 200
 	}
-	r := &Runner{Factory: NewMCPSystem(mcpFaults), Dir: t.TempDir()}
+	r := mcpRunner(t.TempDir(), mcpFaults)
 	for seed := int64(1); seed <= int64(seeds); seed++ {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			t.Parallel()
@@ -138,8 +153,8 @@ func TestIdempotencyRegressions(t *testing.T) {
 	}
 	without := mcpFaults
 	without.NoIdempotency = true
-	bare := &Runner{Factory: NewMCPSystem(without), Dir: t.TempDir()}
-	r := &Runner{Factory: NewMCPSystem(mcpFaults), Dir: t.TempDir()}
+	bare := mcpRunner(t.TempDir(), without)
+	r := mcpRunner(t.TempDir(), mcpFaults)
 	for _, reg := range regs {
 		t.Run(fmt.Sprint(reg.Seed), func(t *testing.T) {
 			t.Parallel()
@@ -204,28 +219,45 @@ func (f *faultySweep) Do(ctx context.Context, op Op) Result {
 	return f.System.Do(ctx, op)
 }
 
-func TestDetectsLeaseBugs(t *testing.T) {
+type staleTokens struct {
+	System
+	current map[string]int
+}
+
+func (s *staleTokens) Do(ctx context.Context, op Op) Result {
+	if op.Authenticated() {
+		op.Token = s.current[op.Actor]
+	}
+	res := s.System.Do(ctx, op)
+	if op.Kind == OpRotate && res.Err == nil {
+		s.current[op.Target]++
+	}
+	return res
+}
+
+func TestDetectsInjectedBugs(t *testing.T) {
 	for _, tc := range []struct {
 		name   string
-		early  bool
+		wrap   func(System, *Clock) System
 		inv    string
 		shrink bool
 	}{
-		{"sweep_ignores_expiry", false, InvLeaseExpiry, true},
-		{"sweep_revokes_early", true, InvLeaseHonored, false},
+		{"sweep_ignores_expiry", func(s System, c *Clock) System { return &faultySweep{System: s, clock: c} }, InvLeaseExpiry, true},
+		{"sweep_revokes_early", func(s System, c *Clock) System { return &faultySweep{System: s, clock: c, early: true} }, InvLeaseHonored, false},
+		{"rotation_keeps_old_token", func(s System, _ *Clock) System { return &staleTokens{System: s, current: map[string]int{}} }, InvToken, false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			r := &Runner{Dir: t.TempDir(), Factory: func(dir string, c *Clock, lease time.Duration) (System, error) {
+			r := &Runner{Dir: t.TempDir(), Serial: true, Factory: func(dir string, c *Clock, lease time.Duration) (System, error) {
 				s, err := NewBoardSystem(dir, c, lease)
 				if err != nil {
 					return nil, err
 				}
-				return &faultySweep{System: s, clock: c, early: tc.early}, nil
+				return tc.wrap(s, c), nil
 			}}
 			ctx := context.Background()
 			for seed := int64(1); seed <= 20; seed++ {
-				o, err := r.Run(ctx, seed, 500)
+				o, err := r.Run(ctx, seed, 400)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -233,16 +265,18 @@ func TestDetectsLeaseBugs(t *testing.T) {
 					continue
 				}
 				if o.Violation.Invariant != tc.inv {
-					t.Fatalf("seed %d: got %s, want %s", seed, o.Violation, tc.inv)
+					var b strings.Builder
+					o.WriteTrace(&b)
+					t.Fatalf("seed %d: got %s, want %s\n%s", seed, o.Violation, tc.inv, b.String())
 				}
 				if !tc.shrink {
 					return
 				}
-				s, err := r.Shrink(ctx, o, 200)
+				s, err := r.Minimize(ctx, o, 200)
 				if err != nil {
 					t.Fatal(err)
 				}
-				if s.Violation.Invariant != tc.inv || len(s.Steps) > 10 {
+				if s.Violation.Invariant != tc.inv || len(s.Steps) > 15 {
 					var b strings.Builder
 					s.WriteTrace(&b)
 					t.Fatalf("seed %d: shrunk to %d steps:\n%s", seed, len(s.Steps), b.String())

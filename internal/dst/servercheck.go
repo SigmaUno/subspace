@@ -9,14 +9,14 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
-func (c *Checker) checkServer(op Op, res Result, pre, post *State) *Violation {
+func (c *Checker) checkServer(st *step, pre, post *State) *Violation {
 	if post.Server == nil || pre.Server == nil {
 		return nil
 	}
 	for _, f := range []func(Op, Result, *State, *State) *Violation{
 		c.checkFaults, c.checkMerges, c.checkAutoEnqueue, c.checkAutopilot, c.checkWebhook, c.checkInstructions, c.checkSearch,
 	} {
-		if v := f(op, res, pre, post); v != nil {
+		if v := f(st.op, st.res, pre, post); v != nil {
 			return v
 		}
 	}

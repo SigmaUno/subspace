@@ -146,7 +146,6 @@ type ServerSystem struct {
 	dir    string
 	hub    events.Hub
 	w      World
-	brief  string
 	ap     *autopilot.Service
 	mq     *mergequeue.Queue
 	cands  *mergequeue.MemStore
@@ -162,7 +161,7 @@ type ServerSystem struct {
 	eps    map[string]int
 	instr  *instructions.Service
 	search *search.Service
-	last   Kind
+	lastOp Kind
 	heads  map[string]InstrHead
 	hooks  int
 
@@ -180,7 +179,7 @@ func NewServerSystem(dir string, clock *Clock, lease time.Duration) (System, err
 func NewServerFactory(o ServerOptions) Factory {
 	return func(dir string, clock *Clock, lease time.Duration) (System, error) {
 		hub := events.NewHub()
-		bs, err := newBoardSystem(dir, clock, board.Options{Lease: lease, Hub: hub})
+		bs, err := newBoardSystem(dir, clock, lease, hub)
 		if err != nil {
 			return nil, err
 		}
@@ -196,13 +195,12 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	if err != nil {
 		return out, err
 	}
-	s.w, s.brief = w, out.BriefID
+	s.w = w
 	sw := w.Server
 	if _, err := s.b.SetCapacity(ctx, sw.Capacity); err != nil {
 		return out, err
 	}
-	s.ap = autopilot.New(s.b, autopilot.Options{DefaultSpawn: sw.Spawn, Now: s.clock.Now, Log: discard})
-	s.ap.SetEnabled(s.brief, sw.Autopilot)
+	s.wire()
 	s.cands = mergequeue.NewMemStore()
 	s.mq, err = mergequeue.New(mergequeue.Config{
 		Repos:    map[string]mergequeue.RepoConfig{simRepo: {Remote: "https://git.example/" + simRepo + ".git", Verify: []string{"make", "test"}, Auto: s.o.AutoApprove}},
@@ -222,13 +220,11 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 		return out, err
 	}
 	s.bk, err = backup.New(backup.Config{Dir: filepath.Join(s.dir, "backups"), Interval: sw.BackupEvery, Keep: sw.BackupKeep,
-		Run: s.st.Backup, Verify: s.verifyBackup, Logger: discard, Now: s.clock.Now})
+		Run: func(ctx context.Context, dst string) error { return s.st.Backup(ctx, dst) }, Verify: s.verifyBackup, Logger: discard, Now: s.clock.Now})
 	if err != nil {
 		return out, err
 	}
 	s.next = s.clock.Now().Add(sw.BackupEvery)
-	s.instr = instructions.New(s.st, instructions.StoreAuditor{Store: s.st, Now: s.clock.Now}, s.clock.Now)
-	s.search = search.New(s.st, discard)
 	s.sink = &flakySink{seed: w.Seed, pct: sw.NotifyFail, tries: map[string]int{}, sent: map[string]int{}}
 	s.nt = notify.New(notify.Config{Sinks: []notify.Sink{s.sink}, Window: -1, Attempts: 4, BaseDelay: time.Millisecond,
 		Clock: simClock{s.clock}, Jitter: func(int64) int64 { return 0 }, Log: discard})
@@ -239,10 +235,21 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	return out, nil
 }
 
+func (s *ServerSystem) wire() {
+	s.ap = autopilot.New(s.b, autopilot.Options{DefaultSpawn: s.w.Server.Spawn, Now: s.clock.Now, Log: discard})
+	s.ap.SetEnabled(s.brief, s.w.Server.Autopilot)
+	s.instr = instructions.New(s.st, instructions.StoreAuditor{Store: s.st, Now: s.clock.Now}, s.clock.Now)
+	s.search = search.New(s.st, discard)
+}
+
 func (s *ServerSystem) Do(ctx context.Context, op Op) Result {
-	s.last = op.Kind
+	s.lastOp = op.Kind
+	s.touch(op)
 	var res Result
 	switch op.Kind {
+	case OpRestart:
+		res = s.BoardSystem.Do(ctx, op)
+		s.wire()
 	case OpEnqueue:
 		res.Err = s.enqueue(ctx, op.Task)
 	case OpMergeTick:
@@ -659,7 +666,7 @@ func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
 		return nil, err
 	}
 	sv := &ServerState{AutoMerge: s.w.Server.AutoMerge, Autopilot: s.w.Server.Autopilot, BackupKeep: s.w.Server.BackupKeep}
-	if s.last == OpAutopilotTick {
+	if s.lastOp == OpAutopilotTick {
 		if sv.Spawns, err = s.b.ListSpawns(ctx, s.brief); err != nil {
 			return nil, err
 		}
@@ -679,7 +686,7 @@ func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
 			sv.Backups++
 		}
 	}
-	if s.heads == nil || s.last == OpInstrSave || s.last == OpInstrRollback {
+	if s.heads == nil || s.lastOp == OpInstrSave || s.lastOp == OpInstrRollback {
 		if s.heads, err = s.instrHeads(ctx); err != nil {
 			return nil, err
 		}

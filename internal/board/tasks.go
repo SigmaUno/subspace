@@ -30,7 +30,7 @@ func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool strin
 
 func (b *Board) endLease(t *model.Task) {
 	now := b.now()
-	if t.ClaimedAt != nil {
+	if t.ClaimedAt != nil && now.After(*t.ClaimedAt) {
 		t.MinutesUsed += int(now.Sub(*t.ClaimedAt) / time.Minute)
 	}
 	t.ClaimedAt, t.LeaseExpiresAt = nil, nil
@@ -383,6 +383,11 @@ func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
 		if err != nil {
 			return err
 		}
+		if t.ID != "" {
+			if prev, err := tx.GetTask(t.ID); err == nil {
+				c += t.CostUsed - prev.CostUsed
+			}
+		}
 		if c >= br.Budget.MaxCostEUR {
 			return model.Errf("budget_exceeded", "brief cost budget exhausted")
 		}
@@ -611,9 +616,15 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease, assignee: a.ID}
-		b.dirtyT[t.ID] = struct{}{}
 		l := lease
+		if h, ok := b.tasks[t.ID]; ok && h.assignee == a.ID && h.lease.After(l) {
+			l = h.lease
+		}
+		if t.LeaseExpiresAt != nil && t.LeaseExpiresAt.After(l) {
+			l = *t.LeaseExpiresAt
+		}
+		b.tasks[t.ID] = hotTask{hb: now, lease: l, assignee: a.ID}
+		b.dirtyT[t.ID] = struct{}{}
 		res.LeaseExpiresAt = &l
 	}
 	b.mu.Unlock()

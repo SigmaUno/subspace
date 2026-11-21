@@ -1,4 +1,5 @@
-# seeds that double-apply claim_task, assign and submit under duplicate/dropped-response faults without idempotency keys
-1 154 # claim_task duplicate
-2 188 # assign duplicate
-3 41 # submit duplicate
+# seeds that double-apply claim_task, assign, submit and review under duplicate/dropped-response faults without idempotency keys
+8 32 # claim_task duplicate
+14 49 # assign duplicate
+91 62 # submit duplicate
+56 162 # review duplicate

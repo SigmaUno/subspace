@@ -7,7 +7,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
@@ -30,6 +29,7 @@ type MCPOptions struct {
 
 type MCPSystem struct {
 	*BoardSystem
+	o       MCPOptions
 	faults  *faultTransport
 	clients map[string]*client.MCP
 }
@@ -46,69 +46,85 @@ func NewMCPSystem(o MCPOptions) Factory {
 		if err != nil {
 			return nil, err
 		}
-		bs := s.(*BoardSystem)
-		lookup := tokenLookup{bs.b}
-		srv := mcp.NewServer(lookup, mcp.NewRegistry(bs.b))
-		srv.Now = clock.Now
-		var h http.Handler = srv
-		if !o.NoIdempotency {
-			h = idempotency.Wrap(h, idempotency.Options{Store: bs.st, Agents: lookup, Now: clock.Now,
-				Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
-		}
-		ft := &faultTransport{h: h, r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
-		return &MCPSystem{BoardSystem: bs, faults: ft, clients: map[string]*client.MCP{}}, nil
+		ft := &faultTransport{r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
+		m := &MCPSystem{BoardSystem: s.(*BoardSystem), o: o, faults: ft, clients: map[string]*client.MCP{}}
+		m.wire()
+		return m, nil
 	}
 }
 
-func (s *MCPSystem) client(id string) *client.MCP {
-	if c, ok := s.clients[id]; ok {
+func (s *MCPSystem) wire() {
+	lookup := tokenLookup{s.b}
+	srv := mcp.NewServer(lookup, mcp.NewRegistry(s.b))
+	srv.Now = s.clock.Now
+	var h http.Handler = srv
+	if !s.o.NoIdempotency {
+		h = idempotency.Wrap(h, idempotency.Options{Store: s.st, Agents: lookup, Now: s.clock.Now, Log: discard})
+	}
+	s.faults.h = h
+}
+
+func (s *MCPSystem) client(op Op) *client.MCP {
+	s.mu.Lock()
+	tok := ""
+	if toks := s.tokens[op.Actor]; op.Token >= 0 && op.Token < len(toks) {
+		tok = toks[op.Token]
+	}
+	s.mu.Unlock()
+	key := op.Actor + "/" + tok
+	if c, ok := s.clients[key]; ok {
 		return c
 	}
-	n := 0
-	c := client.NewMCP("http://dst/mcp", s.tokens[id],
+	prefix, n := fmt.Sprintf("%s-%d", op.Actor, len(s.clients)), 0
+	c := client.NewMCP("http://dst/mcp", tok,
 		client.WithHTTPClient(&http.Client{Transport: s.faults}),
 		client.WithSleep(func(context.Context, time.Duration) error { return nil }),
-		client.WithIdempotencyKeys(func() string { n++; return fmt.Sprintf("%s-%d", id, n) }))
-	s.clients[id] = c
+		client.WithIdempotencyKeys(func() string { n++; return fmt.Sprintf("%s-%d", prefix, n) }))
+	s.clients[key] = c
 	return c
 }
 
 func (s *MCPSystem) Do(ctx context.Context, op Op) Result {
+	s.touch(op)
 	var err error
 	switch op.Kind {
+	case OpRestart:
+		res := s.BoardSystem.Do(ctx, op)
+		s.wire()
+		return res
 	case OpAssign:
-		_, err = s.client(op.Actor).Assign(ctx, op.Task, op.Target, "assignee")
+		_, err = s.client(op).Assign(ctx, op.Task, op.Target, "assignee")
 	case OpAssignReviewer:
-		_, err = s.client(op.Actor).Assign(ctx, op.Task, op.Target, "reviewer")
+		_, err = s.client(op).Assign(ctx, op.Task, op.Target, "reviewer")
 	case OpReassign:
-		_, err = s.client(op.Actor).Reassign(ctx, op.Task, op.Target, "dst")
+		_, err = s.client(op).Reassign(ctx, op.Task, op.Target, "dst")
 	case OpClaim:
 		var t *model.Task
-		if t, err = s.client(op.Actor).ClaimTask(ctx, op.Task); err == nil {
+		if t, err = s.client(op).ClaimTask(ctx, op.Task); err == nil {
 			return Result{Lease: t.LeaseExpiresAt}
 		}
 	case OpHeartbeat:
 		var hb *board.HeartbeatResult
-		if hb, err = s.client(op.Actor).Heartbeat(ctx, op.Task); err == nil {
+		if hb, err = s.client(op).Heartbeat(ctx, op.Task); err == nil {
 			return Result{Lease: hb.LeaseExpiresAt, Paused: hb.Paused}
 		}
 	case OpUpdate:
 		pct, cost := op.Pct, op.Cost
-		_, err = s.client(op.Actor).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusInProgress, ProgressPct: &pct, CostEUR: &cost, Note: "progress"})
+		_, err = s.client(op).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusInProgress, ProgressPct: &pct, CostEUR: &cost, Note: "progress"})
 	case OpBlock:
-		_, err = s.client(op.Actor).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
+		_, err = s.client(op).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
 	case OpSubmit:
-		_, err = s.client(op.Actor).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: "https://git.example/pr/" + op.Task, Summary: "done"})
+		_, err = s.client(op).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: "https://git.example/pr/" + op.Task, Summary: "done"})
 	case OpRelease:
-		_, err = s.client(op.Actor).ReleaseTask(ctx, op.Task, "dst")
+		_, err = s.client(op).ReleaseTask(ctx, op.Task, "dst")
 	case OpReview:
 		verdict, comments := "changes_requested", "fix it"
 		if op.Approve {
 			verdict, comments = "approve", "lgtm"
 		}
-		_, err = s.client(op.Actor).Review(ctx, op.Task, verdict, comments)
+		_, err = s.client(op).Review(ctx, op.Task, verdict, comments)
 	case OpAskOwner:
-		_, err = s.client(op.Actor).AskOwner(ctx, op.Task, "which way?", "a", "b")
+		_, err = s.client(op).AskOwner(ctx, op.Task, "which way?", "a", "b")
 	default:
 		return s.BoardSystem.Do(ctx, op)
 	}

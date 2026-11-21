@@ -236,6 +236,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	lib := prompts.New(cfg.PromptsDir)
 	mcp.RegisterTaskTemplates(reg, b, lib)
+	mcp.RegisterPrompts(reg, lib)
 	m.Surface = &mcp.Surface{B: b, Lib: lib}
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
 	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())

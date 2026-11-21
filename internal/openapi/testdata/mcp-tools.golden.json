@@ -485,6 +485,16 @@
       },
       "type": "object"
     },
+    "list_prompts": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "description": "only prompts with this tag",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "list_spawns": {
       "additionalProperties": false,
       "properties": {
@@ -727,6 +737,26 @@
       "required": [
         "task_id",
         "agent_id"
+      ],
+      "type": "object"
+    },
+    "render_prompt": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "prompt id from list_prompts",
+          "type": "string"
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "value for every variable the prompt declares",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id"
       ],
       "type": "object"
     },

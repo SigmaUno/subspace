@@ -1,0 +1,379 @@
+package main
+
+import (
+	"context"
+	"crypto/sha256"
+	"database/sql"
+	"encoding/hex"
+	"fmt"
+	"os"
+	"time"
+
+	_ "modernc.org/sqlite"
+
+	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
+)
+
+var t0 = time.Date(2026, 11, 20, 9, 0, 0, 0, time.UTC)
+
+func at(min int) time.Time      { return t0.Add(time.Duration(min) * time.Minute) }
+func tp(t time.Time) *time.Time { return &t }
+func sp(s string) *string       { return &s }
+
+func tokenHash(id string) string {
+	h := sha256.Sum256([]byte("fixture-token-" + id))
+	return hex.EncodeToString(h[:])
+}
+
+func main() {
+	if len(os.Args) != 2 {
+		fmt.Fprintln(os.Stderr, "usage: fixturegen <db path>")
+		os.Exit(2)
+	}
+	if err := run(os.Args[1]); err != nil {
+		fmt.Fprintln(os.Stderr, "fixturegen:", err)
+		os.Exit(1)
+	}
+}
+
+func run(path string) error {
+	for _, p := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(p); err != nil && !os.IsNotExist(err) {
+			return err
+		}
+	}
+	s, err := sqlite.Open(path)
+	if err != nil {
+		return err
+	}
+	if err := s.Atomic(context.Background(), populate); err != nil {
+		_ = s.Close()
+		return err
+	}
+	if err := s.Close(); err != nil {
+		return err
+	}
+	db, err := sql.Open("sqlite", "file:"+path)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = db.Close() }()
+	if _, err := db.Exec(`PRAGMA journal_mode=DELETE`); err != nil {
+		return err
+	}
+	_, err = db.Exec(`VACUUM`)
+	return err
+}
+
+func reserve(tx store.Tx, prefix, want string) error {
+	got, err := tx.NextID(prefix)
+	if err != nil {
+		return err
+	}
+	if got != want {
+		return fmt.Errorf("id %s, want %s", got, want)
+	}
+	return nil
+}
+
+func populate(tx store.Tx) error {
+	for _, b := range briefs() {
+		if err := reserve(tx, "B", b.ID); err != nil {
+			return err
+		}
+		if err := tx.InsertBrief(b); err != nil {
+			return err
+		}
+	}
+	for _, p := range plans() {
+		if err := reserve(tx, "P", p.ID); err != nil {
+			return err
+		}
+		if err := tx.InsertPlan(p); err != nil {
+			return err
+		}
+	}
+	for _, t := range tasks() {
+		if err := reserve(tx, "T", t.ID); err != nil {
+			return err
+		}
+		if err := tx.InsertTask(t); err != nil {
+			return err
+		}
+	}
+	for _, a := range agents() {
+		if err := tx.InsertAgent(a); err != nil {
+			return err
+		}
+	}
+	for _, m := range messages() {
+		if err := tx.InsertMessage(m); err != nil {
+			return err
+		}
+	}
+	for _, q := range questions() {
+		if err := reserve(tx, "Q", q.ID); err != nil {
+			return err
+		}
+		if err := tx.InsertQuestion(q); err != nil {
+			return err
+		}
+	}
+	for _, e := range auditEvents() {
+		if err := tx.InsertAudit(e); err != nil {
+			return err
+		}
+	}
+	for _, s := range spawns() {
+		if err := reserve(tx, "S", s.ID); err != nil {
+			return err
+		}
+		if err := tx.InsertSpawn(s); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func briefs() []*model.Brief {
+	return []*model.Brief{
+		{
+			ID: "B-1", Title: "Webhooks: PR status sync",
+			Body:             "Sync pull request status into task threads. Webhooks only, no polling.",
+			Repos:            []string{"SigmaUno/subspace"},
+			Status:           "open",
+			Budget:           model.BriefBudget{MaxCostEUR: 120, MaxParallelAgent: 8},
+			AllowedProviders: []string{"anthropic", "openai"},
+			{{- if .CrossReview}}
+			CrossReview: true,
+			{{- end}}
+			PlanStatus: "approved",
+			CreatedAt:  at(0),
+		},
+		{
+			ID: "B-2", Title: "Docs cleanup",
+			Body:             "Remove stale pages and fix broken links.",
+			Repos:            []string{"SigmaUno/subspace", "SigmaUno/docs"},
+			Status:           "closed",
+			Budget:           model.BriefBudget{MaxCostEUR: 15.5, MaxParallelAgent: 2},
+			AllowedProviders: []string{},
+			{{- if .AutoDone}}
+			AutoDoneOnMerge: true,
+			{{- end}}
+			PlanStatus: "proposed",
+			CreatedAt:  at(5),
+		},
+	}
+}
+
+func plans() []*model.Plan {
+	return []*model.Plan{
+		{ID: "P-1", BriefID: "B-1", Status: "approved", ProposedBy: "lead-1", Note: sp("lgtm"), Tasks: []*model.Task{},
+			{{- if .Warnings}}
+			Warnings: []model.PlanFinding{},
+			{{- end}}
+			CreatedAt: at(20), DecidedAt: tp(at(30))},
+		{ID: "P-2", BriefID: "B-2", Status: "proposed", ProposedBy: "lead-1", Tasks: []*model.Task{},
+			{{- if .Warnings}}
+			Warnings: []model.PlanFinding{{"{"}}{Severity: "warning", Rule: "no_tester", Message: "plan has no tester task"}},
+			{{- end}}
+			CreatedAt: at(40)},
+	}
+}
+
+func tasks() []*model.Task {
+	mk := func(id, brief, plan, slug, status string, f func(*model.Task)) *model.Task {
+		t := &model.Task{
+			ID: id, BriefID: brief, PlanID: plan, Title: slug, Spec: "Implement " + slug + " as described in the brief.",
+			AcceptanceCriteria: []string{"tests pass", "PR opened against main"},
+			Repo:               "SigmaUno/subspace", Branch: "sub/" + id + "-" + slug, Role: model.RoleWorker,
+			DependsOn: []string{}, Status: status, CreatedAt: at(31), UpdatedAt: at(31),
+		}
+		if f != nil {
+			f(t)
+		}
+		return t
+	}
+	assigned := func(worker, reviewer string) func(*model.Task) {
+		return func(t *model.Task) {
+			t.Assignee = sp(worker)
+			if reviewer != "" {
+				t.Reviewer = sp(reviewer)
+			}
+			t.ClaimedAt = tp(at(50))
+			t.UpdatedAt = at(90)
+		}
+	}
+	pr := func(n string) func(*model.Task) {
+		return func(t *model.Task) { t.PRURL = sp("https://github.com/SigmaUno/subspace/pull/" + n) }
+	}
+	return []*model.Task{
+		mk("T-1", "B-1", "P-1", "webhook-handler", "done", func(t *model.Task) {
+			assigned("worker-1", "reviewer-1")(t)
+			pr("12")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed, t.ReviewRounds = 100, 2.4, 45, 1
+			t.Tests = &model.TestResult{Passed: 12, ReportedAt: at(80)}
+		}),
+		mk("T-2", "B-1", "P-1", "signature-check", "approved", func(t *model.Task) {
+			assigned("worker-1", "reviewer-1")(t)
+			pr("13")(t)
+			t.DependsOn = []string{"T-1"}
+			t.ProgressPct, t.CostUsed, t.MinutesUsed = 100, 1.1, 30
+		}),
+		mk("T-3", "B-1", "P-1", "replay-guard", "in_review", func(t *model.Task) {
+			assigned("worker-2", "reviewer-1")(t)
+			pr("14")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed = 100, 0.9, 25
+		}),
+		mk("T-4", "B-1", "P-1", "delivery-ids", "submitted", func(t *model.Task) {
+			assigned("worker-1", "")(t)
+			pr("15")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed = 100, 0.6, 20
+		}),
+		mk("T-5", "B-1", "P-1", "body-limit", "changes_requested", func(t *model.Task) {
+			assigned("worker-2", "reviewer-1")(t)
+			pr("16")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed, t.ReviewRounds = 90, 0.8, 22, 1
+		}),
+		mk("T-6", "B-1", "P-1", "forgejo-events", "in_progress", func(t *model.Task) {
+			assigned("worker-2", "")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed = 40, 0.4, 12
+			t.Budget = model.Budget{MaxMinutes: 120, MaxCostEUR: 5}
+			t.LastHeartbeatAt, t.LeaseExpiresAt = tp(at(110)), tp(at(135))
+			{{- if .TaskFields}}
+			t.Priority, t.ComponentID = 5, sp("C-1")
+			{{- end}}
+			{{- if .LeaseExpiries}}
+			t.LeaseExpiries = 1
+			{{- end}}
+		}),
+		mk("T-7", "B-1", "P-1", "event-metrics", "assigned", func(t *model.Task) {
+			t.Assignee = sp("worker-1")
+			t.UpdatedAt = at(95)
+		}),
+		mk("T-8", "B-1", "P-1", "operator-docs", "ready", func(t *model.Task) { t.Role = model.RoleTester }),
+		mk("T-9", "B-1", "P-1", "retry-queue", "blocked", func(t *model.Task) {
+			assigned("worker-1", "")(t)
+			t.ProgressPct, t.CostUsed, t.MinutesUsed = 60, 5.2, 70
+			t.Budget = model.Budget{MaxMinutes: 60, MaxCostEUR: 5}
+			t.BlockedReason = sp("budget_exceeded")
+		}),
+		mk("T-10", "B-1", "P-1", "dedupe-events", "needs_owner", func(t *model.Task) {
+			assigned("worker-2", "reviewer-1")(t)
+			pr("17")(t)
+			t.ProgressPct, t.ReviewRounds = 100, 3
+			t.BlockedReason = sp("3 changes_requested rounds")
+		}),
+		mk("T-11", "B-1", "P-1", "polling-fallback", "cancelled", nil),
+		mk("T-12", "B-2", "P-2", "prune-stale-pages", "backlog", nil),
+		mk("T-13", "B-2", "P-2", "fix-links", "backlog", func(t *model.Task) { t.DependsOn = []string{"T-12"} }),
+	}
+}
+
+func agents() []*model.Agent {
+	mk := func(id, role, kind, provider, status string, f func(*model.Agent)) *model.Agent {
+		a := &model.Agent{
+			ID: id, Role: role, Kind: kind, Model: "model-" + provider, Provider: provider, Status: status,
+			TokenHash: tokenHash(id), CreatedAt: at(2), LastSeenAt: tp(at(100)),
+		}
+		if f != nil {
+			f(a)
+		}
+		return a
+	}
+	return []*model.Agent{
+		mk("lead-1", model.RoleLeader, model.KindClaudeCode, "anthropic", model.AgentActive, nil),
+		mk("worker-1", model.RoleWorker, model.KindClaudeCode, "anthropic", model.AgentActive, nil),
+		mk("worker-2", model.RoleWorker, model.KindCodex, "openai", model.AgentActive, func(a *model.Agent) {
+			a.Spawned = true
+			{{- if .TokenExpiry}}
+			a.TokenExpiresAt = tp(at(60 * 24 * 30))
+			{{- end}}
+		}),
+		mk("tester-1", model.RoleTester, model.KindOpenCode, "deepseek", model.AgentActive, nil),
+		mk("reviewer-1", model.RoleReviewer, model.KindCodex, "openai", model.AgentActive, nil),
+		mk("worker-3", model.RoleWorker, model.KindClaudeCode, "anthropic", model.AgentPaused, func(a *model.Agent) {
+			a.PauseReason = sp("loop")
+		}),
+		mk("worker-4", model.RoleWorker, model.KindOpenCode, "deepseek", model.AgentRevoked, nil),
+	}
+}
+
+func messages() []*model.Message {
+	m := func(min int, kind, thread, author, role, mkind, body string) *model.Message {
+		return &model.Message{ThreadKind: kind, ThreadID: thread, AuthorID: author, AuthorRole: role, Kind: mkind, Body: body, CreatedAt: at(min)}
+	}
+	return []*model.Message{
+		m(1, "brief", "B-1", "owner", "owner", "message", "Sync PR status into task threads. Webhooks only, no polling."),
+		m(21, "brief", "B-1", "lead-1", "leader", "note", "Plan P-1 proposed with 11 tasks."),
+		m(30, "brief", "B-1", "owner", "owner", "system", "Plan P-1 approved."),
+		m(51, "task", "T-1", "worker-1", "worker", "status", "in_progress"),
+		m(60, "task", "T-1", "worker-1", "worker", "note", "Handler verifies the HMAC before parsing the body."),
+		m(85, "task", "T-1", "reviewer-1", "reviewer", "message", "Approved. Replay and tampering are covered."),
+		m(88, "task", "T-5", "reviewer-1", "reviewer", "message", "Add a test for the 1 MiB body limit."),
+		m(92, "task", "T-6", "worker-2", "worker", "question", "Which header carries the Forgejo delivery id?"),
+		m(93, "task", "T-4", "owner", "owner", "answer", "Use X-Gitea-Delivery for Forgejo."),
+		m(96, "task", "T-9", "system", "system", "system", "blocked: budget_exceeded"),
+		m(97, "agent", "worker-3", "system", "system", "system", "paused: loop"),
+		m(3, "agent", "worker-2", "owner", "owner", "message", "Welcome to Subspace."),
+	}
+}
+
+func questions() []*model.Question {
+	return []*model.Question{
+		{ID: "Q-1", BriefID: sp("B-1"), TaskID: sp("T-6"), AgentID: "worker-2",
+			Question: "Which header carries the Forgejo delivery id?", Options: []string{"X-Gitea-Delivery", "X-Forgejo-Delivery"},
+			Status: "open", CreatedAt: at(92)},
+		{ID: "Q-2", BriefID: sp("B-1"), TaskID: sp("T-4"), AgentID: "worker-1",
+			Question: "Should duplicate deliveries return 202 or 409?", Options: []string{"202", "409"},
+			Status: "answered", Answer: sp("202"), AnsweredAt: tp(at(93)), CreatedAt: at(91)},
+		{ID: "Q-3", BriefID: sp("B-1"), AgentID: "lead-1",
+			Question: "Raise the brief budget to 150 EUR?", Options: []string{},
+			Status: "open", CreatedAt: at(98)},
+	}
+}
+
+func auditEvents() []*model.AuditEvent {
+	e := func(min int, agent, role, tool, task string, before, after map[string]any, note string) *model.AuditEvent {
+		ev := &model.AuditEvent{TS: at(min), AgentID: agent, Role: role, Tool: tool, Before: before, After: after}
+		if task != "" {
+			ev.TaskID = sp(task)
+		}
+		if note != "" {
+			ev.Note = sp(note)
+		}
+		return ev
+	}
+	st := func(s string) map[string]any { return map[string]any{"status": s} }
+	return []*model.AuditEvent{
+		e(0, "owner", "owner", "create_brief", "", nil, map[string]any{"id": "B-1"}, ""),
+		e(2, "owner", "owner", "register_agent", "", nil, map[string]any{"id": "worker-1"}, ""),
+		e(2, "owner", "owner", "register_agent", "", nil, map[string]any{"id": "worker-2"}, ""),
+		e(5, "owner", "owner", "create_brief", "", nil, map[string]any{"id": "B-2"}, ""),
+		e(20, "lead-1", "leader", "propose_plan", "", nil, map[string]any{"plan": "P-1", "tasks": 11}, ""),
+		e(30, "owner", "owner", "approve_plan", "", map[string]any{"status": "proposed"}, st("approved"), "lgtm"),
+		e(45, "lead-1", "leader", "assign", "T-6", st("ready"), map[string]any{"status": "assigned", "assignee": "worker-2"}, ""),
+		e(50, "worker-1", "worker", "claim_task", "T-1", st("assigned"), st("in_progress"), ""),
+		e(52, "worker-2", "worker", "claim_task", "T-6", st("assigned"), st("in_progress"), ""),
+		e(70, "worker-1", "worker", "submit", "T-1", st("in_progress"), st("submitted"), "https://github.com/SigmaUno/subspace/pull/12"),
+		e(75, "reviewer-1", "reviewer", "review", "T-1", st("in_review"), st("approved"), "approve"),
+		e(82, "owner", "owner", "done", "T-1", st("approved"), st("done"), "merged in #12"),
+		e(88, "reviewer-1", "reviewer", "review", "T-5", st("in_review"), st("changes_requested"), "request_changes"),
+		e(93, "owner", "owner", "answer_question", "T-4", st("open"), st("answered"), ""),
+		e(96, "worker-1", "worker", "update_status", "T-9", st("in_progress"), st("blocked"), "budget_exceeded"),
+		e(97, "system", "system", "pause_agent", "", st("active"), st("paused"), "loop"),
+	}
+}
+
+func spawns() []*model.Spawn {
+	return []*model.Spawn{
+		{ID: "S-1", BriefID: "B-1", AgentID: "worker-2", Kind: model.KindCodex, Model: "model-openai", Provider: "openai",
+			Status: "spawned", Spawner: "noop", RequestedBy: "lead-1", CreatedAt: at(44)},
+		{ID: "S-2", BriefID: "B-1", AgentID: "worker-4", Kind: model.KindOpenCode, Model: "model-deepseek", Provider: "deepseek",
+			Status: "failed", Spawner: "docker", Error: sp("not implemented"), RequestedBy: "lead-1", CreatedAt: at(46)},
+		{ID: "S-3", BriefID: "B-2", AgentID: "tester-1", Kind: model.KindOpenCode, Model: "model-deepseek", Provider: "deepseek",
+			Status: "requested", Spawner: "log", RequestedBy: "lead-1", CreatedAt: at(47)},
+	}
+}

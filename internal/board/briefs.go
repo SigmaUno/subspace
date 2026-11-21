@@ -148,6 +148,7 @@ type BriefInput struct {
 	MaxCostEUR       float64  `json:"max_cost_eur"`
 	MaxParallel      int      `json:"max_parallel_agents"`
 	AllowedProviders []string `json:"allowed_providers"`
+	CrossReview      *bool    `json:"cross_review"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -168,7 +169,7 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 		}
 		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none",
 			Budget:           model.BriefBudget{MaxCostEUR: in.MaxCostEUR, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CreatedAt: b.now()}
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
@@ -212,6 +213,7 @@ type BriefPatch struct {
 	MaxCostEUR       *float64  `json:"max_cost_eur"`
 	MaxParallel      *int      `json:"max_parallel_agents"`
 	AllowedProviders *[]string `json:"allowed_providers"`
+	CrossReview      *bool     `json:"cross_review"`
 	Status           *string   `json:"status"`
 }
 
@@ -236,6 +238,9 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		}
 		if p.AllowedProviders != nil {
 			br.AllowedProviders = nz(*p.AllowedProviders)
+		}
+		if p.CrossReview != nil {
+			br.CrossReview = *p.CrossReview
 		}
 		if p.Status != nil {
 			if *p.Status != "open" && *p.Status != "closed" {

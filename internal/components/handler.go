@@ -7,6 +7,8 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
+const maxPlanBytes = 1 << 20
+
 func Handler(svc *Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /briefs/{id}/architecture", func(w http.ResponseWriter, r *http.Request) {
@@ -16,6 +18,21 @@ func Handler(svc *Service) http.Handler {
 			return
 		}
 		writeJSON(w, http.StatusOK, g)
+	})
+	mux.HandleFunc("PUT /briefs/{id}/components", func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			Components []Spec `json:"components"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPlanBytes)).Decode(&body); err != nil {
+			writeError(w, model.BadRequest("invalid JSON body: %v", err))
+			return
+		}
+		comps, err := svc.SetPlan(r.Context(), r.PathValue("id"), body.Components)
+		if err != nil {
+			writeError(w, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"components": comps})
 	})
 	return mux
 }

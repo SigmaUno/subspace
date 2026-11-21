@@ -2,9 +2,10 @@ package events
 
 import (
 	"encoding/json"
-	"fmt"
 	"net/http"
+	"strconv"
 	"strings"
+	"sync"
 	"time"
 )
 
@@ -16,6 +17,37 @@ type wireEvent struct {
 	Type string `json:"type"`
 	TS   string `json:"ts"`
 	Data any    `json:"data"`
+}
+
+type encoded struct {
+	once sync.Once
+	b    []byte
+}
+
+func encodeFrame(id int64, typ string, ts time.Time, data any) []byte {
+	b, err := json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: data})
+	if err != nil {
+		b, _ = json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: nil})
+	}
+	buf := make([]byte, 0, len(b)+len(typ)+40)
+	if id >= 0 {
+		buf = append(buf, "id: "...)
+		buf = strconv.AppendInt(buf, id, 10)
+		buf = append(buf, '\n')
+	}
+	buf = append(buf, "event: "...)
+	buf = append(buf, typ...)
+	buf = append(buf, "\ndata: "...)
+	buf = append(buf, b...)
+	return append(buf, "\n\n"...)
+}
+
+func (e *Event) frame() []byte {
+	if e.enc == nil {
+		return encodeFrame(e.Seq, e.Type, e.TS, e.Data)
+	}
+	e.enc.once.Do(func() { e.enc.b = encodeFrame(e.Seq, e.Type, e.TS, e.Data) })
+	return e.enc.b
 }
 
 func TopicsFromQuery(r *http.Request) []string {
@@ -61,30 +93,41 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		hd.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
-		write := func(id int64, typ string, ts time.Time, data any) error {
-			b, err := json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: data})
-			if err != nil {
-				b, _ = json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: nil})
-			}
-			if id >= 0 {
-				if _, err := fmt.Fprintf(w, "id: %d\n", id); err != nil {
-					return err
-				}
-			}
-			if _, err := fmt.Fprintf(w, "event: %s\ndata: %s\n\n", typ, b); err != nil {
-				return err
-			}
-			return rc.Flush()
-		}
-
 		lagged := func() error {
 			if n := sub.TakeDropped(); n > 0 {
-				return write(-1, "lagged", time.Now(), map[string]int{"dropped": n})
+				_, err := w.Write(encodeFrame(-1, "lagged", time.Now(), map[string]int{"dropped": n}))
+				return err
 			}
 			return nil
 		}
 
-		if err := write(seq, "hello", time.Now(), map[string]int64{"seq": seq}); err != nil {
+		send := func(ev Event) (bool, error) {
+			for n := 0; ; n++ {
+				if err := lagged(); err != nil {
+					return false, err
+				}
+				if _, err := w.Write(ev.frame()); err != nil {
+					return false, err
+				}
+				if n == SubscriberBuffer {
+					return true, rc.Flush()
+				}
+				select {
+				case next, ok := <-sub.C():
+					if !ok {
+						return false, rc.Flush()
+					}
+					ev = next
+				default:
+					return true, rc.Flush()
+				}
+			}
+		}
+
+		if _, err := w.Write(encodeFrame(seq, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
+			return
+		}
+		if err := rc.Flush(); err != nil {
 			return
 		}
 
@@ -98,7 +141,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				if err := lagged(); err != nil {
 					return
 				}
-				if _, err := fmt.Fprint(w, ": ping\n\n"); err != nil {
+				if _, err := w.Write([]byte(": ping\n\n")); err != nil {
 					return
 				}
 				if err := rc.Flush(); err != nil {
@@ -108,10 +151,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				if !ok {
 					return
 				}
-				if err := lagged(); err != nil {
-					return
-				}
-				if err := write(ev.Seq, ev.Type, ev.TS, ev.Data); err != nil {
+				if more, err := send(ev); err != nil || !more {
 					return
 				}
 			}

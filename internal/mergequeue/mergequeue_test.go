@@ -316,3 +316,57 @@ func TestRunDrainsQueueInOrder(t *testing.T) {
 	cancel()
 	<-done
 }
+
+func TestVerifyDoesNotSeeServerSecrets(t *testing.T) {
+	e := newEnv(t)
+	t.Setenv("SUBSPACE_OWNER_TOKEN", "owner-secret-0123456789abcdef")
+	e.branch("feature", "feature.txt", "x\n")
+	q := e.queue(`echo "owner=$SUBSPACE_OWNER_TOKEN"; exit 1`, true)
+	e.enqueue(q, 7, "feature", "T-1")
+
+	c := e.process(q)
+	if c.State != StateEjected || !strings.Contains(c.Log, "owner=") {
+		t.Fatalf("state %s, log:\n%s", c.State, c.Log)
+	}
+	for _, n := range append(e.rec.notes, c.Log) {
+		if strings.Contains(n, "owner-secret") {
+			t.Fatalf("owner token leaked: %s", n)
+		}
+	}
+}
+
+func TestRemoteCredentialsNotLogged(t *testing.T) {
+	e := newEnv(t)
+	q, err := New(Config{
+		Repos:    map[string]RepoConfig{repo: {Remote: "https://bot:s3cret-pw@127.0.0.1:1/acme/app.git", Verify: []string{"true"}, Auto: true}},
+		WorkDir:  filepath.Join(e.root, "work"),
+		Store:    e.store,
+		Notifier: e.rec,
+		Gate:     e.rec,
+		Tasks:    e.rec,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	e.enqueue(q, 7, "feature", "T-1")
+	if _, err := q.Process(context.Background(), repo); err == nil {
+		t.Fatal("expected fetch error")
+	}
+	list, err := e.store.List(context.Background(), repo)
+	if err != nil || len(list) != 1 {
+		t.Fatalf("%v %v", list, err)
+	}
+	if !strings.Contains(list[0].Log, "remote add origin") || strings.Contains(list[0].Log, "s3cret-pw") {
+		t.Fatalf("log:\n%s", list[0].Log)
+	}
+}
+
+func TestExecRunnerKeepsBoundedTail(t *testing.T) {
+	out, err := ExecRunner{}.Run(context.Background(), t.TempDir(), "sh", "-c", `head -c 1000000 /dev/zero | tr '\000' x; echo END`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(out) > maxLog || !strings.HasSuffix(out, "xEND\n") {
+		t.Fatalf("len %d, tail %q", len(out), out[max(len(out)-10, 0):])
+	}
+}

@@ -174,6 +174,92 @@ progress::-moz-progress-bar { background: var(--action); border-radius: 999px; }
   .topbar { padding-inline: .7rem; }
   .board { grid-auto-columns: min(78vw, 15.5rem); }
 }
+
+/* Hillclimb loss curve */
+.hillclimb-chart { width: 100%; height: auto; overflow: visible; }
+.hillclimb-chart .axis { stroke: var(--border); }
+.hillclimb-chart .tick { fill: var(--muted); font-size: 12px; }
+.hillclimb-chart .target { stroke: var(--warn); stroke-dasharray: 6 4; }
+.hillclimb-chart .target-label { fill: var(--warn); }
+.hillclimb-chart .series { fill: none; stroke: var(--accent); stroke-width: 2; }
+.hillclimb-chart .point { fill: var(--action); }
+.hillclimb-chart .best { fill: none; stroke: var(--green); stroke-width: 2.5; }
+.decision-list { display: grid; gap: .8rem; }
+.decision { display: grid; gap: .65rem; }
+.decision.selected { border-color: var(--accent); }
+.decision.old { border-left: .25rem solid var(--warn); }
+.decision h2 button { color: var(--text); font: inherit; text-align: left; }
+.decision-meta { display: flex; flex-wrap: wrap; gap: .3rem 1rem; }
+.decision-actions { display: grid; gap: .8rem; padding-top: .65rem; border-top: 1px solid var(--border); }
+/* Chat */
+.chat-screen { grid-template-columns: minmax(14rem, 20rem) minmax(0, 1fr); align-items: start; }
+.chat-list { display: grid; gap: .5rem; align-content: start; max-height: calc(100vh - 9rem); overflow: auto; }
+.chat-list ul { display: grid; gap: .4rem; margin: 0; padding: 0; list-style: none; }
+.chat-item { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: .15rem .5rem; width: 100%; text-align: left; }
+.chat-item[aria-current] { border-color: var(--accent); }
+.chat-item .meta { grid-column: 1 / -1; }
+.chat-pane { display: grid; grid-template-rows: auto minmax(0, 1fr) auto; height: calc(100vh - 9rem); min-height: 28rem; padding: 0; overflow: hidden; }
+.chat-head { padding: 1rem; border-bottom: 1px solid var(--border); }
+.chat-pane .messages { padding: .85rem 1rem; }
+@media (max-width: 960px) {
+  .chat-screen { grid-template-columns: minmax(0, 1fr); }
+  .chat-list { max-height: none; }
+  .chat-pane { height: auto; min-height: 24rem; }
+.arch-layout { display: grid; gap: 1rem; align-items: start; }
+.arch-layout.with-panel { grid-template-columns: minmax(0, 1fr) minmax(18rem, 26rem); }
+.arch-canvas { overflow: auto; padding: .5rem; }
+.arch-canvas svg { display: block; max-width: none; }
+.arch-node { cursor: pointer; color: var(--border); outline: none; }
+.arch-node.pending { color: var(--accent); }
+.arch-node.active, .arch-node.done { color: var(--green); }
+.arch-node.stale { color: var(--warn); }
+.arch-node.blocked { color: var(--danger); }
+.arch-card { fill: var(--panel-raised); stroke: currentColor; stroke-width: 1.5; }
+.arch-node:hover .arch-card, .arch-node.selected .arch-card { stroke-width: 3; }
+.arch-node:focus-visible .arch-card { stroke: var(--action); stroke-width: 3; }
+.arch-node.done .arch-card { fill: #1c2b27; }
+.arch-name { fill: var(--text); font-size: 14px; font-weight: 650; }
+.arch-meta { fill: var(--muted); font-size: 12px; }
+.arch-track { fill: var(--bg); }
+.arch-fill { fill: currentColor; }
+.arch-edge { fill: none; stroke: var(--muted); stroke-width: 1.4; opacity: .6; }
+.arch-edge.linked { stroke: var(--accent); stroke-width: 2.2; opacity: 1; }
+.arch-arrow { fill: var(--muted); }
+.arch-legend { display: flex; flex-wrap: wrap; gap: .4rem 1rem; margin: 0; padding: 0; list-style: none; }
+.arch-legend-item { display: inline-flex; align-items: center; gap: .4rem; font-size: .8125rem; color: var(--muted); }
+.arch-swatch { width: .75rem; height: .75rem; border: 2px solid var(--border); border-radius: .2rem; }
+.arch-swatch.pending { border-color: var(--accent); }
+.arch-swatch.active, .arch-swatch.done { border-color: var(--green); }
+.arch-swatch.stale { border-color: var(--warn); }
+.arch-swatch.blocked { border-color: var(--danger); }
+.arch-swatch.done { background: var(--green); }
+.arch-panel h3 { margin: 0 0 .3rem; font-size: .9rem; }
+.arch-list { display: grid; gap: .45rem; margin: 0; padding: 0; list-style: none; }
+.arch-list .arch-list { margin: .35rem 0 0 .8rem; }
+.arch-task { display: grid; gap: .2rem; font-size: .8125rem; }
+@media (max-width: 960px) {
+  .arch-layout.with-panel { grid-template-columns: minmax(0, 1fr); }
+.overview-root > main:first-of-type { display: none; }
+.stat-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(min(100%, 13rem), 1fr)); gap: .8rem; }
+.stat { display: grid; gap: .3rem; align-content: start; }
+.stat strong { font-size: 1.85rem; line-height: 1.15; font-variant-numeric: tabular-nums; }
+.stat strong .muted { font-size: 1.15rem; font-weight: 500; }
+.stat-link { color: var(--text); text-decoration: none; }
+.stat-link:hover { border-color: var(--accent); }
+.paused-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
+.overview-layout { display: grid; grid-template-columns: minmax(0, 1fr) 23rem; gap: 1rem; align-items: start; }
+.agent-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(min(100%, 14.5rem), 1fr)); gap: .65rem; }
+.agent-card { display: grid; gap: .3rem; padding: .75rem; font-size: .875rem; }
+.agent-card.stale-agent { border-color: var(--warn); }
+.feed-panel { position: sticky; top: 5rem; max-height: calc(100vh - 6.5rem); overflow: auto; }
+.feed { list-style: none; margin: 0; padding: 0; display: grid; gap: .5rem; font-size: .8125rem; }
+.feed li { display: grid; grid-template-columns: 4.6rem minmax(0, 1fr); gap: .5rem; }
+@media (max-width: 960px) {
+  .overview-layout { grid-template-columns: minmax(0, 1fr); }
+  .feed-panel { position: static; max-height: 28rem; }
+}
+h3 { margin: 0; font-size: 1rem; overflow-wrap: anywhere; }
+.workspace-layout, .project-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1rem; align-items: start; }
 h3 { margin: 0; font-size: .9375rem; font-weight: 600; overflow-wrap: anywhere; }
 .workspace-layout, .project-layout { display: grid; grid-template-columns: minmax(0, 1fr); gap: 1.25rem; align-items: start; }
 .workspace-content, .project-body { min-width: 0; }

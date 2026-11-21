@@ -4,13 +4,17 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
+import { BotsView } from "./bots";
 import { BriefsView } from "./board";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
+import { UsageView } from "./usage";
 import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
+import { FilesView } from "./files";
 import { SwarmOverview } from "./overview";
+import { CommandPalette } from "./search";
 import { Clock, Feedback } from "./components";
 
 export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
@@ -69,7 +73,11 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "swarm", name: "Swarm", href: "/" },
     { id: "briefs", name: "Briefs", href: "/briefs" },
     { id: "agents", name: "Agents", href: "/agents" },
+    { id: "bots", name: "Bots", href: "/bots" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
+    { id: "usage", name: "Usage", href: "/usage" },
+    { id: "instructions", name: "Instructions", href: "/instructions" },
+    { id: "files", name: "Files", href: "/files" },
   ];
 
   return (
@@ -102,15 +110,19 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
+            {section === "bots" && <BotsView revision={revisions.agents} openThread={setThread} />}
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+            {section === "usage" && <UsageView revision={revisions.capacity} />}
+            {section === "files" && <FilesView />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}
         </div>
       </main>
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}
+      <CommandPalette />
     </Clock.Provider>
   );
 }

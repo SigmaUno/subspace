@@ -29,7 +29,10 @@ type Options struct {
 	SweepEvery time.Duration
 }
 
-type hotTask struct{ hb, lease time.Time }
+type hotTask struct {
+	hb, lease time.Time
+	assignee  string
+}
 
 type Board struct {
 	st  store.Store
@@ -125,6 +128,9 @@ func (w *wctx) agent(a *model.Agent) {
 }
 
 func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body string) error {
+	if len(body) > maxBody {
+		return model.BadRequest("message too long (max %d bytes)", maxBody)
+	}
 	m := &model.Message{ThreadKind: kind, ThreadID: id, AuthorID: author.ID, AuthorRole: author.Role, Kind: mk, Body: body, CreatedAt: w.b.now()}
 	if err := tx.InsertMessage(m); err != nil {
 		return err
@@ -237,6 +243,17 @@ func (b *Board) Paused() (bool, string) {
 	return b.paused, b.pauseWhy
 }
 
+func pausedTx(tx store.Tx) error {
+	v, ok, err := tx.GetKV("paused")
+	if err != nil {
+		return err
+	}
+	if ok && v != "" {
+		return model.Errf("paused", "Subspace is paused: %s", v)
+	}
+	return nil
+}
+
 func (b *Board) Run(ctx context.Context) {
 	var wg sync.WaitGroup
 	wg.Add(2)
@@ -282,7 +299,7 @@ func (b *Board) Flush(ctx context.Context) {
 	ids := make([]string, 0, len(b.dirtyT))
 	for id := range b.dirtyT {
 		h := b.tasks[id]
-		rows = append(rows, store.LeaseRow{TaskID: id, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
+		rows = append(rows, store.LeaseRow{TaskID: id, Assignee: h.assignee, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
 		ids = append(ids, id)
 	}
 	b.dirtyA = map[string]struct{}{}
@@ -292,16 +309,6 @@ func (b *Board) Flush(ctx context.Context) {
 		return
 	}
 	err := b.st.Atomic(ctx, func(tx store.Tx) error {
-
-		for i := range rows {
-			t, err := tx.GetTask(rows[i].TaskID)
-			if err != nil {
-				continue
-			}
-			if t.Assignee != nil {
-				rows[i].Assignee = *t.Assignee
-			}
-		}
 		if len(seen) > 0 {
 			if err := tx.TouchAgents(seen); err != nil {
 				return err

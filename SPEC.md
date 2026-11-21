@@ -168,6 +168,8 @@ Returned by `GET /api/v1/agents/{id}/connect` and on register/rotate; shown in t
 | `SUBSPACE_LOG_LEVEL` | `info` | slog level (`debug`, `info`, `warn`, `error`); runtime control via `/api/v1/log-level` |
 | `SUBSPACE_LOG_FORMAT` | `text` | `text` or `json` |
 | `SUBSPACE_LOG_SAMPLE` | `0.1` | share of 2xx health/heartbeat/log-poll requests that are access-logged |
+| `SUBSPACE_OTLP_ENDPOINT` | – | OTLP/HTTP JSON trace export base URL (off when empty); see docs/api.md Tracing |
+| `SUBSPACE_OTLP_SAMPLE` | `0.01` | share of new traces recorded |
 
 Bootstrap: with an empty DB (no agents, no briefs) nothing breaks — `/healthz`, REST and the UI work, `/mcp` simply rejects all tokens. Owner creates the first brief and registers agents.
 

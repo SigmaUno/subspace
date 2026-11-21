@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/netguard"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const SignatureHeader = "X-Subspace-Signature"
@@ -34,6 +35,8 @@ type httpSink struct {
 	url    string
 	client *http.Client
 	build  func(Notification) ([]byte, http.Header, error)
+
+	propagate bool
 }
 
 func (s *httpSink) Name() string { return s.name }
@@ -49,6 +52,9 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 	}
 	for k, v := range hdr {
 		req.Header[k] = v
+	}
+	if s.propagate {
+		trace.Inject(req.Header, trace.From(ctx))
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
@@ -73,7 +79,7 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 }
 
 func NewWebhook(url, secret string, c *http.Client) Sink {
-	return &httpSink{name: "webhook", url: url, client: c, build: func(n Notification) ([]byte, http.Header, error) {
+	return &httpSink{name: "webhook", url: url, client: c, propagate: true, build: func(n Notification) ([]byte, http.Header, error) {
 		b, err := json.Marshal(n)
 		if err != nil {
 			return nil, nil, err

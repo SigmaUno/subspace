@@ -41,7 +41,7 @@ func (t *tx) InsertAudit(e *model.AuditEvent) error {
 		return err
 	}
 	rec := audit.Record{ID: head.ID + 1, TS: store.Millis(e.TS), AgentID: e.AgentID, Role: e.Role, Tool: e.Tool,
-		TaskID: store.Str(e.TaskID), Before: jsonText(before), After: jsonText(after), Note: store.Str(e.Note)}
+		TaskID: store.Str(e.TaskID), Before: jsonText(before), After: jsonText(after), Note: store.TraceNote(store.Str(e.Note), t.trace)}
 	hash, err := audit.Link(head.Hash, rec)
 	if err != nil {
 		return err

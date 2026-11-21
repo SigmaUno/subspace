@@ -952,7 +952,7 @@ Owner-managed subscriptions that push events to an external HTTPS endpoint.
  "payload":{"id":"WD-7","event":"task.updated","created_at":"...","data":{"id":"T-3","brief_id":"B-1","title":"...","status":"in_progress"}}}
 ```
 
-Deliveries are queued from the SSE hub and sent asynchronously with `POST`, `Content-Type: application/json`, and the headers `X-Subspace-Event` (event type), `X-Subspace-Delivery` (delivery id, stable across retries), `X-Subspace-Timestamp` (Unix seconds, fresh per attempt) and `X-Subspace-Signature` (`sha256=` + hex HMAC-SHA256 of `<timestamp>.<body>` keyed with the subscription secret). Receivers should check the signature over the raw body and reject old timestamps. The payload is `{"id","event","created_at","data"}`; `data` only holds ids, titles and states (`id`, `brief_id`, `plan_id`, `task_id`, `agent_id`, `title`, `status`, `role`, `kind`, `assignee`, `reviewer`, `current_task_id`, and `tasks:[{id,title}]` for plans). Task specs, notes, thread messages, question text and secrets are never included; titles are shortened to 200 characters and secrets in them are masked.
+Deliveries are queued from the SSE hub and sent asynchronously with `POST`, `Content-Type: application/json`, and the headers `X-Subspace-Event` (event type), `X-Subspace-Delivery` (delivery id, stable across retries), `X-Subspace-Timestamp` (Unix seconds, fresh per attempt) and `X-Subspace-Signature` (`sha256=` + hex HMAC-SHA256 of `<timestamp>.<body>` keyed with the subscription secret). Receivers should check the signature over the raw body and reject old timestamps. The payload is `{"id","event","created_at","data"}`, plus `trace_id` and `trace_flags` when the event came from a traced request (see Tracing); `data` only holds ids, titles and states (`id`, `brief_id`, `plan_id`, `task_id`, `agent_id`, `title`, `status`, `role`, `kind`, `assignee`, `reviewer`, `current_task_id`, and `tasks:[{id,title}]` for plans). Task specs, notes, thread messages, question text and secrets are never included; titles are shortened to 200 characters and secrets in them are masked.
 
 A 2xx answer marks a delivery `delivered`. Anything else (other status, timeout, blocked address) retries with exponential backoff from 10s doubling up to 4h, jittered between half and all of each step, until the delivery is 24h old; the last attempt is scheduled at that deadline. After that it is `dead` and stays visible with `last_status` and `last_error` until redelivered or pruned (the newest 500 delivered and dead entries per subscription are kept). At most 1000 deliveries wait per subscription; further events are stored as `dead` with `last_error` `queue full`. Pending deliveries are stored in the database and resume after a restart. Delivery is at least once and ordered only per attempt, so receivers dedupe on `X-Subspace-Delivery`.
 
@@ -1008,7 +1008,8 @@ The web app registers the service worker `/sw.js`. It shows a notification for e
  "text":"claude-3 submitted T-12 (PR #45)",
  "targets":[{"kind":"task","id":"T-12"}],                          // kind task|plan|brief|agent|question|spawn|help_request|artifact
  "severity":"success","icon":"send",                               // icon is a name: activity|split|plan|question|check|user|alert|bot|x|play|folder|plus|file|settings|edit|stop|pause|comment|spawn|lock|budget|send
- "brief_id":"B-1"}                                                 // omitted when the item belongs to no brief
+ "brief_id":"B-1",                                                 // omitted when the item belongs to no brief
+ "trace_id":"4bf92f3577b34da6a3ce929d0e0e4736"}                    // audit items only; omitted when the call was not traced, see Tracing
 ```
 
 The feed turns audit events and `system` thread messages into short sentences (`rex proposed plan P-3 with 14 tasks`, `owner approved plan P-3`). Every audited tool has a sentence template; an unknown tool falls back to `<actor> used <tool>`. Texts are whitespace-collapsed, cut and redacted for tokens and secrets. `brief_id` comes from the task, plan or brief the event belongs to; agent-thread messages and owner-wide events (`pause_all`, `set_limits`, ...) have none. New items are pushed as `activity.new` on topic `activity` (see SSE), polled from the database about every 500 ms.
@@ -1436,7 +1437,7 @@ Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner sc
  "attrs":{"method":"GET","route":"/api/v1/tasks/{id}","status":"200","duration":"1.2ms","bytes":"512","request_id":"a1b2c3d4e5f60718","scope":"owner"}}
 ```
 
-Every HTTP request is logged once when it finishes (`msg` `request`; level `info`, `warn` for status 500 and above). The attributes are `method`, `route` (the matched route pattern, never the raw path, so tokens in paths such as `/a/{token}` and query strings are never logged; `unmatched` when no route matched), `status`, `duration`, `bytes` (response body bytes), `request_id` (the `X-Request-Id` header, generated when missing or invalid) and, when known, `agent` (the agent id on `/mcp`) or `scope` (`owner` for the owner token, `token` for a managed API token). Request bodies and headers are never logged. Attribute values in `Line.attrs` are strings.
+Every HTTP request is logged once when it finishes (`msg` `request`; level `info`, `warn` for status 500 and above). The attributes are `method`, `route` (the matched route pattern, never the raw path, so tokens in paths such as `/a/{token}` and query strings are never logged; `unmatched` when no route matched), `status`, `duration`, `bytes` (response body bytes), `request_id` (the `X-Request-Id` header, generated when missing or invalid), `trace_id` (see Tracing) and, when known, `agent` (the agent id on `/mcp`) or `scope` (`owner` for the owner token, `token` for a managed API token). Request bodies and headers are never logged. Attribute values in `Line.attrs` are strings.
 
 Successful (2xx) health checks, `GET /api/v1/logs` polls and MCP `heartbeat` calls are sampled: a deterministic share of them, chosen by a hash of the request id, is logged. Every other request, and every non-2xx response, is always logged.
 
@@ -1445,6 +1446,42 @@ Successful (2xx) health checks, `GET /api/v1/logs` polls and MCP `heartbeat` cal
 | `SUBSPACE_LOG_FORMAT` | `text` | `text` or `json` (slog handlers on stderr); anything else stops the server at start |
 | `SUBSPACE_LOG_LEVEL` | `info` | initial level: `debug`, `info`, `warn` or `error`; changed at runtime with `PUT /api/v1/log-level` |
 | `SUBSPACE_LOG_SAMPLE` | `0.1` | share (0 to 1) of sampled 2xx requests that are logged; `1` logs all, `0` none |
+
+### Tracing
+Subspace propagates W3C Trace Context without a tracing library and can export spans over OTLP/HTTP JSON.
+
+Every HTTP request has a trace id. An incoming `traceparent` header is adopted when it is valid: version `00` takes exactly 4 lowercase-hex fields (`00-<32 hex>-<16 hex>-<2 hex>`), a future version (not `ff`) may carry further `-` separated fields, and all-zero ids, uppercase hex, wrong lengths, stray whitespace and more than one `traceparent` header are all invalid. An invalid header is ignored and a new trace starts. `tracestate` is passed on unchanged when it is at most 512 printable ASCII characters and dropped otherwise. The trace id is returned in the `X-Trace-Id` response header, on every response, and is attached to the request log line (`trace_id`).
+
+On `/mcp` a `tools/call` request may carry `params._meta.traceparent` (and `params._meta.tracestate`). It takes precedence over the HTTP header for that call, so one HTTP request can serve calls of different traces.
+
+A trace id is stored with the work it caused only when it was propagated by the caller (a valid `traceparent` arrived) or the trace is sampled; ids Subspace generated for unsampled requests are only logged.
+
+- **Audit**: the trace id is appended to the event `note` as `trace=<32 hex>` (`token=root; trace=...`; `trace=...` alone when there is no other note). The note is part of the hash chain, so `/audit/verify` covers it and the id cannot be altered afterwards. No column was added.
+- **Activity**: audit-derived `ActivityItem`s carry `trace_id`; the tag is removed from `text`.
+- **Webhooks and notifications**: outbound webhook payloads (`trace_id`, `trace_flags`, ids only) and notification sink payloads (`trace_id`) carry the trace of the request that caused the event. Deliveries to outbound webhooks and to the `SUBSPACE_NOTIFY_WEBHOOK_URL` sink also send a `traceparent` header whose trace id is that id.
+
+Spans are exported only when `SUBSPACE_OTLP_ENDPOINT` is set:
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_OTLP_ENDPOINT` | – | OTLP/HTTP base URL; `/v1/traces` is appended unless the path already ends with it. Off when empty. No credentials, query or fragment in the URL. |
+| `SUBSPACE_OTLP_HEADERS` | – | `name=value,name=value` sent with every export (collector credentials); values may be percent-encoded. `Host`, `Content-Length`, `Content-Type`, `Transfer-Encoding` and `Connection` are refused. Never logged. |
+| `SUBSPACE_OTLP_SAMPLE` | `0.01` | share (0 to 1) of new traces that are recorded. A valid incoming `traceparent` keeps its own sampled flag. Asynchronous work (webhook and notification deliveries) follows the decision made for the request. |
+| `SUBSPACE_OTLP_ALLOW_PRIVATE` | `false` | allow loopback and private collector addresses; without it the endpoint goes through the same address guard as outbound webhooks and link-local and metadata addresses stay blocked either way. Redirects are not followed. |
+| `SUBSPACE_OTLP_QUEUE` | `2048` | finished spans waiting for export (1 to 100000); when the collector is slow or down further spans are dropped instead of blocking requests |
+
+An invalid value stops the server at start; none of these keys is reloadable. Spans are sent in batches of up to 256 every 5s and when the server stops. Network errors, `408`, `429` and `5xx` are retried up to 5 times with exponential backoff from 500ms to 15s (a `Retry-After` is honoured up to that limit); other answers drop the batch. Spans with these names are produced:
+
+| Span | Kind | Notes |
+|---|---|---|
+| `<METHOD> <route pattern>` | server | every REST and `/mcp` HTTP request except `/healthz` and `/readyz`; attributes `http.request.method`, `http.route`, `http.response.status_code`; error status for 5xx |
+| `tools/call <tool>` | server | every MCP tool call; attributes `gen_ai.tool.name`, `subspace.agent`, `subspace.role`; error status with the error code |
+| `store.commit` | internal | one group commit of the single writer; `db.batch.size`; links to the other traced requests of the batch |
+| `webhook.deliver` | client | every delivery attempt of an outbound webhook |
+| `notify.deliver` | client | every delivery attempt to a notification sink |
+| `leader.sweep`, `board.flush` | internal | one lease sweep or heartbeat flush; each starts its own trace |
+
+Query strings, request and response bodies, headers other than the ones listed and tokens are never attributes.
 
 ### Action links
 | Method | Path | Body → Response |

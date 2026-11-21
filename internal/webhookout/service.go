@@ -22,6 +22,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/netguard"
 	"github.com/SigmaUno/subspace/internal/retryq"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -176,7 +177,7 @@ func (s *Service) handle(ctx context.Context, ev events.Event) {
 			continue
 		}
 		d := &Delivery{WebhookID: sub.ID, Event: ev.Type, CreatedAt: s.now()}
-		err := s.o.Store.Enqueue(ctx, d, func(id string) string { return buildBody(id, ev.Type, d.CreatedAt, data) }, s.o.MaxPending)
+		err := s.o.Store.Enqueue(ctx, d, func(id string) string { return buildBody(id, ev.Type, d.CreatedAt, data, ev.Trace) }, s.o.MaxPending)
 		if err != nil {
 			if model.AsError(err).Code != "not_found" && ctx.Err() == nil {
 				s.o.Log.Error("webhook enqueue", "webhook", sub.ID, "err", err)
@@ -288,10 +289,16 @@ func (s *Service) attempt(ctx context.Context, due *Due) bool {
 
 func (s *Service) send(ctx context.Context, due *Due, now time.Time) (int, error) {
 	body := []byte(due.Payload)
+	traceID, flags := payloadTrace(body)
+	ctx, span := trace.Continue(ctx, traceID, flags, "webhook.deliver", trace.KindClient,
+		trace.String("subspace.webhook_id", due.WebhookID), trace.String("subspace.event", due.Event),
+		trace.String("subspace.delivery_id", due.ID), trace.Int("subspace.attempt", due.Attempts+1))
+	defer span.End()
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, due.URL, bytes.NewReader(body))
 	if err != nil {
 		return 0, errors.New("invalid url")
 	}
+	trace.Inject(req.Header, trace.From(ctx))
 	ts := now.Unix()
 	req.Header.Set("Content-Type", "application/json")
 	req.Header.Set("User-Agent", "Subspace-Webhooks/1")
@@ -305,11 +312,14 @@ func (s *Service) send(ctx context.Context, due *Due, now time.Time) (int, error
 		if len(msg) > 200 {
 			msg = msg[:200]
 		}
+		span.Fail("request failed")
 		return 0, errors.New(msg)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	netguard.Drain(resp.Body, 64<<10)
+	span.SetAttrs(trace.Int("http.response.status_code", resp.StatusCode))
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
+		span.Fail("receiver answered " + strconv.Itoa(resp.StatusCode))
 		return resp.StatusCode, fmt.Errorf("receiver answered %d", resp.StatusCode)
 	}
 	return resp.StatusCode, nil

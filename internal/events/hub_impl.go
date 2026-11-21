@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const TopicAll = "all"
@@ -131,10 +133,14 @@ func (s *sub) wants(topics []string) bool {
 }
 
 func (h *hub) Publish(topics []string, typ string, data any) {
+	h.PublishTrace(topics, typ, data, trace.SpanContext{})
+}
+
+func (h *hub) PublishTrace(topics []string, typ string, data any, tc trace.SpanContext) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
+	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, Trace: tc, enc: &encoded{}}
 	h.record(ev, topics)
 
 	for _, s := range h.topics[TopicAll] {

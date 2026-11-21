@@ -16,6 +16,7 @@ export interface ActivityItem {
   severity: ActivitySeverity;
   icon: string;
   brief_id?: string;
+  trace_id?: string;
 }
 
 export interface ActivityPage {

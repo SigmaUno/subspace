@@ -14,6 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -243,8 +244,9 @@ func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) 
 		b.forget(id)
 	}
 	if b.o.Hub != nil {
+		tc := trace.From(ctx)
 		for _, e := range w.events {
-			b.o.Hub.Publish(e.topics, e.typ, e.data)
+			events.PublishTrace(b.o.Hub, e.topics, e.typ, e.data, tc)
 		}
 	}
 	return nil

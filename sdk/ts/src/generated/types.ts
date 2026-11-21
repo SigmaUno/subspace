@@ -42,6 +42,7 @@ export interface ActivityItem {
   targets: ActivityRef[] | null;
   text: string;
   tool?: string;
+  trace_id?: string;
   ts: string;
 }
 

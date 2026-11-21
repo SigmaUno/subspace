@@ -13,6 +13,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -328,6 +329,7 @@ func retryable(err error) bool {
 }
 
 func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
+	start := time.Now()
 	ctx := context.Background()
 	errs := make([]error, len(batch))
 	fail := func(err error) ([]error, bool) {
@@ -358,7 +360,7 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 			}
 			continue
 		}
-		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
+		e := safeRun(r.fn, &tx{q: t, ctx: ctx, trace: trace.Recorded(r.ctx)})
 		if e == nil {
 			_, e = t.ExecContext(ctx, "RELEASE SAVEPOINT op")
 		}
@@ -374,7 +376,13 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 		}
 		ok[i] = true
 	}
-	if cerr := t.Commit(); cerr != nil {
+	cerr := t.Commit()
+	var tb trace.Batch
+	for _, r := range batch {
+		tb.Add(r.ctx)
+	}
+	tb.End("store.commit", start, cerr, trace.Int("db.batch.size", len(batch)))
+	if cerr != nil {
 		if retryable(cerr) {
 			return fail(cerr)
 		}

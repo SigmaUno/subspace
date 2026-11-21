@@ -25,6 +25,7 @@ type PR struct {
 	Repo       string // owner/name
 	Number     int64
 	Title      string
+	Body       string
 	State      string // open | closed
 	Merged     bool
 	HeadBranch string

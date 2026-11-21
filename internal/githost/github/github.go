@@ -117,6 +117,7 @@ type ghPR struct {
 	HTMLURL   string     `json:"html_url"`
 	Number    int        `json:"number"`
 	Title     string     `json:"title"`
+	Body      string     `json:"body"`
 	State     string     `json:"state"`
 	Draft     bool       `json:"draft"`
 	Merged    bool       `json:"merged"`
@@ -141,6 +142,7 @@ func (p *ghPR) toPR(repo string) *PR {
 		Ref:       PRRef{Repo: repo, Number: p.Number},
 		URL:       p.HTMLURL,
 		Title:     p.Title,
+		Body:      p.Body,
 		State:     p.State,
 		Merged:    p.Merged || p.MergedAt != nil,
 		Draft:     p.Draft,
@@ -161,6 +163,24 @@ func (p *ghPR) toPR(repo string) *PR {
 
 // GetPR fetches a pull request via GET /repos/{owner}/{repo}/pulls/{n}.
 func (c *Client) GetPR(ctx context.Context, ref PRRef) (*PR, error) {
+	body, err := c.getPull(ctx, ref, "application/vnd.github+json")
+	if err != nil {
+		return nil, err
+	}
+	var p ghPR
+	if err := json.Unmarshal(body, &p); err != nil {
+		return nil, fmt.Errorf("github: decode pull: %w", err)
+	}
+	return p.toPR(ref.Repo), nil
+}
+
+// GetPRDiff fetches the unified diff of a pull request.
+func (c *Client) GetPRDiff(ctx context.Context, ref PRRef) (string, error) {
+	body, err := c.getPull(ctx, ref, "application/vnd.github.diff")
+	return string(body), err
+}
+
+func (c *Client) getPull(ctx context.Context, ref PRRef, accept string) ([]byte, error) {
 	owner, name, ok := strings.Cut(ref.Repo, "/")
 	if !ok || !repoPart.MatchString(owner) || !repoPart.MatchString(name) || ref.Number <= 0 {
 		return nil, fmt.Errorf("%w: %+v", ErrInvalidPRURL, ref)
@@ -170,7 +190,7 @@ func (c *Client) GetPR(ctx context.Context, ref PRRef) (*PR, error) {
 	if err != nil {
 		return nil, err
 	}
-	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Accept", accept)
 	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
 	req.Header.Set("User-Agent", "subspace")
 	if c.token != "" {
@@ -191,11 +211,7 @@ func (c *Client) GetPR(ctx context.Context, ref PRRef) (*PR, error) {
 	case resp.StatusCode != http.StatusOK:
 		return nil, fmt.Errorf("github: GET pull %s#%d: status %d", ref.Repo, ref.Number, resp.StatusCode)
 	}
-	var p ghPR
-	if err := json.Unmarshal(body, &p); err != nil {
-		return nil, fmt.Errorf("github: decode pull: %w", err)
-	}
-	return p.toPR(ref.Repo), nil
+	return body, nil
 }
 
 type ghWebhook struct {

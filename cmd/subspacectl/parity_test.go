@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/openapi"
 )
 
@@ -263,6 +264,7 @@ func ownerRoutes(t *testing.T) []string {
 }
 
 func TestEveryOwnerRouteHasACommandOrAnExemption(t *testing.T) {
+	guardhint.Watch(t, guardhint.CLIParity)
 	routes := ownerRoutes(t)
 	for _, route := range routes {
 		_, has := covered[route]

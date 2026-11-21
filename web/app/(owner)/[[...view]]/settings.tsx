@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, optionalResource, useResource, useSubmit } from "../../../lib/client";
 import type { About, Alerts, Backup, BackupList, NotifyStatus, OwnerToken, SinkResult, TokenList } from "../../../lib/settings-types";
 import type { Control } from "../../../lib/types";
+import { AnnouncementsView } from "./announcements";
 import { CharterView } from "./charter";
 import { Feedback } from "./components";
 import { InstructionsView } from "./instructions";
@@ -165,6 +166,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     { id: "charter", name: "Charter", show: true },
     { id: "capacity", name: "Capacity and limits", show: true },
     { id: "instructions", name: "Instructions", show: true },
+    { id: "announcements", name: "Announcements", show: true },
     { id: "notifications", name: "Notifications", show: notify.data !== null },
     { id: "backups", name: "Backups", show: backups.data !== null },
     { id: "tokens", name: "Tokens", show: tokens.data !== null },
@@ -184,6 +186,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
       <OrgBudget revision={revisions.capacity} />
     </>}
     {active === "instructions" && <InstructionsView />}
+    {active === "announcements" && <AnnouncementsView />}
     {active === "notifications" && <>
       <ResourceState error={notify.error} loading={notify.data === undefined} retry={notify.refresh} rows={2} />
       {notify.data && <NotificationsPanel status={notify.data} />}

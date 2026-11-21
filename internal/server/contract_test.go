@@ -288,6 +288,7 @@ func (e *env) contractEmitAll() {
 	rejected := e.must(lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": []any{planTask("b", nil)}})["plan"].(map[string]any)
 	e.restWant(200, "POST", "/api/v1/plans/"+rejected["id"].(string)+"/reject", map[string]any{"reason": "no"})
 	e.must(lead, "assign", map[string]any{"task_id": ids[0], "agent_id": "w1"})
+	e.restWant(200, "PUT", "/api/v1/agents/w1/quota", map[string]any{"max_concurrent_tasks": 1})
 	e.must(wk, "claim_task", map[string]any{"task_id": ids[0]})
 	q := e.must(wk, "ask_owner", map[string]any{"task_id": ids[0], "question": "which?"})["question"].(map[string]any)
 	e.restWant(200, "POST", "/api/v1/questions/"+q["id"].(string)+"/answer", map[string]any{"answer": "a"})

@@ -6,6 +6,7 @@ import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, v
 import type { AuditEvent } from "../../../lib/agent-detail-types";
 import type { Agent, Connect, Message, Registration, Task } from "../../../lib/types";
 import type { UsageSummary } from "../../../lib/usage-types";
+import { AgentQuotaPanel } from "./agent-quota";
 import { Clock, Feedback, Heartbeat, LoadMore } from "./components";
 import { useLive } from "./live";
 import { Secret } from "./operations";
@@ -225,6 +226,7 @@ export function AgentDetailPage({ id }: { id: string }) {
           rotated={(result) => { setRotated(result.connect); connect.refresh(); }} />
         {(rotated ?? connect.data) && <ConnectPanel connect={(rotated ?? connect.data)!} rotated={!!rotated} dismiss={() => setRotated(null)} />}
         <Feedback error={connect.error} />
+        <AgentQuotaPanel id={id} revision={revisions.agents + revisions.board} revoked={current.status === "revoked"} />
         <AgentThread id={id} revision={revisions.thread} />
         <Tasks id={id} revision={revisions.board} />
         <Usage id={id} now={now} revision={revisions.capacity} />

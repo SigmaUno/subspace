@@ -58,6 +58,7 @@ type Board struct {
 	dirtyT  map[string]struct{}
 	capCfg  capacity.Config
 	capGate capacity.Gate
+	gate    Gate
 
 	expiries map[string][]time.Time
 

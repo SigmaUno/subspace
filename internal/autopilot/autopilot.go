@@ -60,7 +60,7 @@ type Service struct {
 	results  []Result
 }
 
-var expected = map[string]bool{"capacity": true, "paused": true, "budget_exceeded": true, "conflict": true}
+var expected = map[string]bool{"capacity": true, "paused": true, "budget_exceeded": true, "quota_exceeded": true, "conflict": true}
 
 func New(b Board, o Options) *Service {
 	if o.Actor.ID == "" {

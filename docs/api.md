@@ -29,7 +29,7 @@ Errors (REST): HTTP status + body
 ```json
 {"error": {"code": "not_found", "message": "task T-9 not found"}}
 ```
-Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded` 507 (artifact uploads). Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
+Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded`: 409 when an agent's daily quota blocks `claim_task` or `assign` (see Agent quotas), 507 for artifact uploads. Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
@@ -74,7 +74,10 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "status":"active",                                // active|paused|revoked
  "pause_reason":null,"current_task_id":"T-3","assigned_count":2,
  "last_seen_at":"...","created_at":"...","spawned":false,
- "token_expires_at":null}                          // RFC 3339 when the token expires, null = never
+ "token_expires_at":null,                          // RFC 3339 when the token expires, null = never
+ "quota":{"max_cost_eur_per_day":5,"max_tasks_per_day":10,"max_concurrent_tasks":2},   // 0 = unlimited; only on GET /agents and GET /agents/{id}
+ "quota_usage":{"cost_eur":1.5,"tasks":3,"concurrent_tasks":1,"percent":30,"level":"ok",   // level: off|ok|warning|exceeded; percent: the highest used share of any limit
+                "day_starts_at":"2026-11-21T00:00:00Z","resets_at":"2026-11-22T00:00:00Z"}}
 
 // Message
 {"id":42,"thread_kind":"task","thread_id":"T-3","author_id":"claude-1","author_role":"worker",
@@ -281,8 +284,11 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
 | POST | `/api/v1/agents/{id}/rotate-token` | `{"expires_in":"","callback_url":"..."}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead). Without `expires_in` the current `token_expires_at` is kept (400 when it has already passed); with it the expiry is set to now plus the duration. |
 | POST | `/api/v1/agents/{id}/revoke` | `{"reason":""}` → Agent. Token dead immediately, leases released. |
 | POST | `/api/v1/agents/{id}/resume` | `{}` → Agent (clears loop-protection pause) |
+| PUT | `/api/v1/agents/{id}/quota` | `{"max_cost_eur_per_day":5,"max_tasks_per_day":10,"max_concurrent_tasks":2}` → `{"agent_id","quota":Quota,"quota_usage":{...}}` (the same `quota` and `quota_usage` objects as in Agent). Replaces all three limits (`0` or absent = unlimited); 400 on a negative or oversized value or an unknown field, 404 for an unknown agent, 409 for a revoked one. Appends a `set_agent_quota` audit event. See Agent quotas. |
+| POST | `/api/v1/agents/quota-bulk` | `{"ids":["claude-1"],"quota":{...}}` → `{"results":[{"id","ok","error"?:{"code","message"}}],"succeeded","failed"}`. Applies the quota to up to 500 agents, one id at a time with its own audit event; duplicate ids are applied once and `ok:false` results carry the error the single endpoint would return. 400 for an empty or oversized `ids`, empty id values, or a missing or invalid `quota`; nothing is applied then. |
 | POST | `/api/v1/agents/bulk-action` | `{"ids":["claude-1"],"action":"pause","params":{}}` → `{"action","results":[{"id","ok","error"?,"connect"?}],"succeeded","failed"}`. See Bulk operations. |
 
+<<<<<<< HEAD
 ### Agent callbacks
 MCP is pull-only, so an idle agent can miss work. An agent can have one optional callback URL; the server then POSTs a small signed wake-up event to it. `POST /api/v1/agents` and `POST /api/v1/agents/{id}/rotate-token` accept `callback_url` (owner token only):
 
@@ -311,6 +317,21 @@ The event carries ids only, never task titles, specs or message bodies; the agen
 
 Delivery is best effort and never blocks board operations. Events for the same agent that arrive within the coalescing window (default 2s) are merged into one event with deduplicated reasons; events that arrive while a delivery is in flight wait for it and go out as the next event. Every agent has at most one delivery in flight and the queue holds at most 1024 agents, further events are dropped. A response in `2xx` is success. Network errors, `408`, `429` and `5xx` are retried up to 6 attempts with exponential backoff from 1s capped at 1 minute (±20% jitter), reusing the event id; other responses are final. Each attempt has a 10s timeout and the response body is discarded after 4 KiB. Callbacks are lost on restart; agents must still poll on start.
 
+=======
+### Agent quotas
+Owner-set daily limits per agent: `max_cost_eur_per_day`, `max_tasks_per_day` and `max_concurrent_tasks`, each `0` = unlimited. The day is the UTC calendar day (00:00 to 00:00). Consumption is recorded as it happens: cost is the increase of a task's `cost_used` reported by the agent's `update_status` calls, tasks are the distinct tasks the agent claimed that day, concurrent tasks are its `in_progress` tasks. Limits are stored in the `agent_quotas` table, usage in `agent_quota_days` and `agent_quota_tasks`.
+
+- `claim_task` is refused with `quota_exceeded` (409) when the day's cost has reached the cap, when the claim would start a new task beyond the daily task count (re-claiming a task already counted that day is allowed) or when the agent already runs `max_concurrent_tasks` tasks.
+- `assign` and `reassign` (assignee) are refused with `quota_exceeded` for the target agent on the same conditions, where queued `assigned` tasks count as tasks and every task held (`assigned`, `in_progress`, `changes_requested`) counts as concurrent. Reviewer assignments are not limited.
+- The limits take effect on the next call; running tasks are never interrupted.
+- At 90% of any limit the owner gets a `budget` decision `quota:<agent id>` (`skip` only, listed while the agent is active and at or above 90%) and one `quota.warning` event per agent and day, delivered by the notification sinks. Changing the quota re-arms the warning.
+
+```jsonc
+// Quota
+{"max_cost_eur_per_day":5,"max_tasks_per_day":10,"max_concurrent_tasks":2}
+```
+
+>>>>>>> origin/ws/server/b-agent-quotas
 ### Bulk operations
 `POST /api/v1/tasks/bulk` and `POST /api/v1/agents/bulk-action` apply one action to up to 500 ids, one id at a time, in request order (duplicate ids are applied once). Each id is its own operation with its own audit event and SSE update (`task.updated` / `agent.updated`), exactly as the single-item endpoints. Partial success is allowed: the response is `200` with a result per id, `ok:false` results carry the error `code` and `message` the single-item endpoint would have returned (`not_found`, `conflict`, `forbidden`, ...). The request itself is rejected with `400` for an empty or oversized `ids`, empty id values, an unknown `action` or missing/invalid `params`; nothing is applied then.
 
@@ -865,6 +886,7 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `plan.proposed` / `plan.approved` / `plan.rejected` | Plan | plans, brief:* |
 | `spawn.updated` | Spawn | agents, brief:* |
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
+| `quota.warning` | `{"agent_id":"claude-1","percent":92,"level":"warning","cost_eur":4.6,"tasks":3,"concurrent_tasks":1,"starts_at":"..."}` | control |
 | `spend.warning` | `{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning","starts_at":"..."}` | control |
 | `activity.new` | ActivityItem | activity |
 | `capacity.changed` | capacity object (as GET /capacity) | control |

@@ -1,7 +1,6 @@
 package server
 
 import (
-	"context"
 	"os"
 
 	"github.com/SigmaUno/subspace/internal/notify"
@@ -17,7 +16,7 @@ func init() {
 		cfg.Log = d.Log
 		cfg.Mint = actionMinter(d)
 		svc := notify.New(cfg)
-		svc.Start(context.Background(), d.Hub)
+		svc.Start(d.Ctx, d.Hub)
 		d.API.Mount(d.Mux, "/api/v1/notify/", svc.Handler())
 	})
 }

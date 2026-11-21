@@ -103,7 +103,10 @@ func (s *Syncer) Start(ctx context.Context, hub events.Hub) {
 			select {
 			case <-ctx.Done():
 				return
-			case ev := <-sub.C():
+			case ev, ok := <-sub.C():
+				if !ok {
+					return
+				}
 				if ev.Type == "task.created" || ev.Type == "task.updated" {
 					s.Enqueue(ev.Data)
 				}

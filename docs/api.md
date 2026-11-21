@@ -759,7 +759,7 @@ On shutdown the server stops accepting connections, sends a final `close` event 
 
 `alert.raised` and `alert.resolved` (topic `alerts`, also `all`) carry `{"id":"alert:<alert id>","kind":"alert","title","text","priority","brief_id"?,"task_id"?,"ts"}` and are emitted only by the alert rules.
 
-Slow subscribers have a bounded buffer; when it overflows, oldest events are dropped and a `lagged` event is delivered.
+Slow subscribers have a bounded buffer; when it overflows, oldest events are dropped and a `lagged` event is delivered. A client that stops reading is disconnected once a write stays blocked for twice the ping interval (30s).
 
 ## 5. MCP: `POST /mcp` (agent token)
 

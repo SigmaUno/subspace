@@ -282,6 +282,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 		s.cfg.Log.Warn("shutdown timed out, closing connections", "err", err)
 		_ = srv.Close()
 	}
+	if c, ok := s.Hub.(interface{ Close() }); ok {
+		c.Close()
+	}
 
 	stopFlush()
 	flusher.Wait()

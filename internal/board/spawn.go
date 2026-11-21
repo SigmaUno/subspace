@@ -239,7 +239,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		serr := b.o.Spawner.Spawn(ctx, spawner.Request{AgentID: l.ag.ID, Kind: l.ag.Kind, Model: l.ag.Model, Provider: l.ag.Provider,
 			JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok})
 		sp := l.sp
-		_ = b.write(ctx, func(tx store.Tx, w *wctx) error {
+		_ = b.write(context.WithoutCancel(ctx), func(tx store.Tx, w *wctx) error {
 			if serr != nil {
 				sp.Status, sp.Error = "failed", strp(serr.Error())
 				l.ag.Status, l.ag.PauseReason = model.AgentRevoked, strp("spawn failed")

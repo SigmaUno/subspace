@@ -429,7 +429,10 @@ func execRunner(token string, limit int) Runner {
 	}
 }
 
-const maxCapture = 64 << 10
+const (
+	maxCapture = 64 << 10
+	waitDelay  = time.Second
+)
 
 func childEnv() []string {
 	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "SUBSPACE_") })
@@ -456,9 +459,9 @@ func runCapture(cmd *exec.Cmd, token string, limit int) ([]byte, error) {
 	out := &headBuffer{limit: limit}
 	cmd.Stdout = out
 	cmd.Stderr = out
-	cmd.WaitDelay = time.Second
+	cmd.WaitDelay = waitDelay
 	err := cmd.Run()
-	if err == nil {
+	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
 		return out.buf, nil
 	}
 	raw := out.buf

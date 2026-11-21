@@ -109,6 +109,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 	if ping <= 0 {
 		ping = DefaultPingInterval
 	}
+	stall := max(2*ping, time.Second)
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		after, resuming, err := lastEventID(r)
 		if err != nil {
@@ -148,6 +149,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		hd.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
+		arm := func() { _ = rc.SetWriteDeadline(time.Now().Add(stall)) }
 		bw := bufio.NewWriterSize(w, writeBuffer)
 		flush := func() error {
 			if err := bw.Flush(); err != nil {
@@ -163,6 +165,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			return nil
 		}
 
+		arm()
 		if _, err := bw.Write(encodeFrame(helloID, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
 			return
 		}
@@ -197,6 +200,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			case <-r.Context().Done():
 				return
 			case <-shutdown:
+				arm()
 				if err := lagged(); err == nil {
 					_, err = bw.Write(encodeFrame(-1, "close", time.Now(), map[string]string{"reason": "shutdown"}))
 					if err == nil {
@@ -205,6 +209,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				}
 				return
 			case <-t.C:
+				arm()
 				if err := lagged(); err != nil {
 					return
 				}
@@ -218,6 +223,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				if !ok {
 					return
 				}
+				arm()
 				if err := write(ev); err != nil {
 					return
 				}
@@ -227,6 +233,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 					return
 				case <-ft.C:
 				}
+				arm()
 			drain:
 				for n := 0; n < SubscriberBuffer; n++ {
 					select {

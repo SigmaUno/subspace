@@ -154,7 +154,10 @@ func (s *Service) loop(ctx context.Context, sub events.Subscription) {
 		case <-timer:
 			timer = nil
 			flush()
-		case ev := <-sub.C():
+		case ev, ok := <-sub.C():
+			if !ok {
+				return
+			}
 			id, sig, n := describe(ev)
 			if id == "" || last[id] == sig {
 				continue

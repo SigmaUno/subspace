@@ -19,6 +19,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/prsync"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
 	"github.com/SigmaUno/subspace/internal/redact"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const (
@@ -73,15 +74,6 @@ type Service struct {
 	posted   map[string]string
 }
 
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) Timer(d time.Duration) (<-chan time.Time, func() bool) {
-	t := time.NewTimer(d)
-	return t.C, t.Stop
-}
-
 func hostKey(name string) string { return "host:" + name }
 
 func New(o Options) (*Service, error) {
@@ -89,7 +81,7 @@ func New(o Options) (*Service, error) {
 		o.Log = slog.Default()
 	}
 	if o.Clock == nil {
-		o.Clock = realClock{}
+		o.Clock = retryq.SystemClock{}
 	}
 	if o.HTTPClient == nil {
 		o.HTTPClient = &http.Client{Timeout: 15 * time.Second}
@@ -356,12 +348,8 @@ func (s *Service) call(ctx context.Context, h *target, fn func() error) error {
 		if !retry || attempt >= s.cfg.Attempts || ctx.Err() != nil {
 			return err
 		}
-		timer, stop := s.clock.Timer(wait)
-		select {
-		case <-timer:
-		case <-ctx.Done():
-			stop()
-			return ctx.Err()
+		if err := retryq.Sleep(ctx, s.clock, wait); err != nil {
+			return err
 		}
 	}
 }
@@ -370,10 +358,7 @@ func (s *Service) retryDelay(err error, attempt int) (time.Duration, bool) {
 	if errors.Is(err, githost.ErrNotFound) || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 		return 0, false
 	}
-	wait := s.cfg.MaxDelay
-	if attempt < 32 && s.cfg.BaseDelay<<(attempt-1) < wait {
-		wait = s.cfg.BaseDelay << (attempt - 1)
-	}
+	wait := retryq.Exp(s.cfg.BaseDelay, s.cfg.MaxDelay, attempt)
 	var se *githost.StatusError
 	if errors.As(err, &se) {
 		if !se.Retryable() {

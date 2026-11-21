@@ -16,6 +16,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/githost"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const (
@@ -104,15 +105,6 @@ type Service struct {
 	jobs map[string]*job
 }
 
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) Timer(d time.Duration) (<-chan time.Time, func() bool) {
-	t := time.NewTimer(d)
-	return t.C, t.Stop
-}
-
 func New(o Options) (*Service, error) {
 	if o.Tasks == nil || o.Store == nil || len(o.Hosts) == 0 {
 		return nil, errors.New("reviewsync: tasks, store and hosts are required")
@@ -121,7 +113,7 @@ func New(o Options) (*Service, error) {
 		return nil, errors.New("reviewsync: invalid mode")
 	}
 	if o.Clock == nil {
-		o.Clock = realClock{}
+		o.Clock = retryq.SystemClock{}
 	}
 	if o.Log == nil {
 		o.Log = slog.Default()
@@ -293,7 +285,7 @@ func (s *Service) finish(ctx context.Context, j *job, err error, now time.Time) 
 		s.log.Warn("review comment not posted", "task", j.taskID, "attempts", j.attempts, "err", err)
 		return
 	}
-	d := min(s.o.BaseDelay<<(j.attempts-1), s.o.MaxDelay)
+	d := retryq.Exp(s.o.BaseDelay, s.o.MaxDelay, j.attempts)
 	if se != nil {
 		d = max(d, min(se.RetryAfter, maxRetryAfter))
 	}

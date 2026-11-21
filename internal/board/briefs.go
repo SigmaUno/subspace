@@ -71,7 +71,7 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 			return err
 		}
 		for _, t := range ts {
-			if err := b.releaseLease(tx, w, model.Owner, t, model.StatusAssigned, "pause_all: lease revoked"); err != nil {
+			if err := b.releaseLease(tx, w, model.Owner, t, "pause_all: lease revoked"); err != nil {
 				return err
 			}
 		}

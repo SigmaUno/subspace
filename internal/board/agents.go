@@ -239,7 +239,7 @@ func (b *Board) releaseAgentTasks(tx store.Tx, w *wctx, agentID, note string) er
 		return err
 	}
 	for _, t := range ts {
-		if err := b.releaseLease(tx, w, model.Actor{ID: "system", Role: "system"}, t, model.StatusAssigned, note); err != nil {
+		if err := b.releaseLease(tx, w, model.Actor{ID: "system", Role: "system"}, t, note); err != nil {
 			return err
 		}
 	}

@@ -144,6 +144,9 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if t.DependsOn, err = b.checkDeps(tx, t, deps); err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "create_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := tx.InsertTask(t); err != nil {
 			return err
 		}
@@ -219,6 +222,17 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			}
 		}
 		t.UpdatedAt = b.now()
+		br, err := unscoped(tx).GetBrief(t.BriefID)
+		if err != nil {
+			return err
+		}
+		args := map[string]string{}
+		if p.Status != nil {
+			args["status"] = *p.Status
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "update_task", Actor: a, Task: t, Brief: br, Args: args}); err != nil {
+			return err
+		}
 		if p.Status != nil {
 			switch *p.Status {
 			case model.StatusBlocked:
@@ -367,6 +381,9 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 					return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
 				}
 			}
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "assign", Actor: a, Task: t, Brief: br, Target: ag, As: as, Args: map[string]string{"tool": tool}}); err != nil {
+				return err
+			}
 			t.Reviewer = &agentID
 			return b.finishUpdate(tx, w, a, tool, t, model.StatusInReview, &out)
 		}
@@ -394,6 +411,13 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			if err := leaderMayUnblock(t); err != nil {
 				return err
 			}
+		}
+		pa := map[string]string{"tool": tool}
+		if reason != "" {
+			pa["reason"] = reason
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "assign", Actor: a, Task: t, Brief: br, Target: ag, As: as, Args: pa}); err != nil {
+			return err
 		}
 		if deref(t.Assignee) != agentID {
 			if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
@@ -506,6 +530,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "claim_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
 			return err
 		}
@@ -583,6 +610,9 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		if err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "submit", Actor: a, Task: t, Brief: br, Args: map[string]string{"pr_url": in.PRURL}}); err != nil {
+			return err
+		}
 		to := model.StatusSubmitted
 		if !br.CrossReview {
 			to = model.StatusApproved
@@ -594,6 +624,11 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 					return qerr
 				}
 				to, held = model.StatusSubmitted, ge
+			}
+		}
+		if to == model.StatusApproved {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 		}
 		b.endLease(w, t)
@@ -881,6 +916,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 				return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
 			}
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "review", Actor: a, Task: t, Brief: br, Args: map[string]string{"verdict": verdict}}); err != nil {
+			return err
+		}
 		t.Reviewer = &a.ID
 		if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgNote, "Review ("+verdict+"): "+comments); err != nil {
 			return err
@@ -894,6 +932,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 				}
 				held = ge
 				return b.holdForGates(tx, w, a, t, ge)
+			}
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 			return b.statusChange(tx, w, a, "review", t, model.StatusApproved, comments)
 		}

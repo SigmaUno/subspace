@@ -180,6 +180,10 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		if err := b.checkBudget(tx, &model.Task{}, br); err != nil {
 			return err
 		}
+		sp := in
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "request_spawn", Actor: a, Brief: br, Spawn: &sp}); err != nil {
+			return err
+		}
 		u, busy, err := b.usage(tx)
 		if err != nil {
 			return err

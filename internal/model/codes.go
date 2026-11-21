@@ -12,6 +12,8 @@ var ErrorCodes = []string{
 	"budget_exceeded",
 	"lease_expired",
 	"quota_exceeded",
+	"policy_denied",
+	"policy_hold",
 	"paused",
 	"agent_paused",
 	"rate_limited",

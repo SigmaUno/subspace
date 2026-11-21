@@ -1,0 +1,22 @@
+{
+  "policy": {
+    "name": "security tasks go to anthropic",
+    "enabled": true,
+    "rules": [
+      {"id": "security-route", "when": {"actions": ["assign", "claim_task"], "match": "\"security\" in task.labels"},
+       "then": {"effect": "route_to_provider", "provider": "anthropic"}}
+    ]
+  },
+  "cases": [
+    {"name": "security task to openai is denied", "action": "assign",
+     "facts": {"task.labels": ["security"], "subject.provider": "openai"}, "want": "deny", "applied": ["security-route"]},
+    {"name": "security task to anthropic is allowed", "action": "assign",
+     "facts": {"task.labels": ["security", "auth"], "subject.provider": "anthropic"}, "want": "allow", "matched": ["security-route"]},
+    {"name": "untagged task is not routed", "action": "assign",
+     "facts": {"task.labels": [], "subject.provider": "openai"}, "want": "allow"},
+    {"name": "claim by the wrong provider is denied", "action": "claim_task",
+     "facts": {"task.labels": ["security"], "subject.provider": "deepseek"}, "want": "deny", "applied": ["security-route"]},
+    {"name": "other actions are not affected", "action": "submit",
+     "facts": {"task.labels": ["security"], "subject.provider": "openai"}, "want": "allow"}
+  ]
+}

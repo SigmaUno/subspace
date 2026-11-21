@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"strings"
 
 	"github.com/SigmaUno/subspace/internal/model"
 )
@@ -30,16 +31,37 @@ WHEN NEW.id IS NOT OLD.id OR NEW.kind IS NOT OLD.kind OR NEW.seq IS NOT OLD.seq 
     OR (OLD.status = 'archived' AND NEW.status IN ('archived', 'restored'))
     OR (OLD.status = 'restored' AND NEW.status = 'restored'))
 BEGIN SELECT RAISE(ABORT, 'retention manifest is immutable'); END;
-BEGIN;
-DROP TRIGGER IF EXISTS audit_no_delete;
-CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
-WHEN NOT EXISTS (SELECT 1 FROM retention_segments s WHERE s.kind = 'audit' AND s.status IN ('pending', 'archived')
-  AND OLD.id BETWEEN s.first_id AND s.last_id)
-BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;
-COMMIT;
 `
 
+const auditDeleteTrigger = `CREATE TRIGGER audit_no_delete BEFORE DELETE ON audit
+WHEN NOT EXISTS (SELECT 1 FROM retention_segments s WHERE s.kind = 'audit' AND s.status IN ('pending', 'archived')
+  AND OLD.id BETWEEN s.first_id AND s.last_id)
+BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
+
 func init() { RegisterSchema(retentionSchema) }
+
+func migrateAuditDeleteTrigger(db *sql.DB) error {
+	var def string
+	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'audit_no_delete'`).Scan(&def)
+	if err == nil && strings.Contains(def, "retention_segments") {
+		return nil
+	}
+	if err != nil && !errors.Is(err, sql.ErrNoRows) {
+		return err
+	}
+	t, err := db.Begin()
+	if err != nil {
+		return err
+	}
+	defer func() { _ = t.Rollback() }()
+	if _, err := t.Exec(`DROP TRIGGER IF EXISTS audit_no_delete`); err != nil {
+		return err
+	}
+	if _, err := t.Exec(auditDeleteTrigger); err != nil {
+		return err
+	}
+	return t.Commit()
+}
 
 func (t *tx) auditAnchor() (model.AuditHead, error) {
 	var h model.AuditHead

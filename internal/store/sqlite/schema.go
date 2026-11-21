@@ -109,14 +109,19 @@ func migrate(db *sql.DB) error {
 	return migrateAuditChain(db)
 }
 
+const auditHashColumn = `SELECT count(*) FROM pragma_table_info('audit') WHERE name='hash'`
+
 func migrateAuditChain(db *sql.DB) error {
+	var n int
+	if err := db.QueryRow(auditHashColumn).Scan(&n); err != nil || n > 0 {
+		return err
+	}
 	t, err := db.Begin()
 	if err != nil {
 		return err
 	}
 	defer func() { _ = t.Rollback() }()
-	var n int
-	if err := t.QueryRow(`SELECT count(*) FROM pragma_table_info('audit') WHERE name='hash'`).Scan(&n); err != nil {
+	if err := t.QueryRow(auditHashColumn).Scan(&n); err != nil {
 		return err
 	}
 	if n > 0 {

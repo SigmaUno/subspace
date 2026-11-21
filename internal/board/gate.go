@@ -45,7 +45,7 @@ func (b *Board) gated(tx store.Tx, w *wctx, op GateOp, agentID string, t *model.
 	if g == nil {
 		return nil
 	}
-	n, err := g(tx, GateEvent{Op: op, AgentID: agentID, Task: t, CostEUR: cost, Now: b.now()})
+	n, err := g(unscoped(tx), GateEvent{Op: op, AgentID: agentID, Task: t, CostEUR: cost, Now: b.now()})
 	if err != nil {
 		return err
 	}

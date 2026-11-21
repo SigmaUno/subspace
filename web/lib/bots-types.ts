@@ -6,4 +6,4 @@ export type BotRegistration = { agent: Bot; connect: Connect };
 
 export type BotList = { agents: Bot[] | null };
 
-export type BotAction = "pause" | "resume" | "revoke" | "rotate" | "spawn";
+export type BotAction = "pause" | "resume" | "revoke" | "rotate" | "kill";

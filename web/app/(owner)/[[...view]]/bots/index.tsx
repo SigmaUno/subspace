@@ -9,6 +9,7 @@ import { agentKinds, agentRoles } from "../../../../lib/types";
 import { Feedback, Heartbeat } from "../shared/components";
 import { CopyBlock } from "../shared/copy";
 import { ProfilesPanel } from "./profiles";
+import { SpawnForm } from "./spawn-form";
 import { SpawnsPanel } from "./spawns";
 import { EmptyState, PageHeading, ResourceState } from "../shared/states";
 import { useConfirm, useToast } from "../shared/ui";
@@ -82,7 +83,7 @@ function AddBotForm({ complete, profiles, start }: { complete: (items: BotRegist
 }
 
 const completed: Record<BotAction, string> = {
-  pause: "Paused", resume: "Resumed", revoke: "Revoked", rotate: "Rotated the token of", spawn: "Spawn requested for",
+  pause: "Paused", resume: "Resumed", revoke: "Revoked", rotate: "Rotated the token of", kill: "Killed",
 };
 
 const endpoints: Record<BotAction, (id: string) => string> = {
@@ -90,7 +91,7 @@ const endpoints: Record<BotAction, (id: string) => string> = {
   resume: (id) => `agents/${id}/resume`,
   revoke: (id) => `agents/${id}/revoke`,
   rotate: (id) => `agents/${id}/rotate-token`,
-  spawn: (id) => `bots/${id}/spawn`,
+  kill: (id) => `bots/${id}/kill`,
 };
 
 function BotActions({ bot, busy, run }: { bot: Bot; busy: boolean; run: (bot: Bot, action: BotAction) => void }) {
@@ -98,8 +99,8 @@ function BotActions({ bot, busy, run }: { bot: Bot; busy: boolean; run: (bot: Bo
   return <div className="actions" data-write>
     {bot.status === "active" && <button disabled={busy} onClick={() => run(bot, "pause")}>Pause</button>}
     {bot.status === "paused" && <button disabled={busy} onClick={() => run(bot, "resume")}>Resume</button>}
-    {bot.status === "active" && <button disabled={busy} onClick={() => run(bot, "spawn")}>Spawn</button>}
     {live && <button disabled={busy} onClick={() => run(bot, "rotate")}>Rotate token</button>}
+    {bot.status === "active" && <button className="danger" disabled={busy} onClick={() => run(bot, "kill")}>Kill</button>}
     {live && <button className="danger" disabled={busy} onClick={() => run(bot, "revoke")}>Revoke</button>}
   </div>;
 }
@@ -110,6 +111,8 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
   const [showForm, setShowForm] = useState(false);
   const [start, setStart] = useState<FormStart>({ bulk: false, profile: "" });
   const [formKey, setFormKey] = useState(0);
+  const [showSpawn, setShowSpawn] = useState(false);
+  const [spawned, setSpawned] = useState(0);
   const [credentials, setCredentials] = useState<BotRegistration[] | null>(null);
   const [busy, setBusy] = useState("");
   const confirm = useConfirm();
@@ -122,12 +125,19 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
     if (action === "rotate" && !await confirm({
       title: `Rotate the token for ${bot.id}?`, message: "The old token stops working.", confirm: "Rotate",
     })) return;
+    if (action === "kill" && !await confirm({
+      title: `Kill ${bot.id}?`, message: "The bot is paused and its process is asked to stop.", confirm: "Kill",
+    })) return;
     setBusy(bot.id);
     try {
       const path = endpoints[action](encodeURIComponent(bot.id));
-      const result = await api<Partial<BotRegistration>>(path, "POST", action === "revoke" ? { reason: "" } : {});
+      const result = await api<Partial<BotRegistration> & { stopped?: boolean }>(path, "POST", action === "revoke" || action === "kill" ? { reason: "" } : {});
       if (action === "rotate" && result.agent && result.connect) setCredentials([{ agent: result.agent, connect: result.connect }]);
-      toast(`${completed[action]} ${bot.id}.`);
+      if (action === "kill") {
+        toast(result.stopped ? `${completed[action]} ${bot.id}: stopped.` : `Paused ${bot.id}; the spawner cannot stop processes.`);
+      } else {
+        toast(`${completed[action]} ${bot.id}.`);
+      }
       bots.refresh();
     } catch (cause) {
       if (cause instanceof ApiError && cause.status === 404 && endpoints[action](bot.id).startsWith("bots/")) {
@@ -151,9 +161,12 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
 
   return <>
     <PageHeading title="Bots">
+      <button data-write onClick={() => setShowSpawn(!showSpawn)}>{showSpawn ? "Close spawn form" : "Spawn agents"}</button>
       <button className="primary" data-write disabled={!!credentials} onClick={() => showForm ? setShowForm(false) : openForm({ bulk: false, profile: "" })}>{showForm ? "Close form" : "Add bot"}</button></PageHeading>
     {showForm && <AddBotForm key={formKey} profiles={presets} start={start}
       complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
+    {showSpawn && <SpawnForm profiles={presets} revision={revision}
+      complete={() => { setSpawned((count) => count + 1); bots.refresh(); }} />}
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
     <ResourceState error={bots.error} loading={!bots.data} retry={bots.refresh} rows={5} />
     {bots.data && !items.length && <EmptyState>No bots registered.</EmptyState>}
@@ -182,6 +195,6 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
     </div>}
     <ResourceState error={profiles.error} loading={!profiles.data} retry={profiles.refresh} rows={3} />
     {profiles.data && <ProfilesPanel profiles={presets} refresh={profiles.refresh} use={(profile) => openForm({ bulk: true, profile: profile.name })} />}
-    <SpawnsPanel revision={revision} />
+    <SpawnsPanel revision={revision + spawned} />
   </>;
 }

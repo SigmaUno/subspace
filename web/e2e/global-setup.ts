@@ -69,6 +69,7 @@ export default async function globalSetup() {
     SUBSPACE_OWNER_TOKEN: token,
     SUBSPACE_PUBLIC_URL: api,
     SUBSPACE_BACKUP_INTERVAL: "0",
+    SUBSPACE_SPAWNER: "fake",
   }, temp);
   const next = start("next", process.execPath, [standalone], {
     NODE_ENV: "production",

@@ -332,16 +332,23 @@ func (q *Queue) notify(ctx context.Context, c *Candidate, body string) error {
 }
 
 func (q *Queue) git(ctx context.Context, dir string, log *strings.Builder, args ...string) (string, error) {
-	fmt.Fprintf(log, "$ git %s\n", strings.Join(args, " "))
+	fmt.Fprintf(log, "$ git %s\n", redactCredentials(strings.Join(args, " ")))
 	out, err := q.cfg.Runner.Run(ctx, dir, "git", args...)
-	log.WriteString(out)
+	log.WriteString(redactCredentials(out))
 	if err != nil {
 		fmt.Fprintf(log, "%v\n", err)
 	}
 	return strings.TrimSpace(out), err
 }
 
-var unsafeDirChars = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+var (
+	unsafeDirChars = regexp.MustCompile(`[^A-Za-z0-9._-]`)
+	urlUserinfo    = regexp.MustCompile(`([A-Za-z][A-Za-z0-9+.-]*://)[^/@\s]+@`)
+)
+
+func redactCredentials(s string) string {
+	return urlUserinfo.ReplaceAllString(s, "${1}[redacted]@")
+}
 
 func dirName(repo string) string {
 	return unsafeDirChars.ReplaceAllString(repo, "_")

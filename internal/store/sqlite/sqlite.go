@@ -8,6 +8,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 
 	_ "modernc.org/sqlite"
@@ -16,6 +17,10 @@ import (
 )
 
 const maxBatch = 128
+
+var extraSchemas []string
+
+func RegisterSchema(ddl string) { extraSchemas = append(extraSchemas, ddl) }
 
 type wreq struct {
 	ctx  context.Context
@@ -26,6 +31,8 @@ type wreq struct {
 type Store struct {
 	wdb  *sql.DB
 	rdb  *sql.DB
+	ws   *stmtCache
+	rq   *readQ
 	reqs chan *wreq
 	quit chan struct{}
 	wg   sync.WaitGroup
@@ -34,16 +41,19 @@ type Store struct {
 
 var _ store.Store = (*Store)(nil)
 
+var uriPathEscaper = strings.NewReplacer("%", "%25", "?", "%3F", "#", "%23")
+
 func dsn(path string, immediate bool) string {
 	q := url.Values{}
 	q.Add("_pragma", "busy_timeout(10000)")
 	q.Add("_pragma", "journal_mode(WAL)")
 	q.Add("_pragma", "synchronous(NORMAL)")
 	q.Add("_pragma", "foreign_keys(ON)")
+	q.Add("_pragma", "temp_store(MEMORY)")
 	if immediate {
 		q.Set("_txlock", "immediate")
 	}
-	return "file:" + path + "?" + q.Encode()
+	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
 
 func Open(path string) (*Store, error) {
@@ -70,7 +80,19 @@ func Open(path string) (*Store, error) {
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
+	if err := migrate(wdb); err != nil {
+		_ = wdb.Close()
+		_ = rdb.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
+	for _, ddl := range extraSchemas {
+		if _, err := wdb.Exec(ddl); err != nil {
+			_ = wdb.Close()
+			_ = rdb.Close()
+			return nil, fmt.Errorf("migrate: %w", err)
+		}
+	}
+	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
@@ -81,9 +103,21 @@ func (s *Store) Close() error {
 	s.once.Do(func() {
 		close(s.quit)
 		s.wg.Wait()
+		s.ws.close()
+		s.rq.c.close()
 		err = errors.Join(s.wdb.Close(), s.rdb.Close())
 	})
 	return err
+}
+
+func (s *Store) Done() <-chan struct{} { return s.quit }
+
+func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
+	return t.q.ExecContext(t.ctx, q, args...)
+}
+
+func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
+	return t.q.QueryContext(t.ctx, q, args...)
 }
 
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
@@ -99,12 +133,18 @@ func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	case err := <-r.done:
 		return err
 	case <-s.quit:
-		return errors.New("store closed")
+		s.wg.Wait()
+		select {
+		case err := <-r.done:
+			return err
+		default:
+			return errors.New("store closed")
+		}
 	}
 }
 
 func (s *Store) View(ctx context.Context, fn func(store.Tx) error) error {
-	return fn(&tx{q: s.rdb, ctx: ctx})
+	return fn(&tx{q: s.rq, ctx: ctx})
 }
 
 func (s *Store) Backup(ctx context.Context, path string) error {
@@ -150,6 +190,7 @@ func (s *Store) runBatch(batch []*wreq) {
 		}
 		return
 	}
+	q := &writeQ{tx: t, c: s.ws, miss: map[string]struct{}{}}
 	errs := make([]error, len(batch))
 	ok := make([]bool, len(batch))
 	for i, r := range batch {
@@ -157,18 +198,18 @@ func (s *Store) runBatch(batch []*wreq) {
 			errs[i] = cerr
 			continue
 		}
-		if _, e := t.ExecContext(ctx, "SAVEPOINT op"); e != nil {
+		if _, e := q.ExecContext(ctx, "SAVEPOINT op"); e != nil {
 			errs[i] = e
 			continue
 		}
-		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
+		e := safeRun(r.fn, &tx{q: q, ctx: ctx})
 		if e != nil {
-			_, _ = t.ExecContext(ctx, "ROLLBACK TO op")
-			_, _ = t.ExecContext(ctx, "RELEASE op")
+			_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
+			_, _ = q.ExecContext(ctx, "RELEASE op")
 			errs[i] = e
 			continue
 		}
-		if _, e := t.ExecContext(ctx, "RELEASE op"); e != nil {
+		if _, e := q.ExecContext(ctx, "RELEASE op"); e != nil {
 			errs[i] = e
 			continue
 		}
@@ -180,6 +221,9 @@ func (s *Store) runBatch(batch []*wreq) {
 			errs[i] = cerr
 		}
 		r.done <- errs[i]
+	}
+	for qs := range q.miss {
+		s.ws.prepare(ctx, s.wdb, qs)
 	}
 }
 

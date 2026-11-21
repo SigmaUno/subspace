@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -42,15 +43,17 @@ type Config struct {
 	BackupDir      string
 	FlushEvery     time.Duration
 	SweepEvery     time.Duration
+	BodyTimeout    time.Duration
+	IdleTimeout    time.Duration
 	Log            *slog.Logger
 }
 
 type Server struct {
-	cfg   Config
-	Store store.Store
-	Board *board.Board
-	Hub   events.Hub
-	mux   *http.ServeMux
+	cfg     Config
+	Store   store.Store
+	Board   *board.Board
+	Hub     events.Hub
+	handler http.Handler
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -62,6 +65,12 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = "/data/subspace.db"
+	}
+	if cfg.BodyTimeout <= 0 {
+		cfg.BodyTimeout = 30 * time.Second
+	}
+	if cfg.IdleTimeout <= 0 {
+		cfg.IdleTimeout = 2 * time.Minute
 	}
 	if cfg.BackupDir == "" {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
@@ -116,6 +125,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	comps := components.NewService(components.NewMemory(), componentSource{b, st}, nil)
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
+	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
 	lib := prompts.New(cfg.PromptsDir)
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
@@ -128,19 +138,56 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, mux: mux}, nil
+	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache}
+	for _, m := range extraMounts {
+		m(deps)
+	}
+	var h http.Handler = mux
+	for _, w := range wraps {
+		h = w(h, deps)
+	}
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
 }
 
-func (s *Server) Handler() http.Handler { return s.mux }
+type deadlineBody struct {
+	io.ReadCloser
+	rc *http.ResponseController
+}
+
+func (b *deadlineBody) Read(p []byte) (int, error) {
+	n, err := b.ReadCloser.Read(p)
+	if err == io.EOF {
+		_ = b.rc.SetReadDeadline(time.Time{})
+	}
+	return n, err
+}
+
+func bodyDeadline(h http.Handler, d time.Duration) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ContentLength != 0 {
+			rc := http.NewResponseController(w)
+			if rc.SetReadDeadline(time.Now().Add(d)) == nil {
+				r.Body = &deadlineBody{ReadCloser: r.Body, rc: rc}
+			}
+		}
+		h.ServeHTTP(w, r)
+	})
+}
+
+func (s *Server) Handler() http.Handler { return s.handler }
 
 func (s *Server) Close() error { return s.Store.Close() }
+
+func (s *Server) httpServer() *http.Server {
+	return &http.Server{Addr: s.cfg.Addr, Handler: s.handler, ReadHeaderTimeout: 10 * time.Second, IdleTimeout: s.cfg.IdleTimeout}
+}
 
 func (s *Server) Run(ctx context.Context) error {
 	go s.Board.Run(ctx)
 	if s.cfg.BackupInterval > 0 {
 		go s.backupLoop(ctx)
 	}
-	srv := &http.Server{Addr: s.cfg.Addr, Handler: s.mux, ReadHeaderTimeout: 10 * time.Second}
+	srv := s.httpServer()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

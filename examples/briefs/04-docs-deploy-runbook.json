@@ -1,0 +1,8 @@
+{
+  "title": "Docs: deployment and operations runbook",
+  "body": "Write a deployment and operations runbook for self-hosting Subspace, placed under `docs/`. Cover: configuration env vars (SPEC §10), the docker compose / Caddy deployment path (SPEC §12), backups and restore, token management and rotation, and the health/liveness endpoints.\n\nAcceptance criteria:\n- A `docs/` markdown runbook covering the sections above.\n- Every command shown is tested against a local run.\n- No secrets or real tokens appear anywhere in the docs.\n\nNotes for the leader:\n- Keep it operator-focused and copy-paste friendly; skip agent internals.\n- Cross-link to SPEC.md and docs/api.md rather than duplicating them.\n- Include an example `docker compose up` and a restore-from-backup procedure.",
+  "repos": ["SigmaUno/subspace"],
+  "max_cost_eur": 15,
+  "max_parallel_agents": 2,
+  "allowed_providers": ["anthropic"]
+}

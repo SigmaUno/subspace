@@ -1,0 +1,27 @@
+{
+  "action": "closed",
+  "number": 12,
+  "pull_request": {
+    "id": 1012,
+    "number": 12,
+    "state": "closed",
+    "title": "Add login",
+    "html_url": "https://git.example.com/SigmaUno/bar/pulls/12",
+    "merged": true,
+    "head": {
+      "ref": "sub/t-5-api",
+      "sha": "6dcb09b5b57875f334f61aebed695e2e4193db5e"
+    },
+    "base": {
+      "ref": "main"
+    }
+  },
+  "repository": {
+    "id": 1,
+    "name": "bar",
+    "full_name": "SigmaUno/bar"
+  },
+  "sender": {
+    "login": "claude-1"
+  }
+}

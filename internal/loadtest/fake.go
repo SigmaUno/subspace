@@ -9,6 +9,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/client"
 )
 
 // FakeServer is a small in-memory stand-in for the Subspace REST + MCP + SSE surface used by the
@@ -270,7 +272,7 @@ func (f *FakeServer) serveMCP(w http.ResponseWriter, r *http.Request) {
 	switch req.Method {
 	case "initialize":
 		w.Header().Set("Mcp-Session-Id", "fake-"+ag.id)
-		resp["result"] = map[string]any{"protocolVersion": ProtocolVersion}
+		resp["result"] = map[string]any{"protocolVersion": client.ProtocolVersion}
 	case "tools/call":
 		var args map[string]any
 		_ = json.Unmarshal(req.Params.Arguments, &args)

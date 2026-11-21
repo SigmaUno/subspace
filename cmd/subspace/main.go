@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"os/signal"
@@ -30,21 +31,38 @@ func dur(k, def string) time.Duration {
 	return d
 }
 
+func ownerToken() (string, error) {
+	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
+	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
+		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path
+		if err != nil {
+			return "", err
+		}
+		tok = strings.TrimSpace(string(b))
+	}
+	return tok, os.Unsetenv("SUBSPACE_OWNER_TOKEN")
+}
+
 func main() {
+	if len(os.Args) > 1 {
+		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore}[os.Args[1]]; ok {
+			if err := run(os.Args[2:], os.Stdout); err != nil {
+				fmt.Fprintln(os.Stderr, "error:", err)
+				os.Exit(1)
+			}
+			return
+		}
+	}
 	level := slog.LevelInfo
 	if strings.EqualFold(os.Getenv("SUBSPACE_LOG_LEVEL"), "debug") {
 		level = slog.LevelDebug
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
-	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
-	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
-		b, err := os.ReadFile(f) //nolint:gosec // operator-supplied path
-		if err != nil {
-			log.Error("read owner token file", "err", err)
-			os.Exit(2)
-		}
-		tok = strings.TrimSpace(string(b))
+	tok, err := ownerToken()
+	if err != nil {
+		log.Error("read owner token file", "err", err)
+		os.Exit(2)
 	}
 	board.Version = env("SUBSPACE_VERSION", "dev")
 	cfg := server.Config{

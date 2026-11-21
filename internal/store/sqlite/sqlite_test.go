@@ -43,8 +43,11 @@ func sqlTx(t store.Tx) *sql.Tx {
 	if !ok {
 		return nil
 	}
-	st, _ := x.q.(*sql.Tx)
-	return st
+	w, ok := x.q.(*writeQ)
+	if !ok {
+		return nil
+	}
+	return w.tx
 }
 
 func blockWriter(t *testing.T, s *Store) (release func()) {
@@ -485,5 +488,21 @@ func TestAtomicContextAndClose(t *testing.T) {
 	err = s.Atomic(context.Background(), func(store.Tx) error { return nil })
 	if err == nil {
 		t.Fatal("Atomic after Close: want error")
+	}
+}
+
+func TestOpenPathWithURISpecialChars(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "a#b?c%20d.db")
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	if _, err := os.Stat(path); err != nil {
+		t.Fatalf("database not created at %s: %v", path, err)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "a")); !os.IsNotExist(err) {
+		t.Fatalf("database truncated at '#': stat err %v", err)
 	}
 }

@@ -1,7 +1,7 @@
 "use client";
 
 import { money, optionalResource, useResource } from "../../../lib/client";
-import { Feedback } from "./components";
+import { ResourceState } from "./states";
 
 interface Range { p10: number; p50: number; p90: number }
 
@@ -55,7 +55,7 @@ export function ForecastPanel({ briefID, revision }: { briefID: string; revision
   return <section className="panel stack">
     <div className="heading"><h2>Forecast</h2>
       {forecast && <span className="meta">{forecast.tasks.complete} / {forecast.tasks.total} tasks complete</span>}</div>
-    <Feedback error={feed.error} loading={!forecast && !feed.error} />
+    <ResourceState error={feed.error} loading={!forecast && !feed.error} retry={feed.refresh} />
     {forecast && <>
       <div className="project-stats">
         <div className="panel"><span>Projected cost</span><strong>{money(forecast.cost_eur.projected.p50)}</strong>

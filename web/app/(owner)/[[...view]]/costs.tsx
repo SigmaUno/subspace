@@ -7,6 +7,7 @@ import type { CostBreakdown, CostDimension, CostGroup } from "../../../lib/costs
 import type { Brief } from "../../../lib/types";
 import { Clock } from "./components";
 import { EmptyState, ResourceState, Skeleton } from "./states";
+import { count } from "./format";
 
 const dimensions: { id: CostDimension; name: string }[] = [
   { id: "brief", name: "Brief" },
@@ -28,7 +29,6 @@ const ranges = [
 
 const slotMs = 300_000;
 const maxBars = 12;
-const count = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 const chart = { width: 720, row: 28, left: 150, right: 80, top: 8, bottom: 8 };
 const barWidth = chart.width - chart.left - chart.right;
 

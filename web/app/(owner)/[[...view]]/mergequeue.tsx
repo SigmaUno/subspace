@@ -1,13 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, useResource, useSubmit } from "../../../lib/client";
 import type { Candidate, CandidateList, CandidateState, EnqueueRequest } from "../../../lib/mergequeue-types";
 import type { Task } from "../../../lib/types";
 import { Feedback } from "./components";
 import { useLive } from "./live";
-import { ConnectionStatus, EmptyState, ResourceState } from "./states";
+import { EmptyState, ResourceState } from "./states";
+import { PageShell } from "./shell";
 
 const stateLabels: Record<CandidateState, string> = {
   queued: "Queued",
@@ -62,72 +62,62 @@ export function MergeQueuePage() {
   const tasks = approvedTasks.filter((task) => !repo || task.repo === repo);
   const current = queue.find((item) => item.id === selected);
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/mergequeue" aria-current="page">Merge queue</Link>
-      </nav>
-      <div className="top-actions"><ConnectionStatus status={status} /></div>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <h1>Merge queue</h1>
-        <div className="actions">
-          <label className="inline">Repo
-            <select value={repo} onChange={(event) => setRepo(event.target.value)}>
-              <option value="">All repos</option>
-              {repos.map((name) => <option key={name} value={name}>{name}</option>)}
-            </select>
-          </label>
-          <label className="inline">Base branch
-            <input value={base} onChange={(event) => setBase(event.target.value)} />
-          </label>
-        </div>
+  return <PageShell section="mergequeue" status={status}>
+    <div className="heading">
+      <h1>Merge queue</h1>
+      <div className="actions">
+        <label className="inline">Repo
+          <select value={repo} onChange={(event) => setRepo(event.target.value)}>
+            <option value="">All repos</option>
+            {repos.map((name) => <option key={name} value={name}>{name}</option>)}
+          </select>
+        </label>
+        <label className="inline">Base branch
+          <input value={base} onChange={(event) => setBase(event.target.value)} />
+        </label>
       </div>
-      <ResourceState error={candidates.error || approved.error} loading={!candidates.data} retry={() => { candidates.refresh(); approved.refresh(); }} rows={4} />
+    </div>
+    <ResourceState error={candidates.error || approved.error} loading={!candidates.data} retry={() => { candidates.refresh(); approved.refresh(); }} rows={4} />
 
-      <section className="panel stack">
-        <h2>Approved tasks</h2>
-        {approved.data && !tasks.length && <EmptyState>No approved tasks waiting for the queue.</EmptyState>}
-        {!!tasks.length && <div className="table-wrap">
-          <table>
-            <thead><tr><th>Task</th><th>Repo</th><th>Branch</th><th>PR</th><th>Queue</th></tr></thead>
-            <tbody>{tasks.map((task) => (
-              <tr key={task.id}>
-                <th scope="row">{task.title}<div className="meta">{task.id}</div></th>
-                <td>{task.repo}</td>
-                <td>{task.branch}</td>
-                <td>{task.pr_url ?? "No PR"}</td>
-                <td><EnqueueForm task={task} base={base} queued={candidates.refresh} /></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>}
-      </section>
+    <section className="panel stack">
+      <h2>Approved tasks</h2>
+      {approved.data && !tasks.length && <EmptyState>No approved tasks waiting for the queue.</EmptyState>}
+      {!!tasks.length && <div className="table-wrap">
+        <table>
+          <thead><tr><th>Task</th><th>Repo</th><th>Branch</th><th>PR</th><th>Queue</th></tr></thead>
+          <tbody>{tasks.map((task) => (
+            <tr key={task.id}>
+              <th scope="row">{task.title}<div className="meta">{task.id}</div></th>
+              <td>{task.repo}</td>
+              <td>{task.branch}</td>
+              <td>{task.pr_url ?? "No PR"}</td>
+              <td><EnqueueForm task={task} base={base} queued={candidates.refresh} /></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>}
+    </section>
 
-      <section className="panel stack">
-        <h2>Candidates</h2>
-        {candidates.data && !queue.length && <EmptyState>The queue is empty.</EmptyState>}
-        {!!queue.length && <div className="table-wrap">
-          <table>
-            <thead><tr><th>Candidate</th><th>Repo</th><th>Rebase</th><th>State</th><th>Updated</th></tr></thead>
-            <tbody>{queue.map((item) => (
-              <tr key={item.id}>
-                <th scope="row"><button className="text-button" aria-pressed={item.id === selected}
-                  onClick={() => setSelected(item.id)}>{item.id}</button>
-                  <div className="meta">PR #{item.pr} · {item.task_id}</div></th>
-                <td>{item.repo}</td>
-                <td>{item.head} → {item.base}</td>
-                <td><span className="pill">{stateLabels[item.state]}</span></td>
-                <td><time dateTime={item.updated_at}>{new Date(item.updated_at).toLocaleString()}</time></td>
-              </tr>
-            ))}</tbody>
-          </table>
-        </div>}
-        {current && <CandidateDetail key={current.id} candidate={current} />}
-      </section>
-    </main>
-  </>;
+    <section className="panel stack">
+      <h2>Candidates</h2>
+      {candidates.data && !queue.length && <EmptyState>The queue is empty.</EmptyState>}
+      {!!queue.length && <div className="table-wrap">
+        <table>
+          <thead><tr><th>Candidate</th><th>Repo</th><th>Rebase</th><th>State</th><th>Updated</th></tr></thead>
+          <tbody>{queue.map((item) => (
+            <tr key={item.id}>
+              <th scope="row"><button className="text-button" aria-pressed={item.id === selected}
+                onClick={() => setSelected(item.id)}>{item.id}</button>
+                <div className="meta">PR #{item.pr} · {item.task_id}</div></th>
+              <td>{item.repo}</td>
+              <td>{item.head} → {item.base}</td>
+              <td><span className="pill">{stateLabels[item.state]}</span></td>
+              <td><time dateTime={item.updated_at}>{new Date(item.updated_at).toLocaleString()}</time></td>
+            </tr>
+          ))}</tbody>
+        </table>
+      </div>}
+      {current && <CandidateDetail key={current.id} candidate={current} />}
+    </section>
+  </PageShell>;
 }

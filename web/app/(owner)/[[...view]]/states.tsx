@@ -34,3 +34,8 @@ export function ResourceState({ error, loading, retry, rows }: { error?: string;
   if (error) return <ErrorBanner message={error} retry={retry} />;
   return loading ? <Skeleton rows={rows} /> : null;
 }
+
+export function PageHeading({ title, embedded, children }: { title: string; embedded?: boolean; children?: ReactNode }) {
+  const Title = embedded ? "h2" : "h1";
+  return <div className="heading"><Title>{title}</Title>{children}</div>;
+}

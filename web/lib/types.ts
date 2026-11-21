@@ -7,6 +7,12 @@ export const statuses = [
   ["blocked", "Blocked"], ["needs_owner", "Needs owner"], ["cancelled", "Cancelled"],
 ] as const;
 
+export const agentRoles = ["leader", "worker", "tester", "reviewer"];
+
+export const agentKinds = [
+  ["claude-code", "Claude Code"], ["codex", "Codex"], ["opencode", "OpenCode"], ["other", "Other"],
+];
+
 export type TaskStatus = typeof statuses[number][0];
 
 export interface Brief {

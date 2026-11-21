@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { Fragment, useEffect, useRef, useState } from "react";
 import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
 import { BotsView } from "./bots";
@@ -16,6 +16,8 @@ import { CostsView } from "./costs";
 import { useLive } from "./live";
 import { SettingsView } from "./settings";
 import { OutputTile } from "./terminal";
+import { TopNav } from "./shell";
+import { moreNav, primaryNav, tabNav } from "./nav";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
@@ -80,42 +82,14 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     }
   }
 
-  const nav = [
-    { id: "swarm", name: "Swarm", href: "/" },
-    { id: "briefs", name: "Briefs", href: "/briefs" },
-    { id: "agents", name: "Agents", href: "/agents" },
-    { id: "bots", name: "Bots", href: "/bots" },
-    { id: "capacity", name: "Capacity", href: "/capacity" },
-    { id: "charter", name: "Charter", href: "/charter" },
-    { id: "usage", name: "Usage", href: "/usage" },
-    { id: "costs", name: "Costs", href: "/costs" },
-    { id: "trends", name: "Trends", href: "/trends" },
-    { id: "instructions", name: "Instructions", href: "/instructions" },
-    { id: "knowledge", name: "Knowledge", href: "/knowledge" },
-    { id: "files", name: "Files", href: "/files" },
-    { id: "audit", name: "Audit", href: "/audit" },
-    { id: "settings", name: "Settings", href: "/settings" },
-    { id: "logs", name: "Logs", href: "/logs" },
-  ];
-  const tabs = ["swarm", "briefs", "agents"];
-  const more = [
-    ...nav.filter((item) => !tabs.includes(item.id)),
-    { id: "plans", name: "Plans", href: "/plans" },
-    { id: "questions", name: "Questions", href: "/questions" },
-  ];
+  const tabs = tabNav.map((item) => item.id);
   const leave = () => { setInboxOpen(false); setMoreOpen(false); };
 
   return (
     <Clock.Provider value={now}>
       <header className="topbar" ref={topbar}>
         <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-        <nav aria-label="Workspace">
-          {nav.map((item) => (
-            <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined}>
-              {item.name}
-            </Link>
-          ))}
-        </nav>
+        <TopNav section={section} />
         <div className="top-actions">
           <ConnectionStatus status={status} />
           <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
@@ -159,7 +133,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         <button type="button" aria-pressed={inboxOpen} onClick={() => { setMoreOpen(false); setInboxOpen(!inboxOpen); window.scrollTo({ top: 0 }); }}>
           Inbox<span className="nav-count">{decisionCount}</span>
         </button>
-        {nav.filter((item) => tabs.includes(item.id)).map((item) => (
+        {tabNav.map((item) => (
           <Link key={item.id} href={item.href} aria-current={section === item.id && !inboxOpen ? "page" : undefined} onClick={leave}>
             {item.name}
           </Link>
@@ -169,9 +143,15 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         </button>
       </nav>
       {moreOpen && <div className="more-sheet" role="dialog" aria-label="More">
-        {more.map((item) => (
+        {primaryNav.slice(tabNav.length).map((item) => (
           <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined} onClick={leave}>{item.name}</Link>
         ))}
+        {moreNav.map((group) => <Fragment key={group.name}>
+          <h2 className="more-group">{group.name}</h2>
+          {group.items.map((item) => (
+            <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined} onClick={leave}>{item.name}</Link>
+          ))}
+        </Fragment>)}
         <button type="button" onClick={signOut}>Sign out</button>
       </div>}
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}

@@ -3,14 +3,14 @@
 import { useState } from "react";
 import { optionalResource, safeURL, useResource } from "../../../lib/client";
 import type { Attempt, HillclimbJob, Series } from "../../../lib/swarm";
-import { Feedback } from "./components";
 import { VirtualList } from "./virtual";
+import { EmptyState, ResourceState } from "./states";
 
 const number = new Intl.NumberFormat("en", { maximumSignificantDigits: 6 });
 
 function LossCurve({ attempts, job }: { attempts: Attempt[]; job: HillclimbJob }) {
   const measured = attempts.filter((item): item is Attempt & { value: number } => item.value !== null && Number.isFinite(item.value));
-  if (!measured.length) return <p className="empty">No measured attempts.</p>;
+  if (!measured.length) return <EmptyState>No measured attempts.</EmptyState>;
   const values = measured.map((item) => item.value);
   const min = Math.min(...values, job.target ?? values[0]);
   const max = Math.max(...values, job.target ?? values[0]);
@@ -49,7 +49,7 @@ function JobSeries({ job, revision }: { job: HillclimbJob; revision: number }) {
     <div className="heading"><h3>{current.title || current.metric}</h3><span className="pill">{current.status}</span></div>
     <p className="meta">{current.metric} · {current.direction === "max" ? "Higher is better" : "Lower is better"}
       {current.stop_reason && ` · ${current.stop_reason}`}</p>
-    <Feedback error={series.error} loading={series.data === undefined} />
+    <ResourceState error={series.error} loading={series.data === undefined} retry={series.refresh} />
     {series.data !== undefined && <LossCurve job={current} attempts={attempts} />}
     {attempts.length > 0 && <VirtualList name="Metric attempts" items={attempts.slice().reverse()} estimate={40} className="attempt-list"
       render={(attempt) => {
@@ -72,7 +72,7 @@ export function Metrics({ briefID, knownJobs, revision }: { briefID: string; kno
         {jobs.map((item) => <option key={item.id} value={item.id}>{item.title || item.metric}</option>)}
       </select></label>}
     </div>
-    <Feedback error={feed.error} loading={feed.data === undefined && !knownJobs} />
-    {job ? <JobSeries key={job.id} job={job} revision={revision} /> : feed.data !== undefined && <p className="empty">No metric jobs for this brief.</p>}
+    <ResourceState error={feed.error} loading={feed.data === undefined && !knownJobs} retry={feed.refresh} />
+    {job ? <JobSeries key={job.id} job={job} revision={revision} /> : feed.data !== undefined && <EmptyState>No metric jobs for this brief.</EmptyState>}
   </section>;
 }

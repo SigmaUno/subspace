@@ -262,7 +262,21 @@ func TestUpgradeFixtures(t *testing.T) {
 					}
 					dflt := columnDefault(t, db, table, col)
 					if !dflt.Valid {
-						t.Fatalf("%s.%s has no default", table, col)
+						var notNull int
+						if err := db.QueryRow(`SELECT "notnull" FROM pragma_table_info(?) WHERE name = ?`, table, col).Scan(&notNull); err != nil {
+							t.Fatal(err)
+						}
+						if notNull == 0 {
+							var nonNull int
+							if err := db.QueryRow(fmt.Sprintf(`SELECT count(*) FROM %s WHERE %s IS NOT NULL`, table, col)).Scan(&nonNull); err != nil {
+								t.Fatal(err)
+							}
+							if nonNull != 0 {
+								t.Fatalf("%s.%s is nullable without default but old rows got values", table, col)
+							}
+							continue
+						}
+						t.Fatalf("%s.%s is not null and has no default", table, col)
 					}
 					var bad int
 					q := fmt.Sprintf(`SELECT count(*) FROM %s WHERE %s IS NOT %s`, table, col, dflt.String)

@@ -120,14 +120,23 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
 	return nil
 }
 
-func (t *tx) ListBriefs(status string) ([]*model.Brief, error) {
-	q := `SELECT ` + briefColumns + ` FROM briefs`
+func (t *tx) ListBriefs(f store.BriefFilter) ([]*model.Brief, error) {
+	q := `SELECT ` + briefColumns + ` FROM briefs WHERE 1=1`
 	var args []any
-	if status != "" {
-		q += ` WHERE status=?`
-		args = append(args, status)
+	if f.Status != "" {
+		q += ` AND status=?`
+		args = append(args, f.Status)
+	}
+	if f.AfterID != "" {
+		c, a := afterCreatedClause("briefs", f.AfterID)
+		q += ` AND ` + c
+		args = append(args, a...)
 	}
 	q += ` ORDER BY created_at, id`
+	if f.Limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 	rows, err := t.q.QueryContext(t.ctx, q, args...)
 	if err != nil {
 		return nil, err

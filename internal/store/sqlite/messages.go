@@ -155,14 +155,23 @@ func (t *tx) UpdateQuestion(q *model.Question) error {
 	return nil
 }
 
-func (t *tx) ListQuestions(status string) ([]*model.Question, error) {
-	query := `SELECT ` + questionCols + ` FROM questions`
+func (t *tx) ListQuestions(f store.QuestionFilter) ([]*model.Question, error) {
+	query := `SELECT ` + questionCols + ` FROM questions WHERE 1=1`
 	var args []any
-	if status != "" {
-		query += ` WHERE status=?`
-		args = append(args, status)
+	if f.Status != "" {
+		query += ` AND status=?`
+		args = append(args, f.Status)
+	}
+	if f.AfterID != "" {
+		c, a := afterCreatedClause("questions", f.AfterID)
+		query += ` AND ` + c
+		args = append(args, a...)
 	}
 	query += ` ORDER BY created_at, id`
+	if f.Limit > 0 {
+		query += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 	rows, err := t.q.QueryContext(t.ctx, query, args...)
 	if err != nil {
 		return nil, err

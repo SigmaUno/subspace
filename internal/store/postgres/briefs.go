@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const briefCols = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge`
@@ -62,8 +63,9 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
   allowed_providers=$8, plan_status=$9, created_at=$10, cross_review=$11, auto_done_on_merge=$12 WHERE id=$1`, a...)
 }
 
-func (t *tx) ListBriefs(status string) ([]*model.Brief, error) {
+func (t *tx) ListBriefs(f store.BriefFilter) ([]*model.Brief, error) {
 	var a args
-	a.eq("status", status)
-	return list(t, scanBrief, `SELECT `+briefCols+` FROM briefs`+a.clause()+` ORDER BY created_at, id`, a.vals...)
+	a.eq("status", f.Status)
+	a.afterCreated("briefs", f.AfterID)
+	return list(t, scanBrief, `SELECT `+briefCols+` FROM briefs`+a.clause()+` ORDER BY created_at, id`+a.limit(f.Limit), a.vals...)
 }

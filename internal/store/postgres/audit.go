@@ -205,10 +205,11 @@ func (t *tx) UpdateSpawn(s *model.Spawn) error {
   error=$9, requested_by=$10, created_at=$11 WHERE id=$1`, spawnArgs(s)...)
 }
 
-func (t *tx) ListSpawns(briefID string) ([]*model.Spawn, error) {
+func (t *tx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
 	var a args
-	a.eq("brief_id", briefID)
-	return list(t, scanSpawn, `SELECT `+spawnCols+` FROM spawns`+a.clause()+` ORDER BY created_at, `+idNum+`, id`, a.vals...)
+	a.eq("brief_id", f.BriefID)
+	a.afterCreatedNum("spawns", f.AfterID)
+	return list(t, scanSpawn, `SELECT `+spawnCols+` FROM spawns`+a.clause()+` ORDER BY created_at, `+idNum+`, id`+a.limit(f.Limit), a.vals...)
 }
 
 func (t *tx) GetKV(key string) (string, bool, error) {

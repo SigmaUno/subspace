@@ -83,6 +83,16 @@ func limitq(r *http.Request) int {
 	return n
 }
 
+func cursorq(r *http.Request) string { return r.URL.Query().Get("cursor") }
+
+func paged[T any](key string, p board.Page[T], err error) (any, error) {
+	var next any
+	if p.Next != "" {
+		next = p.Next
+	}
+	return map[string]any{key: p.Items, "next_cursor": next}, err
+}
+
 func qint64(r *http.Request, name string) int64 {
 	n, _ := strconv.ParseInt(r.URL.Query().Get(name), 10, 64)
 	return n
@@ -203,8 +213,8 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.CreateBrief(r.Context(), in)
 	}))
 	m("GET /api/v1/briefs", a.do(200, func(r *http.Request) (any, error) {
-		bs, err := B.ListBriefs(r.Context(), r.URL.Query().Get("status"))
-		return map[string]any{"briefs": bs}, err
+		p, err := B.ListBriefsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		return paged("briefs", p, err)
 	}))
 	m("GET /api/v1/briefs/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetBrief(r.Context(), r.PathValue("id")) }))
 	m("PATCH /api/v1/briefs/{id}", a.do(200, func(r *http.Request) (any, error) {
@@ -217,8 +227,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	m("GET /api/v1/briefs/{id}/board", a.do(200, func(r *http.Request) (any, error) { return B.Board(r.Context(), r.PathValue("id")) }))
 
 	m("GET /api/v1/plans", a.do(200, func(r *http.Request) (any, error) {
-		ps, err := B.ListPlans(r.Context(), r.URL.Query().Get("brief_id"), r.URL.Query().Get("status"))
-		return map[string]any{"plans": ps}, err
+		p, err := B.ListPlansPage(r.Context(), r.URL.Query().Get("brief_id"), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		return paged("plans", p, err)
 	}))
 	m("GET /api/v1/plans/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetPlan(r.Context(), r.PathValue("id")) }))
 	m("POST /api/v1/plans/{id}/approve", a.do(200, func(r *http.Request) (any, error) {
@@ -249,8 +259,8 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ts, err := B.ListTasks(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Limit: limitq(r)})
-		return map[string]any{"tasks": ts}, err
+		p, err := B.ListTasksPage(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Cursor: cursorq(r), Limit: limitq(r)})
+		return paged("tasks", p, err)
 	}))
 	m("GET /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetTask(r.Context(), model.Owner, r.PathValue("id")) }))
 	m("PATCH /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) {
@@ -283,8 +293,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 
 	m("GET /api/v1/agents", a.do(200, func(r *http.Request) (any, error) {
-		as, err := B.ListAgents(r.Context(), r.URL.Query().Get("role"), r.URL.Query().Get("status"))
-		return map[string]any{"agents": as}, err
+		p, err := B.ListAgentsPage(r.Context(), r.URL.Query().Get("role"), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		return paged("agents", p, err)
 	}))
 	m("GET /api/v1/agents/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetAgent(r.Context(), r.PathValue("id")) }))
 	m("POST /api/v1/agents", a.do(201, func(r *http.Request) (any, error) {
@@ -326,8 +336,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	m("POST /api/v1/agents/{id}/resume", a.do(200, func(r *http.Request) (any, error) { return B.ResumeAgent(r.Context(), r.PathValue("id")) }))
 
 	m("GET /api/v1/questions", a.do(200, func(r *http.Request) (any, error) {
-		qs, err := B.ListQuestions(r.Context(), r.URL.Query().Get("status"))
-		return map[string]any{"questions": qs}, err
+		p, err := B.ListQuestionsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		return paged("questions", p, err)
 	}))
 	m("POST /api/v1/questions/{id}/answer", a.do(200, func(r *http.Request) (any, error) {
 		var in struct{ Answer string }
@@ -338,8 +348,8 @@ func (a *API) Register(mux *http.ServeMux) {
 	}))
 
 	m("GET /api/v1/threads/{kind}/{id}/messages", a.do(200, func(r *http.Request) (any, error) {
-		ms, err := B.OwnerThread(r.Context(), r.PathValue("kind"), r.PathValue("id"), qint64(r, "since"), limitq(r))
-		return map[string]any{"messages": ms}, err
+		p, err := B.OwnerThreadPage(r.Context(), r.PathValue("kind"), r.PathValue("id"), cursorq(r), qint64(r, "since"), limitq(r))
+		return paged("messages", p, err)
 	}))
 	m("POST /api/v1/threads/{kind}/{id}/messages", a.do(201, func(r *http.Request) (any, error) {
 		var in struct{ Body string }
@@ -358,13 +368,13 @@ func (a *API) Register(mux *http.ServeMux) {
 		return B.SetCapacity(r.Context(), in)
 	}))
 	m("GET /api/v1/spawns", a.do(200, func(r *http.Request) (any, error) {
-		sp, err := B.ListSpawns(r.Context(), r.URL.Query().Get("brief_id"))
-		return map[string]any{"spawns": sp}, err
+		p, err := B.ListSpawnsPage(r.Context(), r.URL.Query().Get("brief_id"), cursorq(r), limitq(r))
+		return paged("spawns", p, err)
 	}))
 	m("GET /api/v1/audit", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		ev, err := B.ListAudit(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: limitq(r)})
-		return map[string]any{"events": ev}, err
+		p, err := B.ListAuditPage(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: limitq(r)}, cursorq(r))
+		return paged("events", p, err)
 	}))
 	m("GET /api/v1/audit/verify", a.do(200, func(r *http.Request) (any, error) { return B.VerifyAudit(r.Context()) }))
 	m("GET /api/v1/audit/export", a.guard(a.exportAudit))

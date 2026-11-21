@@ -138,6 +138,40 @@ func (a *args) eq(col, v string) {
 	}
 }
 
+func (a *args) after(afterID string) {
+	if afterID == "" {
+		return
+	}
+	n := a.add(store.IDNum(afterID))
+	a.where = append(a.where, "("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+a.add(afterID)+"))")
+}
+
+func (a *args) afterCreated(table, afterID string) {
+	if afterID == "" {
+		return
+	}
+	id := a.add(afterID)
+	at := "(SELECT created_at FROM " + table + " WHERE id = " + id + ")"
+	a.where = append(a.where, "(created_at > "+at+" OR (created_at = "+at+" AND id > "+id+"))")
+}
+
+func (a *args) afterCreatedNum(table, afterID string) {
+	if afterID == "" {
+		return
+	}
+	id := a.add(afterID)
+	at := "(SELECT created_at FROM " + table + " WHERE id = " + id + ")"
+	n := a.add(store.IDNum(afterID))
+	a.where = append(a.where, "(created_at > "+at+" OR (created_at = "+at+" AND ("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+id+"))))")
+}
+
+func (a *args) limit(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	return " LIMIT " + a.add(n)
+}
+
 func (a *args) clause() string {
 	if len(a.where) == 0 {
 		return ""

@@ -26,6 +26,7 @@ type Options struct {
 	DefaultSpawn SpawnConfig
 	Spawn        map[string]SpawnConfig
 	History      int
+	Scores       func(ctx context.Context) (map[string]float64, error)
 	Now          func() time.Time
 	Log          *slog.Logger
 }
@@ -132,6 +133,11 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 		return snap, err
 	}
 	snap.Capacity = *c
+	if s.o.Scores != nil {
+		if snap.Scores, err = s.o.Scores(ctx); err != nil {
+			s.o.Log.Warn("autopilot agent scores unavailable", "err", err)
+		}
+	}
 	return snap, nil
 }
 

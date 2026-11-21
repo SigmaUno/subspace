@@ -8,13 +8,15 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 func TestSoakSmoke(t *testing.T) {
 	dir := t.TempDir()
 	out, series := filepath.Join(dir, "report.json"), filepath.Join(dir, "series.csv")
 	args := []string{
-		"-duration", "20s", "-sample", "1s", "-warmup", "5s", "-seed", "42",
+		"-duration", testmode.Size("14s", "20s"), "-sample", "1s", "-warmup", testmode.Size("4s", "5s"), "-seed", "42",
 		"-workers", "6", "-testers", "2", "-reviewers", "2", "-sse", "4", "-briefs", "2", "-max-plan", "8",
 		"-lease", "3s", "-agent-life", "6s", "-brief-life", "12s",
 		"-restart-every", "6s", "-pause-every", "7s", "-backup-every", "5s", "-verify-every", "5s",

@@ -26,7 +26,11 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testmain"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
+
+func TestMain(m *testing.M) { testmain.Run(m) }
 
 func ptr[T any](v T) *T { return &v }
 
@@ -337,11 +341,9 @@ func TestExportStreamsLargeDatasetWithinMemoryBound(t *testing.T) {
 	if testing.Short() {
 		t.Skip("large dataset")
 	}
-	const (
-		rows     = 20000
-		bodySize = 2048
-		bound    = 12 << 20
-	)
+	const bodySize = 2048
+	rows := testmode.Size(10000, 20000)
+	bound := uint64(testmode.Size(6<<20, 12<<20))
 	dir := t.TempDir()
 	src, dst, arc := filepath.Join(dir, "src.db"), filepath.Join(dir, "dst.db"), filepath.Join(dir, "big.jsonl.gz")
 	st, err := sqlite.Open(src)
@@ -362,7 +364,7 @@ func TestExportStreamsLargeDatasetWithinMemoryBound(t *testing.T) {
 	}
 	mustDo(t, tx.Commit())
 	mustDo(t, raw.Close())
-	if rows*bodySize < 3*bound {
+	if uint64(rows*bodySize) < 3*bound {
 		t.Fatal("dataset too small to prove streaming")
 	}
 

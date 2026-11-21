@@ -17,6 +17,8 @@ import (
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 const (
@@ -558,7 +560,7 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 	}
 	w.verify("setup")
 
-	for round := range 24 {
+	for round := range testmode.Size(8, 24) {
 		ctx, cancel := context.WithCancel(context.Background())
 		wg := w.load(ctx)
 		time.Sleep(time.Duration(80+rng.IntN(250)) * time.Millisecond)
@@ -600,7 +602,7 @@ func TestChaosBulkRegistrationCrash(t *testing.T) {
 	c := newChaosClient()
 	clock := &chaosClock{}
 	const count = 200
-	for i := range 5 {
+	for i := range testmode.Size(3, 5) {
 		node := startChaosNode(t, db, clock)
 		c.point(node)
 		prefix := fmt.Sprintf("bulk%d", i)

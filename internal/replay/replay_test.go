@@ -9,6 +9,8 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/dst"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/testmain"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 type capture struct {
@@ -58,6 +60,8 @@ func simulate(t *testing.T, f dst.Factory, seed int64, steps int) (*dst.State, [
 	return st, caps, roles
 }
 
+func TestMain(m *testing.M) { testmain.Run(m) }
+
 func compare(t *testing.T, label string, snap Snapshot, live []*model.Task) {
 	t.Helper()
 	got := map[string]Task{}
@@ -85,7 +89,7 @@ func compare(t *testing.T, label string, snap Snapshot, live []*model.Task) {
 
 func TestReplayMatchesLiveBoard(t *testing.T) {
 	seeds, steps := 10, 300
-	if testing.Short() {
+	if !testmode.Full() {
 		seeds, steps = 3, 200
 	}
 	factories := map[string]dst.Factory{

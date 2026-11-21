@@ -5,21 +5,30 @@ import (
 	"context"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmain"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
+func TestMain(m *testing.M) { testmain.Run(m) }
+
 func TestScenarios(t *testing.T) {
-	if testing.Short() {
-		t.Skip("short")
-	}
 	think := 5 * time.Millisecond
-	cases := []Config{
+	cases := testmode.Size([]Config{
+		{Scenario: ScenarioContention, Agents: 20, Think: think},
+		{Scenario: ScenarioBigPlan, Agents: 10, Tasks: 25, Reviewers: 2, Think: think},
+		{Scenario: ScenarioManyBriefs, Agents: 10, Briefs: 3, Reviewers: 2, Think: think},
+		{Scenario: ScenarioThreadHeavy, Agents: 5, Messages: 100, Think: think},
+		{Scenario: ScenarioReconnectStorm, Agents: 5, SSESubs: 50, Think: think},
+		{Scenario: ScenarioRestart, Agents: 10, SSESubs: 10, TasksPerAgent: 3, Think: think},
+	}, []Config{
 		{Scenario: ScenarioContention, Agents: 40, Think: think},
 		{Scenario: ScenarioBigPlan, Agents: 20, Tasks: 50, Reviewers: 4, Think: think},
 		{Scenario: ScenarioManyBriefs, Agents: 20, Briefs: 5, Reviewers: 4, Think: think},
 		{Scenario: ScenarioThreadHeavy, Agents: 10, Messages: 200, Think: think},
 		{Scenario: ScenarioReconnectStorm, Agents: 10, SSESubs: 100, Think: think},
 		{Scenario: ScenarioRestart, Agents: 20, SSESubs: 20, TasksPerAgent: 5, Think: think},
-	}
+	})
 	for _, cfg := range cases {
 		t.Run(cfg.Scenario, func(t *testing.T) {
 			cfg.Duration = 10 * time.Second

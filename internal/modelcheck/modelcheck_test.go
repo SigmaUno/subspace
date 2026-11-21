@@ -7,10 +7,12 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 var (
-	depth   = flag.Int("modelcheck.depth", 4, "exhaustive depth from the initial state; seeded roots use two less")
+	depth   = flag.Int("modelcheck.depth", testmode.Size(3, 4), "exhaustive depth from the initial state; seeded roots use two less")
 	workers = flag.Int("modelcheck.workers", runtime.GOMAXPROCS(0), "parallel board instances")
 )
 
@@ -53,13 +55,13 @@ func TestExhaustive(t *testing.T) {
 		depth int
 	}{
 		{"initial", nil, *depth},
-		{"in review", concat([]Action{approve, by(Assign, 0, W1), by(Assign, 2, W2)}, cycle(0, W1)), *depth - 2},
+		{"in review", concat([]Action{approve, by(Assign, 0, W1), by(Assign, 2, W2)}, cycle(0, W1)), max(*depth-2, 2)},
 		{"third review round", concat([]Action{approve, by(Assign, 0, W1)}, cycle(0, W1), []Action{on(ReviewChanges, 0)},
-			cycle(0, W1), []Action{on(ReviewChanges, 0)}, cycle(0, W1)), *depth - 2},
+			cycle(0, W1), []Action{on(ReviewChanges, 0)}, cycle(0, W1)), max(*depth-2, 2)},
 		{"dependency done", concat([]Action{approve, by(Assign, 0, W1)}, cycle(0, W1),
-			[]Action{on(ReviewApprove, 0), on(MarkDone, 0), by(Assign, 1, W2), by(Claim, 1, W2)}), *depth - 2},
+			[]Action{on(ReviewApprove, 0), on(MarkDone, 0), by(Assign, 1, W2), by(Claim, 1, W2)}), max(*depth-2, 2)},
 		{"brief budget nearly spent", []Action{approve, by(Assign, 2, W1), by(Claim, 2, W1), on(ReportCost, 2),
-			by(Assign, 0, W2), by(Claim, 0, W2)}, *depth - 2},
+			by(Assign, 0, W2), by(Claim, 0, W2)}, max(*depth-2, 2)},
 	}
 	tp := newTemplate(t)
 	for _, r := range roots {

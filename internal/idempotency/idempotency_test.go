@@ -123,7 +123,7 @@ func TestReplayWithinTTL(t *testing.T) {
 	if be.calls != 1 || first.Header().Get(Replay) != "" {
 		t.Fatalf("first call: calls=%d replay=%q", be.calls, first.Header().Get(Replay))
 	}
-	rec := st.m["a1\x00k1"]
+	rec := st.m["a1\x00"+keyHash("k1")]
 	if rec == nil || rec.Tool != "claim_task" || !rec.ExpiresAt.Equal(t0.Add(24*time.Hour)) {
 		t.Fatalf("stored record %+v", rec)
 	}

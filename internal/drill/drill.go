@@ -48,9 +48,15 @@ type Backups interface {
 	List(ctx context.Context) ([]backup.Info, error)
 }
 
+type RemoteSource interface {
+	Fetch(ctx context.Context, w io.Writer) (name string, bytes int64, err error)
+}
+
 type Options struct {
 	Store       store.Store
 	Backups     Backups
+	Remote      RemoteSource
+	FromRemote  bool
 	Dir         string
 	Every       time.Duration
 	Tolerance   float64
@@ -215,19 +221,13 @@ func (w *workspace) restore(ctx context.Context) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	if len(list) == 0 {
+	remote := w.s.o.Remote != nil && (w.s.o.FromRemote || len(list) == 0)
+	if len(list) == 0 && !remote {
 		return "", errors.New("no backup available")
 	}
-	newest := list[0]
-	w.r.Backup, w.r.BackupBytes = newest.Name, newest.Bytes
 	if err := os.MkdirAll(w.s.o.Dir, 0o750); err != nil {
 		return "", err
 	}
-	src, err := os.Open(newest.Path)
-	if err != nil {
-		return "", err
-	}
-	defer func() { _ = src.Close() }()
 	stale, _ := filepath.Glob(filepath.Join(w.s.o.Dir, "drill-*.db*"))
 	for _, p := range stale {
 		_ = os.Remove(p)
@@ -237,13 +237,41 @@ func (w *workspace) restore(ctx context.Context) (string, error) {
 		return "", err
 	}
 	w.path = dst.Name()
-	n, err := io.Copy(dst, src)
+	var detail string
+	if remote {
+		detail, err = w.pull(ctx, dst)
+	} else {
+		detail, err = w.copyLocal(list[0], dst)
+	}
 	if err == nil {
 		err = dst.Sync()
 	}
 	if cerr := dst.Close(); err == nil {
 		err = cerr
 	}
+	if err != nil {
+		return "", err
+	}
+	return detail, nil
+}
+
+func (w *workspace) pull(ctx context.Context, dst io.Writer) (string, error) {
+	name, n, err := w.s.o.Remote.Fetch(ctx, dst)
+	w.r.Backup, w.r.BackupBytes = name, n
+	if err != nil {
+		return "", fmt.Errorf("remote backup: %w", err)
+	}
+	return fmt.Sprintf("%s downloaded from the remote, decrypted and restored to a temporary database (%d bytes)", name, n), nil
+}
+
+func (w *workspace) copyLocal(newest backup.Info, dst io.Writer) (string, error) {
+	w.r.Backup, w.r.BackupBytes = newest.Name, newest.Bytes
+	src, err := os.Open(newest.Path)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = src.Close() }()
+	n, err := io.Copy(dst, src)
 	if err != nil {
 		return "", err
 	}

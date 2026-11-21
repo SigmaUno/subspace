@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/backup"
+	"github.com/SigmaUno/subspace/internal/backup/offsite"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/drill"
@@ -399,5 +400,95 @@ func waitFor(t *testing.T, cond func() bool) {
 			t.Fatal("condition not reached")
 		}
 		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+func (r *rig) offsite(fromRemote bool) (*drill.Service, string) {
+	r.t.Helper()
+	dest := r.t.TempDir()
+	key := filepath.Join(r.t.TempDir(), "backup.key")
+	if err := os.WriteFile(key, []byte(strings.Repeat("ab", 32)), 0o600); err != nil {
+		r.t.Fatal(err)
+	}
+	remote, err := offsite.Open(offsite.Config{
+		Kind: offsite.KindFS, Path: dest, KeyFile: key, Retention: offsite.DefaultPolicy, Interval: time.Hour,
+	}, offsite.Deps{Now: r.clk.Now})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	up, err := offsite.NewService(offsite.Options{
+		Remote: remote, Store: r.live, Backups: r.bk, StageDir: filepath.Join(r.dir, "stage"), Now: r.clk.Now,
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	if _, err := up.Sync(context.Background()); err != nil {
+		r.t.Fatal(err)
+	}
+	svc, err := drill.New(drill.Options{
+		Store: r.live, Backups: r.bk, Remote: remote, FromRemote: fromRemote, Dir: r.dir, Every: time.Hour, Pub: r.pub, Now: r.clk.Now,
+	})
+	if err != nil {
+		r.t.Fatal(err)
+	}
+	return svc, dest
+}
+
+func TestDrillPullsFromRemote(t *testing.T) {
+	r := newRig(t, "")
+	r.briefs(4)
+	info := r.backup()
+	svc, dest := r.offsite(true)
+	if err := os.WriteFile(info.Path, []byte("local copy is garbage"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.RunOnce(context.Background(), drill.TriggerManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkStatus(t, res, drill.StatusOK)
+	if !strings.HasSuffix(res.Backup, ".db.enc") {
+		t.Fatalf("drill used %q", res.Backup)
+	}
+	if !strings.Contains(res.Checks[0].Detail, "remote") {
+		t.Fatalf("restore detail %q", res.Checks[0].Detail)
+	}
+	r.noLeftovers()
+
+	objs, _ := filepath.Glob(filepath.Join(dest, "*.db.enc"))
+	raw, err := os.ReadFile(objs[0])
+	if err != nil {
+		t.Fatal(err)
+	}
+	raw[len(raw)/2] ^= 1
+	if err := os.WriteFile(objs[0], raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	res, err = svc.RunOnce(context.Background(), drill.TriggerManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkStatus(t, res, drill.StatusFailed)
+	if failedCheck(res) != "restore" || !strings.Contains(res.Error, "authentication") {
+		t.Fatalf("tampered remote backup: %+v", res)
+	}
+	r.noLeftovers()
+}
+
+func TestDrillFallsBackToRemoteWithoutLocalBackups(t *testing.T) {
+	r := newRig(t, "")
+	r.briefs(2)
+	info := r.backup()
+	svc, _ := r.offsite(false)
+	if err := os.Remove(info.Path); err != nil {
+		t.Fatal(err)
+	}
+	res, err := svc.RunOnce(context.Background(), drill.TriggerManual)
+	if err != nil {
+		t.Fatal(err)
+	}
+	checkStatus(t, res, drill.StatusOK)
+	if !strings.HasSuffix(res.Backup, ".db.enc") {
+		t.Fatalf("drill used %q", res.Backup)
 	}
 }

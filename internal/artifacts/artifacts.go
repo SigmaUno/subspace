@@ -23,6 +23,7 @@ import (
 	"unicode"
 
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/redact"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -550,7 +551,7 @@ func cleanName(raw string) (string, error) {
 		}
 		return r
 	}, n)
-	n = strings.TrimSpace(n)
+	n = strings.TrimSpace(redact.String(n))
 	if len(n) > maxNameLen {
 		n = strings.ToValidUTF8(n[:maxNameLen], "")
 	}

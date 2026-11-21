@@ -1,9 +1,13 @@
 package api
 
 import (
+	"bytes"
 	"context"
+	"io"
 	"log/slog"
+	"mime"
 	"net/http"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
@@ -102,8 +106,32 @@ func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 			a.fail(w, model.Forbidden("%s token may not %s %s", pr.Scope, r.Method, r.URL.Path))
 			return
 		}
+		if err := rejectTokens(r); err != nil {
+			a.fail(w, err)
+			return
+		}
 		h(w, r.WithContext(auth.WithPrincipal(r.Context(), *pr)))
 	}
+}
+
+var tokenRe = regexp.MustCompile(`(?:` + auth.TokenPrefix + `|` + auth.OwnerTokenPrefix + `)[A-Za-z0-9_-]{43}`)
+
+func rejectTokens(r *http.Request) error {
+	if r.Body == nil || r.Body == http.NoBody || r.Method == http.MethodGet || r.Method == http.MethodHead {
+		return nil
+	}
+	if ct, _, _ := mime.ParseMediaType(r.Header.Get("Content-Type")); ct != "" && ct != "application/json" && !strings.HasPrefix(ct, "text/") {
+		return nil
+	}
+	head, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))
+	r.Body = struct {
+		io.Reader
+		io.Closer
+	}{io.MultiReader(bytes.NewReader(head), r.Body), r.Body}
+	if err == nil && tokenRe.Match(head) {
+		return model.BadRequest("request body contains a Subspace token; tokens must never be stored in text")
+	}
+	return nil
 }
 
 func (a *API) do(status int, f func(r *http.Request) (any, error)) http.HandlerFunc {

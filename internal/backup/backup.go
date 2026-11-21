@@ -55,6 +55,15 @@ type Info struct {
 	Verified   bool      `json:"verified"`
 	CreatedAt  time.Time `json:"created_at"`
 	AgeSeconds int64     `json:"age_seconds"`
+	Remote     *Remote   `json:"remote,omitempty"`
+}
+
+type Remote struct {
+	Object     string    `json:"object"`
+	Bytes      int64     `json:"bytes"`
+	UploadedAt time.Time `json:"uploaded_at"`
+	Verified   bool      `json:"verified"`
+	Error      string    `json:"error"`
 }
 
 type verdict struct {
@@ -69,6 +78,7 @@ type Scheduler struct {
 
 	mu       sync.Mutex
 	verdicts map[string]verdict
+	annotate func(ctx context.Context, list []Info)
 }
 
 func New(cfg Config) (*Scheduler, error) {
@@ -98,6 +108,12 @@ func New(cfg Config) (*Scheduler, error) {
 		log = slog.Default()
 	}
 	return &Scheduler{cfg: cfg, log: log.With("component", "backup"), verdicts: map[string]verdict{}}, nil
+}
+
+func (s *Scheduler) SetAnnotator(fn func(ctx context.Context, list []Info)) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.annotate = fn
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -173,6 +189,9 @@ func (s *Scheduler) List(ctx context.Context) ([]Info, error) {
 			continue
 		}
 		out = append(out, s.info(names[i], fi, now, s.verified(ctx, names[i], fi)))
+	}
+	if s.annotate != nil {
+		s.annotate(ctx, out)
 	}
 	return out, nil
 }

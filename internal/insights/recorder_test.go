@@ -2,21 +2,16 @@ package insights_test
 
 import (
 	"context"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/insights"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func TestRecorderRetentionIsBounded(t *testing.T) {
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(t, testdb.Path(t, "t.db")).(insights.Store)
 	clock := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	rec := insights.NewRecorder(st, insights.RecorderOptions{
 		Now: func() time.Time { return clock }, Retention: time.Hour, MaxRows: 5,
@@ -54,11 +49,7 @@ func TestRecorderRetentionIsBounded(t *testing.T) {
 }
 
 func TestRecorderDropsOversizedTaskIDs(t *testing.T) {
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(t, testdb.Path(t, "t.db")).(insights.Store)
 	clock := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
 	rec := insights.NewRecorder(st, insights.RecorderOptions{Now: func() time.Time { return clock }})
 	ctx := context.Background()

@@ -216,3 +216,61 @@ func TestStalledLeaderStopsBeforePostgresCanReleaseItsLock(t *testing.T) {
 		t.Fatal("leader work kept running after the lease expired")
 	}
 }
+
+func TestResignHandsOverAfterLeaderWorkStops(t *testing.T) {
+	db := &simDB{down: map[string]bool{}}
+	a := New(Options{ID: "a", Lock: &simLock{db: db, id: "a"}, Interval: time.Hour})
+	b := New(Options{ID: "b", Lock: &simLock{db: db, id: "b"}, Interval: time.Hour})
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	var mu sync.Mutex
+	active := map[string]bool{}
+	work := func(id string, linger time.Duration) func(context.Context) {
+		return func(run context.Context) {
+			mu.Lock()
+			for other, on := range active {
+				if on && other != id {
+					t.Errorf("%s started while %s was still running", id, other)
+				}
+			}
+			active[id] = true
+			mu.Unlock()
+			<-run.Done()
+			time.Sleep(linger)
+			mu.Lock()
+			active[id] = false
+			mu.Unlock()
+		}
+	}
+	go a.Lead(ctx, work("a", 100*time.Millisecond))
+	go b.Lead(ctx, work("b", 0))
+	go a.Run(ctx)
+	waitLeader(t, a)
+	b.step(ctx)
+	if b.IsLeader() {
+		t.Fatal("b leads while a holds the lock")
+	}
+
+	if err := a.Resign(ctx); err != nil {
+		t.Fatal(err)
+	}
+	mu.Lock()
+	if active["a"] {
+		t.Fatal("lock released while a's leader work was still running")
+	}
+	mu.Unlock()
+	b.step(ctx)
+	if !b.IsLeader() {
+		t.Fatal("b did not take over on its next tick after a resigned")
+	}
+}
+
+func waitLeader(t *testing.T, e *Elector) {
+	t.Helper()
+	for end := time.Now().Add(2 * time.Second); !e.IsLeader(); time.Sleep(5 * time.Millisecond) {
+		if time.Now().After(end) {
+			t.Fatal("no leadership")
+		}
+	}
+}

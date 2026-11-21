@@ -47,6 +47,9 @@ type Snapshot struct {
 	BackupsEnabled bool
 	LastBackup     time.Time
 	BackupFailing  bool
+	OffsiteEnabled bool
+	LastOffsite    time.Time
+	OffsiteError   string
 	DiskKnown      bool
 	DiskFree       uint64
 	DBBytes        int64

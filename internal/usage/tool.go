@@ -3,10 +3,27 @@ package usage
 import (
 	"context"
 	"encoding/json"
+	"regexp"
 
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/redact"
 )
+
+var (
+	providerRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+	modelRe    = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
+)
+
+func CheckNames(provider, modelName string) error {
+	if modelName != "" && (!modelRe.MatchString(modelName) || redact.Contains(modelName)) {
+		return model.BadRequest("model must match [A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}")
+	}
+	if provider != "" && (!providerRe.MatchString(provider) || redact.Contains(provider)) {
+		return model.BadRequest("provider must match [a-z0-9][a-z0-9._-]{0,62}")
+	}
+	return nil
+}
 
 type reportArgs struct {
 	Provider    string  `json:"provider"`
@@ -56,6 +73,9 @@ func (s *Service) ReportUsage(ctx context.Context, c *mcp.Call) (any, error) {
 	}
 	if a.Model == "" {
 		return nil, model.BadRequest("model is required")
+	}
+	if err := CheckNames(a.Provider, a.Model); err != nil {
+		return nil, err
 	}
 	if s.Allow != nil && (a.TaskID != "" || a.BriefID != "") {
 		if err := s.Allow(ctx, c.Actor, a.TaskID, a.BriefID); err != nil {

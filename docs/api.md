@@ -17,6 +17,7 @@ the server changes, this file changes in the same PR.
 | `/api/v1/*` | `Authorization: Bearer <owner token>` | The env token `SUBSPACE_OWNER_TOKEN` / `SUBSPACE_OWNER_TOKEN_FILE` (root, break-glass, scope `owner`) or a managed API token (`ssu_`, see Tokens). Agent tokens are rejected here (403). |
 | `/mcp` | `Authorization: Bearer <agent token>` | One token per agent. The owner token is rejected here (403): owner actions are never reachable through MCP. |
 | `/healthz` | none | `{"status":"ok","version":"...","paused":false}` |
+| `/readyz` | none | Empty body. 200 while the instance takes traffic; 503 once it starts draining, after its store is closed, or when it runs read-only against a newer schema. It is not served while migrations run. Compose healthchecks and the HA Caddy upstream health check use it. |
 | `POST /hooks/github`, `POST /hooks/forgejo` | HMAC signature (`X-Hub-Signature-256`; `X-Forgejo-Signature` / `X-Gitea-Signature`) | Mounted only when `SUBSPACE_WEBHOOK_SECRET_GITHUB` / `SUBSPACE_WEBHOOK_SECRET_FORGEJO` is set. Body ≤ 1 MiB, `*-Delivery` id required, replayed delivery ids → 202 without effect. |
 | `GET /a/{token}`, `POST /a/{token}` | signed one-time action token in the path | See Action links. Rate limited per client address. |
 
@@ -24,7 +25,13 @@ Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashe
 
 Managed API tokens are 32 random bytes, base64url, prefixed `ssu_`, stored as SHA-256 hashes and returned once on create. Scope `owner` may call every `/api/v1` endpoint. Scope `viewer` may only use `GET`/`HEAD` (including SSE and mounted read endpoints) and never `/api/v1/tokens`; anything else is 403 `forbidden`. This is enforced centrally before any handler runs. Revoked or expired tokens are 401. Every state-changing owner action records the acting token id in the audit `note` as `token=<id>` (`token=root` for the env token), followed by `; <note>` when the action has its own note. `last_used_at` is written at most once per minute per token.
 
+<<<<<<< HEAD
+A `/api/v1` request body with a JSON, text or empty content type that contains an agent or API token (`ssp_` or `ssu_` followed by 43 base64url characters) is rejected with 400 `bad_request` before any handler runs, so tokens never reach the charter, notes, reasons or any other stored text. Other bodies (artifact uploads) are not inspected.
+
 Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` is always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
+=======
+Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` and `/readyz` are always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
+>>>>>>> origin/ws/server/o-rolling-upgrade
 
 Errors (REST): HTTP status + body
 ```json
@@ -134,7 +141,7 @@ Briefs, plans, tasks, agents, questions, spawns, thread messages and audit event
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
-| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
+| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds","remote":{"object","bytes","uploaded_at","verified","error"}}]}`, newest first. `verified` is the result of `integrity_check` on the file. `remote` is present once the backup was sent off-site (see Off-site backups). Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 | GET | `/api/v1/about` | → `{"version","started_at","uptime_seconds","backend":"sqlite","db_bytes":12345,"wal_bytes":0,"backups":{"count":3,"latest_at":"...","latest_verified":true}}`. `backend` is `sqlite` or `postgres`; `db_bytes` and `wal_bytes` are `null` with Postgres or when the file is missing; `latest_at` is `null` and `latest_verified` false without backups. |
 | GET | `/api/v1/drills?limit=` | → `{"drills":[Drill]}`, newest first; `limit` default 100, max 1000 (400 otherwise). See Restore drills. |
 | POST | `/api/v1/drills` | `{}` → Drill (201, also when the drill failed: read `status`). Runs a restore drill of the newest backup now. 409 `conflict` while another drill runs. |
@@ -162,7 +169,50 @@ The leader restores the newest backup into a temporary database in the data dir 
  "started_at":"...","finished_at":"..."}
 ```
 
+<<<<<<< HEAD
+A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing. Setting `SUBSPACE_DRILL_EVERY` to a positive duration with a Postgres `SUBSPACE_DB` refuses to start.
+=======
+With `SUBSPACE_DRILL_SOURCE=remote` (default `local`) the `restore` check downloads and decrypts the newest off-site backup instead of copying the local file, so the drill proves the remote copy and the key restore; with off-site backups configured and no local backup the drill also falls back to the remote copy. The drill's `backup` is then the remote object name and `backup_bytes` the decrypted size. A download that fails authentication fails the `restore` check. `remote` without `SUBSPACE_OFFSITE_KIND` disables scheduled drills.
+
 A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing.
+>>>>>>> origin/ws/server/o-offsite-backup
+
+### Off-site backups
+After a local backup is written and verified, the leader copies it to a second destination, encrypted on this machine. Nothing is sent unless `SUBSPACE_OFFSITE_KIND` is set; an invalid configuration stops the server at start. Needs `SUBSPACE_BACKUP_DIR` (the default on SQLite).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_OFFSITE_KIND` | – | `fs` or `s3`; empty = off |
+| `SUBSPACE_OFFSITE_KEY_FILE` | – | required; file with the 32-byte key (raw or 64 hex characters), mode `0600` (group/other access is refused) |
+| `SUBSPACE_OFFSITE_KEY_ID` | first 4 bytes of the key's SHA-256, hex | id written into every backup header |
+| `SUBSPACE_OFFSITE_OLD_KEYS` | – | `<id>=<absolute path>,...` of retired keys, still used to decrypt older backups |
+| `SUBSPACE_OFFSITE_KEEP_LAST`, `_KEEP_DAILY`, `_KEEP_WEEKLY` | `7`, `7`, `4` | retention at the destination, not all zero |
+| `SUBSPACE_OFFSITE_INTERVAL` | `10m` | how often the leader checks for a backup that is not yet stored off-site |
+| `SUBSPACE_OFFSITE_PATH` | – | `fs`: absolute path of a mounted directory; it is never created, a missing mount is an error |
+| `SUBSPACE_OFFSITE_S3_ENDPOINT` | – | `s3`: `https://host[:port]` without path (`http` only with `_ALLOW_PRIVATE`) |
+| `SUBSPACE_OFFSITE_S3_REGION`, `_S3_BUCKET`, `_S3_PREFIX` | – | region, bucket and optional key prefix |
+| `SUBSPACE_OFFSITE_S3_VIRTUAL_HOST` | `false` | `bucket.host` addressing instead of path-style `/bucket/key` |
+| `SUBSPACE_OFFSITE_S3_ACCESS_KEY_ENV` / `_FILE` | – | **name** of an environment variable, or an absolute file path, holding the access key id (exactly one) |
+| `SUBSPACE_OFFSITE_S3_SECRET_KEY_ENV` / `_FILE` | – | same for the secret key |
+| `SUBSPACE_OFFSITE_S3_SESSION_TOKEN_ENV` / `_FILE` | – | optional session token |
+| `SUBSPACE_OFFSITE_S3_PART_SIZE` | `67108864` | multipart part size (at least 5 MiB); objects up to one part are sent in a single `PUT` |
+| `SUBSPACE_OFFSITE_S3_ALLOW_PRIVATE` | `false` | allow loopback and private-range endpoints (MinIO, Ceph); link-local and metadata addresses stay blocked |
+
+Credentials are never configuration values: only the names of environment variables or file paths are, and the values are read when the destination is opened. The S3 client is a standard-library SigV4 implementation (no SDK) and every connection goes through the same address guard as outbound webhooks: the resolved address must be public unless `_ALLOW_PRIVATE` is set, redirects are not followed. Requests are retried with exponential backoff on network errors, `408`, `429` and `5xx`. A failed multipart upload is aborted.
+
+Each backup becomes one object `subspace-<UTC timestamp>.db.enc` (below `SUBSPACE_OFFSITE_S3_PREFIX/` for S3). The format is chunked AES-256-GCM using the standard library: a header (magic, key id, chunk size, 32-byte random salt) is followed by 1 MiB chunks. The key of a file is derived from the configured key and its salt (HKDF-SHA256), the nonce is the chunk index, and the additional data of every chunk are the whole header, the chunk index and a final-chunk flag. A flipped bit, a removed, duplicated or reordered chunk, data cut off at a chunk boundary, data appended after the end and chunks spliced in from another file all fail decryption.
+
+After the upload the leader verifies it: the destination must report the uploaded size and the SHA-256 of the encrypted file (S3: the `x-amz-meta-sha256` set at upload; a single `PUT` is signed with that hash as `x-amz-content-sha256`, so the server rejects any other body, and multipart parts are hashed and signed one by one), and the first and the last 64 KiB read back must equal the local ones. Only then is the retention applied: the newest `KEEP_LAST` objects, the newest object of each of the last `KEEP_DAILY` UTC days and of the last `KEEP_WEEKLY` ISO weeks with objects are kept, the rest is deleted; the object just uploaded is never deleted. The outcome is stored in the key-value table (`backup.offsite`) and shown as `remote` on `GET /api/v1/backups`: `object`, encrypted `bytes`, `uploaded_at`, `verified`, and `error` (empty on success; a failed upload or verification is retried at the next interval).
+
+Alert `offsite_stale` (below) fires when no verified off-site copy is newer than `SUBSPACE_ALERTS_OFFSITE_MAX_AGE` (`48h`, `off` disables; the server start counts until the first upload) and carries the last error.
+
+Restore on a machine with the same `SUBSPACE_OFFSITE_*` settings and key (the key file is the only thing needed besides the destination):
+
+```
+subspace restore --from-remote [--name subspace-20261121T030000Z.db.enc] [--db /data/subspace.db] [--force]
+```
+
+It downloads the newest (or the named) object, decrypts and authenticates it into a temporary file next to the database, runs the usual checks of `subspace restore` on it (integrity check, required tables, server stopped, `--force` to overwrite) and removes the temporary file, also on failure.
 
 ### Configuration reload
 `SUBSPACE_CONFIG_FILE` names a JSON object whose keys are environment variable names. Its values overlay the process environment at start and on every reload: a value is a string, number or boolean, a list of those (joined with `,`, e.g. `["10.0.0.0/8","192.168.0.0/16"]` for a CIDR list), or `null` for an empty value. A reload runs on `SIGHUP` and on `POST /api/v1/reload` (owner scope). The file is at most 1 MiB.
@@ -1203,7 +1253,7 @@ Library files stay backwards compatible: the added front matter keys are optiona
 Jobs and attempts are stored in the database. Attempts are recorded by the MCP `measure` tool, which exists only when `SUBSPACE_HILLCLIMB_WORKDIR` is set; without it jobs stay `running` with no attempts. The runner fetches the branch into a fresh git worktree under that directory and runs `metric_cmd` with `/bin/sh -c`, using only repos listed in `SUBSPACE_HILLCLIMB_REPOS` (JSON object `{"<repo>":"<git url>"}`). Other settings: `SUBSPACE_HILLCLIMB_TIMEOUT` (default `10m`), `SUBSPACE_HILLCLIMB_MAX_OUTPUT` (bytes, default 1 MiB), `SUBSPACE_HILLCLIMB_ENV` (comma list of extra env names passed through; `PATH`, `LANG`, `LC_ALL`, `TZ` always are), `SUBSPACE_HILLCLIMB_RLIMIT_CPU` (seconds), `SUBSPACE_HILLCLIMB_RLIMIT_MEM` (bytes), `SUBSPACE_HILLCLIMB_RLIMIT_NOFILE`. A timeout, an exceeded output cap, a symlink escaping the worktree or a non-zero exit records a failed attempt (`value` null).
 
 ### Artifacts
-Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools.
+Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools. Secrets in file names are masked before the name is stored.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -1325,6 +1375,7 @@ Alerts are held in memory per server process. Every threshold is an env var; a d
 | `review_stuck` | `submitted` tasks without a reviewer waited longer than the limit | `SUBSPACE_ALERTS_REVIEW_AFTER` (`30m`) |
 | `backup_failing` | automatic backups are on (`SUBSPACE_BACKUP_INTERVAL` above 0) and the newest backup fails `integrity_check` | – |
 | `backup_old` | automatic backups are on and the newest backup (or the server start when there is none) is older than the limit | `SUBSPACE_ALERTS_BACKUP_MAX_AGE` (`48h`) |
+| `offsite_stale` | off-site backups are on and the newest verified off-site copy (or the server start when there is none) is older than the limit; the summary carries the last upload error | `SUBSPACE_ALERTS_OFFSITE_MAX_AGE` (`48h`) |
 | `disk_low` | free bytes on the data directory's filesystem are below the limit | `SUBSPACE_ALERTS_DISK_MIN_FREE_BYTES` (`1073741824`) |
 | `db_size` | the SQLite file is larger than the limit | `SUBSPACE_ALERTS_DB_MAX_BYTES` (`8589934592`) |
 | `wal_size` | the SQLite `-wal` file is larger than the limit | `SUBSPACE_ALERTS_WAL_MAX_BYTES` (`536870912`) |
@@ -1371,7 +1422,7 @@ A digest is a short plain-text summary sent through the notification sinks (`kin
 Each variable is its own rule with its own window, which runs from the previous slot of that rule (or from the last evaluation) to now, at most 8 days. A time that does not exist on a daylight-saving day fires right after the gap; an ambiguous time fires once, at its first occurrence. A rule is skipped when nothing changed since its last digest: no tasks done, created or blocked, no cost or tokens, and the same pending decisions, risks, flapping agents and merge-ready PRs. A change to an empty state is sent once. The first evaluation after a fresh start only records the slot, and a missed slot is sent once on the next start. Rule state is kept in the key-value table (`digest.state.daily`, `digest.state.weekly`). Invalid values disable the digest and are logged.
 
 ### Logs
-Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner scope. The server keeps the last 2000 log lines in memory, redacted through the secret masker (tokens, keys and credential-looking values; attributes whose key contains `token`, `secret`, `password`, `authorization`, `cookie`, `api_key` or `credential` are always masked).
+Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner scope. The server keeps the last 2000 log lines in memory, redacted through the secret masker (tokens, keys and credential-looking values; attributes whose key contains `token`, `secret`, `password`, `authorization`, `cookie`, `api_key` or `credential` are always masked). Lines written to stderr are masked the same way.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -1488,6 +1539,8 @@ With the Postgres backend any number of server instances may share one database 
 - **Events.** Every event published on one instance is delivered to SSE subscribers on all instances (Postgres `LISTEN`/`NOTIFY`, batched; an event too large for a notification is stored in `ha_events` and fetched by id, rows are pruned after 5 minutes). `activity.new` is produced on every instance from the shared database and is not forwarded. SSE `id`s, the replay buffer and `agent.output` streams are per instance: a client that reconnects to another instance gets `resync`. Events are lost while a notification connection is down: on the sending instance after 3 attempts (counted in `events.dropped`), on a receiving instance until it reconnects.
 - **Shared state.** Writes are serialized across instances by a per-schema advisory transaction lock. An `agent.updated` event from another instance drops that agent from the token cache (revocation and rotation apply everywhere within one event delivery); `control.paused`, `control.resumed` and `capacity.changed` reload the pause flag and capacity. MCP sessions are stored in `mcp_sessions`, so a session opened on one instance is valid on all of them. Idempotency keys live in the database and concurrent duplicates on different instances wait on a Postgres advisory lock for the key.
 - **Leases.** A lease expires only when both the database `lease_expires_at` and the sweeper's in-memory value are in the past. Heartbeats on any instance reach the database within one flush interval; a heartbeat whose database lease would expire within one flush plus one sweep interval is written synchronously. A live agent on a follower is therefore never expired by the leader's sweeper. The flapping counter (3 expiries in 30 minutes) is kept by the leader and restarts on failover.
+- **Leader hand-off.** On shutdown an instance resigns: it ends its term, waits up to the lease (5s) for its leader-only loops to return and only then releases the lock, so another instance takes over on its next poll (within one interval) and leader work never overlaps. A resigned instance does not compete for the lock again.
+- **Schema migrations.** Each instance migrates on start inside one transaction holding a Postgres advisory lock, so instances started together migrate one at a time and the later ones find the schema current; every migration is idempotent and safe to re-run (SQLite runs them in one `BEGIN IMMEDIATE` transaction). The `schema_version` row stores the schema version (the number of DDL statements the binary registers) and a hash of all migrations. With Postgres no DDL runs when both match the binary, so restarts take no table locks; SQLite re-runs its idempotent migrations on every start. A binary whose version is lower than the stored one refuses to start with an error naming both versions; `SUBSPACE_SCHEMA_READONLY=true` overrides this for read-only maintenance: no migrations run, every write fails, and `/readyz` stays 503. For a rolling upgrade, migrations must be additive (new tables, nullable or defaulted columns) so the instances still on the old binary keep working until they are restarted.
 - **Per-instance limits.** Loop protection and MCP rate limits are counted per instance: behind a round-robin balancer with N instances an agent may make up to N×5 identical calls in the loop window before it is paused, and the effective MCP rate and burst are N× `SUBSPACE_RATE_MCP`. Auth-failure lockouts, provider breakers, alert lists and autopilot status (`stopped` on followers) are per instance too. A configuration reload (`SIGHUP` or `POST /api/v1/reload`) applies only to the instance that receives it; reload every instance, or give them the same `SUBSPACE_CONFIG_FILE` and send `SIGHUP` to each.
 
 ## 4. SSE: `GET /api/v1/events`
@@ -1528,7 +1581,7 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `resync` | `{"seq":n}` — a resume could not be served; refetch | all |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
-On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
+On shutdown the server first turns `/readyz` to 503, stops its leader-only loops and resigns leadership (see High availability), keeps serving for `SUBSPACE_DRAIN_DELAY` (default `0s`, `3s` in the HA compose profile) counted from the start of the shutdown so load balancers take it out of rotation, then stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
 
 Agent output topics: `output:<agent id>` (one agent; list several to follow several agents) and `output` (every agent). They are served by a separate stream: a request whose topics are all output topics gets only `agent.output` events, with their own `id` sequence and a replay buffer of the last 1000 events for `Last-Event-ID`; `all` never includes them, and mixing output topics with other topics is a 400 `bad_request`. `agent.output` carries `{"agent_id":"claude-1","task_id":"T-3","lines":[OutputLine]}`, one event per `log_output` call (`task_id` null when untagged).
 
@@ -1594,7 +1647,7 @@ Every resource is at most 256 KiB. Markdown is cut at that size with a `[truncat
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter, followed by an `Owner announcements` section only while announcements apply to the caller (see Announcements).
 
 ### Idempotency keys
-`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
+`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h as a SHA-256 hash, together with the tool, a hash of the canonical `arguments` and the result.
 - A retry with the same key, tool and arguments returns the stored result (with the new JSON-RPC `id`) and the header `Idempotent-Replayed: true`; the call is not applied again. Concurrent duplicates wait for the first call.
 - The same key with another tool or other arguments → tool error `idempotency_conflict`.
 - Results with tool error codes `internal`, `agent_paused` and `rate_limited` are not stored, so a retry runs the call again.
@@ -1640,8 +1693,8 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Usage and provider health** (all roles; never loop-protected)
-- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
-- `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). `provider` must match `[a-z0-9][a-z0-9._-]{0,62}` and `model` `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, and neither may look like a secret (400). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
+- `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's. Explicit values follow the `report_usage` rules (400 otherwise).
 
 **Knowledge** (see Knowledge; every result carries `notice`)
 - `add_knowledge {"brief_id?","kind","title","body","tags?":["..."],"supersedes?"}` → `{"notice","entry":KnowledgeEntry}`. `brief_id` defaults to the brief of the caller's current task. Non-leader agents may only write to briefs of tasks where they are assignee or reviewer; `supersedes` is leader only (`forbidden` otherwise). Rate limited per agent (burst 10, then 6 per minute; `rate_limited`). Status `pending` while moderation is on.

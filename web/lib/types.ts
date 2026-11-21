@@ -1,4 +1,4 @@
-import type { CapacityLimit } from "./generated-types";
+import type { CapacityLimit, PlanFinding } from "./generated-types";
 
 export const statuses = [
   ["backlog", "Backlog"], ["ready", "Ready"], ["assigned", "Assigned"],
@@ -79,13 +79,6 @@ export interface Plan {
   note: string | null;
   tasks: Task[] | null;
   warnings?: PlanFinding[] | null;
-}
-
-export interface PlanFinding {
-  severity: string;
-  rule: string;
-  task?: string;
-  message: string;
 }
 
 export interface Question {

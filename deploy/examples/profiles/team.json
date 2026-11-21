@@ -1,0 +1,12 @@
+[
+  {"name": "team-leader", "role": "leader", "kind": "claude-code", "model": "claude-opus-5-5", "provider": "anthropic",
+   "expires_in": "2160h", "description": "Leader that plans briefs and assigns tasks"},
+  {"name": "team-worker-claude", "role": "worker", "kind": "claude-code", "model": "claude-sonnet-5-5", "provider": "anthropic",
+   "expires_in": "720h", "count": 4, "description": "Claude Code workers for the main implementation load"},
+  {"name": "team-worker-deepseek", "role": "worker", "kind": "opencode", "model": "deepseek/deepseek-chat", "provider": "deepseek",
+   "expires_in": "720h", "count": 4, "description": "OpenCode workers on DeepSeek for well-scoped tasks"},
+  {"name": "team-reviewer", "role": "reviewer", "kind": "codex", "model": "gpt-5-codex", "provider": "openai",
+   "expires_in": "720h", "count": 2, "description": "Codex reviewers on OpenAI"},
+  {"name": "team-tester", "role": "tester", "kind": "opencode", "model": "deepseek/deepseek-chat", "provider": "deepseek",
+   "expires_in": "720h", "count": 2, "description": "Testers that write and run tests"}
+]

@@ -3,7 +3,6 @@ package incident_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -11,7 +10,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/incident"
 	"github.com/SigmaUno/subspace/internal/model"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type pausedControl struct {
@@ -58,11 +57,7 @@ func (c *pausedControl) ResumeAgent(_ context.Context, id string) (*model.Agent,
 
 func newEndService(t *testing.T, ctl *pausedControl) *incident.Service {
 	t.Helper()
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(t, testdb.Path(t, "t.db"))
 	now := func() time.Time { return time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC) }
 	return incident.New(incident.Options{Store: st, Control: ctl, Now: now})
 }

@@ -6,11 +6,13 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	mrand "math/rand/v2"
 	"net/http"
+	"net/url"
 	"sort"
 	"strconv"
 	"sync"
@@ -310,6 +312,10 @@ func (d *Dispatcher) send(ctx context.Context, e *entry) (retry bool, err error)
 	req.Header.Set(HeaderSignature, Sign(t.Secret, ts, body))
 	resp, err := d.o.Client.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = ue.Err
+		}
 		return true, err
 	}
 	defer func() { _ = resp.Body.Close() }()

@@ -553,6 +553,36 @@ Owner scope only.
 {"id":"K-1","name":"ci dashboard","scope":"viewer","created_at":"...","last_used_at":null,"revoked_at":null,"expires_at":null}
 ```
 
+### Outbound webhooks
+Owner-managed subscriptions that push events to an external HTTPS endpoint.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/webhooks-out` | `{"url","events":["task.updated","decision.*"],"brief_id":""}` → `{"webhook":WebhookOut,"secret":"whsec_..."}` (201; `secret` shown once). `url` is `http` or `https` without credentials or fragment; `events` has 1 to 20 filters, each an event type (`task.updated`, `plan.proposed`, `question.created`, `agent.updated`, ...) or a family wildcard (`decision.*`); `brief_id` (optional) only passes events of that brief. 400 otherwise, 409 above 100 subscriptions. |
+| GET | `/api/v1/webhooks-out` | → `{"webhooks":[WebhookOut]}` ascending by id. |
+| GET | `/api/v1/webhooks-out/{id}` | → WebhookOut. 404 for an unknown id. |
+| DELETE | `/api/v1/webhooks-out/{id}` | → 204. Deletes the subscription and its deliveries. |
+| GET | `/api/v1/webhooks-out/{id}/deliveries?state=&limit=` | → `{"deliveries":[WebhookDelivery]}` newest first; `state` is `pending`, `delivered` or `dead`; `limit` default 100, max 1000. |
+| POST | `/api/v1/webhooks-out/{id}/deliveries/{delivery}/redeliver` | `{}` → WebhookDelivery. Only `dead` deliveries: they become `pending` again with a fresh 24h window. 409 for any other state. |
+
+```jsonc
+// WebhookOut
+{"id":"WH-1","url":"https://hooks.example.com/subspace","events":["task.updated"],"brief_id":null,
+ "pending":0,"delivered":12,"dead":1,"created_at":"..."}
+
+// WebhookDelivery
+{"id":"WD-7","webhook_id":"WH-1","event":"task.updated","state":"pending",   // pending|delivered|dead
+ "attempts":2,"next_attempt_at":"...","last_status":503,"last_error":"receiver answered 503",
+ "created_at":"...","updated_at":"...","delivered_at":null,
+ "payload":{"id":"WD-7","event":"task.updated","created_at":"...","data":{"id":"T-3","brief_id":"B-1","title":"...","status":"in_progress"}}}
+```
+
+Deliveries are queued from the SSE hub and sent asynchronously with `POST`, `Content-Type: application/json`, and the headers `X-Subspace-Event` (event type), `X-Subspace-Delivery` (delivery id, stable across retries), `X-Subspace-Timestamp` (Unix seconds, fresh per attempt) and `X-Subspace-Signature` (`sha256=` + hex HMAC-SHA256 of `<timestamp>.<body>` keyed with the subscription secret). Receivers should check the signature over the raw body and reject old timestamps. The payload is `{"id","event","created_at","data"}`; `data` only holds ids, titles and states (`id`, `brief_id`, `plan_id`, `task_id`, `agent_id`, `title`, `status`, `role`, `kind`, `assignee`, `reviewer`, `current_task_id`, and `tasks:[{id,title}]` for plans). Task specs, notes, thread messages, question text and secrets are never included; titles are shortened to 200 characters and secrets in them are masked.
+
+A 2xx answer marks a delivery `delivered`. Anything else (other status, timeout, blocked address) retries with exponential backoff from 10s doubling up to 4h, jittered between half and all of each step, until the delivery is 24h old; the last attempt is scheduled at that deadline. After that it is `dead` and stays visible with `last_status` and `last_error` until redelivered or pruned (the newest 500 delivered and dead entries per subscription are kept). At most 1000 deliveries wait per subscription; further events are stored as `dead` with `last_error` `queue full`. Pending deliveries are stored in the database and resume after a restart. Delivery is at least once and ordered only per attempt, so receivers dedupe on `X-Subspace-Delivery`.
+
+Requests never follow redirects (a 3xx counts as a failure) and ignore proxy settings. The destination is resolved at connect time and refused when any resolved address is loopback, private, link-local, multicast, unspecified, carrier-grade NAT, documentation or reserved space, an IPv4 address embedded in NAT64 or 6to4 space that falls in one of those, or a cloud metadata address; the connection is then pinned to the checked address. `SUBSPACE_WEBHOOKS_OUT_ALLOW_CIDRS` (comma-separated CIDRs or addresses, default none) exempts networks for receivers inside a private network; metadata addresses stay blocked. Subscription secrets are stored in the database because they are needed to sign. Create, delete and redeliver append audit events (`create_webhook_out`, `delete_webhook_out`, `redeliver_webhook_out`) that carry the receiver's host, never its secret.
+
 ### Audit
 | Method | Path | Body → Response |
 |---|---|---|

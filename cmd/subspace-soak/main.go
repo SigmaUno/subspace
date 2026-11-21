@@ -50,7 +50,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.DurationVar(&cfg.StreamerLife, "streamer-life", 4*time.Minute, "mean streaming agent session before it leaves")
 	fs.StringVar(&cfg.DB, "db", os.Getenv("SUBSPACE_SOAK_DB"), "postgres DSN (default: SQLite in the data directory; env SUBSPACE_SOAK_DB)")
 	fs.StringVar(&cfg.Dir, "dir", "", "data directory (default: a removed temp dir)")
-	fs.StringVar(&cfg.HeapProfile, "heap-profile", "", "write a heap profile here before the final server stop")
+	fs.StringVar(&cfg.HeapProfile, "heap-profile", "", "write heap and goroutine profiles at <path>.warm and <path>.end (after warmup and before the final stop)")
 	out := fs.String("out", "soak-report.json", "JSON report path")
 	series := fs.String("csv", "soak-series.csv", "CSV time series path")
 	level := fs.String("log-level", "error", "server log level (debug, info, warn, error)")

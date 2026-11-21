@@ -232,7 +232,7 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		rep.series = append(rep.series, s)
 	}
 	if cfg.HeapProfile != "" {
-		if err := writeHeap(cfg.HeapProfile); err != nil {
+		if err := writeProfiles(cfg.HeapProfile, "end"); err != nil {
 			cfg.Log.Error("heap profile", "err", err)
 		}
 	}
@@ -314,12 +314,21 @@ func (h *harness) observe(ctx context.Context, rep *Report) string {
 	nextVerify := h.cfg.VerifyEvery
 	var faults int64
 	restarted := false
+	warm := time.NewTimer(h.cfg.Warmup)
+	defer warm.Stop()
 	for {
 		select {
 		case <-ctx.Done():
 			return ""
 		case <-deadline.C:
 			return ""
+		case <-warm.C:
+			if h.cfg.HeapProfile != "" {
+				if err := writeProfiles(h.cfg.HeapProfile, "warm"); err != nil {
+					h.cfg.Log.Error("profiles", "err", err)
+				}
+			}
+			continue
 		case <-tick.C:
 		}
 		s := Sample{Restarted: restarted}
@@ -455,15 +464,24 @@ func (h *harness) finish(rep *Report) {
 	}
 }
 
-func writeHeap(path string) error {
+func writeProfiles(path, stage string) error {
 	runtime.GC()
-	f, err := create(path)
-	if err != nil {
-		return err
+	for _, p := range []struct{ name, file string }{{"heap", path + "." + stage}, {"goroutine", path + ".goroutines." + stage}} {
+		f, err := create(p.file)
+		if err != nil {
+			return err
+		}
+		debug := 0
+		if p.name == "goroutine" {
+			debug = 1
+		}
+		if err := pprof.Lookup(p.name).WriteTo(f, debug); err != nil {
+			_ = f.Close()
+			return err
+		}
+		if err := f.Close(); err != nil {
+			return err
+		}
 	}
-	if err := pprof.Lookup("heap").WriteTo(f, 0); err != nil {
-		_ = f.Close()
-		return err
-	}
-	return f.Close()
+	return nil
 }

@@ -51,7 +51,7 @@ function Fact({ name, children }: { name: string; children: ReactNode }) {
 }
 
 function Burn({ name, used, max, text }: { name: string; used: number; max: number; text: string }) {
-  return <div className="stack">
+  return <div className="stack burn">
     <div className="meta">{name}</div>
     <div>{text}</div>
     {max > 0 && <progress aria-label={name} value={Math.min(used, max)} max={max} />}

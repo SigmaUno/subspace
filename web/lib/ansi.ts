@@ -1,6 +1,6 @@
 import type { CSSProperties } from "react";
 
-export interface AnsiStyle {
+interface AnsiStyle {
   fg?: string;
   bg?: string;
   bold?: boolean;
@@ -11,7 +11,7 @@ export interface AnsiStyle {
   inverse?: boolean;
 }
 
-export interface AnsiSegment {
+interface AnsiSegment {
   text: string;
   style: AnsiStyle;
 }

@@ -1,6 +1,6 @@
 export type TimeseriesMetric = "tasks_done" | "tasks_created" | "cost_eur" | "active_agents" | "tokens" | "review_rounds";
 
-export interface TimeseriesPoint {
+interface TimeseriesPoint {
   t: string;
   v: number;
 }

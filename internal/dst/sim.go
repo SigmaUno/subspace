@@ -51,6 +51,7 @@ type Runner struct {
 	World   func(seed int64) World
 	Dir     string
 	Serial  bool
+	Leaders bool
 }
 
 type Settler interface {
@@ -84,6 +85,9 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 		world = NewWorld
 	}
 	w := world(seed)
+	if r.Leaders {
+		w.Rival = "lead2"
+	}
 	clock := NewClock(Epoch)
 	sys, err := r.Factory(dir, clock, w.Lease)
 	if err != nil {

@@ -51,6 +51,7 @@ const (
 	InvInstr        = "instructions_versioned"
 	InvSearch       = "search_matches"
 	InvHarness      = "harness"
+	InvLeaderScope  = "leader_sees_only_own_briefs"
 )
 
 const spawnGrace = 10 * time.Minute
@@ -146,7 +147,7 @@ func (c *Checker) Check(op Op, res Result, pre, post *State) *Violation {
 	} else {
 		checks = append(checks, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkRestart)
 	}
-	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkServer)
+	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkLeaderScope, c.checkServer)
 	for _, f := range checks {
 		if v := f(st, pre, post); v != nil {
 			return v
@@ -898,4 +899,37 @@ func (c *Checker) checkState(st *step, _, post *State) *Violation {
 		}
 	}
 	return nil
+}
+
+func (c *Checker) checkLeaderScope(st *step, pre, _ *State) *Violation {
+	var v *Violation
+	st.each(func(op Op, r Result) bool {
+		briefID := ""
+		switch op.Kind {
+		case OpAssign, OpAssignReviewer, OpReassign:
+			if t := pre.Task(op.Task); t != nil {
+				briefID = t.BriefID
+			}
+		case OpPropose, OpSpawn:
+			if len(pre.Briefs) > 0 {
+				briefID = pre.Briefs[0].ID
+			}
+		}
+		br := pre.Brief(briefID)
+		if br == nil || br.LedBy(op.Actor) {
+			return false
+		}
+		switch r.Code() {
+		case "not_found", "unauthorized", "agent_paused":
+			return false
+		case "paused":
+			if op.Kind == OpSpawn {
+				return false
+			}
+		}
+		v = violation(InvLeaderScope, "%s by %s on brief %s led by %s: got %q, want not_found",
+			op.Kind, op.Actor, br.ID, deref(br.LeaderID), r.Code())
+		return true
+	})
+	return v
 }

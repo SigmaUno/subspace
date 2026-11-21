@@ -258,7 +258,7 @@ func NewRegistry(b *board.Board) *Registry {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		br, err := b.GetBrief(ctx, in.BriefID)
+		br, err := b.BriefFor(ctx, c.Actor, in.BriefID)
 		return map[string]any{"brief": br}, err
 	})
 	add("list_briefs", "List briefs.", LeaderOnly, true, obj(map[string]any{"status": enum("filter", "open", "closed")}), func(ctx context.Context, c *Call) (any, error) {
@@ -266,7 +266,7 @@ func NewRegistry(b *board.Board) *Registry {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		bs, err := b.ListBriefs(ctx, in.Status)
+		bs, err := b.BriefsFor(ctx, c.Actor, in.Status)
 		return map[string]any{"briefs": bs}, err
 	})
 	add("propose_plan", "Propose a task breakdown for a brief. The owner must approve it.", LeaderOnly, false,
@@ -342,7 +342,7 @@ func NewRegistry(b *board.Board) *Registry {
 		if err := decode(c, &in); err != nil {
 			return nil, err
 		}
-		v, err := b.Board(ctx, in.BriefID)
+		v, err := b.BoardFor(ctx, c.Actor, in.BriefID)
 		if v != nil {
 			return map[string]any{"columns": v.Columns}, err
 		}

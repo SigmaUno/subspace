@@ -71,6 +71,7 @@ var operations = []Op{
 	get("/api/v1/briefs", "List briefs", list[model.Brief]("briefs")).Q("status"),
 	get("/api/v1/briefs/{id}", "Get a brief", model.Brief{}),
 	patch("/api/v1/briefs/{id}", "Update a brief's budget, providers, flags or status", board.BriefPatch{}, model.Brief{}),
+	post("/api/v1/briefs/{id}/leader", "Hand a brief to a leader; a null or empty agent_id means any leader", BriefLeader{}, model.Brief{}),
 	get("/api/v1/briefs/{id}/board", "Kanban board of a brief", board.BoardView{}),
 	get("/api/v1/briefs/{id}/architecture", "Component graph of a brief", components.Graph{}),
 	put("/api/v1/briefs/{id}/components", "Replace the component plan of a brief", obj("components", []components.Spec{}), list[components.Component]("components")),

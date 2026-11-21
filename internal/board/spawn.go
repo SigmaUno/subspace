@@ -24,6 +24,7 @@ type CapacityView struct {
 const spawnGrace = 10 * time.Minute
 
 func (b *Board) usage(tx store.Tx) (capacity.Usage, map[string]bool, error) {
+	tx = unscoped(tx)
 	ag, err := tx.ListAgents(store.AgentFilter{Limit: 100000})
 	if err != nil {
 		return nil, nil, err
@@ -152,7 +153,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 		ag  *model.Agent
 	}
 	var ls []launch
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
 		if err := pausedTx(tx); err != nil {
 			return err

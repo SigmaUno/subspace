@@ -58,7 +58,24 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		}
 		return s, nil
 	}
-	briefArg := func(c *Call) (string, error) {
+	visible := func(ctx context.Context, c *Call, briefID string) (bool, error) {
+		if briefID == "" {
+			return true, nil
+		}
+		return b.BriefVisible(ctx, c.Actor, briefID)
+	}
+	visibleIn := func(ctx context.Context, c *Call) func(string) (bool, error) {
+		seen := map[string]bool{}
+		return func(briefID string) (bool, error) {
+			if ok, known := seen[briefID]; known {
+				return ok, nil
+			}
+			ok, err := visible(ctx, c, briefID)
+			seen[briefID] = ok
+			return ok, err
+		}
+	}
+	briefArg := func(ctx context.Context, c *Call) (string, error) {
 		var in struct {
 			BriefID string `json:"brief_id"`
 		}
@@ -67,6 +84,13 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		}
 		if in.BriefID == "" {
 			return "", model.BadRequest("brief_id is required")
+		}
+		ok, err := visible(ctx, c, in.BriefID)
+		if err != nil {
+			return "", err
+		}
+		if !ok {
+			return "", model.NotFound("brief %s not found", in.BriefID)
 		}
 		return in.BriefID, nil
 	}
@@ -79,7 +103,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		ReadOnly:    true,
 		Schema:      briefSchema,
 		Handler: func(ctx context.Context, c *Call) (any, error) {
-			id, err := briefArg(c)
+			id, err := briefArg(ctx, c)
 			if err != nil {
 				return nil, err
 			}
@@ -102,7 +126,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		ReadOnly:    true,
 		Schema:      briefSchema,
 		Handler: func(ctx context.Context, c *Call) (any, error) {
-			id, err := briefArg(c)
+			id, err := briefArg(ctx, c)
 			if err != nil {
 				return nil, err
 			}
@@ -198,9 +222,16 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			if err != nil {
 				return nil, err
 			}
-			titles := make([]decisionTitle, len(ds))
-			for i, d := range ds {
-				titles[i] = decisionTitle{ID: d.ID, Kind: d.Kind, Title: d.Title, BriefID: d.BriefID, TaskID: d.TaskID, AgentID: d.AgentID}
+			titles := make([]decisionTitle, 0, len(ds))
+			seen := visibleIn(ctx, c)
+			for _, d := range ds {
+				ok, err := seen(d.BriefID)
+				if err != nil {
+					return nil, err
+				}
+				if ok {
+					titles = append(titles, decisionTitle{ID: d.ID, Kind: d.Kind, Title: d.Title, BriefID: d.BriefID, TaskID: d.TaskID, AgentID: d.AgentID})
+				}
 			}
 			out, cut := truncate(titles)
 			return map[string]any{"decisions": out, "truncated": cut}, nil
@@ -220,17 +251,27 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			if err := decode(c, &in); err != nil {
 				return nil, err
 			}
-			sps, err := b.ListSpawns(ctx, in.BriefID)
+			all, err := b.ListSpawns(ctx, in.BriefID)
 			if err != nil {
 				return nil, err
 			}
-			for i, sp := range sps {
+			sps := make([]*model.Spawn, 0, len(all))
+			seen := visibleIn(ctx, c)
+			for _, sp := range all {
+				ok, err := seen(sp.BriefID)
+				if err != nil {
+					return nil, err
+				}
+				if !ok {
+					continue
+				}
 				if sp.Error != nil {
 					cp := *sp
 					msg := "spawn failed; the owner can see the details"
 					cp.Error = &msg
-					sps[i] = &cp
+					sp = &cp
 				}
+				sps = append(sps, sp)
 			}
 			out, cut := truncate(sps)
 			return map[string]any{"spawns": out, "truncated": cut}, nil
@@ -244,7 +285,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		ReadOnly:    true,
 		Schema:      briefSchema,
 		Handler: func(ctx context.Context, c *Call) (any, error) {
-			id, err := briefArg(c)
+			id, err := briefArg(ctx, c)
 			if err != nil {
 				return nil, err
 			}

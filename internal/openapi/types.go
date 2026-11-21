@@ -209,6 +209,10 @@ type AutopilotView struct {
 	Briefs []AutopilotBrief `json:"briefs"`
 }
 
+type BriefLeader struct {
+	AgentID *string `json:"agent_id"`
+}
+
 type AutopilotSet struct {
 	Enabled bool `json:"enabled"`
 }

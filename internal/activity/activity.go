@@ -39,6 +39,8 @@ type Item struct {
 	BriefID  string    `json:"brief_id,omitempty"`
 }
 
+var tokenNote = regexp.MustCompile(`^token=[A-Za-z0-9_-]+(?:; |$)`)
+
 var placeholder = regexp.MustCompile(`\{([\w.]+)(?:\?([^}|]*)(?:\|([^}]*))?)?\}`)
 
 func FromAudit(e *model.AuditEvent) Item {
@@ -47,7 +49,7 @@ func FromAudit(e *model.AuditEvent) Item {
 		f.task = *e.TaskID
 	}
 	if e.Note != nil {
-		f.note = clip(redact.String(*e.Note), maxNote)
+		f.note = clip(redact.String(tokenNote.ReplaceAllString(*e.Note, "")), maxNote)
 	}
 	r, ok := rules[e.Tool]
 	if !ok {

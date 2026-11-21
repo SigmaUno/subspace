@@ -9,7 +9,7 @@ const api = process.env.VISUAL_API_URL ?? "http://127.0.0.1:8080";
 const token = process.env.VISUAL_OWNER_TOKEN;
 const out = process.env.VISUAL_OUT ?? path.join(os.tmpdir(), "subspace-visual");
 const only = process.env.VISUAL_ONLY?.split(",");
-const settingsTabs = ["Charter", "Capacity and limits", "Repositories", "Instructions", "Playbooks", "Announcements", "Schedules", "Notifications", "Backups", "Digest", "Tokens", "Alerts", "Retention", "Webhooks", "Provider breakers", "About"];
+const settingsTabs = ["Charter", "Capacity and limits", "Repositories", "Gateways", "Instructions", "Playbooks", "Announcements", "Schedules", "Notifications", "Backups", "Digest", "Tokens", "Alerts", "Retention", "Webhooks", "Provider breakers", "About"];
 
 const viewports = [
   { name: "desktop", width: 1440, height: 900 },

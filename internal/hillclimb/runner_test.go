@@ -241,7 +241,7 @@ func TestSQLStoreSurvivesRestart(t *testing.T) {
 	st, m := open("loss 0.9", "loss 0.4")
 	target := 0.1
 	job := &hillclimb.Job{BriefID: "B-1", Repo: "o/r", MetricCmd: "sh eval.sh", Direction: "min", Target: &target, Budget: 3}
-	if err := m.CreateJob(job); err != nil {
+	if err := m.CreateJob(context.Background(), job); err != nil {
 		t.Fatal(err)
 	}
 	for _, b := range []string{"sub/a", "sub/b"} {

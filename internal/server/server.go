@@ -205,7 +205,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cl.start(ctx)
 
 	reg := mcp.NewRegistry(b)
-	climber := newHillclimb(st, b, reg, cfg.Log)
+	climber := newHillclimb(st, b, reg, hub, cfg.Log)
 	m := mcp.NewServer(cache, reg)
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
 	m.Hooks = b

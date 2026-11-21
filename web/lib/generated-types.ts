@@ -324,8 +324,10 @@ export interface HillclimbPoint {
   attempt_id: number;
   agent_id: string;
   branch: string;
+  branch_url?: string;
   value: number | null;
   best: number | null;
+  status: string;
   measured_at: string;
 }
 

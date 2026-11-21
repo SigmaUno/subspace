@@ -1,9 +1,9 @@
-export interface InsightEvidence {
+interface InsightEvidence {
   kind: "error" | "audit" | "message" | "task";
   id: string;
 }
 
-export interface InsightFinding {
+interface InsightFinding {
   id: string;
   agent_id: string;
   rule: string;

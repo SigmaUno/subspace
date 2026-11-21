@@ -1,4 +1,4 @@
-export type DigestRisk = {
+type DigestRisk = {
   source: "spend" | "forecast";
   severity: "high" | "medium";
   subject: string;

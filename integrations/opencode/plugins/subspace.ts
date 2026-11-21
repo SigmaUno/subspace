@@ -14,11 +14,16 @@ let pending = ""
 let timer: ReturnType<typeof setTimeout> | undefined
 let cached: { text: string; at: number } | undefined
 
-function runHook(args: string[]) {
+function runHook(args: string[], input = "") {
   const child = execFile(HOOK_BIN, args, { timeout: REQUEST_TIMEOUT_MS + 1_000 }, () => {})
   child.on("error", () => {})
   child.stdin?.on("error", () => {})
-  child.stdin?.end()
+  child.stdin?.end(input)
+}
+
+function withoutToken(text: string): string {
+  const token = process.env.SUBSPACE_TOKEN?.trim()
+  return token ? text.split(token).join("<redacted>") : text
 }
 
 function taskArgs() {
@@ -40,7 +45,7 @@ function flush() {
   const chunk = pending.slice(-LOG_MAX_CHARS)
   pending = ""
   if (!chunk.trim()) return
-  runHook(["log", "--stream", "stdout", ...taskArgs(), "--", chunk])
+  runHook(["log", "--stream", "stdout", ...taskArgs(), "--", "-"], chunk)
 }
 
 function observe(tool: string, args: unknown, output: unknown) {
@@ -54,7 +59,7 @@ function observe(tool: string, args: unknown, output: unknown) {
     lastBeat = now
     runHook(["heartbeat", ...taskArgs()])
   }
-  const text = textOf(output).trim()
+  const text = withoutToken(textOf(output)).trim()
   pending += `[${tool}] ${text.slice(0, OUTPUT_MAX_CHARS)}\n`
   if (!timer) {
     timer = setTimeout(flush, LOG_EVERY_MS)

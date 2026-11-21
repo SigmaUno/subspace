@@ -3,6 +3,7 @@ package retention_test
 import (
 	"bytes"
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -140,4 +141,78 @@ func listSegments(t *testing.T, svc *retention.Service, k retention.Kind) []rete
 		}
 	}
 	return out
+}
+
+func TestTranscriptArchiveFinishesAfterTheSizeLimitPrunedItsRows(t *testing.T) {
+	ctx := context.Background()
+	root := t.TempDir()
+	st := openStore(t, filepath.Join(root, "t.db"))
+	t.Cleanup(func() { _ = st.Close() })
+	clk := &clock{t: t0}
+	live, archive := filepath.Join(root, "transcripts"), filepath.Join(root, "retention")
+	task := "T-1"
+	add := func(tr *transcript.Service, texts ...string) {
+		var in []agentout.Line
+		for _, text := range texts {
+			in = append(in, agentout.Line{AgentID: "w1", TaskID: &task, Stream: "stdout", Text: text, TS: clk.Now()})
+		}
+		tr.Add(in)
+		if err := tr.Flush(ctx, ""); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	cfg := transcript.DefaultConfig()
+	cfg.Dir, cfg.Now, cfg.SegmentLines = live, clk.Now, 2
+	tr, err := transcript.New(st, taskBriefs{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add(tr, "one", "two", "three", "four")
+
+	clk.Set(t0.Add(40 * day))
+	svc, err := retention.New(retention.Options{Store: st, Dir: archive, Files: live, Now: clk.Now,
+		Policy: func() retention.Policy { p := retention.DefaultPolicy(); p.TranscriptsDays = 30; return p }()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	stop := errors.New("stop")
+	svc.SetFault(func(stage string) error {
+		if stage == "manifest" {
+			return stop
+		}
+		return nil
+	})
+	if _, err := svc.RunOnce(ctx); !errors.Is(err, stop) {
+		t.Fatalf("interrupted run: %v", err)
+	}
+
+	cfg.MaxBytes = 1
+	small, err := transcript.New(st, taskBriefs{}, cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	add(small, "five")
+	if n := count(t, st, `SELECT COUNT(*) FROM task_transcripts`); n != 1 {
+		t.Fatalf("size limit left %d manifest rows", n)
+	}
+
+	svc.SetFault(nil)
+	if _, err := svc.RunOnce(ctx); err != nil {
+		t.Fatalf("retention stays stuck on rows the size limit already pruned: %v", err)
+	}
+	segs := listSegments(t, svc, retention.Transcripts)
+	if len(segs) != 1 || segs[0].Status != retention.StatusArchived {
+		t.Fatalf("segments: %+v", segs)
+	}
+	if v, err := svc.Verify(ctx); err != nil || !v.OK {
+		t.Fatalf("verify: %+v %v", v, err)
+	}
+	if _, err := svc.Restore(ctx, segs[0].ID); err != nil {
+		t.Fatalf("restore: %v", err)
+	}
+	got, err := small.Read(ctx, task, transcript.ReadOptions{})
+	if err != nil || len(got.Lines) != 1 || got.Lines[0].Text != "five" {
+		t.Fatalf("transcript after restore: %+v %v", got, err)
+	}
 }

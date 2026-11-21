@@ -179,9 +179,10 @@ func fence(gateway, tool, desc string) string {
 		descriptionFenceOpen + "\n" + desc + "\n" + descriptionFenceEnd
 }
 
-func vet(gateway string, tools []upstreamTool) []Discovered {
+func vet(gateway string, tools []upstreamTool, secret string) []Discovered {
 	out := make([]Discovered, 0, len(tools))
 	seen := map[string]bool{}
+	scrub := func(s string) string { return redactSecret(s, secret) }
 	for i, t := range tools {
 		name, _ := cleanText(t.Name, 0)
 		d := Discovered{Name: name, ExposedAs: ToolName(gateway, name), Flags: []string{}}
@@ -189,8 +190,10 @@ func vet(gateway string, tools []upstreamTool) []Discovered {
 			d.Name = d.Name[:128]
 		}
 		desc, f := cleanText(t.Description, maxDescription)
-		d.Description = desc
 		d.Flags = addFlags(d.Flags, mapFlags(f, FlagDescriptionLong)...)
+		if d.Description = scrub(desc); d.Description != desc {
+			d.Flags = addFlags(d.Flags, FlagRedacted)
+		}
 		switch {
 		case i >= maxToolsPerGateway:
 			d.Refused = FlagTooManyTools
@@ -203,14 +206,14 @@ func vet(gateway string, tools []upstreamTool) []Discovered {
 		}
 		seen[name] = true
 		if d.Refused == "" {
-			d.InputSchema, d.Refused = vetSchema(t.InputSchema, &d.Flags)
+			d.InputSchema, d.Refused = vetSchema(t.InputSchema, &d.Flags, scrub)
 		}
 		out = append(out, d)
 	}
 	return out
 }
 
-func vetSchema(raw json.RawMessage, flags *[]string) (map[string]any, string) {
+func vetSchema(raw json.RawMessage, flags *[]string, scrub func(string) string) (map[string]any, string) {
 	if len(raw) == 0 || string(raw) == "null" {
 		return map[string]any{"type": "object", "properties": map[string]any{}}, ""
 	}
@@ -225,7 +228,7 @@ func vetSchema(raw json.RawMessage, flags *[]string) (map[string]any, string) {
 	if !ok || m["type"] != "object" {
 		return nil, FlagSchemaInvalid
 	}
-	return cleanTree(m, maxSchemaText, flags, nil).(map[string]any), ""
+	return cleanTree(m, maxSchemaText, flags, scrub).(map[string]any), ""
 }
 
 func redactSecret(s, secret string) string {

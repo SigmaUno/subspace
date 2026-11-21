@@ -1,6 +1,7 @@
 package retention
 
 import (
+	"context"
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
@@ -8,6 +9,8 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const archivedFilesDir = "transcript-files"
@@ -87,38 +90,72 @@ func copyFile(from, to string) (err error) {
 	return os.Rename(tmp.Name(), to)
 }
 
-func (s *Service) archiveFiles(rows []row) error {
+func prunedMarker(path string) string { return path + ".pruned" }
+
+func (s *Service) manifestRowExists(ctx context.Context, r row) (bool, error) {
+	var n int64
+	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+		var err error
+		n, err = scalar(q, `SELECT COUNT(*) FROM task_transcripts WHERE id = ?`, r.int("id"))
+		return err
+	}))
+	return n > 0, err
+}
+
+func (s *Service) archiveFiles(ctx context.Context, rows []row) error {
 	for _, r := range rows {
 		name := r.str("file")
+		if !filepath.IsLocal(filepath.FromSlash(name)) {
+			return fmt.Errorf("transcript file %q is not a relative path inside the transcript directory", name)
+		}
 		from, to := s.liveFile(name), s.archivedFile(name)
 		switch {
 		case exists(from):
 			if err := relocate(from, to, r); err != nil {
 				return err
 			}
-		case exists(to):
+		case exists(to), exists(prunedMarker(to)):
 		default:
-			return fmt.Errorf("transcript file %s is missing; refusing to archive its manifest row", name)
+			live, err := s.manifestRowExists(ctx, r)
+			if err != nil {
+				return err
+			}
+			if live {
+				return fmt.Errorf("transcript file %s is missing; refusing to archive its manifest row", name)
+			}
+			if err := os.MkdirAll(filepath.Dir(to), 0o750); err != nil {
+				return err
+			}
+			if err := os.WriteFile(prunedMarker(to), []byte(r.str("sha256")+"\n"), 0o600); err != nil {
+				return err
+			}
 		}
 	}
 	return nil
 }
 
-func (s *Service) restoreFiles(rows []row) error {
+func (s *Service) restoreFiles(rows []row) ([]row, error) {
+	kept := rows[:0:0]
 	for _, r := range rows {
 		name := r.str("file")
+		if !filepath.IsLocal(filepath.FromSlash(name)) {
+			return nil, fmt.Errorf("transcript file %q is not a relative path inside the transcript directory", name)
+		}
 		from, to := s.archivedFile(name), s.liveFile(name)
 		switch {
 		case exists(from):
 			if err := relocate(from, to, r); err != nil {
-				return err
+				return nil, err
 			}
 		case exists(to):
+		case exists(prunedMarker(from)):
+			continue
 		default:
-			return fmt.Errorf("archived transcript file %s is missing", name)
+			return nil, fmt.Errorf("archived transcript file %s is missing", name)
 		}
+		kept = append(kept, r)
 	}
-	return nil
+	return kept, nil
 }
 
 func verifyFiles(dir string, rows []row) string {
@@ -127,8 +164,10 @@ func verifyFiles(dir string, rows []row) string {
 		if !filepath.IsLocal(filepath.FromSlash(name)) {
 			return fmt.Sprintf("transcript file %q is not a relative path", name)
 		}
-		got, err := fileSum(filepath.Join(dir, archivedFilesDir, filepath.FromSlash(name)))
+		path := filepath.Join(dir, archivedFilesDir, filepath.FromSlash(name))
+		got, err := fileSum(path)
 		switch {
+		case errors.Is(err, os.ErrNotExist) && exists(prunedMarker(path)):
 		case errors.Is(err, os.ErrNotExist):
 			return fmt.Sprintf("archived transcript file %s is missing", name)
 		case err != nil:

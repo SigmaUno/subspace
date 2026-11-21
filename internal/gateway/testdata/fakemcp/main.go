@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 )
 
 type request struct {
@@ -43,7 +44,7 @@ func main() {
 				"serverInfo": map[string]any{"name": "fake", "version": "1"}}})
 		case "tools/list":
 			var tools []any
-			for _, n := range []string{"echo", "env", "crash", "flood", "spawn"} {
+			for _, n := range []string{"echo", "env", "crash", "flood", "spawn", "deaf"} {
 				tools = append(tools, map[string]any{"name": n, "description": "fake " + n,
 					"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"text": map[string]any{"type": "string"}}}})
 			}
@@ -57,6 +58,8 @@ func main() {
 				env := os.Environ()
 				sort.Strings(env)
 				text(req.ID, strings.Join(env, "\n"))
+			case "deaf":
+				time.Sleep(time.Hour)
 			case "crash":
 				os.Exit(3)
 			case "flood":

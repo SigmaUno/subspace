@@ -58,10 +58,12 @@ func (p *preflight) add(name, status, format string, args ...any) {
 
 func (p *preflight) run(ctx context.Context) verdict {
 	p.runDoctor(ctx)
-	p.transport()
+	secure := p.transport()
 	status, detail := tokenStrength(p.token)
 	p.add("owner_token", status, "%s", detail)
-	if p.server(ctx) {
+	if !secure {
+		p.add("server", statusNoGo, "skipped: the owner token is not sent over an insecure transport")
+	} else if p.server(ctx) {
 		p.publicURL(ctx)
 		p.notify(ctx)
 	}
@@ -111,18 +113,21 @@ func statusFor(noGo, warn bool) string {
 	return statusGo
 }
 
-func (p *preflight) transport() {
+func (p *preflight) transport() bool {
 	u, err := url.Parse(p.base)
 	switch {
 	case err != nil || u.Host == "":
 		p.add("transport", statusNoGo, "invalid server URL")
 	case u.Scheme == "https":
 		p.add("transport", statusGo, "owner API over HTTPS")
+		return true
 	case isLoopback(u.Hostname()):
 		p.add("transport", statusWarn, "plain HTTP to %s; only acceptable on loopback or an SSH tunnel", u.Host)
+		return true
 	default:
 		p.add("transport", statusNoGo, "owner token would cross the network over plain HTTP to %s", u.Host)
 	}
+	return false
 }
 
 func isLoopback(host string) bool {

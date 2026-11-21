@@ -9,6 +9,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/store/postgres"
 	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
@@ -24,7 +25,10 @@ CREATE INDEX IF NOT EXISTS knowledge_brief ON knowledge(brief_id, status);
 
 const cols = `id,brief_id,kind,title,body,tags,author,author_role,status,pinned,supersedes,superseded_by,created_at,updated_at`
 
-func init() { sqlite.RegisterSchema(schema) }
+func init() {
+	sqlite.RegisterSchema(schema)
+	postgres.RegisterSchema(strings.ReplaceAll(schema, "INTEGER", "BIGINT"), "knowledge")
+}
 
 type sqlTx interface {
 	Exec(q string, args ...any) (sql.Result, error)
@@ -103,7 +107,7 @@ func list(tx store.Tx, briefs []string, statuses []string) ([]*Entry, error) {
 	if len(where) > 0 {
 		clause = `WHERE ` + strings.Join(where, ` AND `)
 	}
-	return query(tx, clause+` ORDER BY rowid DESC`, a...)
+	return query(tx, clause+` ORDER BY created_at DESC, length(id) DESC, id DESC`, a...)
 }
 
 func placeholders(n int) string {

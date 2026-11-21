@@ -69,7 +69,7 @@ func (b *Board) post(ctx context.Context, a model.Actor, ref threads.Ref, body, 
 	if kind == "" {
 		kind = model.MsgMessage
 	}
-	body = Redact(body)
+	body = b.scrub(ctx, a, messageChannel(kind), body)
 	var out *model.Message
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {
@@ -129,7 +129,7 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 	if len(options) > 10 {
 		return nil, model.BadRequest("at most 10 options")
 	}
-	question, options = Redact(question), redactAll(options)
+	question, options = b.scrub(ctx, a, ChannelQuestion, question), b.scrubAll(ctx, a, ChannelQuestion, options)
 	var out *model.Question
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		q := &model.Question{AgentID: a.ID, Question: question, Options: nz(options), Status: "open", CreatedAt: b.now()}
@@ -302,6 +302,7 @@ func (b *Board) AppendMessage(ctx context.Context, kind, id string, m model.Mess
 		m.Kind = model.MsgMessage
 	}
 	author := model.Actor{ID: m.AuthorID, Role: m.AuthorRole}
+	m.Body = b.scrub(ctx, author, ChannelPR, m.Body)
 	var out model.Message
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := w.post(tx, kind, id, author, m.Kind, m.Body); err != nil {

@@ -63,6 +63,7 @@ type Board struct {
 	quality QualityGate
 
 	repoCheck RepoCheck
+	leak      LeakScanner
 
 	expiries map[string][]time.Time
 

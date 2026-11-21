@@ -515,7 +515,8 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	} else if a.Role == model.RoleWorker {
 		return nil, model.BadRequest("pr_url is required")
 	}
-	in.Summary = Redact(in.Summary)
+	in.Summary = b.scrub(ctx, a, ChannelSummary, in.Summary)
+	in.PRURL = b.Scan(ctx, a, ChannelPR, in.PRURL)
 	var (
 		out  *model.Task
 		held *model.Error
@@ -593,7 +594,7 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	if in.CostEUR != nil && (*in.CostEUR < 0 || *in.CostEUR > MaxCostEUR) {
 		return nil, model.BadRequest("cost_eur must be between 0 and %g", MaxCostEUR)
 	}
-	in.Note = Redact(in.Note)
+	in.Note = b.scrub(ctx, a, ChannelStatus, in.Note)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
@@ -698,7 +699,7 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	if passed < 0 || failed < 0 {
 		return nil, model.BadRequest("counts must be >= 0")
 	}
-	log = Redact(log)
+	log = b.scrub(ctx, a, ChannelTests, log)
 	if len(log) > 8000 {
 		log = log[:8000] + "…"
 	}
@@ -788,7 +789,7 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 	if verdict == "changes_requested" && strings.TrimSpace(comments) == "" {
 		return nil, model.BadRequest("comments are required when requesting changes")
 	}
-	comments = Redact(comments)
+	comments = b.scrub(ctx, a, ChannelReview, comments)
 	var (
 		out  *model.Task
 		held *model.Error

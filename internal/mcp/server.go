@@ -257,14 +257,14 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		if agent.PauseReason != nil {
 			why += ": " + *agent.PauseReason
 		}
-		return toolResult(errBody("agent_paused", why+"; ask the owner to resume you"), true), nil
+		return toolResult(errBody("agent_paused", why+"; ask the owner to resume you", t.Name), true), nil
 	}
 	if !t.ReadOnly && s.Guard != nil {
 		if s.Guard.Hit(a.ID, t.Name, audit.ArgsHash(schemaArgs(t.Schema, p.Arguments)), s.Now()) {
 			if s.Hooks != nil {
 				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop: same call repeated too often")
 			}
-			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused"), true), nil
+			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused", t.Name), true), nil
 		}
 	}
 	res, err := t.Handler(ctx, &Call{Actor: a, Args: p.Arguments})
@@ -273,7 +273,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		if e.Code == "internal" {
 			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
 		}
-		return toolResult(errBody(e.Code, e.Message), true), nil
+		return toolResult(errBody(e.Code, e.Message, t.Name), true), nil
 	}
 	return toolResult(res, false), nil
 }
@@ -318,8 +318,12 @@ func validID(id json.RawMessage) bool {
 	return c == '"' || c == '-' || (c >= '0' && c <= '9')
 }
 
-func errBody(code, msg string) map[string]any {
-	return map[string]any{"error": map[string]any{"code": code, "message": msg}}
+func errBody(code, msg, tool string) map[string]any {
+	e := map[string]any{"code": code, "message": msg}
+	if h := Hint(code, tool); h != "" {
+		e["hint"] = h
+	}
+	return map[string]any{"error": e}
 }
 
 func toolResult(v any, isErr bool) map[string]any {

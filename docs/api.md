@@ -1086,7 +1086,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 
 `tools/list` returns only tools the caller's role may call. `tools/call` re-checks; calling a tool outside the role → JSON-RPC error `-32601 method not found` style `tool not available for role`.
 
-`tools/call` result: `{"content":[{"type":"text","text":"<json>"}],"structuredContent":{...},"isError":false}`. Tool errors: `isError:true` and `structuredContent:{"error":{"code","message"}}` (codes as REST plus `agent_paused`, `lease_expired`, `not_assigned`, `budget_exceeded`).
+`tools/call` result: `{"content":[{"type":"text","text":"<json>"}],"structuredContent":{...},"isError":false}`. Tool errors: `isError:true` and `structuredContent:{"error":{"code","message","hint"}}` (codes as REST plus `agent_paused`, `lease_expired`, `not_assigned`, `budget_exceeded`). `hint` is a short fixed text chosen by code and tool that says what to do next; it is also part of the JSON in `content[0].text`, never carries internal details, and is omitted for unknown codes.
 
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter, followed by an `Owner announcements` section only while announcements apply to the caller (see Announcements).
 

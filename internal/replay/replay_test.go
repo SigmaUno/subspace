@@ -98,6 +98,17 @@ func TestReplayMatchesLiveBoard(t *testing.T) {
 				t.Parallel()
 				final, caps, roles := simulate(t, f, seed, steps)
 				briefID := final.Briefs[0].ID
+				highs := make([]time.Time, len(caps))
+				var high time.Time
+				k := 0
+				for i, c := range caps {
+					for ; k < len(final.Audit) && final.Audit[k].ID <= c.audit; k++ {
+						if ts := final.Audit[k].TS; ts.After(high) {
+							high = ts
+						}
+					}
+					highs[i] = high
+				}
 				for _, every := range []int{1, 7, DefaultEvery} {
 					h := NewHistory(briefID, every)
 					h.Update(final.Tasks, roles)
@@ -110,21 +121,31 @@ func TestReplayMatchesLiveBoard(t *testing.T) {
 					compare(t, "final", h.Snapshot(n), final.Tasks)
 					compare(t, "latest", h.Snapshot(h.Len()), final.Tasks)
 
-					lastAt := map[time.Time]capture{}
 					for i, c := range caps {
 						n, err := h.Resolve(strconv.FormatInt(c.audit, 10))
 						if err != nil {
 							t.Fatal(err)
 						}
 						compare(t, fmt.Sprintf("every=%d step %d audit %d", every, i, c.audit), h.Snapshot(n), c.tasks)
-						lastAt[c.now] = c
 					}
-					for at, c := range lastAt {
-						n, err := h.Resolve(at.Format(time.RFC3339Nano))
+					seen := map[time.Time]bool{}
+					for _, c := range caps {
+						if seen[c.now] {
+							continue
+						}
+						seen[c.now] = true
+						var want []*model.Task
+						for j, x := range caps {
+							if !highs[j].After(c.now) {
+								want = x.tasks
+							}
+						}
+						at := c.now.Format(time.RFC3339Nano)
+						n, err := h.Resolve(at)
 						if err != nil {
 							t.Fatal(err)
 						}
-						compare(t, "at "+at.Format(time.RFC3339Nano), h.Snapshot(n), c.tasks)
+						compare(t, fmt.Sprintf("every=%d at %s", every, at), h.Snapshot(n), want)
 					}
 
 					checkTimelineAndDiff(t, h, caps, final)

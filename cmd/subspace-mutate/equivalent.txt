@@ -67,3 +67,28 @@ internal/quota/service.go	if err := rows.Scan(dest...); err != nil {	replace != 
 internal/spendguard/window.go	spent := math.Max(Sum(usage, start, upto), Sum(tasks, start, upto))	swap arguments Sum(usage, start, upto) and Sum(tasks, start, upto)
 internal/spendguard/guard.go	return Evaluate(g.limits, g.usage, g.ledger(), now)	swap arguments g.usage and g.ledger()
 internal/spendguard/window.go	if c < 0 || math.IsNaN(c) || math.IsInf(c, 0) {	change constant 0 to 1
+internal/estimate/estimate.go	if i == 0 {	replace == with !=
+internal/estimate/estimate.go	if i == 0 {	change constant 0 to 1
+internal/estimate/estimate.go	out.P80 = max(w*p80+(1-w)*out.P80, out.Median)	swap arguments w * p80 + (1 - w) * out.P80 and out.Median
+internal/estimate/estimate.go	hi := min(lo+1, len(sorted)-1)	swap arguments lo + 1 and len(sorted) - 1
+internal/estimate/estimate.go	slices.SortFunc(s, func(a, b Sample) int { return compareIDs(a.TaskID, b.TaskID) })	swap arguments a.TaskID and b.TaskID
+internal/estimate/totals.go	d := max(s.P80-s.Median, 0)	swap arguments s.P80 - s.Median and 0
+internal/estimate/totals.go	return Range{Low: round2(max(med-half, 0)), Expected: round2(med), High: round2(med + half)}	swap arguments med - half and 0
+internal/estimate/totals.go	best := -1	change constant 1 to 2
+internal/estimate/totals.go	prev[i] = -1	change constant 1 to 2
+internal/estimate/service.go	out = append(out, page...)	swap arguments out and page
+internal/estimate/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/estimate/estimate.go	hi := min(lo+1, len(sorted)-1)	change constant 1 to 0
+internal/estimate/estimate.go	case a < b:	replace < with <=
+internal/estimate/estimate.go	return -1	change constant 1 to 2
+internal/estimate/estimate.go	case a > b:	replace > with <=
+internal/estimate/estimate.go	case a > b:	replace > with >=
+internal/estimate/estimate.go	return 1	change constant 1 to 2
+internal/estimate/estimate.go	return 1	change constant 1 to 0
+internal/estimate/estimate.go	return 0	change constant 0 to 1
+internal/estimate/service.go	taskLimit  = 100000	change constant 100000 to 100001
+internal/estimate/service.go	taskLimit  = 100000	change constant 100000 to 99999
+internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 100001
+internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 99999
+internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 1001
+internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 999

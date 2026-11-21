@@ -100,6 +100,7 @@ func TestRunShutdownEndsStreamsAndFlushes(t *testing.T) {
 		t.Fatalf("events: %d", resp.StatusCode)
 	}
 
+	http.DefaultClient.CloseIdleConnections()
 	start := time.Now()
 	cancel()
 	select {

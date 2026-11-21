@@ -29,12 +29,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 type Config struct {
 	Addr            string
 	DBPath          string
+	DataDir         string
 	OwnerToken      string
 	PublicURL       string
 	CapacityFile    string
@@ -94,7 +94,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.SweepEvery <= 0 {
 		cfg.SweepEvery = 5 * time.Second
 	}
-	if cfg.BackupDir == "" {
+	if cfg.BackupDir == "" && !isPostgres(cfg.DBPath) {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
 	}
 	var capCfg capacity.Config
@@ -105,18 +105,21 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		}
 		capCfg = c
 	}
-	st, err := sqlite.Open(cfg.DBPath)
+	st, err := openStore(cfg.DBPath)
 	if err != nil {
 		return nil, err
 	}
 	hub := events.NewHub()
-	backups, err := backup.New(backup.Config{
-		Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
-		Run: st.Backup, Verify: sqlite.IntegrityCheck, Logger: cfg.Log,
-	})
-	if err != nil {
-		_ = st.Close()
-		return nil, err
+	var backups *backup.Scheduler
+	if cfg.BackupDir != "" {
+		backups, err = backup.New(backup.Config{
+			Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
+			Run: st.Backup, Verify: backupVerifier(cfg.DBPath), Logger: cfg.Log,
+		})
+		if err != nil {
+			_ = st.Close()
+			return nil, err
+		}
 	}
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
@@ -250,7 +253,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 
 	var bg, flusher sync.WaitGroup
 	bg.Go(func() { s.sweepLoop(bgCtx) })
-	bg.Go(func() { s.backups.Run(bgCtx) })
+	if s.backups != nil {
+		bg.Go(func() { s.backups.Run(bgCtx) })
+	}
 	flusher.Go(func() { s.flushLoop(flushCtx) })
 
 	srv := s.httpServer()

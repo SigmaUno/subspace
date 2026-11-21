@@ -19,14 +19,13 @@ import (
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 const mqSchema = `
 CREATE TABLE IF NOT EXISTS mq_candidates (
   id TEXT PRIMARY KEY, repo TEXT NOT NULL, pr INTEGER NOT NULL, head TEXT NOT NULL, base TEXT NOT NULL,
   task_id TEXT NOT NULL, state TEXT NOT NULL, merged_sha TEXT NOT NULL DEFAULT '', log TEXT NOT NULL DEFAULT '',
-  enqueued_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  enqueued_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mq_candidates_repo ON mq_candidates(repo, state);
 `
@@ -38,7 +37,7 @@ var mqRunner mergequeue.Runner
 var mqSystem = model.Actor{ID: "mergequeue", Role: "system"}
 
 func init() {
-	sqlite.RegisterSchema(mqSchema)
+	registerSchema(mqSchema, "mq_candidates")
 	registerMount(mountMergeQueue)
 }
 
@@ -78,6 +77,9 @@ func startMergeQueue(d Deps, path string) error {
 		if interval, err = time.ParseDuration(f.Interval); err != nil || interval <= 0 {
 			return fmt.Errorf("invalid interval %q", f.Interval)
 		}
+	}
+	if f.WorkDir == "" && isPostgres(d.Cfg.DBPath) {
+		return errors.New("workdir is required with the postgres backend")
 	}
 	if f.WorkDir == "" {
 		f.WorkDir = filepath.Join(filepath.Dir(d.Cfg.DBPath), "mergequeue")

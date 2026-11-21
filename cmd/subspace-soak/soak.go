@@ -231,11 +231,6 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		h.sampleInto(&s)
 		rep.series = append(rep.series, s)
 	}
-	if cfg.HeapProfile != "" {
-		if err := writeProfiles(cfg.HeapProfile, "end"); err != nil {
-			cfg.Log.Error("heap profile", "err", err)
-		}
-	}
 	if err := p.stop(); err != nil {
 		h.violate(invRestart, "final stop: "+err.Error())
 	}
@@ -321,6 +316,11 @@ func (h *harness) observe(ctx context.Context, rep *Report) string {
 		case <-ctx.Done():
 			return ""
 		case <-deadline.C:
+			if h.cfg.HeapProfile != "" {
+				if err := writeProfiles(h.cfg.HeapProfile, "end"); err != nil {
+					h.cfg.Log.Error("profiles", "err", err)
+				}
+			}
 			return ""
 		case <-warm.C:
 			if h.cfg.HeapProfile != "" {

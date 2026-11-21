@@ -20,6 +20,7 @@ type BoardSystem struct {
 	clock  *Clock
 	roles  map[string]string
 	tokens map[string]string
+	brief  string
 }
 
 func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, error) {
@@ -50,7 +51,10 @@ func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	if err != nil {
 		return out, err
 	}
-	agents := append([]AgentSpec{{ID: w.Leader, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"}}, w.Agents...)
+	agents := append([]AgentSpec{
+		{ID: w.Leader, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"},
+		{ID: w.Rival, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"},
+	}, w.Agents...)
 	for _, a := range agents {
 		r, err := s.b.RegisterAgent(ctx, board.AgentInput{ID: a.ID, Role: a.Role, Kind: a.Kind, Provider: a.Provider, Model: "sim"})
 		if err != nil {
@@ -59,6 +63,10 @@ func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 		s.roles[a.ID] = a.Role
 		s.tokens[a.ID] = r.Connect.Token
 	}
+	if br, err = s.b.SetBriefLeader(ctx, br.ID, w.Leader); err != nil {
+		return out, err
+	}
+	s.brief = br.ID
 	in := board.PlanInput{BriefID: br.ID}
 	for _, t := range w.Tasks {
 		in.Tasks = append(in.Tasks, board.TaskInput{Ref: t.Ref, Title: "task " + t.Ref, Spec: "spec " + t.Ref, Repo: "sim/repo",
@@ -97,6 +105,8 @@ func (s *BoardSystem) Do(ctx context.Context, op Op) Result {
 		_, err = s.b.Reopen(ctx, op.Task, model.StatusAssigned, "")
 	case OpAnswer:
 		_, err = s.b.Answer(ctx, op.Target, "yes")
+	case OpHandoff:
+		_, err = s.b.SetBriefLeader(ctx, s.brief, op.Target)
 	case OpAssign:
 		_, err = s.b.Assign(ctx, a, op.Task, op.Target, "assignee")
 	case OpAssignReviewer:

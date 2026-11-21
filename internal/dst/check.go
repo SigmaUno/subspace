@@ -32,6 +32,7 @@ const (
 	InvAudit        = "audit_append_only_complete"
 	InvClaim        = "claim_preconditions"
 	InvAtomic       = "failed_call_no_effect"
+	InvLeaderScope  = "leader_sees_only_own_briefs"
 )
 
 var edges = map[[2]string]bool{}
@@ -79,7 +80,7 @@ func holds(t *model.Task, agent string) bool {
 
 func (c *Checker) Check(op Op, res Result, pre, post *State) *Violation {
 	for _, f := range []func(Op, Result, *State, *State) *Violation{
-		c.checkAudit, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkState,
+		c.checkAudit, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkState, c.checkLeaderScope,
 	} {
 		if v := f(op, res, pre, post); v != nil {
 			return v
@@ -293,6 +294,23 @@ func (c *Checker) checkLeases(op Op, res Result, pre, post *State) *Violation {
 				return violation(InvBudget, "task %s in_progress after sweep beyond time budget %d", t.ID, t.Budget.MaxMinutes)
 			}
 		}
+	}
+	return nil
+}
+
+func (c *Checker) checkLeaderScope(op Op, res Result, pre, _ *State) *Violation {
+	switch op.Kind {
+	case OpAssign, OpAssignReviewer, OpReassign:
+	default:
+		return nil
+	}
+	t := pre.Task(op.Task)
+	if t == nil {
+		return nil
+	}
+	if br := pre.Brief(t.BriefID); br != nil && !br.LedBy(op.Actor) && res.Code() != "not_found" {
+		return violation(InvLeaderScope, "%s by %s on %s of brief %s led by %s: got %q, want not_found",
+			op.Kind, op.Actor, t.ID, br.ID, deref(br.LeaderID), res.Code())
 	}
 	return nil
 }

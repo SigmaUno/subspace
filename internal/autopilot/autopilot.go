@@ -3,6 +3,7 @@ package autopilot
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
@@ -118,6 +119,9 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 	var err error
 	if snap.Briefs, err = s.b.ListBriefs(ctx, "open"); err != nil {
 		return snap, err
+	}
+	if s.o.Actor.Role == model.RoleLeader {
+		snap.Briefs = slices.DeleteFunc(snap.Briefs, func(b *model.Brief) bool { return !b.LedBy(s.o.Actor.ID) })
 	}
 	for _, b := range snap.Briefs {
 		snap.Spawn[b.ID] = s.spawnConfig(b.ID)

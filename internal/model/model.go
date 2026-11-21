@@ -112,7 +112,12 @@ type Brief struct {
 	AutoDoneOnMerge  bool        `json:"auto_done_on_merge"`
 	CostUsed         float64     `json:"cost_used"`
 	PlanStatus       string      `json:"plan_status"`
+	LeaderID         *string     `json:"leader_id"`
 	CreatedAt        time.Time   `json:"created_at"`
+}
+
+func (b *Brief) LedBy(leaderID string) bool {
+	return b.LeaderID == nil || *b.LeaderID == leaderID
 }
 
 type TestResult struct {

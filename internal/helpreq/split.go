@@ -170,6 +170,11 @@ func (s *Service) AcceptSplit(ctx context.Context, a model.Actor, id string) (*S
 	if err := s.view(ctx, func(_ store.Tx, q sqlTx) (err error) { r, err = get(q, id); return }); err != nil {
 		return nil, err
 	}
+	if ok, err := s.b.BriefVisible(ctx, a, r.BriefID); err != nil {
+		return nil, err
+	} else if !ok {
+		return nil, model.NotFound("help request %s not found", id)
+	}
 	if r.Type != TypeSplit {
 		return nil, model.BadRequest("%s is not a split proposal", id)
 	}

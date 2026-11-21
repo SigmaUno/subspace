@@ -48,6 +48,7 @@ func (o *Outcome) WriteTrace(w io.Writer) {
 type Runner struct {
 	Factory Factory
 	Dir     string
+	Leaders bool
 }
 
 func (r *Runner) Run(ctx context.Context, seed int64, steps int) (*Outcome, error) {
@@ -84,6 +85,9 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 		return nil, fmt.Errorf("setup: %w", err)
 	}
 	gen := NewGen(seed, w, setup)
+	if r.Leaders {
+		gen = NewLeaderGen(seed, w, setup)
+	}
 	chk := NewChecker()
 	pre, err := sys.Snapshot(ctx)
 	if err != nil {

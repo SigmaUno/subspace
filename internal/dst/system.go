@@ -45,6 +45,7 @@ const (
 	OpRelease        Kind = "release_task"
 	OpReview         Kind = "review"
 	OpAskOwner       Kind = "ask_owner"
+	OpHandoff        Kind = "set_brief_leader"
 )
 
 type Op struct {
@@ -121,6 +122,7 @@ type World struct {
 	BriefCost   float64
 	MaxParallel int
 	Leader      string
+	Rival       string
 	Agents      []AgentSpec
 	Tasks       []TaskSpec
 }

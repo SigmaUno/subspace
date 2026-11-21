@@ -71,7 +71,7 @@ func (b *Board) post(ctx context.Context, a model.Actor, ref threads.Ref, body, 
 	}
 	body = Redact(body)
 	var out *model.Message
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {
 			return err
 		}
@@ -114,7 +114,7 @@ func (b *Board) readRef(ctx context.Context, a model.Actor, ref threads.Ref, sin
 		limit = MaxPage
 	}
 	var out []*model.Message
-	err := b.read(ctx, func(tx store.Tx) error {
+	err := b.readAs(ctx, a, func(tx store.Tx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {
 			return err
 		}
@@ -142,7 +142,7 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 	}
 	question, options = Redact(question), redactAll(options)
 	var out *model.Question
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		q := &model.Question{AgentID: a.ID, Question: question, Options: nz(options), Status: "open", CreatedAt: b.now()}
 		if taskID != "" {
 			t, err := tx.GetTask(taskID)

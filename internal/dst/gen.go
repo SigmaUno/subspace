@@ -10,7 +10,7 @@ import (
 
 func NewWorld(seed int64) World {
 	r := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic simulation
-	w := World{Lease: 15 * time.Minute, Leader: "lead", MaxParallel: 2 + r.Intn(6)}
+	w := World{Lease: 15 * time.Minute, Leader: "lead", Rival: "lead2", MaxParallel: 2 + r.Intn(6)}
 	if r.Intn(3) > 0 {
 		w.BriefCost = float64(5 + r.Intn(40))
 	}
@@ -56,6 +56,7 @@ type agentSim struct {
 
 type Gen struct {
 	r       *rand.Rand
+	scope   *rand.Rand
 	w       World
 	setup   Setup
 	agents  []*agentSim
@@ -76,13 +77,42 @@ func NewGen(seed int64, w World, s Setup) *Gen {
 	return g
 }
 
+func NewLeaderGen(seed int64, w World, s Setup) *Gen {
+	g := NewGen(seed, w, s)
+	g.scope = rand.New(rand.NewSource(seed ^ 0x1ead)) //nolint:gosec // deterministic simulation
+	return g
+}
+
+func (g *Gen) leaderID() string {
+	if g.scope != nil && g.scope.Intn(2) == 0 {
+		return g.w.Rival
+	}
+	return g.w.Leader
+}
+
+func (g *Gen) handoff(s *State) (Op, bool) {
+	if g.scope == nil || len(s.Briefs) == 0 || g.scope.Intn(100) >= 4 {
+		return Op{}, false
+	}
+	cur := deref(s.Briefs[0].LeaderID)
+	var cand []string
+	for _, id := range []string{g.w.Leader, g.w.Rival, ""} {
+		if id != cur {
+			cand = append(cand, id)
+		}
+	}
+	return Op{Kind: OpHandoff, Target: cand[g.scope.Intn(len(cand))]}, true
+}
+
 func (g *Gen) pick(n int) int { return g.r.Intn(n) }
 
 func (g *Gen) chance(p int) bool { return g.r.Intn(100) < p }
 
 func (g *Gen) Next(s *State) Op {
 	op := g.next(s)
-	g.last, g.hasLast = op, true
+	if op.Kind != OpHandoff {
+		g.last, g.hasLast = op, true
+	}
 	return op
 }
 
@@ -90,6 +120,9 @@ func (g *Gen) next(s *State) Op {
 	if len(g.queue) > 0 {
 		op := g.queue[0]
 		g.queue = g.queue[1:]
+		return op
+	}
+	if op, ok := g.handoff(s); ok {
 		return op
 	}
 	if g.hasLast && g.last.Mutating() && g.chance(5) {
@@ -207,9 +240,9 @@ func (g *Gen) leader(s *State) Op {
 		if t := s.Task(id); t != nil {
 			role = t.Role
 		}
-		return Op{Kind: OpAssign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
+		return Op{Kind: OpAssign, Actor: g.leaderID(), Task: id, Target: g.agentID(role)}
 	case p < 85:
-		return Op{Kind: OpAssignReviewer, Actor: g.w.Leader, Task: g.choose(g.tasksIn(s, model.StatusSubmitted), s), Target: g.agentID(model.RoleReviewer)}
+		return Op{Kind: OpAssignReviewer, Actor: g.leaderID(), Task: g.choose(g.tasksIn(s, model.StatusSubmitted), s), Target: g.agentID(model.RoleReviewer)}
 	default:
 		ts := g.tasksIn(s, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked)
 		role := model.RoleWorker
@@ -217,7 +250,7 @@ func (g *Gen) leader(s *State) Op {
 		if t := s.Task(id); t != nil {
 			role = t.Role
 		}
-		return Op{Kind: OpReassign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
+		return Op{Kind: OpReassign, Actor: g.leaderID(), Task: id, Target: g.agentID(role)}
 	}
 }
 

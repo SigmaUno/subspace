@@ -159,6 +159,7 @@ type BriefInput struct {
 	MaxParallel      int      `json:"max_parallel_agents"`
 	AllowedProviders []string `json:"allowed_providers"`
 	CrossReview      *bool    `json:"cross_review"`
+	LeaderID         string   `json:"leader_id,omitempty"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -173,11 +174,15 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 	}
 	var out *model.Brief
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		leader, err := checkLeader(tx, in.LeaderID)
+		if err != nil {
+			return err
+		}
 		id, err := tx.NextID("B")
 		if err != nil {
 			return err
 		}
-		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none",
+		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
 			Budget:           model.BriefBudget{MaxCostEUR: in.MaxCostEUR, MaxParallelAgent: in.MaxParallel},
 			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
@@ -190,33 +195,11 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 }
 
 func (b *Board) ListBriefs(ctx context.Context, status string) ([]*model.Brief, error) {
-	var out []*model.Brief
-	err := b.read(ctx, func(tx store.Tx) error {
-		bs, err := tx.ListBriefs(status)
-		if err != nil {
-			return err
-		}
-		for _, br := range bs {
-			if br.CostUsed, err = tx.BriefCost(br.ID); err != nil {
-				return err
-			}
-		}
-		out = bs
-		return nil
-	})
-	return nz(out), err
+	return b.BriefsFor(ctx, model.Owner, status)
 }
 
 func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
-	var out *model.Brief
-	err := b.read(ctx, func(tx store.Tx) (e error) {
-		if out, e = tx.GetBrief(id); e != nil {
-			return
-		}
-		out.CostUsed, e = tx.BriefCost(id)
-		return
-	})
-	return out, err
+	return b.BriefFor(ctx, model.Owner, id)
 }
 
 type BriefPatch struct {
@@ -226,6 +209,7 @@ type BriefPatch struct {
 	CrossReview      *bool     `json:"cross_review"`
 	AutoDoneOnMerge  *bool     `json:"auto_done_on_merge"`
 	Status           *string   `json:"status"`
+	LeaderID         *string   `json:"leader_id,omitempty"`
 }
 
 func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*model.Brief, error) {
@@ -278,6 +262,11 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 				return err
 			}
 		}
+		if p.LeaderID != nil {
+			if err := b.handoff(tx, w, br, *p.LeaderID); err != nil {
+				return err
+			}
+		}
 		if br.CostUsed, err = tx.BriefCost(id); err != nil {
 			return err
 		}
@@ -293,31 +282,7 @@ type BoardView struct {
 }
 
 func (b *Board) Board(ctx context.Context, briefID string) (*BoardView, error) {
-	v := &BoardView{Columns: map[string][]*model.Task{}}
-	for _, s := range model.AllStatuses {
-		v.Columns[s] = []*model.Task{}
-	}
-	err := b.read(ctx, func(tx store.Tx) error {
-		if briefID != "" {
-			br, err := tx.GetBrief(briefID)
-			if err != nil {
-				return err
-			}
-			if br.CostUsed, err = tx.BriefCost(briefID); err != nil {
-				return err
-			}
-			v.Brief = br
-		}
-		ts, err := tx.ListTasks(store.TaskFilter{BriefID: briefID, Limit: 100000})
-		if err != nil {
-			return err
-		}
-		for _, t := range ts {
-			v.Columns[t.Status] = append(v.Columns[t.Status], b.overlay(t))
-		}
-		return nil
-	})
-	return v, err
+	return b.BoardFor(ctx, model.Owner, briefID)
 }
 
 type TaskInput struct {
@@ -387,7 +352,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		return nil, model.BadRequest("a plan needs 1..%d tasks", maxPlanTasks)
 	}
 	var out *model.Plan
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {
 			return err

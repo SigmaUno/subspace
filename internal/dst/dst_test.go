@@ -47,6 +47,22 @@ func TestSimulation(t *testing.T) {
 	}
 }
 
+func TestSimulationWithLeaderHandoffs(t *testing.T) {
+	seeds, steps := 8, 300
+	if testing.Short() {
+		seeds, steps = 3, 200
+	}
+	for name, f := range map[string]Factory{"board": NewBoardSystem, "mcp_faults": NewMCPSystem(mcpFaults)} {
+		r := &Runner{Factory: f, Dir: t.TempDir(), Leaders: true}
+		for seed := int64(1); seed <= int64(seeds); seed++ {
+			t.Run(fmt.Sprintf("%s/%d", name, seed), func(t *testing.T) {
+				t.Parallel()
+				runSeed(t, r, seed, steps)
+			})
+		}
+	}
+}
+
 func TestRegressions(t *testing.T) {
 	regs, err := LoadRegressions(regressionsFile)
 	if err != nil {

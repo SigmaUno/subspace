@@ -34,6 +34,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/quota"
 	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/report"
+	"github.com/SigmaUno/subspace/internal/repos"
 	"github.com/SigmaUno/subspace/internal/search"
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
@@ -139,6 +140,13 @@ var operations = []Op{
 	get("/api/v1/agent-profiles/{name}", "Get an agent profile", profiles.Profile{}),
 	put("/api/v1/agent-profiles/{name}", "Replace an agent profile", ProfileInput{}, profiles.Profile{}),
 	del("/api/v1/agent-profiles/{name}", "Delete an agent profile unless autopilot options use it", nil).S(gone),
+
+	get("/api/v1/repos", "List registered repositories", list[repos.Repo]("repos")),
+	post("/api/v1/repos", "Register a repository", RepoInput{}, repos.Repo{}).S(created),
+	get("/api/v1/repos/{owner}/{name}", "Get a registered repository", repos.Repo{}),
+	put("/api/v1/repos/{owner}/{name}", "Replace a registered repository", RepoInput{}, repos.Repo{}),
+	del("/api/v1/repos/{owner}/{name}", "Remove a repository from the registry", nil).S(gone),
+	get("/api/v1/repos/{owner}/{name}/health", "Read-only reachability, token and default branch check of a repository", repos.Health{}),
 
 	get("/api/v1/questions", "List questions", list[model.Question]("questions")).Q("status"),
 	post("/api/v1/questions/{id}/answer", "Answer a question", Answer{}, model.Question{}),

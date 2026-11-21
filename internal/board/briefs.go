@@ -184,6 +184,11 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 		if err != nil {
 			return err
 		}
+		for _, repo := range in.Repos {
+			if err := b.checkRegistry(tx, repo, ""); err != nil {
+				return err
+			}
+		}
 		id, err := tx.NextID("B")
 		if err != nil {
 			return err
@@ -352,9 +357,13 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 		}
 		deps = append(deps, d)
 	}
+	branch := "sub/" + strings.ToLower(id) + "-" + slug(in.Title)
+	if err := b.checkRegistry(tx, in.Repo, branch); err != nil {
+		return nil, err
+	}
 	now := b.now()
 	return &model.Task{ID: id, BriefID: br.ID, PlanID: planID, Title: in.Title, Spec: in.Spec,
-		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: "sub/" + strings.ToLower(id) + "-" + slug(in.Title),
+		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: branch,
 		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID), Paths: paths,
 		CreatedAt: now, UpdatedAt: now}, nil
 }

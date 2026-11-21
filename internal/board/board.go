@@ -60,6 +60,8 @@ type Board struct {
 	capGate capacity.Gate
 	gate    Gate
 
+	repoCheck RepoCheck
+
 	expiries map[string][]time.Time
 
 	pauseOp  sync.Mutex

@@ -180,6 +180,18 @@ type ProfileInput struct {
 	Description string `json:"description,omitempty"`
 }
 
+type RepoInput struct {
+	Name              string   `json:"name"`
+	Host              string   `json:"host"`
+	BaseURL           string   `json:"base_url,omitempty"`
+	DefaultBranch     string   `json:"default_branch,omitempty"`
+	ProtectedBranches []string `json:"protected_branches,omitempty"`
+	MergeTestCommand  []string `json:"merge_test_command,omitempty"`
+	MergeWorkDir      string   `json:"merge_work_dir,omitempty"`
+	TokenEnv          string   `json:"token_env,omitempty"`
+	Enabled           *bool    `json:"enabled,omitempty"`
+}
+
 type BotSpawn struct {
 	BriefID  string `json:"brief_id"`
 	Kind     string `json:"kind"`

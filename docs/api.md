@@ -330,6 +330,44 @@ The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are 
 
 With `train` > 0 each repo processes one train at a time. Queued candidates of the same base are ordered by task priority (higher first), then enqueue order, and a PR never goes ahead of a task it `depends_on`: a dependency must be `done` or earlier in the same train, otherwise the PR stays queued. The first `train` PRs are merged with `git merge --no-ff` onto the base in a scratch worktree and `verify` runs once on the result. If it passes, the base is pushed to the last merge commit (lease on the old base) and every member is `merged` with its own merge commit. If it fails, the train is bisected over its prefixes (at most ⌈log2 n⌉ further runs for a single culprit): the first failing PR is `ejected`, the passing prefix is merged and the PRs after the culprit return to the queue for the next train. A PR that conflicts with the base or the PRs ahead of it is ejected with the conflicting PRs named. Required contexts come from the task's PR status snapshot (context `checks`); when a snapshot exists every required context must be `success` for its current head, `failure` or `error` ejects the PR and anything else keeps it queued. Ejections post a `system` message with the log tail to the task thread and tell the worker in their agent thread; merges post to the task thread and mark the task `done`. Trains are stored, so a restart resumes: a train interrupted after its push completes as merged, any other unfinished train is `aborted` and its PRs return to the queue.
 
+### Repository registry
+Owner scope writes, viewer scope reads. Every create, update and delete appends an audit event (`create_repo`, `update_repo`, `delete_repo`).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/repos` | → `{"repos":[Repo]}` sorted by name. |
+| POST | `/api/v1/repos` | `{"name","host","base_url","default_branch","protected_branches":[],"merge_test_command":[],"merge_work_dir":"","token_env":"","enabled":true}` → Repo (201). 400 on invalid or unknown fields, 409 if the name exists (case-insensitive). |
+| GET | `/api/v1/repos/{owner}/{name}` | → Repo. 404 for an unknown repository. |
+| PUT | `/api/v1/repos/{owner}/{name}` | Same fields as create, replaces the repository → Repo. The name cannot change (400), 404 for an unknown repository. |
+| DELETE | `/api/v1/repos/{owner}/{name}` | → 204. 404 for an unknown repository. Existing tasks keep their `repo`. |
+| GET | `/api/v1/repos/{owner}/{name}/health` | → RepoHealth. Read-only requests to the git host. 404 for an unknown repository. |
+
+```jsonc
+// Repo
+{"name":"SigmaUno/subspace","host":"github",       // github|forgejo
+ "base_url":"https://github.com",                  // default for github; required for forgejo
+ "default_branch":"main",
+ "protected_branches":["main","release/*"],        // glob patterns: * within a segment, ** across segments, ?
+ "merge_test_command":["make","test"],             // [] = the merge queue skips this repository
+ "merge_work_dir":"/data/mergequeue",              // absolute path; "" = <db dir>/mergequeue
+ "token_env":"GITHUB_TOKEN",                       // name of the environment variable holding the host token
+ "enabled":true,"created_at":"...","updated_at":"..."}
+
+// RepoHealth
+{"repo":"SigmaUno/subspace","ok":true,"reachable":true,"token_configured":true,
+ "token_hint":"token has write access",
+ "default_branch":"main","default_branch_exists":true,"host_default_branch":"main",
+ "error":"","checked_at":"..."}
+```
+
+`name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400 and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
+
+`health` calls `GET /repos/{owner}/{name}` and `GET /repos/{owner}/{name}/branches/{default_branch}` on the host's API, with the token read from `token_env` in an `Authorization` header. `reachable` is false when the host does not answer; `token_hint` says whether a token is configured, accepted and able to write (from the host's `permissions`, plus the `X-OAuth-Scopes` of a GitHub classic token); `ok` needs a reachable host, no `error` and an existing default branch. Responses carry no token.
+
+The PR poller, forge status checks, review comments and the merge queue read the registry when the server starts, using its enabled repositories: hosts are grouped by kind, `base_url` and `token_env`, the merge queue takes every repository with a `merge_test_command` (clone URL `<base_url>/<name>.git`, base `default_branch`, check interval `SUBSPACE_MQ_INTERVAL`, default `30s`). Changes to the registry apply to them after a restart. While no repository is enabled (or none has a `merge_test_command` for the merge queue) they fall back to `SUBSPACE_PRSYNC_CONFIG` and `SUBSPACE_MQ_CONFIG`, which are deprecated: the server logs one warning per file when it uses them.
+
+While the registry holds at least one repository, a brief's `repos` and the `repo` of every task created by `propose_plan`, `create_task`, plan task adds, task edits or brief import must be a registered, enabled repository, otherwise 400 `bad_request` listing the known repositories. The generated task branch must not match the repository's `protected_branches`. An empty registry checks nothing.
+
 ### Agents
 | Method | Path | Body → Response |
 |---|---|---|

@@ -1,0 +1,6 @@
+# <seed> <steps> # invariant
+5 300 # counters_monotonic: minutes_used went negative after the clock jumped back
+20 300 # lease_honored_until_expiry: heartbeat after a backward clock jump shortened the lease
+169 300 # no_claims_while_paused: concurrent pause_all/resume_all left the in-memory flag out of sync
+186 300 # spawn_within_capacity: request_spawn checked a capacity config read before its transaction
+222 300 # budget_not_exceeded: update_status ignored its own cost increase against the brief budget

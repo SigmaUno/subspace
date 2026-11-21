@@ -52,20 +52,23 @@ type agentSim struct {
 	hbEvery      time.Duration
 	lastHB       time.Time
 	crashedUntil time.Time
+	token        int
 }
 
 type Gen struct {
 	r       *rand.Rand
 	w       World
 	setup   Setup
+	serial  bool
+	leader  *agentSim
 	agents  []*agentSim
 	queue   []Op
 	last    Op
 	hasLast bool
 }
 
-func NewGen(seed int64, w World, s Setup) *Gen {
-	g := &Gen{r: rand.New(rand.NewSource(seed ^ 0x5d5c)), w: w, setup: s} //nolint:gosec // deterministic simulation
+func NewGen(seed int64, w World, s Setup, serial bool) *Gen {
+	g := &Gen{r: rand.New(rand.NewSource(seed ^ 0x5d5c)), w: w, setup: s, serial: serial} //nolint:gosec // deterministic simulation
 	for _, a := range w.Agents {
 		hb := time.Duration(1+g.r.Intn(5)) * time.Minute
 		if g.r.Intn(4) == 0 {
@@ -73,6 +76,7 @@ func NewGen(seed int64, w World, s Setup) *Gen {
 		}
 		g.agents = append(g.agents, &agentSim{spec: a, hbEvery: hb})
 	}
+	g.leader = &agentSim{spec: AgentSpec{ID: w.Leader, Role: model.RoleLeader}}
 	return g
 }
 
@@ -96,25 +100,39 @@ func (g *Gen) next(s *State) Op {
 		return g.last
 	}
 	switch p := g.pick(100); {
-	case p < 12:
+	case p < 11:
 		d := time.Duration(10+g.pick(170)) * time.Second
 		if g.chance(10) {
 			d = time.Duration(5+g.pick(20)) * time.Minute
 		}
 		return Op{Kind: OpAdvance, Dur: d}
-	case p < 18:
+	case p < 12:
+		if g.chance(60) {
+			return Op{Kind: OpAdvance, Dur: -time.Duration(1+g.pick(30)) * time.Minute}
+		}
+		return Op{Kind: OpAdvance, Dur: time.Duration(1+g.pick(6)) * time.Hour}
+	case p < 17:
 		return Op{Kind: OpSweep}
-	case p < 22:
+	case p < 20:
 		return Op{Kind: OpFlush}
-	case p < 25:
+	case p < 23:
 		if op, ok := g.race(s); ok {
 			return op
 		}
 		return Op{Kind: OpSweep}
-	case p < 32:
+	case p < 26:
+		if g.serial {
+			return Op{Kind: OpSweep}
+		}
+		return g.batch(s)
+	case p < 27:
+		return Op{Kind: OpRestart, Crash: g.chance(50)}
+	case p < 30:
+		return g.sse(s)
+	case p < 37:
 		return g.owner(s)
-	case p < 45:
-		return g.leader(s)
+	case p < 49:
+		return g.leaderOp(s)
 	default:
 		return g.agent(s, g.agents[g.pick(len(g.agents))])
 	}
@@ -135,13 +153,83 @@ func (g *Gen) race(s *State) (Op, bool) {
 	if d < 0 {
 		d = 0
 	}
-	hb := Op{Kind: OpHeartbeat, Actor: *t.Assignee, Task: t.ID}
+	hb := Op{Kind: OpHeartbeat, Actor: *t.Assignee, Task: t.ID, Token: g.knownToken(*t.Assignee)}
 	if g.chance(50) {
 		g.queue = append(g.queue, hb, Op{Kind: OpSweep})
 	} else {
 		g.queue = append(g.queue, Op{Kind: OpSweep}, hb)
 	}
 	return Op{Kind: OpAdvance, Dur: d}, true
+}
+
+func (g *Gen) knownToken(id string) int {
+	if id == g.leader.spec.ID {
+		return g.leader.token
+	}
+	for _, a := range g.agents {
+		if a.spec.ID == id {
+			return a.token
+		}
+	}
+	return 0
+}
+
+func (g *Gen) batch(s *State) Op {
+	n := 2 + g.pick(4)
+	used := map[string]bool{}
+	capacitySet := false
+	var sub []Op
+	for tries := 0; len(sub) < n && tries < 4*n; tries++ {
+		var op Op
+		switch p := g.pick(100); {
+		case p < 30:
+			op = g.owner(s)
+		case p < 45:
+			op = g.leaderOp(s)
+		default:
+			op = g.agent(s, g.agents[g.pick(len(g.agents))])
+		}
+		switch op.Kind {
+		case OpAdvance:
+			continue
+		case OpSetCapacity:
+			if capacitySet {
+				continue
+			}
+			capacitySet = true
+		}
+		if op.Actor != "" {
+			if used[op.Actor] {
+				continue
+			}
+			used[op.Actor] = true
+		}
+		sub = append(sub, op)
+	}
+	return Op{Kind: OpBatch, Sub: sub}
+}
+
+func (g *Gen) sse(s *State) Op {
+	switch p := g.pick(100); {
+	case p < 30 || len(s.Subs) == 0:
+		topics := []string{"all", "board", "agents", "control", "questions", "plans", g.anyBrief(s)}
+		topic := topics[g.pick(len(topics))]
+		if g.chance(30) {
+			topic = "task:" + g.anyTask(s)
+		}
+		return Op{Kind: OpSubscribe, Target: topic}
+	case p < 50:
+		return Op{Kind: OpUnsubscribe, N: g.pick(len(s.Subs))}
+	default:
+		return Op{Kind: OpDrain, N: g.pick(len(s.Subs)), Limit: g.pick(64)}
+	}
+}
+
+func (g *Gen) anyBrief(s *State) string {
+	if len(s.Briefs) == 0 {
+		return "brief:B-1"
+	}
+	return "brief:" + s.Briefs[g.pick(len(s.Briefs))].ID
 }
 
 func (g *Gen) tasksIn(s *State, statuses ...string) []*model.Task {
@@ -181,43 +269,102 @@ func (g *Gen) agentsWithRole(role string) []AgentSpec {
 	return out
 }
 
+func (g *Gen) plan(s *State) string {
+	id := g.setup.PlanID
+	for _, p := range s.Plans {
+		if p.Status == model.PlanProposed {
+			return p.ID
+		}
+		id = p.ID
+	}
+	return id
+}
+
 func (g *Gen) owner(s *State) Op {
 	switch p := g.pick(100); {
+	case p < 13:
+		return Op{Kind: OpApprove, Target: g.plan(s)}
 	case p < 15:
-		return Op{Kind: OpApprove, Target: g.setup.PlanID}
-	case p < 19:
+		return Op{Kind: OpReject, Target: g.plan(s)}
+	case p < 18:
 		return Op{Kind: OpPauseAll}
-	case p < 40:
+	case p < 36:
 		return Op{Kind: OpResumeAll}
-	case p < 75:
+	case p < 62:
 		return Op{Kind: OpMarkDone, Task: g.choose(g.tasksIn(s, model.StatusApproved, model.StatusNeedsOwner), s)}
-	case p < 90:
-		return Op{Kind: OpReopen, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner, model.StatusBlocked), s)}
+	case p < 65:
+		return Op{Kind: OpCancel, Task: g.choose(g.tasksIn(s, model.StatusInProgress, model.StatusAssigned, model.StatusSubmitted), s)}
+	case p < 76:
+		return Op{Kind: OpReopen, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner, model.StatusBlocked, model.StatusCancelled), s)}
+	case p < 82:
+		ids := []string{g.leader.spec.ID}
+		for _, a := range g.agents {
+			ids = append(ids, a.spec.ID)
+		}
+		return Op{Kind: OpRotate, Target: ids[g.pick(len(ids))]}
+	case p < 87:
+		providers := []string{"*", "anthropic", "openai", "deepseek"}
+		op := Op{Kind: OpSetCapacity, Target: providers[g.pick(len(providers))], Limit: g.pick(5)}
+		if g.chance(40) {
+			op.N = len(g.w.Agents) + g.pick(6)
+		}
+		return op
+	case p < 91:
+		prefixes := []string{"bk", "bx"}
+		if g.chance(30) {
+			return Op{Kind: OpRegister, Target: fmt.Sprintf("%s-%03d", prefixes[g.pick(2)], 1+g.pick(6))}
+		}
+		return Op{Kind: OpBulk, Target: prefixes[g.pick(2)], N: 1 + g.pick(6)}
 	default:
 		return Op{Kind: OpAnswer, Target: fmt.Sprintf("Q-%d", 1+g.pick(5))}
 	}
 }
 
-func (g *Gen) leader(s *State) Op {
-	switch p := g.pick(100); {
-	case p < 55:
-		ts := g.tasksIn(s, model.StatusReady)
-		role := model.RoleWorker
-		id := g.choose(ts, s)
-		if t := s.Task(id); t != nil {
-			role = t.Role
+func (g *Gen) leaderOp(s *State) Op {
+	l := g.leader
+	g.refresh(s, l)
+	op := Op{Actor: l.spec.ID}
+	if br := s.Brief(g.firstBrief(s)); br != nil && br.PlanStatus == model.PlanRejected && g.chance(60) {
+		op.Kind = OpPropose
+	} else {
+		switch p := g.pick(100); {
+		case p < 50:
+			ts := g.tasksIn(s, model.StatusReady)
+			role := model.RoleWorker
+			id := g.choose(ts, s)
+			if t := s.Task(id); t != nil {
+				role = t.Role
+			}
+			op.Kind, op.Task, op.Target = OpAssign, id, g.agentID(role)
+		case p < 78:
+			op.Kind, op.Task, op.Target = OpAssignReviewer, g.choose(g.tasksIn(s, model.StatusSubmitted), s), g.agentID(model.RoleReviewer)
+		case p < 92:
+			ts := g.tasksIn(s, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked)
+			role := model.RoleWorker
+			id := g.choose(ts, s)
+			if t := s.Task(id); t != nil {
+				role = t.Role
+			}
+			op.Kind, op.Task, op.Target = OpReassign, id, g.agentID(role)
+		default:
+			kinds := []string{model.KindClaudeCode, model.KindCodex, model.KindOpenCode}
+			op.Kind, op.Target, op.N = OpSpawn, kinds[g.pick(len(kinds))], 1+g.pick(3)
 		}
-		return Op{Kind: OpAssign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
-	case p < 85:
-		return Op{Kind: OpAssignReviewer, Actor: g.w.Leader, Task: g.choose(g.tasksIn(s, model.StatusSubmitted), s), Target: g.agentID(model.RoleReviewer)}
-	default:
-		ts := g.tasksIn(s, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked)
-		role := model.RoleWorker
-		id := g.choose(ts, s)
-		if t := s.Task(id); t != nil {
-			role = t.Role
-		}
-		return Op{Kind: OpReassign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
+	}
+	op.Token = l.token
+	return op
+}
+
+func (g *Gen) firstBrief(s *State) string {
+	if len(s.Briefs) == 0 {
+		return ""
+	}
+	return s.Briefs[0].ID
+}
+
+func (g *Gen) refresh(s *State, a *agentSim) {
+	if cur := s.Tokens[a.spec.ID]; a.token < cur && g.chance(30) {
+		a.token = cur
 	}
 }
 
@@ -240,6 +387,15 @@ func (g *Gen) mine(s *State, id string, statuses ...string) []*model.Task {
 }
 
 func (g *Gen) agent(s *State, a *agentSim) Op {
+	g.refresh(s, a)
+	op := g.agentOp(s, a)
+	if op.Kind != OpAdvance {
+		op.Token = a.token
+	}
+	return op
+}
+
+func (g *Gen) agentOp(s *State, a *agentSim) Op {
 	id := a.spec.ID
 	if s.Now.Before(a.crashedUntil) {
 		return Op{Kind: OpAdvance, Dur: time.Duration(1+g.pick(30)) * time.Second}
@@ -267,7 +423,7 @@ func (g *Gen) agent(s *State, a *agentSim) Op {
 		return Op{Kind: OpClaim, Actor: id, Task: g.choose(g.mine(s, id, model.StatusAssigned, model.StatusChangesRequested), s)}
 	}
 	t := held[g.pick(len(held))]
-	if s.Now.Sub(a.lastHB) >= a.hbEvery {
+	if s.Now.Sub(a.lastHB) >= a.hbEvery || s.Now.Before(a.lastHB) {
 		a.lastHB = s.Now
 		task := t.ID
 		if g.chance(20) {

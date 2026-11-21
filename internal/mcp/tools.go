@@ -39,6 +39,17 @@ func decode(c *Call, v any) error {
 
 const maxReadThreadLimit = 1000
 
+func withContext(ctx context.Context, b *board.Board, a model.Actor, t *model.Task, res map[string]any) (any, error) {
+	tc, err := b.HandoffContext(ctx, a, t)
+	if err != nil {
+		return nil, err
+	}
+	if tc != nil {
+		res["context"] = tc
+	}
+	return res, nil
+}
+
 var (
 	taskIDSchema = obj(map[string]any{"task_id": str("Task id, e.g. T-3")}, "task_id")
 	taskBudget   = obj(map[string]any{"max_minutes": intg("max minutes"), "max_cost_eur": num("max cost in EUR")})
@@ -86,7 +97,10 @@ func NewRegistry(b *board.Board) *Registry {
 			return nil, err
 		}
 		t, err := b.GetTask(ctx, c.Actor, in.TaskID)
-		return map[string]any{"task": t}, err
+		if err != nil {
+			return map[string]any{"task": t}, err
+		}
+		return withContext(ctx, b, c.Actor, t, map[string]any{"task": t})
 	})
 	add("heartbeat", "Extend the lease of your in_progress tasks. Call every few minutes while working.", AllRoles, true,
 		obj(map[string]any{"task_id": str("only this task"), "note": str("ignored, for humans")}),
@@ -175,7 +189,7 @@ func NewRegistry(b *board.Board) *Registry {
 			if err != nil {
 				return nil, err
 			}
-			return map[string]any{"task": t, "lease_expires_at": t.LeaseExpiresAt}, nil
+			return withContext(ctx, b, c.Actor, t, map[string]any{"task": t, "lease_expires_at": t.LeaseExpiresAt})
 		})
 	add("release_task", "Give a claimed task back.", WorkTester, false,
 		obj(map[string]any{"task_id": str("task"), "reason": str("why")}, "task_id"), func(ctx context.Context, c *Call) (any, error) {

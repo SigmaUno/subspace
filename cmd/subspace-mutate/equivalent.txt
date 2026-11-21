@@ -64,3 +64,6 @@ internal/quota/window.go	top = math.Max(top, u.CostEUR/q.MaxCostEURPerDay)	swap 
 internal/quota/window.go	top = math.Max(top, float64(u.Tasks)/float64(q.MaxTasksPerDay))	swap arguments top and float64(u.Tasks) / float64(q.MaxTasksPerDay)
 internal/quota/window.go	top = math.Max(top, float64(u.ConcurrentTasks)/float64(q.MaxConcurrentTasks))	swap arguments top and float64(u.ConcurrentTasks) / float64(q.MaxConcurrentTasks)
 internal/quota/service.go	if err := rows.Scan(dest...); err != nil {	replace != with ==
+internal/spendguard/window.go	spent := math.Max(Sum(usage, start, upto), Sum(tasks, start, upto))	swap arguments Sum(usage, start, upto) and Sum(tasks, start, upto)
+internal/spendguard/guard.go	return Evaluate(g.limits, g.usage, g.ledger(), now)	swap arguments g.usage and g.ledger()
+internal/spendguard/window.go	if c < 0 || math.IsNaN(c) || math.IsInf(c, 0) {	change constant 0 to 1

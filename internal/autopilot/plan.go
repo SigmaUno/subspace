@@ -1,9 +1,11 @@
 package autopilot
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -30,6 +32,7 @@ type Snapshot struct {
 	Capacity board.CapacityView
 	Spawn    map[string]SpawnConfig
 	Scores   map[string]float64
+	Conflict conflict.Mode
 }
 
 type Action struct {
@@ -83,6 +86,14 @@ func Plan(s Snapshot) []Action {
 		}
 	}
 
+	avoid := s.Conflict != conflict.Off
+	var held []*model.Task
+	for _, t := range tasks {
+		if t.Assignee != nil && slices.Contains(conflict.Held, t.Status) {
+			held = append(held, t)
+		}
+	}
+
 	var acts []Action
 	need := map[needKey]int{}
 	for _, t := range tasks {
@@ -90,15 +101,31 @@ func Plan(s Snapshot) []Action {
 		if br == nil || t.Status != model.StatusReady {
 			continue
 		}
-		a := pick(s.Agents, load, s.Scores, func(a *model.Agent) bool {
-			return a.Role == t.Role && allowed(br, a.Provider)
-		})
-		if a == nil {
-			need[needKey{br.ID, t.Role}]++
+		eligible := func(a *model.Agent) bool { return a.Role == t.Role && allowed(br, a.Provider) }
+		owner, ok := overlapOwner(t, held, avoid)
+		if !ok {
 			continue
+		}
+		var a *model.Agent
+		if owner != "" {
+			a = agents[owner]
+			if a == nil || a.Status != model.AgentActive || !eligible(a) || load[a.ID] > 0 {
+				continue
+			}
+		} else {
+			a = pick(s.Agents, load, s.Scores, eligible)
+			if a == nil {
+				need[needKey{br.ID, t.Role}]++
+				continue
+			}
 		}
 		load[a.ID]++
 		acts = append(acts, Action{Kind: ActAssign, BriefID: br.ID, TaskID: t.ID, AgentID: a.ID})
+		if avoid && len(t.Paths) > 0 {
+			cp := *t
+			cp.Assignee, cp.Status = &a.ID, model.StatusAssigned
+			held = append(held, &cp)
+		}
 	}
 
 	for _, t := range tasks {
@@ -162,6 +189,20 @@ func Plan(s Snapshot) []Action {
 			BriefID: br.ID, Kind: cfg.Kind, Model: cfg.Model, N: n, Role: k.role, Provider: prov}})
 	}
 	return acts
+}
+
+func overlapOwner(t *model.Task, held []*model.Task, avoid bool) (string, bool) {
+	if !avoid {
+		return "", true
+	}
+	owner := ""
+	for _, h := range conflict.Conflicts(t, "", held) {
+		if owner != "" && owner != *h.Assignee {
+			return "", false
+		}
+		owner = *h.Assignee
+	}
+	return owner, true
 }
 
 func pick(agents []*model.Agent, load map[string]int, scores map[string]float64, ok func(*model.Agent) bool) *model.Agent {

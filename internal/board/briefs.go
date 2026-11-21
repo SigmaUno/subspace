@@ -332,6 +332,7 @@ type TaskInput struct {
 	Budget             model.Budget `json:"budget"`
 	Priority           int          `json:"priority"`
 	ComponentID        string       `json:"component_id"`
+	Paths              []string     `json:"paths"`
 }
 
 type PlanInput struct {
@@ -362,6 +363,10 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 	if in.Budget.MaxMinutes < 0 || in.Budget.MaxCostEUR < 0 {
 		return nil, model.BadRequest("budget must be >= 0")
 	}
+	paths, err := b.taskPaths(br.ID, in)
+	if err != nil {
+		return nil, err
+	}
 	id, err := tx.NextID("T")
 	if err != nil {
 		return nil, err
@@ -378,7 +383,7 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 	now := b.now()
 	return &model.Task{ID: id, BriefID: br.ID, PlanID: planID, Title: in.Title, Spec: in.Spec,
 		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: "sub/" + strings.ToLower(id) + "-" + slug(in.Title),
-		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID),
+		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID), Paths: paths,
 		CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -432,7 +437,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 
 		var tasks []*model.Task
 		for _, ti := range in.Tasks {
-			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID}, pid, model.StatusBacklog, nil)
+			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID, Paths: ti.Paths}, pid, model.StatusBacklog, nil)
 			if err != nil {
 				return err
 			}

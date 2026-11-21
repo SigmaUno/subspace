@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -18,16 +19,17 @@ type TaskEdit struct {
 	Repo               *string       `json:"repo"`
 	Role               *string       `json:"role"`
 	Budget             *model.Budget `json:"budget"`
+	Paths              *[]string     `json:"paths"`
 }
 
 func (e TaskEdit) budgetOnly() bool {
 	return e.Budget != nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil
+		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
 }
 
 func (e TaskEdit) empty() bool {
 	return e.Budget == nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil
+		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
 }
 
 func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Task, error) {
@@ -100,6 +102,18 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 			}
 			set("budget", t.Budget, *e.Budget, t.Budget != *e.Budget)
 			t.Budget = *e.Budget
+		}
+		if e.Paths != nil {
+			ps, err := conflict.NormalizeAll(*e.Paths)
+			if err != nil {
+				return model.BadRequest("paths: %v", err)
+			}
+			np := model.Paths(ps)
+			if len(np) == 0 {
+				np = nil
+			}
+			set("paths", t.Paths, np, !slices.Equal(t.Paths, np))
+			t.Paths = np
 		}
 		if e.DependsOn != nil {
 			deps, err := b.checkDeps(tx, t, *e.DependsOn)

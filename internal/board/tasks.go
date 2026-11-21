@@ -7,6 +7,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -329,9 +330,16 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
 		}
 		from := t.Status
+		var overlaps []*model.Task
 		if tool == "assign" {
 			if t.Status != model.StatusReady {
 				return model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
+			}
+			if overlaps, err = b.pathConflicts(tx, t, agentID); err != nil {
+				return err
+			}
+			if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
+				return model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
 			}
 		} else {
 			switch t.Status {
@@ -365,6 +373,9 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 		}
 		if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
 			return err
+		}
+		if len(overlaps) > 0 {
+			return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
 		}
 		return nil
 	})

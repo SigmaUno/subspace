@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -109,7 +110,10 @@ func (s *Service) spawnConfig(briefID string) SpawnConfig {
 }
 
 func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
-	snap := Snapshot{Enabled: s.enabledCopy(), Spawn: map[string]SpawnConfig{}}
+	snap := Snapshot{Enabled: s.enabledCopy(), Spawn: map[string]SpawnConfig{}, Conflict: conflict.Warn}
+	if c, ok := s.b.(interface{ ConflictMode() conflict.Mode }); ok {
+		snap.Conflict = c.ConflictMode()
+	}
 	if snap.Paused, _ = s.b.Paused(); snap.Paused || len(snap.Enabled) == 0 {
 		return snap, nil
 	}

@@ -233,6 +233,7 @@ Plan edits post a system message to the brief thread and append an audit event (
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/tasks/{id}/pr` | → PRStatus, the latest snapshot of the task's PR. 404 for an unknown task or a task never synced. |
+| GET | `/api/v1/tasks/{id}/scope` | → ScopeReport, computed from the latest snapshot of the task's PR. 404 for an unknown task or a PR whose diff was never fetched. |
 | GET | `/api/v1/prs?brief_id=&state=&limit=` | → `{"prs":[PRStatus]}` ordered by task id; `state` is `open`, `merged` or `closed`; `limit` default 100, max 1000, 400 if not a positive integer. |
 
 ```jsonc
@@ -280,6 +281,18 @@ With `SUBSPACE_PRSYNC_CONFIG` set (same hosts and `repos` mapping as the PR poll
 | `needs_owner` | `error` | Needs an owner decision in Subspace |
 
 Other statuses post nothing. `target_url` is `<SUBSPACE_PUBLIC_URL>/tasks/<task id>` when the public URL is `https://`, and omitted otherwise. The head commit is read from the PR when the status is posted. A status is posted once per repository, head sha and state (kept in memory), so repeated events and several tasks on one PR cost nothing. Requests share the host and global token buckets configured for the PR poller. A transient failure (network error, 5xx, 429 or an exhausted rate limit) is retried up to 4 times with exponential backoff from 1s to 30s, honouring `Retry-After` and `X-RateLimit-Reset`; other failures are logged and dropped, and the next change of the task tries again. Posting runs in background workers: a failing or slow host never delays or fails a board operation. Descriptions are fixed texts and tokens never leave the `Authorization` header. The host token needs permission to write commit statuses.
+Besides the PR state the poller fetches the changed files of the head commit (paginated, at most 3000 files; more set `truncated`) with their added and deleted line counts, and the authors of the PR's commits (the login, else the commit email). It refetches them only when the head commit changes. Every sync scores the diff against the task, producing a ScopeReport whose findings are:
+
+| rule | severity | raised when |
+|---|---|---|
+| `outside_paths` | error | the task has `paths` (or component paths) and a changed file is matched by none of them |
+| `protected_path` | error | a changed file is in `.github/`, `.gitea/`, `.forgejo/`, `.circleci/`, `deploy/`, `k8s/`, `helm/`, `terraform/`, is a CI config, Dockerfile, compose file, lockfile or secrets-looking file (`.env`, `*.pem`, `*.key`, names containing `secret` or `credential`), unless a task path naming that location matches it (`.github/**`, `web/pnpm-lock.yaml`; `**` or `web` do not) |
+| `branch_mismatch` | error | the PR head branch differs from the task `branch` |
+| `unexpected_author` | error | the host config lists `authors` (logins or emails, case-insensitive) and a commit author is neither listed nor the task's assignee |
+| `diff_too_large` | warning | the task has `budget.max_minutes` and more than 20 lines per budgeted minute were added or deleted |
+| `diff_truncated` | warning | the file list was capped |
+
+A task whose report has an error finding is never `merge_ready` and gets no `merge-ready` decision; the owner can still mark it done. `authors` is an optional list in a host entry of the prsync config. Warnings stay in the report and are appended to the `merge-ready` decision summary after `scope:`. The MCP tool `list_reviews` adds `scope_findings` (see Reviewer).
 
 Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
 
@@ -1019,7 +1032,7 @@ All tools return an object; `task` = Task object above.
 - `measure {"job_id","branch"}` → `{"attempt":{"id","job_id","agent_id","branch","value","status":"ok|failed","measured_at","log"},"metric","loss","best","job_status","stop_reason","remaining_attempts"}`. `loss` is the metric negated for `max` jobs; `remaining_attempts` is null for an unlimited budget; `metric` is the last number printed by `metric_cmd`. Requires an `in_progress` task of mine in the job's brief and repo whose branch is `branch` or a prefix of it followed by `-`, within task and brief budgets (`budget_exceeded`), and Subspace not paused; otherwise `not_assigned`. 409 `conflict` on a stopped job, `budget_exceeded` when the job has no attempts left, 403 for a repo outside `SUBSPACE_HILLCLIMB_REPOS`.
 
 **Reviewer**
-- `list_reviews {}` → `{"tasks":[Task]}` — `submitted`/`in_review` tasks where `reviewer` is me or unset, and the worker's provider differs from mine.
+- `list_reviews {}` → `{"tasks":[Task],"scope_findings":{"T-3":[{"rule","severity","message","paths?"}]}}` — `submitted`/`in_review` tasks where `reviewer` is me or unset, and the worker's provider differs from mine. `scope_findings` maps task ids to the findings of the task's latest scope report (see Pull request status); tasks without findings are absent and the object is empty when no PR was synced.
 - `review {"task_id","verdict":"approve|changes_requested","comments"}` → `{"task":Task}`. approve → `approved`; changes_requested → `changes_requested` (`review_rounds`+1); at 3 rounds → `needs_owner`.
 
 **Leader**

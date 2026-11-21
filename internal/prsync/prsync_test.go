@@ -40,6 +40,9 @@ type fakePR struct {
 	Reviews   []map[string]any
 	Status    string
 	Runs      []map[string]any
+	Ref       string
+	Files     []map[string]any
+	Authors   map[string]string
 }
 
 type fakeHost struct {
@@ -127,15 +130,21 @@ func (f *fakeHost) serve(w http.ResponseWriter, r *http.Request) {
 				state = "closed"
 			}
 			body = map[string]any{"number": n, "state": state, "merged": pr.Merged, "draft": pr.Draft,
-				"mergeable": pr.Mergeable, "title": "t", "head": map[string]any{"sha": pr.Head}}
+				"mergeable": pr.Mergeable, "title": "t", "head": map[string]any{"sha": pr.Head, "ref": pr.Ref}}
 		case parts[4] == "reviews":
 			body = pr.Reviews
 		case parts[4] == "commits":
-			var cs []map[string]any
+			cs := []map[string]any{}
 			for _, c := range pr.Commits {
-				cs = append(cs, map[string]any{"sha": c})
+				commit := map[string]any{"sha": c}
+				if login := pr.Authors[c]; login != "" {
+					commit["author"] = map[string]any{"login": login}
+				}
+				cs = append(cs, commit)
 			}
-			body = cs
+			body = paginate(r, cs)
+		case parts[4] == "files":
+			body = paginate(r, append([]map[string]any{}, pr.Files...))
 		}
 	case "commits":
 		var pr *fakePR
@@ -172,6 +181,20 @@ func (f *fakeHost) serve(w http.ResponseWriter, r *http.Request) {
 	_, _ = w.Write(raw)
 }
 
+func paginate(r *http.Request, items []map[string]any) []map[string]any {
+	q := r.URL.Query()
+	size, _ := strconv.Atoi(q.Get("per_page"))
+	if size == 0 {
+		size, _ = strconv.Atoi(q.Get("limit"))
+	}
+	page, _ := strconv.Atoi(q.Get("page"))
+	if size <= 0 || page <= 0 {
+		return items
+	}
+	lo := min((page-1)*size, len(items))
+	return items[lo:min(lo+size, len(items))]
+}
+
 type harness struct {
 	t      *testing.T
 	e      *servertest.Env
@@ -190,7 +213,7 @@ func hostConfig(gh, fj *fakeHost, ghRate, global string) []byte {
   "interval": "30s",
   "rate": %s,
   "hosts": {
-    "gh": {"kind": "github", "api_url": %q, "token_env": "PRSYNC_TEST_GH_TOKEN", "rate": %s},
+    "gh": {"kind": "github", "api_url": %q, "token_env": "PRSYNC_TEST_GH_TOKEN", "rate": %s, "authors": ["bot-ci"]},
     "fj": {"kind": "forgejo", "url": %q, "token": %q}
   },
   "repos": {"o/gh": "gh"}
@@ -427,7 +450,7 @@ func TestETagConditionalRequests(t *testing.T) {
 
 	h.sync()
 	first, nm := gh.counts()
-	if first != 4 || nm != 0 {
+	if first != 6 || nm != 0 {
 		t.Fatalf("first sync: %d requests, %d not modified", first, nm)
 	}
 	before := h.status(ids[0])
@@ -500,20 +523,20 @@ func TestThrottleAndJitteredBackoff(t *testing.T) {
 	}
 	none := func() {}
 
-	step(0, none, 4)
-	step(30*time.Second, func() { gh.fail = 1 }, 5)
+	step(0, none, 6)
+	step(30*time.Second, func() { gh.fail = 1 }, 7)
 	if e, _ := h.status(id)["error"].(string); !strings.Contains(e, "502") {
 		t.Fatalf("error not recorded: %q", e)
 	}
-	step(14*time.Second, none, 5)
-	step(16*time.Second, none, 9)
+	step(14*time.Second, none, 7)
+	step(16*time.Second, none, 11)
 	if s := h.status(id); s["error"] != nil || s["state"] != "open" {
 		t.Fatalf("not recovered: %v", s)
 	}
 
-	step(30*time.Second, func() { gh.throttle = 1 }, 10)
-	step(60*time.Second, none, 10)
-	step(61*time.Second, none, 14)
+	step(30*time.Second, func() { gh.throttle = 1 }, 12)
+	step(60*time.Second, none, 12)
+	step(61*time.Second, none, 16)
 	if s := h.status(id); s["error"] != nil {
 		t.Fatalf("throttling recorded as a task error: %v", s)
 	}

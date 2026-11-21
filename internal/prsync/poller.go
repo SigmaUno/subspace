@@ -101,7 +101,7 @@ func New(o Options) (*Poller, error) {
 		if err != nil {
 			return nil, fmt.Errorf("prsync: host %q: invalid url", name)
 		}
-		h := &host{name: name, kind: hc.Kind, web: strings.ToLower(u.Host), api: hc.APIURL, token: hc.Token}
+		h := &host{name: name, kind: hc.Kind, web: strings.ToLower(u.Host), api: hc.APIURL, token: hc.Token, authors: hc.Authors}
 		p.hosts[name] = h
 		if _, dup := p.byWeb[h.web]; !dup {
 			p.byWeb[h.web] = h
@@ -223,7 +223,11 @@ func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) err
 	if had && prev.URL != base.URL {
 		prev, had = Status{}, false
 	}
-	pr, err := p.f.fetch(ctx, h, repo, number, prev.HeadSHA)
+	var prevPtr *Status
+	if had {
+		prevPtr = &prev
+	}
+	pr, err := p.f.fetch(ctx, h, repo, number, prevPtr)
 	if err != nil {
 		if errors.Is(err, errLimited) || ctx.Err() != nil {
 			return nil
@@ -250,6 +254,8 @@ func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) err
 	next := base
 	next.State, next.Draft, next.Checks, next.Mergeable = pr.state, pr.draft, pr.checks, pr.mergeable
 	next.HeadSHA, next.Reviews, next.ReviewDecision = pr.headSHA, pr.reviews, pr.decision
+	next.Diff = pr.diff
+	next.Scope = scoreTask(t, h, pr.diff)
 	next.MergeReady = next.ready(t.Status)
 	next.CheckedAt = &now
 	if err := p.save(ctx, prev, had, next, now, true); err != nil {

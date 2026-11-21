@@ -12,6 +12,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/scope"
 )
 
 const (
@@ -38,23 +39,25 @@ type Review struct {
 }
 
 type Status struct {
-	TaskID         string     `json:"task_id"`
-	BriefID        string     `json:"brief_id"`
-	URL            string     `json:"url"`
-	Host           string     `json:"host"`
-	Repo           string     `json:"repo"`
-	Number         int64      `json:"number"`
-	State          string     `json:"state"`
-	Draft          bool       `json:"draft"`
-	Checks         string     `json:"checks"`
-	Mergeable      *bool      `json:"mergeable"`
-	HeadSHA        string     `json:"head_sha"`
-	Reviews        []Review   `json:"reviews"`
-	ReviewDecision string     `json:"review_decision"`
-	MergeReady     bool       `json:"merge_ready"`
-	Error          *string    `json:"error"`
-	CheckedAt      *time.Time `json:"checked_at"`
-	ChangedAt      time.Time  `json:"changed_at"`
+	TaskID         string        `json:"task_id"`
+	BriefID        string        `json:"brief_id"`
+	URL            string        `json:"url"`
+	Host           string        `json:"host"`
+	Repo           string        `json:"repo"`
+	Number         int64         `json:"number"`
+	State          string        `json:"state"`
+	Draft          bool          `json:"draft"`
+	Checks         string        `json:"checks"`
+	Mergeable      *bool         `json:"mergeable"`
+	HeadSHA        string        `json:"head_sha"`
+	Reviews        []Review      `json:"reviews"`
+	ReviewDecision string        `json:"review_decision"`
+	MergeReady     bool          `json:"merge_ready"`
+	Error          *string       `json:"error"`
+	Diff           *scope.Diff   `json:"diff,omitempty"`
+	Scope          *scope.Report `json:"scope,omitempty"`
+	CheckedAt      *time.Time    `json:"checked_at"`
+	ChangedAt      time.Time     `json:"changed_at"`
 }
 
 func (s Status) same(o Status) bool {
@@ -65,7 +68,8 @@ func (s Status) same(o Status) bool {
 
 func (s Status) ready(taskStatus string) bool {
 	return taskStatus == model.StatusApproved && s.State == StateOpen && !s.Draft && s.Checks == ChecksSuccess &&
-		s.Mergeable != nil && *s.Mergeable && s.ReviewDecision != ReviewChangesRequested
+		s.Mergeable != nil && *s.Mergeable && s.ReviewDecision != ReviewChangesRequested &&
+		!s.Scope.Blocking()
 }
 
 type Store interface {
@@ -137,7 +141,7 @@ func (s *Service) Decisions(ctx context.Context) ([]*decisions.Decision, error) 
 		d := &decisions.Decision{
 			ID: KindMergeReady + ":" + t.ID, Kind: KindMergeReady, TaskID: t.ID, BriefID: t.BriefID,
 			Title:     fmt.Sprintf("PR ready to merge for %s: %s", t.ID, t.Title),
-			Summary:   fmt.Sprintf("%s#%d approved by reviewer, checks green, mergeable", st.Repo, st.Number),
+			Summary:   summary(st),
 			Links:     decisions.Links{Thread: model.ThreadTask + ":" + t.ID, PR: st.URL},
 			CreatedAt: st.ChangedAt,
 		}
@@ -181,6 +185,7 @@ func (s *Service) Handler() http.Handler {
 				break
 			}
 			if (q.Get("brief_id") == "" || st.BriefID == q.Get("brief_id")) && (q.Get("state") == "" || st.State == q.Get("state")) {
+				st.Diff = nil
 				out = append(out, st)
 			}
 		}

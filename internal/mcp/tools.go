@@ -383,6 +383,7 @@ func NewRegistry(b *board.Board) *Registry {
 	RegisterHelp(r, b)
 	RegisterLeaderInfo(r, b)
 	RegisterKnowledge(r, b)
+	RegisterScope(r, b)
 	return r
 }
 

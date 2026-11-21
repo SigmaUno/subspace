@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -42,6 +43,8 @@ func readFrames(sc *bufio.Scanner, out chan<- frame) {
 		}
 	}
 }
+
+func newScanner(r io.Reader) *bufio.Scanner { return bufio.NewScanner(r) }
 
 func next(t *testing.T, ch <-chan frame) frame {
 	t.Helper()

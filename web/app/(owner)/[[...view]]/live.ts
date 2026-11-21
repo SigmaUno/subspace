@@ -42,7 +42,11 @@ export function useLive(topics: string) {
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    const stream = new EventSource(`/api/v1/events?${new URLSearchParams({ topics })}`);
+    let stream: EventSource | undefined;
+    let lastId = "";
+    let retry: ReturnType<typeof setTimeout> | undefined;
+    let delay = 500;
+    let closed = false;
     const pending = new Set<Scope>();
     const messages = new Map<string, Message>();
     const taskStatuses = new Map<string, string>();
@@ -66,32 +70,66 @@ export function useLive(topics: string) {
       }, 650);
     }
 
-    stream.addEventListener("hello", () => { setConnected(true); invalidate(scopes); });
-    stream.addEventListener("lagged", () => invalidate(scopes));
-    stream.onerror = () => setConnected(false);
-    stream.addEventListener("message.created", (event: MessageEvent<string>) => {
-      try {
-        const { data } = JSON.parse(event.data) as { data?: Message };
-        if (data?.thread_kind && data.thread_id) messages.set(`${data.thread_kind}:${data.thread_id}`, data);
-      } catch {}
-      invalidate(["thread", "chat"]);
-    });
-    stream.addEventListener("task.updated", (event: MessageEvent<string>) => {
-      invalidate(["board"]);
-      try {
-        const { data } = JSON.parse(event.data) as { data?: { id: string; status: string } };
-        if (data && taskStatuses.get(data.id) !== data.status) {
-          taskStatuses.set(data.id, data.status);
-          invalidate(["capacity", "decisions"]);
-        }
-      } catch {}
-    });
-    Object.entries(eventScopes).forEach(([event, changed]) => {
-      stream.addEventListener(event, () => invalidate(changed));
-    });
+    function connect() {
+      const params = new URLSearchParams({ topics });
+      if (lastId) params.set("last_event_id", lastId);
+      const source = new EventSource(`/api/v1/events?${params}`);
+      stream = source;
+      const resumed = lastId !== "";
+
+      function on(event: string, handler: (event: MessageEvent<string>) => void) {
+        source.addEventListener(event, (e) => {
+          const message = e as MessageEvent<string>;
+          if (message.lastEventId) lastId = message.lastEventId;
+          handler(message);
+        });
+      }
+
+      on("hello", () => {
+        delay = 500;
+        setConnected(true);
+        if (!resumed) invalidate(scopes);
+      });
+      on("resync", () => invalidate(scopes));
+      on("lagged", () => invalidate(scopes));
+      source.onerror = () => {
+        setConnected(false);
+        source.close();
+        if (closed || retry) return;
+        retry = setTimeout(() => {
+          retry = undefined;
+          connect();
+        }, delay);
+        delay = Math.min(delay * 2, 15000);
+      };
+      on("message.created", (event) => {
+        try {
+          const { data } = JSON.parse(event.data) as { data?: Message };
+          if (data?.thread_kind && data.thread_id) messages.set(`${data.thread_kind}:${data.thread_id}`, data);
+        } catch {}
+        invalidate(["thread", "chat"]);
+      });
+      on("task.updated", (event) => {
+        invalidate(["board"]);
+        try {
+          const { data } = JSON.parse(event.data) as { data?: { id: string; status: string } };
+          if (data && taskStatuses.get(data.id) !== data.status) {
+            taskStatuses.set(data.id, data.status);
+            invalidate(["capacity", "decisions"]);
+          }
+        } catch {}
+      });
+      Object.entries(eventScopes).forEach(([event, changed]) => {
+        on(event, () => invalidate(changed));
+      });
+    }
+
+    connect();
     return () => {
+      closed = true;
       if (timer) clearTimeout(timer);
-      stream.close();
+      if (retry) clearTimeout(retry);
+      stream?.close();
     };
   }, [topics]);
 

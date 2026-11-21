@@ -1,0 +1,46 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "startup|resume|clear",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "subspace-join -kind claude-code >&2; subspace-hook instructions",
+            "timeout": 10
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Bash|Edit",
+        "hooks": [
+          { "type": "command", "command": "subspace-hook heartbeat", "timeout": 3 },
+          { "type": "command", "command": "subspace-hook log", "timeout": 3 }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "subspace-hook status", "timeout": 3 }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "hooks": [
+          { "type": "command", "command": "subspace-hook status", "timeout": 3 }
+        ]
+      }
+    ],
+    "Notification": [
+      {
+        "hooks": [
+          { "type": "command", "command": "subspace-hook note", "timeout": 3 }
+        ]
+      }
+    ]
+  }
+}

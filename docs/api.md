@@ -1512,7 +1512,7 @@ Every resource is at most 256 KiB. Markdown is cut at that size with a `[truncat
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter, followed by an `Owner announcements` section only while announcements apply to the caller (see Announcements).
 
 ### Idempotency keys
-`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
+`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h as a SHA-256 hash, together with the tool, a hash of the canonical `arguments` and the result.
 - A retry with the same key, tool and arguments returns the stored result (with the new JSON-RPC `id`) and the header `Idempotent-Replayed: true`; the call is not applied again. Concurrent duplicates wait for the first call.
 - The same key with another tool or other arguments → tool error `idempotency_conflict`.
 - Results with tool error codes `internal`, `agent_paused` and `rate_limited` are not stored, so a retry runs the call again.

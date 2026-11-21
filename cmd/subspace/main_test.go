@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -39,5 +40,29 @@ func TestOwnerTokenNotInheritedByChildProcesses(t *testing.T) {
 				t.Fatal("owner token leaked into the environment of child processes")
 			}
 		})
+	}
+}
+
+func TestMainHelper(t *testing.T) {
+	if os.Getenv("SUBSPACE_TEST_RUN_MAIN") != "1" {
+		t.Skip("helper process")
+	}
+	os.Args = []string{"subspace"}
+	main()
+}
+
+func TestUnknownSpawnerStopsStartup(t *testing.T) {
+	cmd := exec.Command(os.Args[0], "-test.run=^TestMainHelper$")
+	cmd.Env = append(os.Environ(),
+		"SUBSPACE_TEST_RUN_MAIN=1",
+		"SUBSPACE_OWNER_TOKEN=owner-token-for-spawner-test-0123456789",
+		"SUBSPACE_DB="+filepath.Join(t.TempDir(), "subspace.db"),
+		"SUBSPACE_ADDR=127.0.0.1:0",
+		"SUBSPACE_SPAWNER=k8s",
+	)
+	out, err := cmd.CombinedOutput()
+	var ee *exec.ExitError
+	if !errors.As(err, &ee) || ee.ExitCode() != 2 || !strings.Contains(string(out), "unknown spawner") {
+		t.Fatalf("err=%v output=%s", err, out)
 	}
 }

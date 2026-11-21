@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/version"
 )
@@ -68,9 +69,9 @@ func main() {
 			return
 		}
 	}
-	level := slog.LevelInfo
-	if strings.EqualFold(os.Getenv("SUBSPACE_LOG_LEVEL"), "debug") {
-		level = slog.LevelDebug
+	level := new(slog.LevelVar)
+	if l, err := reload.ParseLevel(os.Getenv(reload.EnvLogLevel)); err == nil {
+		level.Set(l)
 	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: level}))
 
@@ -85,7 +86,7 @@ func main() {
 		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
 		Lease: dur("SUBSPACE_LEASE", "15m"), PoisonExpiries: count("SUBSPACE_POISON_EXPIRIES", board.DefaultPoisonExpiries), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: count("SUBSPACE_BACKUP_KEEP", 14),
-		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), Log: log,
+		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), ConfigFile: os.Getenv("SUBSPACE_CONFIG_FILE"), LogLevel: level, Log: log,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -95,6 +96,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = s.Close() }()
+	defer reloadOnSIGHUP(ctx, s, log)()
 	log.Info("subspace listening", "addr", cfg.Addr, "db", cfg.DBPath)
 	if err := s.Run(ctx); err != nil {
 		log.Error("server", "err", err)

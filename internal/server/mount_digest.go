@@ -1,7 +1,6 @@
 package server
 
 import (
-	"os"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/digest"
@@ -28,22 +27,22 @@ func mountDigest(d Deps) {
 	}
 	d.API.Mount(d.Mux, "GET /api/v1/digest/preview", digest.Handler(src, time.Now))
 
-	cfg, err := digest.ConfigFromEnv(os.Getenv)
+	getenv := d.getenv()
+	cfg, err := digest.ConfigFromEnv(getenv)
 	if err != nil {
 		d.Log.Error("digest disabled", "err", err)
-		return
+		cfg = digest.Config{}
 	}
-	ncfg, err := notify.ConfigFromEnv(os.Getenv)
+	ncfg, err := notify.ConfigFromEnv(getenv)
 	if err != nil {
 		d.Log.Error("digest disabled", "err", err)
-		return
-	}
-	if len(cfg.Rules) == 0 || len(ncfg.Sinks) == 0 {
-		return
+		ncfg = notify.Config{}
 	}
 	ncfg.Log = d.Log
 	sink := notify.New(ncfg)
 	sink.Run(d.Ctx)
 	sched := digest.NewScheduler(digest.Options{Rules: cfg.Rules, Source: src, Sink: sink, KV: spendKV{d.Store}, Log: d.Log})
+	d.reloadable("digest-notify", notify.ReloadKeys, sink)
+	d.reloadable("digest", digest.ReloadKeys, sched)
 	go sched.Run(d.Ctx)
 }

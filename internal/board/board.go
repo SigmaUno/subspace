@@ -292,19 +292,17 @@ func (b *Board) Run(ctx context.Context) {
 
 func (b *Board) Flush(ctx context.Context) {
 	b.mu.Lock()
-	seen := map[string]int64{}
+	seen := make(map[string]int64, len(b.dirtyA))
 	for id := range b.dirtyA {
 		seen[id] = b.seen[id].UnixMilli()
 	}
-	var rows []store.LeaseRow
-	ids := make([]string, 0, len(b.dirtyT))
+	rows := make([]store.LeaseRow, 0, len(b.dirtyT))
 	for id := range b.dirtyT {
 		h := b.tasks[id]
 		rows = append(rows, store.LeaseRow{TaskID: id, Assignee: h.assignee, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
-		ids = append(ids, id)
 	}
-	b.dirtyA = map[string]struct{}{}
-	b.dirtyT = map[string]struct{}{}
+	clear(b.dirtyA)
+	clear(b.dirtyT)
 	b.mu.Unlock()
 	if len(seen) == 0 && len(rows) == 0 {
 		return
@@ -324,9 +322,9 @@ func (b *Board) Flush(ctx context.Context) {
 	if b.o.Hub == nil {
 		return
 	}
-	for _, id := range ids {
+	for _, row := range rows {
 		var t *model.Task
-		_ = b.read(ctx, func(tx store.Tx) (e error) { t, e = tx.GetTask(id); return })
+		_ = b.read(ctx, func(tx store.Tx) (e error) { t, e = tx.GetTask(row.TaskID); return })
 		if t != nil {
 			b.o.Hub.Publish([]string{"board", "brief:" + t.BriefID, "task:" + t.ID}, "task.updated", b.overlay(t))
 		}

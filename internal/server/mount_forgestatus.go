@@ -26,5 +26,5 @@ func mountForgeStatus(d Deps) {
 		d.Log.Error("forge status checks disabled", "err", err)
 		return
 	}
-	svc.Start(d.Ctx, d.Hub)
+	svc.Start(d.Ctx, d.Leader.Gate(d.Hub))
 }

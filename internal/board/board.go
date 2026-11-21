@@ -39,6 +39,7 @@ type Options struct {
 
 	FlushEvery time.Duration
 	SweepEvery time.Duration
+	Shared     bool
 }
 
 type hotTask struct {

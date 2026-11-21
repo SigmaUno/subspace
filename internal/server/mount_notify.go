@@ -14,7 +14,7 @@ func init() {
 		cfg.Log = d.Log
 		cfg.Mint = actionMinter(d)
 		svc := notify.New(cfg)
-		svc.Start(d.Ctx, d.Hub)
+		svc.Start(d.Ctx, d.Leader.Gate(d.Hub))
 		d.reloadable("notify", notify.ReloadKeys, svc)
 		d.API.Mount(d.Mux, "/api/v1/notify/", svc.Handler())
 	})

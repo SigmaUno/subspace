@@ -131,7 +131,7 @@ func startMergeQueue(d Deps, path string) error {
 		<-life.Done()
 		cancel()
 	}()
-	go q.Run(ctx, interval)
+	d.Leader.Go(ctx, func(ctx context.Context) { q.Run(ctx, interval) })
 	return nil
 }
 

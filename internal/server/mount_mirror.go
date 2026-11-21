@@ -65,7 +65,7 @@ func init() {
 			},
 			Log: d.Log,
 		})
-		syncer.Start(d.Ctx, d.Hub)
+		syncer.Start(d.Ctx, d.Leader.Gate(d.Hub))
 	})
 }
 

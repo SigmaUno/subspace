@@ -418,11 +418,10 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				if t.Status != model.StatusCancelled {
 					superseded = append(superseded, t.ID)
 				}
-				t.Status, t.UpdatedAt = model.StatusCancelled, b.now()
-				if err := tx.UpdateTask(t); err != nil {
+				t.Status = model.StatusCancelled
+				if err := b.saveTask(tx, w, t); err != nil {
 					return err
 				}
-				w.task(t, false)
 			}
 			p.Status = model.PlanSuperseded
 			if err := tx.UpdatePlan(p); err != nil {

@@ -114,11 +114,9 @@ func (b *Board) holdForGates(tx store.Tx, w *wctx, a model.Actor, t *model.Task,
 			return err
 		}
 	} else {
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		if err := w.audit(tx, a, "review", t.ID, nil, map[string]any{"verdict": "approve", "gates_failed": ge.Details, "state": replayState(t)}, note); err != nil {
 			return err
 		}

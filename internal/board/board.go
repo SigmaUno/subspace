@@ -187,19 +187,24 @@ func (w *wctx) agent(a *model.Agent) {
 }
 
 func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body string) error {
+	_, err := w.message(tx, kind, id, author, mk, body)
+	return err
+}
+
+func (w *wctx) message(tx store.Tx, kind, id string, author model.Actor, mk, body string) (*model.Message, error) {
 	if len(body) > maxBody {
-		return model.BadRequest("message too long (max %d bytes)", maxBody)
+		return nil, model.BadRequest("message too long (max %d bytes)", maxBody)
 	}
 	m := &model.Message{ThreadKind: kind, ThreadID: id, AuthorID: author.ID, AuthorRole: author.Role, Kind: mk, Body: body, CreatedAt: w.b.now()}
 	if err := tx.InsertMessage(m); err != nil {
-		return err
+		return nil, err
 	}
 	topics := []string{"thread:" + kind + ":" + id}
 	if mk == model.MsgQuestion {
 		topics = append(topics, "questions")
 	}
 	w.emit(topics, "message.created", m)
-	return nil
+	return m, nil
 }
 
 func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, after map[string]any, note string) error {

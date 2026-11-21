@@ -136,11 +136,9 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 				return err
 			}
 		}
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		out = t
 		msg := fmt.Sprintf("Owner edited %s: %s", t.ID, strings.Join(changed, ", "))
 		if err := w.post(tx, model.ThreadBrief, t.BriefID, model.Owner, model.MsgSystem, msg); err != nil {
@@ -227,11 +225,10 @@ func (b *Board) DropPlanTask(ctx context.Context, planID, taskID string) (*model
 		if len(refs) > 0 {
 			return model.Conflict("task %s is still a dependency of %s", t.ID, strings.Join(refs, ", "))
 		}
-		t.Status, t.BlockedReason, t.UpdatedAt = model.StatusCancelled, strp("dropped from plan"), b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		t.Status, t.BlockedReason = model.StatusCancelled, strp("dropped from plan")
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		out = p
 		msg := fmt.Sprintf("Owner dropped %s from plan %s: %s", t.ID, p.ID, t.Title)
 		if err := w.post(tx, model.ThreadBrief, p.BriefID, model.Owner, model.MsgSystem, msg); err != nil {

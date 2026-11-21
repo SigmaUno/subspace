@@ -52,6 +52,8 @@ type Store struct {
 	quit chan struct{}
 	wg   sync.WaitGroup
 	once sync.Once
+
+	idem idemQueue
 }
 
 var _ store.Store = (*Store)(nil)
@@ -283,30 +285,43 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 		return fail(err)
 	}
 	ok := make([]bool, len(batch))
+	open := false
 	for i, r := range batch {
 		if cerr := r.ctx.Err(); cerr != nil {
 			errs[i] = cerr
 			continue
 		}
-		if _, e := t.ExecContext(ctx, "SAVEPOINT op"); e != nil {
-			errs[i] = e
-			if retryable(e) {
-				_ = t.Rollback()
-				return fail(e)
+		if !open {
+			if _, e := t.ExecContext(ctx, "SAVEPOINT op"); e != nil {
+				errs[i] = e
+				if retryable(e) {
+					_ = t.Rollback()
+					return fail(e)
+				}
+				continue
 			}
-			continue
+			open = true
 		}
 		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
 		if e == nil {
-			_, e = t.ExecContext(ctx, "RELEASE SAVEPOINT op")
+			release := "RELEASE SAVEPOINT op"
+			if i < len(batch)-1 {
+				release += "; SAVEPOINT op"
+			} else {
+				open = false
+			}
+			_, e = t.ExecContext(ctx, release)
 		}
 		if e != nil {
 			if retryable(e) {
 				_ = t.Rollback()
 				return fail(e)
 			}
-			_, _ = t.ExecContext(ctx, "ROLLBACK TO SAVEPOINT op")
-			_, _ = t.ExecContext(ctx, "RELEASE SAVEPOINT op")
+			if _, rerr := t.ExecContext(ctx, "ROLLBACK TO SAVEPOINT op"); rerr != nil {
+				_ = t.Rollback()
+				return fail(rerr)
+			}
+			open = true
 			errs[i] = e
 			continue
 		}

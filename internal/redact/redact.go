@@ -31,33 +31,125 @@ const mask = "****"
 type rule struct {
 	re    *regexp.Regexp
 	group string
+	idx   int
+	hint  func(s string, fold bool) bool
 }
 
-var rules = []rule{
+var rules = compile([]rule{
 	// Private key PEM blocks (RSA, EC, OPENSSH, ENCRYPTED, ...).
-	{re: regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]+PRIVATE KEY-----`)},
+	{re: regexp.MustCompile(`-----BEGIN [A-Z0-9 ]+PRIVATE KEY-----[\s\S]*?-----END [A-Z0-9 ]+PRIVATE KEY-----`), hint: has("-----BEGIN ")},
 	// GitHub personal access tokens.
-	{re: regexp.MustCompile(`\bgh[po]_[A-Za-z0-9]{20,}\b`)},
-	{re: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}\b`)},
+	{re: regexp.MustCompile(`\bgh[po]_[A-Za-z0-9]{20,}\b`), hint: has("ghp_", "gho_")},
+	{re: regexp.MustCompile(`\bgithub_pat_[A-Za-z0-9_]{20,}\b`), hint: has("github_pat_")},
 	// Anthropic, OpenAI, and DeepSeek-style "sk-" keys.
-	{re: regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{16,}`)},
-	{re: regexp.MustCompile(`\bsk-proj-[A-Za-z0-9_-]{20,}`)},
-	{re: regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`)},
+	{re: regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{16,}`), hint: has("sk-ant-")},
+	{re: regexp.MustCompile(`\bsk-proj-[A-Za-z0-9_-]{20,}`), hint: has("sk-proj-")},
+	{re: regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`), hint: has("sk-")},
 	// AWS access key IDs.
-	{re: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`)},
+	{re: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), hint: has("AKIA")},
 	// JWTs: three base64url segments separated by dots, header starts with "eyJ".
-	{re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{2,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}`)},
+	{re: regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{2,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}`), hint: has("eyJ")},
 	// Bearer tokens: keep the "Bearer " prefix, mask the token.
-	{re: regexp.MustCompile(`(?i)\bbearer[ \t]+(?P<secret>[-A-Za-z0-9._~+=/]{20,})`), group: "secret"},
+	{re: regexp.MustCompile(`(?i)\bbearer[ \t]+(?P<secret>[-A-Za-z0-9._~+=/]{20,})`), group: "secret", hint: hasFold("bearer")},
 	// "key=value" / "key: value" credential pairs: mask the value only. The key
 	// may be prefixed (e.g. "db_password") but must not be part of a longer word.
-	{re: regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(?:password|passwd|secret|token|api_key|apikey|client_secret|access_token)[ \t]*[:=][ \t]*["']?(?P<secret>[^ \t,;"'\r\n]+)`), group: "secret"},
+	{re: regexp.MustCompile(`(?i)(?:^|[^A-Za-z0-9])(?:password|passwd|secret|token|api_key|apikey|client_secret|access_token)[ \t]*[:=][ \t]*["']?(?P<secret>[^ \t,;"'\r\n]+)`), group: "secret",
+		hint: assignment("passw", "secret", "token", "api")},
+})
+
+func compile(rs []rule) []rule {
+	for i := range rs {
+		rs[i].idx = -1
+		if rs[i].group != "" {
+			rs[i].idx = rs[i].re.SubexpIndex(rs[i].group)
+		}
+	}
+	return rs
 }
 
-// genericRunRe finds candidate runs (base64-ish, alphanumeric-led) for the
-// high-entropy detector. Length and entropy thresholds are applied in Go so
-// they can be configured at runtime without recompiling the expression.
-var genericRunRe = regexp.MustCompile(`[A-Za-z0-9][A-Za-z0-9+/=]{7,}`)
+func has(needles ...string) func(string, bool) bool {
+	return func(s string, _ bool) bool {
+		for _, n := range needles {
+			if strings.Contains(s, n) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func hasFold(needle string) func(string, bool) bool {
+	return func(s string, fold bool) bool {
+		return fold || containsFold(s, needle)
+	}
+}
+
+func assignment(keys ...string) func(string, bool) bool {
+	return func(s string, fold bool) bool {
+		if !strings.ContainsAny(s, ":=") {
+			return false
+		}
+		if fold {
+			return true
+		}
+		for _, k := range keys {
+			if containsFold(s, k) {
+				return true
+			}
+		}
+		return false
+	}
+}
+
+func unicodeFold(s string) bool {
+	return strings.Contains(s, "\u212a") || strings.Contains(s, "\u017f")
+}
+
+func containsFold(s, lower string) bool {
+	n := len(lower)
+	for i := 0; i+n <= len(s); i++ {
+		j := 0
+		for ; j < n; j++ {
+			c := s[i+j]
+			if 'A' <= c && c <= 'Z' {
+				c += 'a' - 'A'
+			}
+			if c != lower[j] {
+				break
+			}
+		}
+		if j == n {
+			return true
+		}
+	}
+	return false
+}
+
+func isAlnum(c byte) bool {
+	return 'a' <= c && c <= 'z' || 'A' <= c && c <= 'Z' || '0' <= c && c <= '9'
+}
+
+func isRun(c byte) bool {
+	return isAlnum(c) || c == '+' || c == '/' || c == '='
+}
+
+func genericRuns(s string, min int, out []span) []span {
+	for i := 0; i < len(s); {
+		if !isAlnum(s[i]) {
+			i++
+			continue
+		}
+		j := i + 1
+		for j < len(s) && isRun(s[j]) {
+			j++
+		}
+		if j-i >= min {
+			out = append(out, span{i, j})
+		}
+		i = j
+	}
+	return out
+}
 
 type span struct{ lo, hi int }
 
@@ -65,30 +157,34 @@ type span struct{ lo, hi int }
 // merged so that overlapping detections are masked once.
 func findSecrets(s string) []span {
 	var out []span
-	for _, r := range rules {
-		idx := -1
-		if r.group != "" {
-			idx = r.re.SubexpIndex(r.group)
+	fold := unicodeFold(s)
+	for i := range rules {
+		r := &rules[i]
+		if !r.hint(s, fold) {
+			continue
 		}
 		for _, m := range r.re.FindAllStringSubmatchIndex(s, -1) {
 			lo, hi := m[0], m[1]
-			if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {
-				lo, hi = m[2*idx], m[2*idx+1]
+			if r.idx >= 0 && 2*r.idx+1 < len(m) && m[2*r.idx] >= 0 {
+				lo, hi = m[2*r.idx], m[2*r.idx+1]
 			}
 			if hi > lo {
 				out = append(out, span{lo, hi})
 			}
 		}
 	}
-	for _, m := range genericRunRe.FindAllStringIndex(s, -1) {
-		lo, hi := m[0], m[1]
-		sub := s[lo:hi]
-		if len(sub) < MinLength || isHex(sub) || shannon(sub) < MinEntropy {
+	n := len(out)
+	out = genericRuns(s, max(MinLength, 8), out)
+	k := n
+	for _, sp := range out[n:] {
+		sub := s[sp.lo:sp.hi]
+		if isHex(sub) || shannon(sub) < MinEntropy {
 			continue
 		}
-		out = append(out, span{lo, hi})
+		out[k] = sp
+		k++
 	}
-	return merge(out)
+	return merge(out[:k])
 }
 
 func merge(spans []span) []span {

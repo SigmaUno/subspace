@@ -24,7 +24,7 @@ type candidate struct {
 
 func candidates(text string) []*candidate {
 	var out []*candidate
-	byValue := map[string]*candidate{}
+	var byValue map[string]*candidate
 	for _, prefix := range prefixes {
 		for from := 0; ; {
 			i := strings.Index(text[from:], prefix)
@@ -44,6 +44,9 @@ func candidates(text string) []*candidate {
 					continue
 				}
 				c = &candidate{value: v}
+				if byValue == nil {
+					byValue = map[string]*candidate{}
+				}
 				byValue[v] = c
 				out = append(out, c)
 			}

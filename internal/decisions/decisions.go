@@ -22,6 +22,7 @@ const (
 	KindBudget   = "budget"
 	KindExpiry   = "token_expiry"
 	KindBreaker  = "breaker"
+	KindAlert    = "alert"
 )
 
 const (
@@ -54,6 +55,7 @@ var impact = map[string]int{
 	KindUnblock:  50,
 	KindStale:    40,
 	KindExpiry:   55,
+	KindAlert:    75,
 }
 
 type Links struct {

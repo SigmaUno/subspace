@@ -49,12 +49,11 @@ func run(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer, 
 	switch cmd {
 	case "heartbeat":
 		event := fs.String("event", "", "Codex notification JSON")
-		note := fs.String("note", "", "heartbeat note")
 		if err := fs.Parse(args); err != nil {
 			return exitUsage
 		}
 		action = func(ctx context.Context, m *client.MCP, task string) error {
-			return heartbeat(ctx, m, task, *note, *event)
+			return heartbeat(ctx, m, task, *event)
 		}
 	case "status":
 		status := fs.String("status", "in_progress", "in_progress or blocked")
@@ -147,15 +146,8 @@ func loadEnv(getenv func(string) string) (env, error) {
 	return e, nil
 }
 
-func heartbeat(ctx context.Context, m *client.MCP, task, note, event string) error {
-	args := map[string]any{}
-	if task != "" {
-		args["task_id"] = task
-	}
-	if note != "" {
-		args["note"] = note
-	}
-	if err := m.Call(ctx, "heartbeat", args, nil); err != nil {
+func heartbeat(ctx context.Context, m *client.MCP, task, event string) error {
+	if _, err := m.Heartbeat(ctx, task); err != nil {
 		return err
 	}
 	if event == "" || task == "" {

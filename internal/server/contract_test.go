@@ -24,7 +24,7 @@ var (
 	contractLineCmt  = regexp.MustCompile(`(^|\s)//.*$`)
 	contractBlockCmt = regexp.MustCompile(`/\*.*?\*/`)
 	contractToken    = regexp.MustCompile("`([^`]+)`")
-	contractEventRe  = regexp.MustCompile(`^(hello|lagged|[a-z]+\.[a-z]+)$`)
+	contractEventRe  = regexp.MustCompile(`^(hello|lagged|resync|[a-z]+\.[a-z]+)$`)
 	contractToolRe   = regexp.MustCompile(`^[a-z][a-z_]*$`)
 )
 
@@ -316,6 +316,10 @@ func TestContractSSEEventsEmitted(t *testing.T) {
 	}
 	lagged := &contractStream{seen: map[string]bool{}}
 	go lagged.read(slow.Body)
+
+	resumed := e.contractEvents(ctx, "all&last_event_id=999999999")
+	defer func() { _ = resumed.Body.Close() }()
+	go lagged.read(resumed.Body)
 
 	e.contractEmitAll()
 

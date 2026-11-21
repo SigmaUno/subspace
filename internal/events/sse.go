@@ -4,6 +4,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"strconv"
 	"strings"
@@ -82,6 +83,21 @@ func TopicsFromQuery(r *http.Request) []string {
 	return out
 }
 
+func lastEventID(r *http.Request) (int64, bool, error) {
+	v := r.URL.Query().Get("last_event_id")
+	if v == "" {
+		v = r.Header.Get("Last-Event-ID")
+	}
+	if v == "" {
+		return 0, false, nil
+	}
+	n, err := strconv.ParseInt(v, 10, 64)
+	if err != nil || n < 0 {
+		return 0, false, errors.New("invalid last event id")
+	}
+	return n, true, nil
+}
+
 func SSEHandler(h Hub, topics func(*http.Request) []string) http.Handler {
 	return NewSSEHandler(h, topics, DefaultPingInterval)
 }
@@ -94,15 +110,36 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		ping = DefaultPingInterval
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		after, resuming, err := lastEventID(r)
+		if err != nil {
+			w.Header().Set("Content-Type", "application/json")
+			w.WriteHeader(http.StatusBadRequest)
+			_, _ = w.Write([]byte(`{"error":{"code":"bad_request","message":"invalid last event id"}}` + "\n"))
+			return
+		}
 		rc := http.NewResponseController(w)
 		shutdown := shutdownFrom(r.Context())
-		sub := h.Subscribe(topics(r))
-		defer sub.Close()
 
-		var seq int64
-		if s, ok := h.(seqer); ok {
-			seq = s.Seq()
+		var (
+			sub     Subscription
+			seq     int64
+			helloID int64
+			resume  Resumed
+		)
+		if rs, ok := h.(Resumer); ok && resuming {
+			resume = rs.Resume(topics(r), after)
+			sub, seq, helloID = resume.Sub, resume.Seq, -1
+			if resume.Resync {
+				helloID = seq
+			}
+		} else {
+			sub = h.Subscribe(topics(r))
+			if s, ok := h.(seqer); ok {
+				seq = s.Seq()
+			}
+			helloID = seq
 		}
+		defer sub.Close()
 
 		hd := w.Header()
 		hd.Set("Content-Type", "text/event-stream")
@@ -126,8 +163,18 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			return nil
 		}
 
-		if _, err := bw.Write(encodeFrame(seq, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
+		if _, err := bw.Write(encodeFrame(helloID, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
 			return
+		}
+		if resume.Resync {
+			if _, err := bw.Write(encodeFrame(seq, "resync", time.Now(), map[string]int64{"seq": seq})); err != nil {
+				return
+			}
+		}
+		for i := range resume.Replay {
+			if _, err := bw.Write(resume.Replay[i].frame()); err != nil {
+				return
+			}
 		}
 		if err := flush(); err != nil {
 			return

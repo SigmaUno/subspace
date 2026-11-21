@@ -526,7 +526,7 @@ Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `p
 
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/events?topics=` | → `text/event-stream` (owner token header) |
+| GET | `/api/v1/events?topics=&last_event_id=` | → `text/event-stream` (owner token header) |
 
 (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
 Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`.
@@ -537,7 +537,11 @@ id: 1234
 event: task.updated
 data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 ```
-`id` is a per-server monotonic sequence. Replay is not guaranteed: on reconnect, refetch state, then follow the stream. First event is always `hello` (`{"seq":1234}`).
+`id` is a per-server monotonic sequence. First event is always `hello` (`{"seq":1234}`).
+
+Resume: the server keeps the last `SUBSPACE_SSE_REPLAY` published events (default `10000`, `0` disables) in memory. A client that reconnects with the `Last-Event-ID` header or `?last_event_id=<id>` (the query wins when both are set) first receives `hello`, then every retained event after that id that matches the requested topics, in order, then the live stream, without gaps or duplicates. On a resumed connection `hello` has no `id`, so the client's last id stays unchanged. A non-integer or negative id is a 400 `bad_request`.
+
+When the id is older than the oldest retained event, or newer than the server's current sequence (for example after a restart), nothing is replayed. The server sends one `resync` event (`{"seq":n}`, `id` = current sequence) right after `hello`, and the client must refetch its state before following the stream. Without a last id, refetch state on connect as before. The buffer is per process and not persisted. Events dropped by a `lagged` overflow can be recovered by reconnecting with the last received id.
 
 | type | data | topics |
 |---|---|---|
@@ -550,6 +554,7 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `spawn.updated` | Spawn | agents, brief:* |
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
+| `resync` | `{"seq":n}` — a resume could not be served; refetch | all |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
 On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.

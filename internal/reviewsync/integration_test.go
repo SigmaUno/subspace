@@ -1,6 +1,7 @@
 package reviewsync_test
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -267,6 +268,13 @@ func TestCommentIdsPersistAcrossServerRestart(t *testing.T) {
 	r.review(id, "changes_requested", "first round")
 	r.gh.wait(t, "first comment", func() bool { return r.gh.posts == 1 })
 	cid, _ := r.gh.only(t)
+	st := r.e.Srv.Store.(interface {
+		ReviewComment(ctx context.Context, taskID string) (string, int64, int64, string, bool, error)
+	})
+	r.gh.wait(t, "comment id stored", func() bool {
+		_, got, _, _, ok, err := st.ReviewComment(context.Background(), id)
+		return err == nil && ok && got == cid
+	})
 
 	r.e.TS.Close()
 	if err := r.e.Srv.Close(); err != nil {

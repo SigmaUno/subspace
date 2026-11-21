@@ -139,7 +139,7 @@ func (p *Poller) SyncOnce(ctx context.Context) error {
 	now := p.clock.Now()
 	tasks = slices.DeleteFunc(tasks, func(t *model.Task) bool {
 		r := p.retries[t.ID]
-		return t.PRURL == nil || *t.PRURL == "" || (r != nil && now.Before(r.next))
+		return t.PRURL == nil || *t.PRURL == "" || p.unregistered(t.Repo) || (r != nil && now.Before(r.next))
 	})
 	slices.SortStableFunc(tasks, func(a, b *model.Task) int { return p.lastChecked(a.ID).Compare(p.lastChecked(b.ID)) })
 	var errs []error
@@ -153,6 +153,14 @@ func (p *Poller) SyncOnce(ctx context.Context) error {
 	}
 	p.f.prune(now.Add(-10 * p.cfg.Interval))
 	return errors.Join(errs...)
+}
+
+func (p *Poller) unregistered(repo string) bool {
+	if !p.cfg.Strict {
+		return false
+	}
+	_, ok := p.cfg.Repos[strings.ToLower(repo)]
+	return !ok
 }
 
 func (p *Poller) lastChecked(taskID string) time.Time {

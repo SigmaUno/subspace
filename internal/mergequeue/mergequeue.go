@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -92,26 +94,16 @@ type Queue struct {
 	cfg  Config
 	mu   sync.Mutex
 	busy map[string]bool
+
+	rmu sync.RWMutex
 }
 
 func New(cfg Config) (*Queue, error) {
 	if cfg.WorkDir == "" || cfg.Store == nil || cfg.Notifier == nil || cfg.Gate == nil || cfg.Tasks == nil {
 		return nil, errors.New("mergequeue: WorkDir, Store, Notifier, Gate and Tasks are required")
 	}
-	for name, rc := range cfg.Repos {
-		if rc.Remote == "" || len(rc.Verify) == 0 {
-			return nil, fmt.Errorf("mergequeue: repo %q needs Remote and Verify", name)
-		}
-		if rc.MaxTrain < 0 {
-			return nil, fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
-		}
-		if rc.MaxTrain > 0 && cfg.Trains == nil {
-			ts, ok := cfg.Store.(TrainStore)
-			if !ok {
-				return nil, fmt.Errorf("mergequeue: repo %q uses merge trains but no TrainStore is configured", name)
-			}
-			cfg.Trains = ts
-		}
+	if err := cfg.checkRepos(cfg.Repos); err != nil {
+		return nil, err
 	}
 	if cfg.Runner == nil {
 		cfg.Runner = ExecRunner{}
@@ -125,8 +117,66 @@ func New(cfg Config) (*Queue, error) {
 	return &Queue{cfg: cfg, busy: map[string]bool{}}, nil
 }
 
+func (c *Config) checkRepos(repos map[string]RepoConfig) error {
+	for name, rc := range repos {
+		if rc.Remote == "" || len(rc.Verify) == 0 {
+			return fmt.Errorf("mergequeue: repo %q needs Remote and Verify", name)
+		}
+		if rc.MaxTrain < 0 {
+			return fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
+		}
+		if rc.MaxTrain > 0 && c.Trains == nil {
+			ts, ok := c.Store.(TrainStore)
+			if !ok {
+				return fmt.Errorf("mergequeue: repo %q uses merge trains but no TrainStore is configured", name)
+			}
+			c.Trains = ts
+		}
+	}
+	return nil
+}
+
+func (q *Queue) Reconfigure(repos map[string]RepoConfig, fin Finisher) error {
+	q.rmu.Lock()
+	defer q.rmu.Unlock()
+	next := q.cfg
+	if err := next.checkRepos(repos); err != nil {
+		return err
+	}
+	if q.cfg.Trains == nil {
+		q.cfg.Trains = next.Trains
+	}
+	q.cfg.Repos = repos
+	q.cfg.Finisher = fin
+	return nil
+}
+
+func (q *Queue) repo(name string) (RepoConfig, bool) {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	rc, ok := q.cfg.Repos[name]
+	return rc, ok
+}
+
+func (q *Queue) repoNames() []string {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	return slices.Collect(maps.Keys(q.cfg.Repos))
+}
+
+func (q *Queue) finisher() Finisher {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	return q.cfg.Finisher
+}
+
+func (q *Queue) Configured(name string) bool {
+	_, ok := q.repo(name)
+	return ok
+}
+
 func (q *Queue) Enqueue(ctx context.Context, c Candidate) (Candidate, error) {
-	if _, ok := q.cfg.Repos[c.Repo]; !ok {
+	if !q.Configured(c.Repo) {
 		return Candidate{}, model.BadRequest("mergequeue: repo %q is not configured", c.Repo)
 	}
 	if c.PR <= 0 || c.TaskID == "" {
@@ -161,7 +211,7 @@ func (q *Queue) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
-		for repo := range q.cfg.Repos {
+		for _, repo := range q.repoNames() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -185,7 +235,7 @@ func (q *Queue) Run(ctx context.Context, interval time.Duration) {
 }
 
 func (q *Queue) Process(ctx context.Context, repo string) (*Candidate, error) {
-	rc, ok := q.cfg.Repos[repo]
+	rc, ok := q.repo(repo)
 	if !ok {
 		return nil, model.BadRequest("mergequeue: repo %q is not configured", repo)
 	}
@@ -290,10 +340,11 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 }
 
 func (q *Queue) finish(ctx context.Context, c *Candidate, sha string) string {
-	if q.cfg.Finisher == nil {
+	fin := q.finisher()
+	if fin == nil {
 		return ""
 	}
-	err := q.cfg.Finisher.Merged(context.WithoutCancel(ctx), c.Repo, c.PR, sha)
+	err := fin.Merged(context.WithoutCancel(ctx), c.Repo, c.PR, sha)
 	if err == nil {
 		return ""
 	}

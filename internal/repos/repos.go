@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/redact"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -267,9 +268,18 @@ func hostOf(raw string) string {
 	return u.Host
 }
 
+const ChangedEvent = "repos.changed"
+
 type Store struct {
 	St  store.Store
 	Now func() time.Time
+	Pub events.Publisher
+}
+
+func (s *Store) changed(action, name string) {
+	if s.Pub != nil {
+		s.Pub.Publish([]string{"control"}, ChangedEvent, map[string]string{"action": action, "name": name})
+	}
 }
 
 type sqlTx interface {
@@ -429,6 +439,9 @@ func (s *Store) Create(ctx context.Context, r Repo) (Repo, error) {
 		}
 		return s.audit(ctx, tx, "create_repo", nil, &r)
 	})
+	if err == nil {
+		s.changed("create", r.Name)
+	}
 	return r, err
 }
 
@@ -457,15 +470,20 @@ func (s *Store) Update(ctx context.Context, name string, r Repo) (Repo, error) {
 		out = r
 		return s.audit(ctx, tx, "update_repo", old, &r)
 	})
+	if err == nil {
+		s.changed("update", out.Name)
+	}
 	return out, err
 }
 
 func (s *Store) Delete(ctx context.Context, name string) error {
-	return s.St.Atomic(ctx, func(tx store.Tx) error {
+	var deleted string
+	err := s.St.Atomic(ctx, func(tx store.Tx) error {
 		old, err := load(tx, name)
 		if err != nil {
 			return err
 		}
+		deleted = old.Name
 		q, err := sqlOf(tx)
 		if err != nil {
 			return err
@@ -475,6 +493,10 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 		}
 		return s.audit(ctx, tx, "delete_repo", old, nil)
 	})
+	if err == nil {
+		s.changed("delete", deleted)
+	}
+	return err
 }
 
 func (s *Store) Check(tx store.Tx, repo, branch string) error {

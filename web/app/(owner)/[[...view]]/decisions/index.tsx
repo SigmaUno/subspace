@@ -34,9 +34,14 @@ function DecisionCard({ item, acting, next, openThread }: {
   const [text, setText] = useState("");
   const question = item.kind === "question";
   const unblock = item.kind === "unblock";
-  const primary = question ? "Answer" : unblock ? "Unblock" : "Approve";
-  const allowReject = !question && !unblock;
-  const pr = diffURL(item.pr_url);
+  const actions = item.actions ?? [];
+  const primaryAction = question ? "answer" : unblock ? "unblock" : item.kind === "plan" ? "approve"
+    : actions.includes("enqueue") ? "enqueue" : actions.includes("merge") ? "merge" : undefined;
+  const primary = { answer: "Answer", unblock: "Unblock", approve: "Approve", enqueue: "Queue merge", merge: "Mark merged" }[primaryAction ?? "approve"];
+  const markMerged = primaryAction === "enqueue" && actions.includes("merge");
+  const allowReject = actions.includes("reject");
+  const pr = diffURL(item.links?.pr ?? item.pr_url);
+  const summary = item.summary ?? item.body;
   const thread = useMemo(() => decisionThread({ task_id: item.task_id, agent_id: item.agent_id, brief_id: item.brief_id }),
     [item.task_id, item.agent_id, item.brief_id]);
 
@@ -49,7 +54,7 @@ function DecisionCard({ item, acting, next, openThread }: {
         (target instanceof HTMLElement && (target.isContentEditable || /^(INPUT|TEXTAREA|SELECT)$/.test(target.tagName)))) return;
       if (busy || !(target instanceof HTMLElement) || !form.current?.closest("aside")?.contains(target)) return;
       const key = event.key.toLowerCase();
-      if (key === "a") {
+      if (key === "a" && primaryAction) {
         event.preventDefault();
         if (question) response.current?.focus();
         else form.current?.requestSubmit();
@@ -64,17 +69,18 @@ function DecisionCard({ item, acting, next, openThread }: {
     }
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [allowReject, busy, item.id, next, openThread, question, text, thread]);
+  }, [allowReject, busy, item.id, next, openThread, primaryAction, question, text, thread]);
 
   function decide(event: FormEvent<HTMLFormElement>) {
     const button = (event.nativeEvent as SubmitEvent).submitter;
-    const reject = button instanceof HTMLButtonElement && button.value === "reject";
+    const chosen = button instanceof HTMLButtonElement && button.value ? button.value : primaryAction;
+    const reject = chosen === "reject";
     void submit(event, async (fields) => {
       const detail = value(fields, "response");
       if ((question || reject) && !detail) throw new Error(question ? "Enter an answer." : "Enter a rejection reason.");
-      const action = question ? "answer" : unblock ? "unblock" : reject ? "reject" : "approve";
+      if (!chosen) throw new Error("This decision has no action; skip it.");
       await api(`decisions/${encodeURIComponent(item.id)}`, "POST", {
-        action,
+        action: chosen,
         ...(question ? { answer: detail } : { note: detail }),
       });
       acting(item.id);
@@ -84,7 +90,7 @@ function DecisionCard({ item, acting, next, openThread }: {
   return <article className="stack">
     <div className="meta">{labels[item.kind] ?? item.kind}{item.brief_id && ` · ${item.brief_id}`}{item.task_id && ` · ${item.task_id}`}</div>
     <h3 tabIndex={-1} ref={heading}>{item.title}</h3>
-    {item.body && <p className="preserve">{item.body}</p>}
+    {summary && <p className="preserve">{summary}</p>}
     {item.task_id && ["merge", "merge-ready"].includes(String(item.kind)) && <DecisionGates taskID={item.task_id} />}
     <div className="actions">
       {thread && <button type="button" onClick={() => openThread(thread)}>Open thread <kbd>T</kbd></button>}
@@ -100,7 +106,8 @@ function DecisionCard({ item, acting, next, openThread }: {
       <Feedback error={error} />
     </form>
     <div className="actions decision-bar" data-write>
-      <button type="submit" form={formID} className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
+      {primaryAction && <button type="submit" form={formID} className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>}
+      {markMerged && <button type="submit" form={formID} value="merge" disabled={busy}>Mark merged</button>}
       {allowReject && <button type="submit" form={formID} className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
       <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>
     </div>

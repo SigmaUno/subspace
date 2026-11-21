@@ -2,6 +2,7 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"net/url"
 	"strings"
@@ -874,13 +875,18 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 		if err != nil {
 			return err
 		}
-		agents, err := tx.ListAgents(store.AgentFilter{Limit: 100000})
-		if err != nil {
-			return err
-		}
-		providers := make(map[string]string, len(agents))
-		for _, ag := range agents {
-			providers[ag.ID] = ag.Provider
+		providers := map[string]string{}
+		provider := func(id string) (string, error) {
+			if p, ok := providers[id]; ok || id == "" {
+				return p, nil
+			}
+			ag, err := tx.GetAgent(id)
+			if errors.Is(err, store.ErrNotFound) {
+				err = nil
+			} else if err == nil {
+				providers[id] = ag.Provider
+			}
+			return providers[id], err
 		}
 		allowed := map[string]bool{}
 		for _, t := range ts {
@@ -899,7 +905,11 @@ func (b *Board) ListReviews(ctx context.Context, a model.Actor) ([]*model.Task, 
 			if !ok {
 				continue
 			}
-			if p := providers[deref(t.Assignee)]; p != "" && p == me.Provider {
+			p, err := provider(deref(t.Assignee))
+			if err != nil {
+				return err
+			}
+			if p != "" && p == me.Provider {
 				continue
 			}
 			out = append(out, b.overlay(t))

@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"errors"
 	"regexp"
 	"strings"
 	"time"
@@ -216,13 +217,22 @@ func (r *resolver) scan() {
 		return
 	}
 	r.inProgress = ts
-	as, err := r.tx.ListAgents(store.AgentFilter{Limit: maxScannedTasks})
-	if err != nil {
-		r.fail(err)
-		return
-	}
-	r.providers = make(map[string]string, len(as))
-	for _, a := range as {
+	r.providers = map[string]string{}
+	for _, t := range ts {
+		if t.Assignee == nil {
+			continue
+		}
+		if _, ok := r.providers[*t.Assignee]; ok {
+			continue
+		}
+		a, err := r.tx.GetAgent(*t.Assignee)
+		if errors.Is(err, store.ErrNotFound) {
+			continue
+		}
+		if err != nil {
+			r.fail(err)
+			return
+		}
 		r.providers[a.ID] = a.Provider
 	}
 }

@@ -187,7 +187,7 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 	if snap.Tasks, err = s.b.ListTasks(ctx, board.TaskQuery{Status: statuses, Limit: 100000}); err != nil {
 		return snap, err
 	}
-	if snap.Agents, err = s.b.ListAgents(ctx, "", ""); err != nil {
+	if snap.Agents, err = s.b.ListAgents(ctx, "", model.AgentActive); err != nil {
 		return snap, err
 	}
 	c, err := s.b.Capacity(ctx)

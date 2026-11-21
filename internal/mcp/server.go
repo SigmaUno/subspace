@@ -65,6 +65,7 @@ type Server struct {
 	Hooks      Hooks
 	OwnerToken string
 	Now        func() time.Time
+	Push       *Push
 
 	mu       sync.Mutex
 	sessions map[string]session
@@ -91,7 +92,7 @@ func (s *Server) newSession(agent string) string {
 	}
 	live := s.pruneLocked(agent, now)
 	for len(live) >= maxSessionsPer {
-		delete(s.sessions, live[0])
+		s.forgetLocked(live[0])
 		live = live[1:]
 	}
 	s.sessions[id] = session{agent: agent, created: now}
@@ -106,7 +107,7 @@ func (s *Server) pruneLocked(agent string, now time.Time) []string {
 		if ss, ok := s.sessions[sid]; ok && now.Sub(ss.created) < sessionTTL {
 			live = append(live, sid)
 		} else {
-			delete(s.sessions, sid)
+			s.forgetLocked(sid)
 		}
 	}
 	if len(live) == 0 {
@@ -115,6 +116,13 @@ func (s *Server) pruneLocked(agent string, now time.Time) []string {
 	}
 	s.byAgent[agent] = live
 	return live
+}
+
+func (s *Server) forgetLocked(sid string) {
+	delete(s.sessions, sid)
+	if s.Push != nil {
+		s.Push.Drop(sid)
+	}
 }
 
 func (s *Server) sessionOK(id, agent string) bool {
@@ -131,7 +139,7 @@ func (s *Server) dropSession(id, agent string) bool {
 	if !ok || ss.agent != agent {
 		return false
 	}
-	delete(s.sessions, id)
+	s.forgetLocked(id)
 	s.byAgent[agent] = slices.DeleteFunc(s.byAgent[agent], func(sid string) bool { return sid == id })
 	if len(s.byAgent[agent]) == 0 {
 		delete(s.byAgent, agent)
@@ -152,8 +160,13 @@ func tokenExpired(w http.ResponseWriter) {
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
-		w.Header().Set("Allow", "POST, DELETE")
+	stream := r.Method == http.MethodGet && s.Push != nil
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete && !stream {
+		allow := "POST, DELETE"
+		if s.Push != nil {
+			allow = "GET, POST, DELETE"
+		}
+		w.Header().Set("Allow", allow)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -180,6 +193,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := r.Header.Get("Mcp-Session-Id")
+	if stream {
+		s.serveStream(w, r, sid, agent.ID)
+		return
+	}
 	if r.Method == http.MethodDelete {
 		if sid == "" || !s.dropSession(sid, agent.ID) {
 			http.Error(w, "unknown session", http.StatusNotFound)
@@ -217,7 +234,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Mcp-Session-Id", s.newSession(agent.ID))
 		resp.Result = map[string]any{
 			"protocolVersion": ProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+			"capabilities":    s.capabilities(),
 			"serverInfo":      map[string]any{"name": "subspace", "version": "0.1.0"},
 		}
 	case "ping":
@@ -230,6 +247,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Result = map[string]any{"tools": tools}
 	case "tools/call":
 		resp.Result, resp.Error = s.call(r.Context(), agent, req.Params)
+	case "resources/list", "resources/templates/list", "resources/subscribe", "resources/unsubscribe":
+		if s.Push == nil {
+			resp.Error = &rpcErr{-32601, "method not found"}
+			break
+		}
+		resp.Result, resp.Error = s.resources(r.Context(), req.Method, sid, agent.ID, req.Params)
 	default:
 		resp.Error = &rpcErr{-32601, "method not found"}
 	}

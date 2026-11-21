@@ -64,6 +64,7 @@ const (
 var operations = []Op{
 	get("/healthz", "Liveness, version and pause flag", Health{}).Open(),
 	post("/mcp", "MCP streamable HTTP endpoint (JSON-RPC 2.0). The bearer is an agent token; the owner token is rejected", RPCRequest{}, RPCResponse{}).H("Mcp-Session-Id"),
+	get("/mcp", "Server push stream of an MCP session (Streamable HTTP, text/event-stream): JSON-RPC notifications for tool list changes, subscribed resources and Subspace wake events. A second stream on the same session replaces the first", "").H("Mcp-Session-Id! Last-Event-ID").As(mediaSSE),
 	del("/mcp", "End an MCP session", nil).H("Mcp-Session-Id!").S(gone),
 	get("/a/{token}", "Render the confirmation page of an action link; never performs the action", "").As(mediaHTML).Open(),
 	post("/a/{token}", "Perform the action of a one-time action link", nil, "").Body(mediaForm, ActionForm{}).As(mediaHTML).Open(),

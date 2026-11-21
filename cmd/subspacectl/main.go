@@ -73,6 +73,8 @@ Commands:
   tasks show TASK_ID
   tasks pr|scope|gates TASK_ID
   tasks override-gates TASK_ID --reason TEXT [--gates checks,tests]
+  tasks transcript TASK_ID [--since OFFSET] [--limit N] [--at TIME] [--q TEXT]
+  tasks transcript-download TASK_ID --out FILE
   tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all
@@ -105,6 +107,10 @@ Commands:
             [--token-env VAR] [--disabled]
   repos update OWNER/NAME [--host H] [--base-url URL] [--default-branch BRANCH] [--protect PATTERN ...]
                [--merge-test CMD] [--merge-workdir DIR] [--token-env VAR] [--enabled=false]
+  gateways list
+  gateways show|tools|remove|enable|disable NAME
+  gateways add --file FILE
+  gateways update NAME --file FILE
   spawns list [--brief ID]
   spawns stop SPAWN_ID [--reason TEXT]
   autopilot status
@@ -145,6 +151,17 @@ Commands:
   schedules edit SCHEDULE_ID --file FILE
   schedules runs SCHEDULE_ID [--limit N]
   schedules preview --cron EXPR [--timezone TZ] [--count N]
+  policies list|facts
+  policies show|versions|delete POLICY_ID
+  policies create --file FILE
+  policies update POLICY_ID --file FILE
+  policies lint --file FILE
+  policies evaluate --action ACTION [--actor ID] [--task ID] [--agent ID] [--brief ID] [--plan ID]
+                    [--at TIME] [--fact name=JSON ...] [--policy FILE]
+  policies decisions [--outcome O] [--action A] [--task-id ID] [--limit N]
+  policies holds [--status S] [--limit N]
+  policies hold HOLD_ID
+  policies approve|reject HOLD_ID [--note TEXT]
   incident list [--limit N]
   incident start --reason TEXT --actions pause_all,revoke_agents,rotate_leader_tokens,snapshot,notify
                  [--revoke-role ROLE] [--revoke-provider NAME]
@@ -327,6 +344,7 @@ func registry() map[string]entry {
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
 		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
 		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
+		"gateways":     {parse: grouped("gateways", gatewayCommands), subs: names(gatewayCommands)},
 		"playbooks":    {parse: grouped("playbooks", playbookCommands), subs: names(playbookCommands)},
 		"ha":           {parse: grouped("ha", haCommands), subs: names(haCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
@@ -344,6 +362,7 @@ func registry() map[string]entry {
 		"join-snippet":   {parse: byID("join-snippet", "agents/%s/connect")},
 		"completion":     {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}, local: true},
 		"schedules":      {parse: grouped("schedules", scheduleCommands), subs: names(scheduleCommands)},
+		"policies":       {parse: grouped("policies", policyCommands), subs: names(policyCommands)},
 		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
 		"drills":         {parse: grouped("drills", drillCommands), subs: names(drillCommands)},
 		"costs":          {parse: parseCosts},

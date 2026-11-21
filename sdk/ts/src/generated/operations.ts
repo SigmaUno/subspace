@@ -30,6 +30,13 @@ export function deleteBotsById(
   return r.request("DELETE", "/api/v1/bots/{id}", { ...args, response: "json" });
 }
 
+export function deleteGatewaysByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/gateways/{name}", { ...args, response: "none" });
+}
+
 export function deleteKnowledgeById(
   r: Requester,
   args: { path: { id: string } },
@@ -49,6 +56,13 @@ export function deletePlaybooksByName(
   args: { path: { name: string } },
 ): Promise<void> {
   return r.request("DELETE", "/api/v1/playbooks/{name}", { ...args, response: "none" });
+}
+
+export function deletePoliciesById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/policies/{id}", { ...args, response: "none" });
 }
 
 export function deletePushSubscriptions(
@@ -389,6 +403,26 @@ export function getDrills(
   return r.request("GET", "/api/v1/drills", { ...args, response: "json" });
 }
 
+export function getGateways(
+  r: Requester,
+): Promise<T.List> {
+  return r.request("GET", "/api/v1/gateways", { response: "json" });
+}
+
+export function getGatewaysByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<T.Gateway> {
+  return r.request("GET", "/api/v1/gateways/{name}", { ...args, response: "json" });
+}
+
+export function getGatewaysByNameTools(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<T.Tools> {
+  return r.request("GET", "/api/v1/gateways/{name}/tools", { ...args, response: "json" });
+}
+
 export function getHa(
   r: Requester,
 ): Promise<T.HAStatus> {
@@ -589,6 +623,53 @@ export function getPlaybooksByName(
   return r.request("GET", "/api/v1/playbooks/{name}", { ...args, response: "json" });
 }
 
+export function getPolicies(
+  r: Requester,
+): Promise<{ policies: T.Policy[] | null }> {
+  return r.request("GET", "/api/v1/policies", { response: "json" });
+}
+
+export function getPoliciesById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.Policy> {
+  return r.request("GET", "/api/v1/policies/{id}", { ...args, response: "json" });
+}
+
+export function getPoliciesByIdVersions(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<{ versions: T.Version[] | null }> {
+  return r.request("GET", "/api/v1/policies/{id}/versions", { ...args, response: "json" });
+}
+
+export function getPoliciesDecisions(
+  r: Requester,
+  args?: { query?: { outcome?: string; action?: string; task_id?: string; before?: number; limit?: number } },
+): Promise<{ decisions: T.PolicyDecision[] | null }> {
+  return r.request("GET", "/api/v1/policies/decisions", { ...args, response: "json" });
+}
+
+export function getPoliciesFacts(
+  r: Requester,
+): Promise<T.PolicyFacts> {
+  return r.request("GET", "/api/v1/policies/facts", { response: "json" });
+}
+
+export function getPolicyHolds(
+  r: Requester,
+  args?: { query?: { status?: string; limit?: number } },
+): Promise<{ holds: T.Hold[] | null }> {
+  return r.request("GET", "/api/v1/policy-holds", { ...args, response: "json" });
+}
+
+export function getPolicyHoldsById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.Hold> {
+  return r.request("GET", "/api/v1/policy-holds/{id}", { ...args, response: "json" });
+}
+
 export function getPrompts(
   r: Requester,
   args?: { query?: { tag?: string } },
@@ -754,6 +835,20 @@ export function getTasksByIdScope(
   args: { path: { id: string } },
 ): Promise<T.ScopeStatus> {
   return r.request("GET", "/api/v1/tasks/{id}/scope", { ...args, response: "json" });
+}
+
+export function getTasksByIdTranscript(
+  r: Requester,
+  args: { path: { id: string }; query?: { since?: number; limit?: number; at?: string; q?: string } },
+): Promise<T.TranscriptPage> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript", { ...args, response: "json" });
+}
+
+export function getTasksByIdTranscriptDownload(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<string> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript/download", { ...args, response: "text" });
 }
 
 export function getThreadsByKindByIdMessages(
@@ -1013,6 +1108,13 @@ export function postDrills(
   return r.request("POST", "/api/v1/drills", { ...args, response: "json" });
 }
 
+export function postGateways(
+  r: Requester,
+  args: { body: T.GatewayInput },
+): Promise<T.Gateway> {
+  return r.request("POST", "/api/v1/gateways", { ...args, response: "json" });
+}
+
 export function postHillclimbJobs(
   r: Requester,
   args: { body: T.HillclimbCreate },
@@ -1130,6 +1232,41 @@ export function postPlaybooksByNameClone(
   args: { path: { name: string }; body: T.PlaybookClone },
 ): Promise<T.Playbook> {
   return r.request("POST", "/api/v1/playbooks/{name}/clone", { ...args, response: "json" });
+}
+
+export function postPolicies(
+  r: Requester,
+  args: { body: T.Document },
+): Promise<T.Policy> {
+  return r.request("POST", "/api/v1/policies", { ...args, response: "json" });
+}
+
+export function postPoliciesEvaluate(
+  r: Requester,
+  args: { body: T.DryRunInput },
+): Promise<T.DryRunResult> {
+  return r.request("POST", "/api/v1/policies/evaluate", { ...args, response: "json" });
+}
+
+export function postPoliciesLint(
+  r: Requester,
+  args: { body: T.Document },
+): Promise<T.PolicyLint> {
+  return r.request("POST", "/api/v1/policies/lint", { ...args, response: "json" });
+}
+
+export function postPolicyHoldsByIdApprove(
+  r: Requester,
+  args: { path: { id: string }; body?: T.PolicyHoldDecision },
+): Promise<T.Hold> {
+  return r.request("POST", "/api/v1/policy-holds/{id}/approve", { ...args, response: "json" });
+}
+
+export function postPolicyHoldsByIdReject(
+  r: Requester,
+  args: { path: { id: string }; body?: T.PolicyHoldDecision },
+): Promise<T.Hold> {
+  return r.request("POST", "/api/v1/policy-holds/{id}/reject", { ...args, response: "json" });
 }
 
 export function postPushSubscriptions(
@@ -1314,6 +1451,13 @@ export function putCharter(
   return r.request("PUT", "/api/v1/charter", { ...args, response: "json" });
 }
 
+export function putGatewaysByName(
+  r: Requester,
+  args: { path: { name: string }; body: T.GatewayInput },
+): Promise<T.Gateway> {
+  return r.request("PUT", "/api/v1/gateways/{name}", { ...args, response: "json" });
+}
+
 export function putInstructionsByScopeByKind(
   r: Requester,
   args: { path: { scope: string; kind: string }; body: T.InstructionSave },
@@ -1340,6 +1484,13 @@ export function putPlaybooksByName(
   args: { path: { name: string }; body: T.PlaybookInput },
 ): Promise<T.Playbook> {
   return r.request("PUT", "/api/v1/playbooks/{name}", { ...args, response: "json" });
+}
+
+export function putPoliciesById(
+  r: Requester,
+  args: { path: { id: string }; body: T.Document },
+): Promise<T.Policy> {
+  return r.request("PUT", "/api/v1/policies/{id}", { ...args, response: "json" });
 }
 
 export function putReposByOwnerByName(

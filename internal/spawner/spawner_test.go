@@ -178,7 +178,7 @@ func TestHCRunnerErrorRedacted(t *testing.T) {
 }
 
 func TestDocker(t *testing.T) {
-	d := Docker{}
+	d := &Docker{}
 	if err := d.Spawn(context.Background(), testRequest()); !errors.Is(err, ErrNotImplemented) {
 		t.Fatalf("err %v", err)
 	}

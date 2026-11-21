@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/doctor"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func TestSchedulesLifecycle(t *testing.T) {
@@ -86,6 +87,12 @@ func TestIncidentStartAndEnd(t *testing.T) {
 
 func TestDrillsRunAndList(t *testing.T) {
 	h := newHarness(t)
+	if testdb.Postgres() {
+		if ran := h.object("drills", "run"); ran["status"] != "unsupported" {
+			t.Fatalf("run = %v", ran)
+		}
+		return
+	}
 	h.fails(exitFailure, "drills", "run")
 	h.object("backups", "create")
 	ran := h.object("drills", "run")

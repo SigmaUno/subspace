@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/backup"
+	"github.com/SigmaUno/subspace/internal/backup/offsite"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -22,6 +23,7 @@ type StoreSource struct {
 	DataDir        string
 	DBSize         func(ctx context.Context) (int64, error)
 	BackupsEnabled bool
+	Offsite        bool
 	Backups        func(ctx context.Context) ([]backup.Info, error)
 	Paused         func() bool
 	SSE            *SSEMonitor
@@ -113,6 +115,9 @@ func (s *StoreSource) files(ctx context.Context, snap *Snapshot) {
 	if free, err := diskFree(dir); dir != "" && err == nil {
 		snap.DiskKnown, snap.DiskFree = true, free
 	}
+	if s.Offsite {
+		s.offsite(ctx, snap)
+	}
 	if !s.BackupsEnabled || s.Backups == nil {
 		return
 	}
@@ -123,4 +128,17 @@ func (s *StoreSource) files(ctx context.Context, snap *Snapshot) {
 	}
 	snap.LastBackup = list[0].CreatedAt
 	snap.BackupFailing = !list[0].Verified
+}
+
+func (s *StoreSource) offsite(ctx context.Context, snap *Snapshot) {
+	snap.OffsiteEnabled = true
+	snap.LastOffsite = s.Started
+	state, err := offsite.LoadState(ctx, s.Store)
+	if err != nil {
+		return
+	}
+	if _, rec, ok := state.Newest(); ok && rec.UploadedAt.After(snap.LastOffsite) {
+		snap.LastOffsite = rec.UploadedAt
+	}
+	snap.OffsiteError = state.LastError
 }

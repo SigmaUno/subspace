@@ -11,7 +11,6 @@ import (
 	"net/http/httptest"
 	"net/netip"
 	"net/url"
-	"path/filepath"
 	"regexp"
 	"strconv"
 	"strings"
@@ -24,7 +23,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/notify"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 	"github.com/SigmaUno/subspace/internal/webhookout"
 )
 
@@ -112,11 +111,7 @@ type rig struct {
 
 func newRig(t *testing.T, rate ratelimit.Limit) *rig {
 	t.Helper()
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(t, testdb.Path(t, "t.db"))
 	push := newPushService(t)
 	r := &rig{st: st, push: push, clock: ratelimit.NewFakeClock(time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC))}
 	r.svc = r.service(t, true, rate)

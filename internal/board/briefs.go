@@ -257,55 +257,9 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		if err != nil {
 			return err
 		}
-		var transition func(store.Tx, *wctx, *model.Brief) error
-		if p.MaxCostEUR != nil {
-			if *p.MaxCostEUR < 0 {
-				return model.BadRequest("max_cost_eur must be >= 0")
-			}
-			br.Budget.MaxCostEUR = *p.MaxCostEUR
-		}
-		if p.MaxParallel != nil {
-			if *p.MaxParallel < 0 {
-				return model.BadRequest("max_parallel_agents must be >= 0")
-			}
-			br.Budget.MaxParallelAgent = *p.MaxParallel
-		}
-		if p.AllowedProviders != nil {
-			br.AllowedProviders = nz(*p.AllowedProviders)
-		}
-		if p.CrossReview != nil {
-			if !*p.CrossReview {
-				rules, err := b.rulesFor(tx, br.Playbook)
-				if err != nil {
-					return err
-				}
-				if rules != nil && rules.CrossReview {
-					return model.Conflict("playbook %s requires cross_review", br.Playbook)
-				}
-			}
-			br.CrossReview = *p.CrossReview
-		}
-		if p.AutoDoneOnMerge != nil {
-			br.AutoDoneOnMerge = *p.AutoDoneOnMerge
-		}
-		if p.QualityGates != nil {
-			if err := checkQualityGates(*p.QualityGates); err != nil {
-				return err
-			}
-			br.QualityGates = *p.QualityGates
-		}
-		if p.Status != nil {
-			if *p.Status != "open" && *p.Status != "closed" {
-				return model.BadRequest("status must be open or closed")
-			}
-			prev := br.Status
-			br.Status = *p.Status
-			if prev != br.Status {
-				transition = b.closeBrief
-				if br.Status == "open" {
-					transition = b.reopenBrief
-				}
-			}
+		transition, err := b.patchBrief(tx, br, p)
+		if err != nil {
+			return err
 		}
 		if err := tx.UpdateBrief(br); err != nil {
 			return err
@@ -331,6 +285,60 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		return w.audit(tx, model.Owner, "set_budget", "", nil, after, "")
 	})
 	return out, err
+}
+
+func (b *Board) patchBrief(tx store.Tx, br *model.Brief, p BriefPatch) (func(store.Tx, *wctx, *model.Brief) error, error) {
+	if p.MaxCostEUR != nil {
+		if *p.MaxCostEUR < 0 {
+			return nil, model.BadRequest("max_cost_eur must be >= 0")
+		}
+		br.Budget.MaxCostEUR = *p.MaxCostEUR
+	}
+	if p.MaxParallel != nil {
+		if *p.MaxParallel < 0 {
+			return nil, model.BadRequest("max_parallel_agents must be >= 0")
+		}
+		br.Budget.MaxParallelAgent = *p.MaxParallel
+	}
+	if p.AllowedProviders != nil {
+		br.AllowedProviders = nz(*p.AllowedProviders)
+	}
+	if p.CrossReview != nil {
+		if !*p.CrossReview {
+			rules, err := b.rulesFor(tx, br.Playbook)
+			if err != nil {
+				return nil, err
+			}
+			if rules != nil && rules.CrossReview {
+				return nil, model.Conflict("playbook %s requires cross_review", br.Playbook)
+			}
+		}
+		br.CrossReview = *p.CrossReview
+	}
+	if p.AutoDoneOnMerge != nil {
+		br.AutoDoneOnMerge = *p.AutoDoneOnMerge
+	}
+	if p.QualityGates != nil {
+		if err := checkQualityGates(*p.QualityGates); err != nil {
+			return nil, err
+		}
+		br.QualityGates = *p.QualityGates
+	}
+	if p.Status == nil {
+		return nil, nil
+	}
+	if *p.Status != "open" && *p.Status != "closed" {
+		return nil, model.BadRequest("status must be open or closed")
+	}
+	prev := br.Status
+	br.Status = *p.Status
+	switch {
+	case prev == br.Status:
+		return nil, nil
+	case br.Status == "open":
+		return b.reopenBrief, nil
+	}
+	return b.closeBrief, nil
 }
 
 type BoardView struct {
@@ -443,30 +451,9 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 			}
 			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
 		}
-		old, err := tx.ListPlans(store.PlanFilter{BriefID: br.ID, Status: model.PlanProposed})
+		superseded, err := b.supersedePlans(tx, w, br.ID)
 		if err != nil {
 			return err
-		}
-		superseded := []string{}
-		for _, p := range old {
-			ts, err := tx.ListTasks(store.TaskFilter{PlanID: p.ID, Limit: 100000})
-			if err != nil {
-				return err
-			}
-			for _, t := range ts {
-				if t.Status != model.StatusCancelled {
-					superseded = append(superseded, t.ID)
-				}
-				t.Status, t.UpdatedAt = model.StatusCancelled, b.now()
-				if err := tx.UpdateTask(t); err != nil {
-					return err
-				}
-				w.task(t, false)
-			}
-			p.Status = model.PlanSuperseded
-			if err := tx.UpdatePlan(p); err != nil {
-				return err
-			}
 		}
 		pid, err := tx.NextID("P")
 		if err != nil {
@@ -476,31 +463,9 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err := tx.InsertPlan(p); err != nil {
 			return err
 		}
-		refs := map[string]string{}
-
-		var tasks []*model.Task
-		for _, ti := range in.Tasks {
-			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID, Paths: ti.Paths}, pid, model.StatusBacklog, nil)
-			if err != nil {
-				return err
-			}
-			if ti.Ref != "" {
-				refs[ti.Ref] = t.ID
-			}
-			tasks = append(tasks, t)
-		}
-		for i, ti := range in.Tasks {
-			for _, d := range ti.DependsOn {
-				if r, ok := refs[d]; ok {
-					d = r
-				} else if _, err := tx.GetTask(d); err != nil {
-					return model.BadRequest("unknown dependency %q", d)
-				}
-				if d == tasks[i].ID {
-					return model.BadRequest("task cannot depend on itself")
-				}
-				tasks[i].DependsOn = append(tasks[i].DependsOn, d)
-			}
+		tasks, err := b.planTasks(tx, br, pid, in.Tasks)
+		if err != nil {
+			return err
 		}
 		ids := make([]string, len(tasks))
 		for i, t := range tasks {
@@ -524,6 +489,63 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks), "task_ids": ids, "superseded": superseded}, in.Note)
 	})
 	return out, err
+}
+
+func (b *Board) supersedePlans(tx store.Tx, w *wctx, briefID string) ([]string, error) {
+	old, err := tx.ListPlans(store.PlanFilter{BriefID: briefID, Status: model.PlanProposed})
+	if err != nil {
+		return nil, err
+	}
+	superseded := []string{}
+	for _, p := range old {
+		ts, err := tx.ListTasks(store.TaskFilter{PlanID: p.ID, Limit: 100000})
+		if err != nil {
+			return nil, err
+		}
+		for _, t := range ts {
+			if t.Status != model.StatusCancelled {
+				superseded = append(superseded, t.ID)
+			}
+			t.Status = model.StatusCancelled
+			if err := b.saveTask(tx, w, t); err != nil {
+				return nil, err
+			}
+		}
+		p.Status = model.PlanSuperseded
+		if err := tx.UpdatePlan(p); err != nil {
+			return nil, err
+		}
+	}
+	return superseded, nil
+}
+
+func (b *Board) planTasks(tx store.Tx, br *model.Brief, planID string, in []TaskInput) ([]*model.Task, error) {
+	refs := map[string]string{}
+	var tasks []*model.Task
+	for _, ti := range in {
+		t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID, Paths: ti.Paths}, planID, model.StatusBacklog, nil)
+		if err != nil {
+			return nil, err
+		}
+		if ti.Ref != "" {
+			refs[ti.Ref] = t.ID
+		}
+		tasks = append(tasks, t)
+	}
+	for i, ti := range in {
+		for _, d := range ti.DependsOn {
+			if r, ok := refs[d]; ok {
+				d = r
+			} else if _, err := tx.GetTask(d); err != nil {
+				return nil, model.BadRequest("unknown dependency %q", d)
+			}
+			if d == tasks[i].ID {
+				return nil, model.BadRequest("task cannot depend on itself")
+			}
+			tasks[i].DependsOn = append(tasks[i].DependsOn, d)
+		}
+	}
+	return tasks, nil
 }
 
 func lintTasks(in []TaskInput) []planlint.Task {
@@ -581,6 +603,11 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 		br, err := tx.GetBrief(p.BriefID)
 		if err != nil {
 			return err
+		}
+		if approve {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "approve_plan", Actor: model.Owner, Plan: p, Brief: br, Args: map[string]string{"note": note}}); err != nil {
+				return err
+			}
 		}
 		now := b.now()
 		p.DecidedAt = &now

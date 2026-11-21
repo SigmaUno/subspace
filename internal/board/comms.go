@@ -75,12 +75,9 @@ func (b *Board) post(ctx context.Context, a model.Actor, ref threads.Ref, body, 
 		if err := canAccessThread(tx, a, ref); err != nil {
 			return err
 		}
-		if err := w.post(tx, ref.Kind, ref.ID, a, kind, body); err != nil {
-			return err
-		}
-		m := w.events[len(w.events)-1].data.(*model.Message)
+		m, err := w.message(tx, ref.Kind, ref.ID, a, kind, body)
 		out = m
-		return nil
+		return err
 	})
 	return out, err
 }
@@ -312,10 +309,11 @@ func (b *Board) AppendMessage(ctx context.Context, kind, id string, m model.Mess
 	m.Body = b.scrub(ctx, author, ChannelPR, m.Body)
 	var out model.Message
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
-		if err := w.post(tx, kind, id, author, m.Kind, m.Body); err != nil {
+		msg, err := w.message(tx, kind, id, author, m.Kind, m.Body)
+		if err != nil {
 			return err
 		}
-		out = *w.events[len(w.events)-1].data.(*model.Message)
+		out = *msg
 		return nil
 	})
 	return out, err

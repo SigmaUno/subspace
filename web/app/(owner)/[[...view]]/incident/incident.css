@@ -1,0 +1,16 @@
+.incident-button { color: #fff; background: var(--danger); border-color: var(--danger); font-weight: 650; }
+.incident-button:hover:not(:disabled) { background: #8f1d17; border-color: #8f1d17; }
+.incident-banner { display: flex; flex-wrap: wrap; align-items: center; justify-content: space-between; gap: .6rem 1rem; padding: .7rem .95rem; color: #fff; background: var(--danger); border-radius: var(--radius); }
+.incident-banner p { margin: 0; }
+.incident-banner button { color: var(--danger); background: #fff; }
+.incident-banner label { display: inline-flex; align-items: center; gap: .35rem; font-size: .8125rem; }
+.incident-banner input { width: auto; margin: 0; }
+.incident-dialog { width: min(40rem, 94vw); max-height: 84vh; overflow: auto; box-shadow: var(--shadow-lg); }
+.incident-dialog fieldset { display: grid; gap: .5rem; margin: 0; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: var(--radius); }
+.incident-dialog label { display: grid; gap: .2rem; font-size: .8125rem; }
+.incident-dialog .incident-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .1rem .5rem; }
+.incident-dialog .incident-choice input { grid-row: span 2; width: auto; margin-top: .2rem; }
+.incident-dialog .incident-choice > :not(input) { grid-column: 2; }
+.incident-dialog .incident-choice .meta { font-weight: 400; }
+.incident-dialog ul { margin: 0; padding-left: 1.1rem; font-size: .8125rem; }
+.incident-dialog code { overflow-wrap: anywhere; }

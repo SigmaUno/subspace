@@ -37,7 +37,7 @@ export function stack(counts: Record<string, number> | null, high: number, area:
   return out;
 }
 
-export function totalCount(counts: Record<string, number> | null) {
+function totalCount(counts: Record<string, number> | null) {
   return Object.values(counts ?? {}).reduce((sum, n) => sum + n, 0);
 }
 

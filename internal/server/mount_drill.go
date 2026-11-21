@@ -9,10 +9,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/drill"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
 	envDrillEvery       = "SUBSPACE_DRILL_EVERY"
+	envDrillSource      = "SUBSPACE_DRILL_SOURCE"
 	drillUnsupportedMsg = "restore drills need SQLite backups: the postgres backup scheduler writes JSON-lines dumps, not pg_dump files"
 )
 
@@ -20,7 +22,17 @@ type backupLister func(context.Context) ([]backup.Info, error)
 
 func (f backupLister) List(ctx context.Context) ([]backup.Info, error) { return f(ctx) }
 
-func init() { registerMount(mountDrill) }
+func init() {
+	registerMount(mountDrill)
+	store.DeclareSQLiteOnly(store.SQLiteOnly{
+		Name:   "scheduled restore drills (" + envDrillEvery + ")",
+		Reason: "the postgres backup scheduler writes JSON-lines dumps, not pg_dump files; unset " + envDrillEvery + " or set it to 0",
+		Enabled: func(getenv func(string) string) bool {
+			v, err := time.ParseDuration(getenv(envDrillEvery))
+			return getenv(envDrillEvery) != "" && (err != nil || v > 0)
+		},
+	})
+}
 
 func mountDrill(d Deps) {
 	if !drill.SupportsSQL(d.Ctx, d.Store) {
@@ -39,6 +51,21 @@ func mountDrill(d Deps) {
 	opts := drill.Options{
 		Store: d.Store, Backups: backupLister(d.Board.ListBackups), Every: every,
 		Pub: d.Hub, Now: d.Cfg.Now, Log: d.Log,
+	}
+	if d.Offsite != nil {
+		opts.Remote = d.Offsite.Remote
+	}
+	switch src := d.getenv()(envDrillSource); src {
+	case "", "local":
+	case "remote":
+		if d.Offsite == nil {
+			d.Log.Error("restore drills disabled", "err", envDrillSource+"=remote needs off-site backups (SUBSPACE_OFFSITE_KIND)")
+			return
+		}
+		opts.FromRemote = true
+	default:
+		d.Log.Error("restore drills disabled", "err", envDrillSource+" must be local or remote")
+		return
 	}
 	if isPostgres(d.Cfg.DBPath) {
 		opts.Unsupported = drillUnsupportedMsg

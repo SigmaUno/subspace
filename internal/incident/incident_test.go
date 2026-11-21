@@ -3,7 +3,6 @@ package incident_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -12,7 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/incident"
 	"github.com/SigmaUno/subspace/internal/model"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type flakyControl struct {
@@ -53,11 +52,7 @@ func (c *flakyControl) ResumeAgent(_ context.Context, id string) (*model.Agent, 
 }
 
 func TestIncidentRotationRetryRotatesOnlyFailedLeaders(t *testing.T) {
-	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
+	st := testdb.Open(t, testdb.Path(t, "t.db"))
 	ctl := &flakyControl{
 		agents: []*model.Agent{
 			{ID: "lead-a", Role: model.RoleLeader, Status: model.AgentActive},

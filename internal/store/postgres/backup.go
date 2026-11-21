@@ -17,7 +17,7 @@ import (
 
 const restoreChunk = 500
 
-var coreTables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns"}
+var coreTables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns", "usage_records"}
 
 func tables() []string { return append(slices.Clip(coreTables), extraTables...) }
 

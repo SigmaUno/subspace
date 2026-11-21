@@ -489,7 +489,7 @@ func (r *trainRun) finalize(ctx context.Context) error {
 			c.MergedSHA = m.SHA
 			err := errors.Join(q.save(ctx, c, StateMerged),
 				q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d merged into %s as %s by merge train %s (%s), `%s` passed.",
-					c.PR, t.Base, short(m.SHA), t.ID, strings.Join(prs, ", "), verify)))
+					c.PR, t.Base, short(m.SHA), t.ID, strings.Join(prs, ", "), verify)+q.finish(ctx, c, m.SHA)))
 			if err != nil {
 				return err
 			}

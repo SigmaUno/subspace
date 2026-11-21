@@ -331,6 +331,15 @@ export interface Backup {
   created_at: string;
   name: string;
   path: string;
+  remote?: BackupRemote | null;
+  verified: boolean;
+}
+
+export interface BackupRemote {
+  bytes: number;
+  error: string;
+  object: string;
+  uploaded_at: string;
   verified: boolean;
 }
 
@@ -507,6 +516,11 @@ export interface BriefTemplate {
   markdown: string;
   title: string;
   variables: string[] | null;
+}
+
+export interface Budget {
+  max_calls_per_day: number;
+  max_result_bytes_per_day: number;
 }
 
 export interface BulkError {
@@ -750,6 +764,24 @@ export interface DigestTasks {
   done: number;
 }
 
+export interface Discovered {
+  allowed: boolean;
+  description: string;
+  exposed_as: string;
+  flags: string[] | null;
+  input_schema?: Record<string, unknown> | null;
+  name: string;
+  refused?: string;
+}
+
+export interface Document {
+  description: string;
+  enabled: boolean;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+}
+
 export interface DrillResult {
   backup: string;
   backup_bytes: number;
@@ -760,6 +792,32 @@ export interface DrillResult {
   started_at: string;
   status: string;
   trigger: string;
+}
+
+export interface DryRunInput {
+  action: string;
+  actor_id?: string;
+  agent_id?: string;
+  as?: string;
+  at?: string | null;
+  brief_id?: string;
+  facts?: Record<string, unknown> | null;
+  plan_id?: string;
+  policy?: Document | null;
+  spawn?: PolicySpawn | null;
+  task_id?: string;
+}
+
+export interface DryRunResult {
+  action: string;
+  at?: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  findings: Finding[] | null;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  steps: number;
 }
 
 export interface EndOutcome {
@@ -839,9 +897,23 @@ export interface Expiry {
   expires_in: string;
 }
 
+export interface FactInfo {
+  actions: string[] | null;
+  description: string;
+  name: string;
+  type: string;
+}
+
 export interface Failure {
   agent_id: string;
   error: string;
+}
+
+export interface Finding {
+  code: string;
+  message: string;
+  rule?: string;
+  severity: string;
 }
 
 export interface Forecast {
@@ -907,6 +979,46 @@ export interface GatesResult {
   gate: string;
   overridden: boolean;
   passed: boolean;
+}
+
+export interface Gateway {
+  allow_private_hosts: boolean;
+  allow_tools: string[] | null;
+  allowed_roles: string[] | null;
+  args: string[] | null;
+  audit_arguments: boolean;
+  budget: Budget;
+  command: string;
+  created_at: string;
+  credential_env: string;
+  deny_tools: string[] | null;
+  enabled: boolean;
+  max_result_bytes: number;
+  name: string;
+  rate_limits: RateLimit[] | null;
+  timeout_ms: number;
+  transport: string;
+  updated_at: string;
+  url: string;
+}
+
+export interface GatewayInput {
+  allow_private_hosts: boolean;
+  allow_tools?: string[] | null;
+  allowed_roles?: string[] | null;
+  args?: string[] | null;
+  audit_arguments: boolean;
+  budget: Budget;
+  command: string;
+  credential_env: string;
+  deny_tools?: string[] | null;
+  enabled?: boolean | null;
+  max_result_bytes: number;
+  name: string;
+  rate_limits?: RateLimit[] | null;
+  timeout_ms: number;
+  transport: string;
+  url: string;
 }
 
 export interface HAEventStats {
@@ -983,6 +1095,26 @@ export interface HillclimbPoint {
   measured_at: string;
   n: number;
   value: number | null;
+}
+
+export interface Hold {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  args: Record<string, string> | null;
+  brief_id: string;
+  created_at: string;
+  decided_at: string | null;
+  expires_at: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  note: string;
+  plan_id: string;
+  result: string;
+  status: string;
+  target: string;
+  task_id: string;
 }
 
 export interface Ignored {
@@ -1142,6 +1274,11 @@ export interface KnowledgeSupersede {
   by?: string;
 }
 
+export interface List {
+  commands: string[] | null;
+  gateways: Gateway[] | null;
+}
+
 export interface LogLevel {
   level: string;
 }
@@ -1152,6 +1289,16 @@ export interface LogLine {
   level: string;
   msg: string;
   ts: string;
+}
+
+export interface Match {
+  applied: boolean;
+  effect: string;
+  message: string;
+  policy: string;
+  policy_id: string;
+  rule: string;
+  version: number;
 }
 
 export interface Me {
@@ -1304,6 +1451,59 @@ export interface PlaybookInput {
   required_tasks?: RequiredTask[] | null;
 }
 
+export interface Policy {
+  created_at: string;
+  description: string;
+  enabled: boolean;
+  id: string;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+  updated_at: string;
+  version: number;
+  warnings: Finding[] | null;
+}
+
+export interface PolicyDecision {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  brief_id: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  hold_id: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  target: string;
+  task_id: string;
+  ts: string;
+}
+
+export interface PolicyFacts {
+  actions: string[] | null;
+  effects: string[] | null;
+  facts: FactInfo[] | null;
+}
+
+export interface PolicyHoldDecision {
+  note?: string;
+}
+
+export interface PolicyLint {
+  findings: Finding[] | null;
+  ok: boolean;
+}
+
+export interface PolicySpawn {
+  model: string;
+  n: number;
+  provider: string;
+  role: string;
+  worker_kind: string;
+}
+
 export interface Preview {
   cron: string;
   next: string[] | null;
@@ -1454,6 +1654,11 @@ export interface RPCResponse {
   result?: unknown;
 }
 
+export interface RateLimit {
+  per_minute: number;
+  tool: string;
+}
+
 export interface Reason {
   reason: string;
 }
@@ -1498,6 +1703,7 @@ export interface ReplayKeyEvent {
   task_id: string;
   to: string;
   tool: string;
+  transcript?: string;
 }
 
 export interface ReplayPoint {
@@ -1684,6 +1890,7 @@ export interface RetentionPolicy {
   interval: string;
   messages_days: number;
   segment_rows: number;
+  transcripts_days: number;
   usage_days: number;
   vacuum_pages: number;
   wal_autocheckpoint: number;
@@ -1734,6 +1941,12 @@ export interface RetentionVerification {
   ok: boolean;
   rows: number;
   segments: number;
+}
+
+export interface Rule {
+  id: string;
+  then: Then;
+  when: When;
 }
 
 export interface Run {
@@ -2010,6 +2223,15 @@ export interface TestResult {
   reported_at: string;
 }
 
+export interface Then {
+  effect: string;
+  max?: number;
+  message?: string;
+  per?: string;
+  provider?: string;
+  timeout?: string;
+}
+
 export interface ThreadPost {
   body: string;
 }
@@ -2037,6 +2259,12 @@ export interface TokenLeakReissued {
   token?: APIToken | null;
 }
 
+export interface Tools {
+  error: string;
+  gateway: string;
+  tools: Discovered[] | null;
+}
+
 export interface Train {
   base: string;
   base_sha: string;
@@ -2058,6 +2286,32 @@ export interface TrainMember {
   result: string;
   sha: string;
   task_id: string;
+}
+
+export interface TranscriptLine {
+  agent_id: string;
+  offset: number;
+  stream: string;
+  text: string;
+  ts: string;
+}
+
+export interface TranscriptPage {
+  bytes: number;
+  first_offset: number;
+  gap: boolean;
+  last_offset: number;
+  lines: TranscriptLine[] | null;
+  more: boolean;
+  next_since: number;
+  segments: number;
+  task_id: string;
+}
+
+export interface Version {
+  created_at: string;
+  document: Document;
+  version: number;
 }
 
 export interface WebhookCreated {
@@ -2095,4 +2349,9 @@ export interface WebhookSubscription {
   id: string;
   pending: number;
   url: string;
+}
+
+export interface When {
+  actions: string[] | null;
+  match: string;
 }

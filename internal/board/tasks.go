@@ -13,13 +13,21 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool string, t *model.Task, to, note string) error {
-	from := t.Status
-	t.Status, t.UpdatedAt = to, b.now()
+func (b *Board) saveTask(tx store.Tx, w *wctx, t *model.Task) error {
+	t.UpdatedAt = b.now()
 	if err := tx.UpdateTask(t); err != nil {
 		return err
 	}
 	w.task(t, false)
+	return nil
+}
+
+func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool string, t *model.Task, to, note string) error {
+	from := t.Status
+	t.Status = to
+	if err := b.saveTask(tx, w, t); err != nil {
+		return err
+	}
 	msg := fmt.Sprintf("%s → %s", from, to)
 	if note != "" {
 		msg += ": " + note
@@ -43,6 +51,12 @@ func (b *Board) endLease(w *wctx, t *model.Task) {
 	w.forget = append(w.forget, t.ID)
 }
 
+func (b *Board) endHeldLease(w *wctx, t *model.Task) {
+	if t.Status == model.StatusInProgress {
+		b.endLease(w, t)
+	}
+}
+
 func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, note string) error {
 	b.endLease(w, t)
 	return b.statusChange(tx, w, actor, "lease_release", t, model.StatusAssigned, note)
@@ -52,6 +66,41 @@ func (b *Board) block(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, re
 	b.endLease(w, t)
 	t.BlockedReason = strp(reason)
 	return b.statusChange(tx, w, actor, "block", t, model.StatusBlocked, reason)
+}
+
+func myTask(tx store.Tx, a model.Actor, id string) (*model.Task, error) {
+	t, err := tx.GetTask(id)
+	if err != nil && !isErr(err, store.ErrNotFound) {
+		return nil, err
+	}
+	if err != nil || deref(t.Assignee) != a.ID {
+		return nil, model.Errf("not_assigned", "task %s is not assigned to you", id)
+	}
+	return t, nil
+}
+
+func unblockedStatus(t *model.Task) string {
+	if t.Assignee != nil {
+		return model.StatusAssigned
+	}
+	return model.StatusReady
+}
+
+func crossProvider(tx store.Tx, t *model.Task, provider string) error {
+	if t.Assignee == nil {
+		return nil
+	}
+	wk, err := tx.GetAgent(*t.Assignee)
+	if isErr(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	if wk.Provider == provider {
+		return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
+	}
+	return nil
 }
 
 func canSee(a model.Actor, t *model.Task) bool {
@@ -144,6 +193,9 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if t.DependsOn, err = b.checkDeps(tx, t, deps); err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "create_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := tx.InsertTask(t); err != nil {
 			return err
 		}
@@ -204,11 +256,11 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			}
 			t.Budget = *p.Budget
 		}
+		br, err := unscoped(tx).GetBrief(t.BriefID)
+		if err != nil {
+			return err
+		}
 		if p.AcceptanceCriteria != nil || p.Budget != nil {
-			br, err := unscoped(tx).GetBrief(t.BriefID)
-			if err != nil {
-				return err
-			}
 			rules, err := b.rulesFor(tx, br.Playbook)
 			if err != nil {
 				return err
@@ -218,7 +270,13 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 				return err
 			}
 		}
-		t.UpdatedAt = b.now()
+		args := map[string]string{}
+		if p.Status != nil {
+			args["status"] = *p.Status
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "update_task", Actor: a, Task: t, Brief: br, Args: args}); err != nil {
+			return err
+		}
 		if p.Status != nil {
 			switch *p.Status {
 			case model.StatusBlocked:
@@ -227,23 +285,19 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 				default:
 					return model.Conflict("cannot block a %s task", t.Status)
 				}
-				if t.Status == model.StatusInProgress {
-					b.endLease(w, t)
-				}
+				b.endHeldLease(w, t)
 				t.BlockedReason = strp(leaderBlock)
 				return b.finishUpdate(tx, w, a, "update_task", t, model.StatusBlocked, &out)
 			case model.StatusCancelled:
-				if t.Status == model.StatusInProgress {
-					b.endLease(w, t)
-				}
+				b.endHeldLease(w, t)
 				return b.finishUpdate(tx, w, a, "update_task", t, model.StatusCancelled, &out)
 			case model.StatusReady:
 				if t.Status != model.StatusBlocked && t.Status != model.StatusBacklog && t.Status != model.StatusReady {
 					return model.Conflict("cannot make a %s task ready", t.Status)
 				}
 				to := model.StatusReady
-				if t.Status == model.StatusBlocked && t.Assignee != nil {
-					to = model.StatusAssigned
+				if t.Status == model.StatusBlocked {
+					to = unblockedStatus(t)
 				}
 				if t.Status == model.StatusBacklog {
 					return model.Forbidden("backlog tasks become ready through owner plan approval")
@@ -257,10 +311,9 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 				return model.BadRequest("status must be blocked, ready or cancelled")
 			}
 		}
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		out = t
 		return w.audit(tx, a, "update_task", t.ID, nil, map[string]any{"title": t.Title}, "")
 	})
@@ -330,105 +383,132 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 	}
 	var out *model.Task
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
-		t, err := tx.GetTask(taskID)
+		t, ag, br, err := b.assignTarget(tx, taskID, agentID)
 		if err != nil {
 			return err
 		}
-		ag, err := tx.GetAgent(agentID)
-		if err != nil {
-			return model.NotFound("agent %s not found", agentID)
+		var overlaps []*model.Task
+		if as == "reviewer" {
+			err = setReviewer(tx, tool, t, ag)
+		} else {
+			overlaps, err = b.assigneeAllowed(tx, tool, t, ag)
 		}
-		if ag.Status != model.AgentActive {
-			return model.Conflict("agent %s is %s", agentID, ag.Status)
-		}
-		br, err := tx.GetBrief(t.BriefID)
 		if err != nil {
 			return err
 		}
-		if !b.providerAllowed(br, ag.Provider) {
-			return model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
+		args := map[string]string{"tool": tool}
+		if reason != "" {
+			args["reason"] = reason
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "assign", Actor: a, Task: t, Brief: br, Target: ag, As: as, Args: args}); err != nil {
+			return err
 		}
 		if as == "reviewer" {
-			if tool == "reassign" {
-				return model.BadRequest("reassign is for assignees")
-			}
-			if ag.Role != model.RoleReviewer {
-				return model.BadRequest("agent %s is not a reviewer", agentID)
-			}
-			if t.Status != model.StatusSubmitted && t.Status != model.StatusInReview {
-				return model.Conflict("task is %s; reviewer can be set on submitted tasks", t.Status)
-			}
-			if t.Assignee != nil {
-				wk, err := tx.GetAgent(*t.Assignee)
-				if err != nil && !isErr(err, store.ErrNotFound) {
-					return err
-				}
-				if err == nil && wk.Provider == ag.Provider {
-					return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
-				}
-			}
-			t.Reviewer = &agentID
 			return b.finishUpdate(tx, w, a, tool, t, model.StatusInReview, &out)
 		}
-		if ag.Role != t.Role {
-			return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
-		}
-		from := t.Status
-		var overlaps []*model.Task
-		if tool == "assign" {
-			if t.Status != model.StatusReady {
-				return model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
-			}
-			if overlaps, err = b.pathConflicts(tx, t, agentID); err != nil {
-				return err
-			}
-			if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
-				return model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
-			}
-		} else {
-			switch t.Status {
-			case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked:
-			default:
-				return model.Conflict("cannot reassign a %s task", t.Status)
-			}
-			if err := leaderMayUnblock(t); err != nil {
-				return err
-			}
-		}
-		if deref(t.Assignee) != agentID {
-			if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
-				return err
-			}
-		}
-		if t.Status == model.StatusInProgress {
-			b.endLease(w, t)
-		}
-		t.Assignee, t.BlockedReason = &agentID, nil
-		if from == model.StatusChangesRequested {
-
-			t.UpdatedAt = b.now()
-			if err := tx.UpdateTask(t); err != nil {
-				return err
-			}
-			w.task(t, false)
-			out = t
-			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
-				return err
-			}
-			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
-		}
-		if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, &out); err != nil {
-			return err
-		}
-		if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
-			return err
-		}
-		if len(overlaps) > 0 {
-			return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
-		}
-		return nil
+		return b.setAssignee(tx, w, a, tool, t, ag, reason, overlaps, &out)
 	})
 	return out, err
+}
+
+func (b *Board) assignTarget(tx store.Tx, taskID, agentID string) (*model.Task, *model.Agent, *model.Brief, error) {
+	t, err := tx.GetTask(taskID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	ag, err := tx.GetAgent(agentID)
+	if err != nil {
+		return nil, nil, nil, model.NotFound("agent %s not found", agentID)
+	}
+	if ag.Status != model.AgentActive {
+		return nil, nil, nil, model.Conflict("agent %s is %s", agentID, ag.Status)
+	}
+	br, err := tx.GetBrief(t.BriefID)
+	if err != nil {
+		return nil, nil, nil, err
+	}
+	if !b.providerAllowed(br, ag.Provider) {
+		return nil, nil, nil, model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
+	}
+	return t, ag, br, nil
+}
+
+func setReviewer(tx store.Tx, tool string, t *model.Task, ag *model.Agent) error {
+	if tool == "reassign" {
+		return model.BadRequest("reassign is for assignees")
+	}
+	if ag.Role != model.RoleReviewer {
+		return model.BadRequest("agent %s is not a reviewer", ag.ID)
+	}
+	if t.Status != model.StatusSubmitted && t.Status != model.StatusInReview {
+		return model.Conflict("task is %s; reviewer can be set on submitted tasks", t.Status)
+	}
+	if err := crossProvider(tx, t, ag.Provider); err != nil {
+		return err
+	}
+	t.Reviewer = &ag.ID
+	return nil
+}
+
+func (b *Board) assignable(tx store.Tx, tool string, t *model.Task, agentID string) ([]*model.Task, error) {
+	if tool != "assign" {
+		switch t.Status {
+		case model.StatusReady, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked:
+		default:
+			return nil, model.Conflict("cannot reassign a %s task", t.Status)
+		}
+		return nil, leaderMayUnblock(t)
+	}
+	if t.Status != model.StatusReady {
+		return nil, model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
+	}
+	overlaps, err := b.pathConflicts(tx, t, agentID)
+	if err != nil {
+		return nil, err
+	}
+	if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
+		return nil, model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
+	}
+	return overlaps, nil
+}
+
+func (b *Board) assigneeAllowed(tx store.Tx, tool string, t *model.Task, ag *model.Agent) ([]*model.Task, error) {
+	if ag.Role != t.Role {
+		return nil, model.BadRequest("task needs a %s, agent %s is a %s", t.Role, ag.ID, ag.Role)
+	}
+	return b.assignable(tx, tool, t, ag.ID)
+}
+
+func (b *Board) setAssignee(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, ag *model.Agent, reason string, overlaps []*model.Task, out **model.Task) error {
+	agentID := ag.ID
+	from := t.Status
+	if deref(t.Assignee) != agentID {
+		if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
+			return err
+		}
+	}
+	b.endHeldLease(w, t)
+	t.Assignee, t.BlockedReason = &agentID, nil
+	if from == model.StatusChangesRequested {
+		if err := b.saveTask(tx, w, t); err != nil {
+			return err
+		}
+		*out = t
+		if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
+			return err
+		}
+		return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
+	}
+	if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, out); err != nil {
+		return err
+	}
+	if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
+		return err
+	}
+	if len(overlaps) > 0 {
+		return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
+	}
+	return nil
 }
 
 func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
@@ -464,12 +544,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 		if err := pausedTx(tx); err != nil {
 			return err
 		}
-		t, err := tx.GetTask(taskID)
-		if err != nil && !isErr(err, store.ErrNotFound) {
+		t, err := myTask(tx, a, taskID)
+		if err != nil {
 			return err
-		}
-		if err != nil || deref(t.Assignee) != a.ID {
-			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
 		}
 		if t.Status != model.StatusAssigned && t.Status != model.StatusChangesRequested {
 			return model.Conflict("task is %s; only assigned or changes_requested tasks can be claimed", t.Status)
@@ -506,6 +583,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "claim_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
 			return err
 		}
@@ -527,12 +607,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 func (b *Board) ReleaseTask(ctx context.Context, a model.Actor, taskID, reason string) (*model.Task, error) {
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
-		t, err := tx.GetTask(taskID)
-		if err != nil && !isErr(err, store.ErrNotFound) {
+		t, err := myTask(tx, a, taskID)
+		if err != nil {
 			return err
-		}
-		if err != nil || deref(t.Assignee) != a.ID {
-			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
 		}
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s, not in_progress", t.Status)
@@ -569,18 +646,18 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	)
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		held = nil
-		t, err := tx.GetTask(in.TaskID)
-		if err != nil && !isErr(err, store.ErrNotFound) {
+		t, err := myTask(tx, a, in.TaskID)
+		if err != nil {
 			return err
-		}
-		if err != nil || deref(t.Assignee) != a.ID {
-			return model.Errf("not_assigned", "task %s is not assigned to you", in.TaskID)
 		}
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s, not in_progress (claim it first; the lease may have expired)", t.Status)
 		}
 		br, err := tx.GetBrief(t.BriefID)
 		if err != nil {
+			return err
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "submit", Actor: a, Task: t, Brief: br, Args: map[string]string{"pr_url": in.PRURL}}); err != nil {
 			return err
 		}
 		to := model.StatusSubmitted
@@ -594,6 +671,11 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 					return qerr
 				}
 				to, held = model.StatusSubmitted, ge
+			}
+		}
+		if to == model.StatusApproved {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 		}
 		b.endLease(w, t)
@@ -643,12 +725,9 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	in.Note = b.scrub(ctx, a, ChannelStatus, in.Note)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
-		t, err := tx.GetTask(in.TaskID)
-		if err != nil && !isErr(err, store.ErrNotFound) {
+		t, err := myTask(tx, a, in.TaskID)
+		if err != nil {
 			return err
-		}
-		if err != nil || deref(t.Assignee) != a.ID {
-			return model.Errf("not_assigned", "task %s is not assigned to you", in.TaskID)
 		}
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s; update_status needs an in_progress task (claim it first)", t.Status)
@@ -677,11 +756,9 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 		if berr := b.checkBudget(tx, t, br); berr != nil {
 			return b.block(tx, w, a, t, "budget_exceeded: "+berr.Error())
 		}
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		if in.Note != "" {
 			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgStatus, fmt.Sprintf("%d%%: %s", t.ProgressPct, in.Note)); err != nil {
 				return err
@@ -760,22 +837,17 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	}
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
-		t, err := tx.GetTask(taskID)
-		if err != nil && !isErr(err, store.ErrNotFound) {
+		t, err := myTask(tx, a, taskID)
+		if err != nil {
 			return err
-		}
-		if err != nil || deref(t.Assignee) != a.ID {
-			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
 		}
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s; report_tests needs an in_progress task (claim it first)", t.Status)
 		}
 		t.Tests = &model.TestResult{Passed: passed, Failed: failed, ReportedAt: b.now()}
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		body := fmt.Sprintf("Tests: %d passed, %d failed", passed, failed)
 		if log != "" {
 			body += "\n" + log
@@ -872,14 +944,11 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		if !b.providerAllowed(br, me.Provider) {
 			return model.Forbidden("provider %q is not allowed for brief %s", me.Provider, br.ID)
 		}
-		if t.Assignee != nil {
-			wk, e := tx.GetAgent(*t.Assignee)
-			if e != nil && !isErr(e, store.ErrNotFound) {
-				return e
-			}
-			if e == nil && wk.Provider == me.Provider {
-				return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
-			}
+		if err := crossProvider(tx, t, me.Provider); err != nil {
+			return err
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "review", Actor: a, Task: t, Brief: br, Args: map[string]string{"verdict": verdict}}); err != nil {
+			return err
 		}
 		t.Reviewer = &a.ID
 		if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgNote, "Review ("+verdict+"): "+comments); err != nil {
@@ -894,6 +963,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 				}
 				held = ge
 				return b.holdForGates(tx, w, a, t, ge)
+			}
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 			return b.statusChange(tx, w, a, "review", t, model.StatusApproved, comments)
 		}
@@ -933,9 +1005,7 @@ func (b *Board) ownerMove(ctx context.Context, tool, id, note, to string, from .
 		if t.Status == model.StatusDone || t.Status == model.StatusCancelled {
 			return model.Conflict("task is already %s", t.Status)
 		}
-		if t.Status == model.StatusInProgress {
-			b.endLease(w, t)
-		}
+		b.endHeldLease(w, t)
 		out = t
 		return b.statusChange(tx, w, model.Owner, tool, t, to, note)
 	})
@@ -991,19 +1061,13 @@ func (b *Board) SetTaskBudget(ctx context.Context, id string, bud model.Budget) 
 				return err
 			}
 			if b.checkBudget(tx, t, br) == nil {
-				to := model.StatusReady
-				if t.Assignee != nil {
-					to = model.StatusAssigned
-				}
 				t.BlockedReason = nil
-				return b.statusChange(tx, w, model.Owner, "set_budget", t, to, "budget raised")
+				return b.statusChange(tx, w, model.Owner, "set_budget", t, unblockedStatus(t), "budget raised")
 			}
 		}
-		t.UpdatedAt = b.now()
-		if err := tx.UpdateTask(t); err != nil {
+		if err := b.saveTask(tx, w, t); err != nil {
 			return err
 		}
-		w.task(t, false)
 		return w.audit(tx, model.Owner, "set_budget", id, nil, map[string]any{"max_minutes": bud.MaxMinutes, "max_cost_eur": bud.MaxCostEUR}, "")
 	})
 	return out, err

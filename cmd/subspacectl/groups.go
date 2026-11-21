@@ -26,7 +26,7 @@ func (l *listFlag) Set(v string) error {
 }
 
 var (
-	validDecision  = regexp.MustCompile(`^(q|plan|merge|unblock|stale):[a-zA-Z0-9_-]+$`)
+	validDecision  = regexp.MustCompile(`^(q|plan|merge|unblock|stale|policy):[a-zA-Z0-9_-]+$`)
 	validRecipient = regexp.MustCompile(`^(leader|(agent|brief|component):[a-zA-Z0-9_-]+)$`)
 )
 
@@ -414,6 +414,9 @@ var taskCommands = table{
 	"gates":          byID("tasks gates", "tasks/%s/gates"),
 	"override-gates": parseGateOverride,
 	"bulk":           parseTaskBulk,
+
+	"transcript":          parseTranscript,
+	"transcript-download": parseTranscriptDownload,
 }
 
 func parseGateOverride(args []string, _ io.Reader) (command, error) {

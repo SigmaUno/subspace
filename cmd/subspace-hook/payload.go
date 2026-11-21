@@ -1,6 +1,7 @@
 package main
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"io"
@@ -37,10 +38,9 @@ type payload struct {
 	Message       string          `json:"message"`
 }
 
-func readPayload(ctx context.Context, r io.Reader) payload {
-	var p payload
+func readInput(ctx context.Context, r io.Reader, token string) []byte {
 	if r == nil {
-		return p
+		return nil
 	}
 	done := make(chan []byte, 1)
 	go func() {
@@ -49,10 +49,25 @@ func readPayload(ctx context.Context, r io.Reader) payload {
 	}()
 	select {
 	case b := <-done:
-		_ = json.Unmarshal(b, &p)
+		if token != "" {
+			b = bytes.ReplaceAll(b, []byte(token), []byte(redacted))
+		}
+		return b
 	case <-ctx.Done():
+		return nil
+	}
+}
+
+func readPayload(ctx context.Context, r io.Reader, token string) payload {
+	var p payload
+	if b := readInput(ctx, r, token); b != nil {
+		_ = json.Unmarshal(b, &p)
 	}
 	return p
+}
+
+func readText(ctx context.Context, r io.Reader, token string) string {
+	return strings.ToValidUTF8(string(readInput(ctx, r, token)), "")
 }
 
 func (p payload) logText() string {

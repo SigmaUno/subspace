@@ -63,6 +63,7 @@ type Board struct {
 	capDB   bool
 	quality QualityGate
 	rules   PlaybookRules
+	policy  Policy
 
 	repoCheck RepoCheck
 	leak      LeakScanner
@@ -161,6 +162,7 @@ type wctx struct {
 	events []pending
 	inval  []string
 	forget []string
+	policy []policyCheck
 }
 
 type pending struct {
@@ -189,19 +191,24 @@ func (w *wctx) agent(a *model.Agent) {
 }
 
 func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body string) error {
+	_, err := w.message(tx, kind, id, author, mk, body)
+	return err
+}
+
+func (w *wctx) message(tx store.Tx, kind, id string, author model.Actor, mk, body string) (*model.Message, error) {
 	if len(body) > maxBody {
-		return model.BadRequest("message too long (max %d bytes)", maxBody)
+		return nil, model.BadRequest("message too long (max %d bytes)", maxBody)
 	}
 	m := &model.Message{ThreadKind: kind, ThreadID: id, AuthorID: author.ID, AuthorRole: author.Role, Kind: mk, Body: body, CreatedAt: w.b.now()}
 	if err := tx.InsertMessage(m); err != nil {
-		return err
+		return nil, err
 	}
 	topics := []string{"thread:" + kind + ":" + id}
 	if mk == model.MsgQuestion {
 		topics = append(topics, "questions")
 	}
 	w.emit(topics, "message.created", m)
-	return nil
+	return m, nil
 }
 
 func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, after map[string]any, note string) error {
@@ -220,7 +227,10 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
 	w := &wctx{b: b, ctx: ctx}
-	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget = nil, nil, nil; return fn(tx, w) })
+	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget, w.policy = nil, nil, nil, nil; return fn(tx, w) })
+	if len(w.policy) > 0 {
+		err = b.settlePolicy(ctx, w.policy, err)
+	}
 	if b.o.Invalidate != nil {
 		for _, id := range w.inval {
 			b.o.Invalidate(id)

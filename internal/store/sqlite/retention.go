@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const retentionSchema = `
@@ -40,27 +41,20 @@ BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
 func init() { RegisterSchema(retentionSchema) }
 
-func migrateAuditDeleteTrigger(db *sql.DB) error {
+func migrateAuditDeleteTrigger(t *sql.Tx) error {
 	var def string
-	err := db.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'audit_no_delete'`).Scan(&def)
+	err := t.QueryRow(`SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = 'audit_no_delete'`).Scan(&def)
 	if err == nil && strings.Contains(def, "retention_segments") {
 		return nil
 	}
 	if err != nil && !errors.Is(err, sql.ErrNoRows) {
 		return err
 	}
-	t, err := db.Begin()
-	if err != nil {
-		return err
-	}
-	defer func() { _ = t.Rollback() }()
 	if _, err := t.Exec(`DROP TRIGGER IF EXISTS audit_no_delete`); err != nil {
 		return err
 	}
-	if _, err := t.Exec(auditDeleteTrigger); err != nil {
-		return err
-	}
-	return t.Commit()
+	_, err = t.Exec(auditDeleteTrigger)
+	return err
 }
 
 func (t *tx) auditAnchor() (model.AuditHead, error) {
@@ -89,6 +83,9 @@ func (s *Store) Checkpoint(ctx context.Context, truncate bool) (int, error) {
 }
 
 func (s *Store) Vacuum(ctx context.Context, pages int, full bool) (int, error) {
+	if s.readOnly {
+		return 0, store.ErrReadOnly
+	}
 	var mode, before int
 	if err := s.rdb.QueryRowContext(ctx, "PRAGMA auto_vacuum").Scan(&mode); err != nil {
 		return 0, err

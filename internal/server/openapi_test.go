@@ -23,7 +23,7 @@ var (
 	openapiPatternCall = regexp.MustCompile(`(?:\.Handle(?:Func)?\(|\bMount\([^,]+,\s*|\bm\()\s*"([^"]+)"`)
 	openapiHookLiteral = regexp.MustCompile(`"(/hooks/[a-z]+)"`)
 	openapiParam       = regexp.MustCompile(`\{[^}]*\}`)
-	openapiRoots       = []string{"/api/v1", "/mcp", "/healthz", "/a/", "/hooks/"}
+	openapiRoots       = []string{"/api/v1", "/mcp", "/healthz", "/readyz", "/a/", "/hooks/"}
 )
 
 func (e *env) openapiDoc() (map[string]any, []byte) {

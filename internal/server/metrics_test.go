@@ -10,6 +10,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func scrapeMetrics(t *testing.T, e *servertest.Env) (*http.Response, map[string]float64) {
@@ -94,6 +95,9 @@ func TestMetricsAfterFlow(t *testing.T) {
 		`subspace_leases_expired_total`:                                                        1,
 		`subspace_backups`:                                                                     1,
 		`subspace_sse_subscribers`:                                                             0,
+	}
+	if testdb.Postgres() {
+		delete(want, `subspace_sse_subscribers`)
 	}
 	for k, v := range want {
 		got, ok := m[k]

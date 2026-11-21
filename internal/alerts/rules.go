@@ -16,6 +16,7 @@ func Rules() []Rule {
 		{"agent_flapping", agentFlapping},
 		{"review_stuck", reviewStuck},
 		{"backup", backupHealth},
+		{"offsite", offsiteHealth},
 		{"disk_low", diskLow},
 		{"db_size", dbSize},
 		{"sse_lagging", sseLagging},
@@ -179,6 +180,17 @@ func backupHealth(s Snapshot, t Thresholds) []Finding {
 		})
 	}
 	return out
+}
+
+func offsiteHealth(s Snapshot, t Thresholds) []Finding {
+	if !s.OffsiteEnabled || t.OffsiteMaxAge <= 0 || s.Now.Sub(s.LastOffsite) < t.OffsiteMaxAge {
+		return nil
+	}
+	summary := fmt.Sprintf("no verified off-site copy for %s (limit %s)", round(s.Now.Sub(s.LastOffsite)), t.OffsiteMaxAge)
+	if s.OffsiteError != "" {
+		summary += ": " + s.OffsiteError
+	}
+	return []Finding{{Key: "offsite_stale", Severity: SeverityCritical, Title: "Off-site backup stale", Summary: summary}}
 }
 
 func diskLow(s Snapshot, t Thresholds) []Finding {

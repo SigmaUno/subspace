@@ -1,0 +1,25 @@
+{
+  "policy": {
+    "name": "lint findings",
+    "enabled": true,
+    "rules": [
+      {"id": "always", "when": {"actions": ["assign"], "match": "true || task.priority > 1"}, "then": {"effect": "warn"}},
+      {"id": "never", "when": {"actions": ["assign"], "match": "1 > 2"}, "then": {"effect": "deny"}},
+      {"id": "self", "when": {"actions": ["claim_task"], "match": "task.repo == task.repo"}, "then": {"effect": "warn"}},
+      {"id": "wall", "when": {"actions": ["submit"], "match": "not false"}, "then": {"effect": "deny"}},
+      {"id": "shadowed", "when": {"actions": ["submit"], "match": "task.priority > 3"}, "then": {"effect": "warn"}},
+      {"id": "no-target", "when": {"actions": ["claim_task"], "match": "target.provider == \"openai\""}, "then": {"effect": "warn"}}
+    ]
+  },
+  "lint": [
+    {"code": "always_true", "rule": "always"},
+    {"code": "unreachable", "rule": "never"},
+    {"code": "always_true", "rule": "self"},
+    {"code": "always_true", "rule": "wall"},
+    {"code": "unreachable", "rule": "shadowed"},
+    {"code": "fact_unavailable", "rule": "no-target"}
+  ],
+  "cases": [
+    {"name": "wall denies submit", "action": "submit", "facts": {"task.priority": 5}, "want": "deny", "applied": ["wall", "shadowed"]}
+  ]
+}

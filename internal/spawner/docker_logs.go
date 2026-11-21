@@ -15,6 +15,7 @@ import (
 	"strings"
 	"sync"
 	"time"
+	"unicode/utf8"
 
 	"github.com/SigmaUno/subspace/internal/netguard"
 )
@@ -99,10 +100,24 @@ func (s *lineSplitter) Write(p []byte) (int, error) {
 		s.buf = s.buf[i+1:]
 	}
 	for len(s.buf) >= logLineBytes {
-		s.emit(s.stream, string(s.buf[:logLineBytes]))
-		s.buf = s.buf[logLineBytes:]
+		n := cutAt(s.buf[:logLineBytes])
+		s.emit(s.stream, string(s.buf[:n]))
+		s.buf = s.buf[n:]
 	}
 	return len(p), nil
+}
+
+func cutAt(b []byte) int {
+	for i := len(b) - 1; i >= len(b)/2; i-- {
+		if c := b[i]; c < utf8.RuneSelf && !tokenByte(c) {
+			return i + 1
+		}
+	}
+	return len(b)
+}
+
+func tokenByte(c byte) bool {
+	return c >= 'a' && c <= 'z' || c >= 'A' && c <= 'Z' || c >= '0' && c <= '9' || strings.IndexByte("_-.+/=", c) >= 0
 }
 
 func (s *lineSplitter) flush() {

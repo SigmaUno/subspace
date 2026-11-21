@@ -16,6 +16,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	secretredact "github.com/SigmaUno/subspace/internal/redact"
 )
 
 type fakeContainer struct {
@@ -744,6 +746,38 @@ func TestDockerWatchLogsDemuxesAndBatches(t *testing.T) {
 	f.mu.Unlock()
 	if since == "" {
 		t.Fatal("restarted follower did not resume with since")
+	}
+}
+
+func TestDockerLongLogLineKeepsSecretsWhole(t *testing.T) {
+	d, f := dockerFixture(t, nil)
+	req := testRequest()
+	if err := d.Spawn(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	id, _ := f.get("subspace-" + req.AgentID)
+	secret := "ssp_" + strings.Repeat("Ab3_", 10) + "xyz"
+	for _, pad := range []int{1985, 2000, 2020, 4050} {
+		line := `{"blob":"` + strings.Repeat("x", pad) + `","token":"` + secret + `","more":"` + strings.Repeat("y", 1500) + `"}` + "\n"
+		var logs []byte
+		for len(line) > 0 {
+			n := min(1000, len(line))
+			logs = append(logs, frame(1, line[:n])...)
+			line = line[n:]
+		}
+		f.mu.Lock()
+		f.logs[id] = logs
+		f.mu.Unlock()
+		var rec sinkRec
+		d.pump(context.Background(), Container{ID: id, AgentID: req.AgentID}, 0, func(agent, stream, text string) {
+			rec.sink(agent, stream, secretredact.String(text))
+		})
+		out := strings.Join(rec.got, "")
+		for _, part := range []string{secret[:16], secret[16:32], secret[len(secret)-16:]} {
+			if strings.Contains(out, part) {
+				t.Fatalf("pad %d: secret fragment %q survived redaction", pad, part)
+			}
+		}
 	}
 }
 

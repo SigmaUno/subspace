@@ -1,0 +1,46 @@
+name: Docker sandbox
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - internal/spawner/**
+      - cmd/subspace-egress/**
+      - deploy/agent-image/**
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  live:
+    name: Docker spawner against a real engine
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      SUBSPACE_TEST_DOCKER: "1"
+      SUBSPACE_TEST_DOCKER_IMAGE: alpine:3.24@sha256:f59abe656b692d901e184be3445e084786602108599d2a51d229c0f5a48c71bf
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.sum
+      - name: Pull test image
+        run: docker pull "$SUBSPACE_TEST_DOCKER_IMAGE"
+      - name: go test -race
+        run: go test -race -count=1 ./internal/spawner/ ./cmd/subspace-egress/
+      - name: Build agent and egress images
+        run: |
+          docker build -f deploy/agent-image/Dockerfile --target agent -t subspace-agent:ci .
+          docker build -f deploy/agent-image/Dockerfile --target egress -t subspace-egress:ci .

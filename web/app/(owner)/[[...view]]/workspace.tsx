@@ -40,7 +40,6 @@ export function Workspace({ section, briefID, architecture }: { section: string;
   const [thread, setThread] = useState<Thread | null>(null);
   const [inboxOpen, setInboxOpen] = useState(section === "swarm");
   const [moreOpen, setMoreOpen] = useState(false);
-  const { revisions, recent, connected } = useLive("all");
   const { revisions, recent, status } = useLive("all");
   const state = useResource<Control>("state", revisions.control);
   const decisions = useResource("decisions", revisions.decisions, optionalResource<DecisionFeed>);
@@ -107,8 +106,6 @@ export function Workspace({ section, briefID, architecture }: { section: string;
           ))}
         </nav>
         <div className="top-actions">
-          <span className={`connection ${connected ? "online" : ""}`} role="status">{connected ? "Live" : "Reconnecting"}</span>
-          <button type="button" className="desktop-only" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
           <ConnectionStatus status={status} />
           <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
             Decisions <span className="nav-count">{decisionCount}</span>

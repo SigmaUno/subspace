@@ -5,7 +5,6 @@ import (
 	"log/slog"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/events"
@@ -22,7 +21,6 @@ const (
 	DefaultLimit = 500
 	MaxLimit     = 2000
 	replay       = 1000
-	taskCheckTTL = 30 * time.Second
 )
 
 var streams = map[string]bool{"stdout": true, "stderr": true, "note": true}
@@ -52,19 +50,12 @@ func DefaultConfig() Config {
 }
 
 type Service struct {
-	cfg   Config
-	buf   *Buffer
-	hub   events.Hub
-	dir   Directory
-	st    store.Store
-	rate  *ratelimit.Limiter
-	mu    sync.Mutex
-	tasks map[string]taskCheck
-}
-
-type taskCheck struct {
-	task string
-	at   time.Time
+	cfg  Config
+	buf  *Buffer
+	hub  events.Hub
+	dir  Directory
+	st   store.Store
+	rate *ratelimit.Limiter
 }
 
 func New(st store.Store, dir Directory, cfg Config) *Service {
@@ -80,8 +71,7 @@ func New(st store.Store, dir Directory, cfg Config) *Service {
 	}
 	return &Service{
 		cfg: cfg, buf: NewBuffer(cfg.Limits), hub: hub, dir: dir, st: st,
-		rate:  ratelimit.New(ratelimit.Options{Default: cfg.Rate}),
-		tasks: map[string]taskCheck{},
+		rate: ratelimit.New(ratelimit.Options{Default: cfg.Rate}),
 	}
 }
 
@@ -173,7 +163,7 @@ func (s *Service) Append(ctx context.Context, a model.Actor, in Input) (*Result,
 	}
 	var task *string
 	if in.TaskID != "" {
-		if err := s.checkTask(ctx, a, in.TaskID); err != nil {
+		if err := s.dir.CanSeeTask(ctx, a, in.TaskID); err != nil {
 			return nil, err
 		}
 		id := in.TaskID
@@ -189,23 +179,6 @@ func (s *Service) Append(ctx context.Context, a model.Actor, in Input) (*Result,
 	lines := s.buf.Append(a.ID, task, in.Stream, texts, s.cfg.Now().UTC())
 	s.hub.Publish([]string{TopicAll, TopicPrefix + a.ID}, EventType, Chunk{AgentID: a.ID, TaskID: task, Lines: lines})
 	return &Result{OK: true, Seq: lines[len(lines)-1].Seq, Lines: len(lines), Truncated: truncated}, nil
-}
-
-func (s *Service) checkTask(ctx context.Context, a model.Actor, taskID string) error {
-	now := s.cfg.Now()
-	s.mu.Lock()
-	c, ok := s.tasks[a.ID]
-	s.mu.Unlock()
-	if ok && c.task == taskID && now.Sub(c.at) < taskCheckTTL {
-		return nil
-	}
-	if err := s.dir.CanSeeTask(ctx, a, taskID); err != nil {
-		return err
-	}
-	s.mu.Lock()
-	s.tasks[a.ID] = taskCheck{task: taskID, at: now}
-	s.mu.Unlock()
-	return nil
 }
 
 type Output struct {

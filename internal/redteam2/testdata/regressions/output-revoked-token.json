@@ -1,0 +1,9 @@
+{
+  "invariant": "secret_in_response",
+  "detail": "a revoked agent token in log_output text was not redacted",
+  "ops": [
+    {"actor": "w1", "kind": "mcp", "tool": "add_note", "body": "{\"body\":\"oops {{c:6}}\"}"},
+    {"actor": "w1", "kind": "mcp", "tool": "log_output", "body": "{\"stream\":\"stdout\",\"text\":\"{\\\"b\\\":\\\"{{c:6}}\\\"}\"}"},
+    {"actor": "owner", "kind": "rest", "method": "GET", "path": "/api/v1/agent-output"}
+  ]
+}

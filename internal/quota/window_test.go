@@ -49,6 +49,8 @@ func TestWindowLevels(t *testing.T) {
 		{"tasks drive it", q, Usage{Tasks: 4}, LevelExceeded, 100},
 		{"concurrency drives it", q, Usage{ConcurrentTasks: 2}, LevelExceeded, 100},
 		{"unlimited dimension ignored", Quota{MaxTasksPerDay: 10}, Usage{CostEUR: 1000, Tasks: 9}, LevelWarning, 90},
+		{"sub-euro cost limit", Quota{MaxCostEURPerDay: 0.5}, Usage{CostEUR: 0.5}, LevelExceeded, 100},
+		{"single concurrent slot", Quota{MaxConcurrentTasks: 1}, Usage{ConcurrentTasks: 1}, LevelExceeded, 100},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -87,6 +89,9 @@ func TestExceeded(t *testing.T) {
 				t.Errorf("got %q %v, want %q", limit, hit, c.limit)
 			}
 		})
+	}
+	if limit, _ := Exceeded(Quota{MaxCostEURPerDay: 0.5}, Usage{CostEUR: 0.6}, true); limit != "max_cost_eur_per_day" {
+		t.Errorf("sub-euro cost cap: %q", limit)
 	}
 	if _, hit := Exceeded(Quota{}, Usage{CostEUR: 1e9, Tasks: 1e9, ConcurrentTasks: 1e9}, true); hit {
 		t.Error("zero quota must be unlimited")

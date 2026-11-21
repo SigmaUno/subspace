@@ -5,9 +5,11 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -50,6 +52,9 @@ type RepoConfig struct {
 	MaxTrain int
 	Required []string
 	WorkDir  string
+	Host     string
+	TokenEnv string
+	Token    string
 }
 
 type Runner interface {
@@ -64,6 +69,10 @@ type Gate interface {
 	Approved(ctx context.Context, c Candidate) (bool, error)
 }
 
+type Finisher interface {
+	Merged(ctx context.Context, repo string, pr int, sha string) error
+}
+
 type Tasks interface {
 	RequestChanges(ctx context.Context, taskID, reason string) error
 }
@@ -76,6 +85,7 @@ type Config struct {
 	Notifier Notifier
 	Gate     Gate
 	Tasks    Tasks
+	Finisher Finisher
 	Trains   TrainStore
 	Deps     Deps
 	Checks   Checks
@@ -87,26 +97,16 @@ type Queue struct {
 	cfg  Config
 	mu   sync.Mutex
 	busy map[string]bool
+
+	rmu sync.RWMutex
 }
 
 func New(cfg Config) (*Queue, error) {
 	if cfg.WorkDir == "" || cfg.Store == nil || cfg.Notifier == nil || cfg.Gate == nil || cfg.Tasks == nil {
 		return nil, errors.New("mergequeue: WorkDir, Store, Notifier, Gate and Tasks are required")
 	}
-	for name, rc := range cfg.Repos {
-		if rc.Remote == "" || len(rc.Verify) == 0 {
-			return nil, fmt.Errorf("mergequeue: repo %q needs Remote and Verify", name)
-		}
-		if rc.MaxTrain < 0 {
-			return nil, fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
-		}
-		if rc.MaxTrain > 0 && cfg.Trains == nil {
-			ts, ok := cfg.Store.(TrainStore)
-			if !ok {
-				return nil, fmt.Errorf("mergequeue: repo %q uses merge trains but no TrainStore is configured", name)
-			}
-			cfg.Trains = ts
-		}
+	if err := cfg.checkRepos(cfg.Repos); err != nil {
+		return nil, err
 	}
 	if cfg.Runner == nil {
 		cfg.Runner = ExecRunner{}
@@ -120,8 +120,66 @@ func New(cfg Config) (*Queue, error) {
 	return &Queue{cfg: cfg, busy: map[string]bool{}}, nil
 }
 
+func (c *Config) checkRepos(repos map[string]RepoConfig) error {
+	for name, rc := range repos {
+		if rc.Remote == "" || len(rc.Verify) == 0 {
+			return fmt.Errorf("mergequeue: repo %q needs Remote and Verify", name)
+		}
+		if rc.MaxTrain < 0 {
+			return fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
+		}
+		if rc.MaxTrain > 0 && c.Trains == nil {
+			ts, ok := c.Store.(TrainStore)
+			if !ok {
+				return fmt.Errorf("mergequeue: repo %q uses merge trains but no TrainStore is configured", name)
+			}
+			c.Trains = ts
+		}
+	}
+	return nil
+}
+
+func (q *Queue) Reconfigure(repos map[string]RepoConfig, fin Finisher) error {
+	q.rmu.Lock()
+	defer q.rmu.Unlock()
+	next := q.cfg
+	if err := next.checkRepos(repos); err != nil {
+		return err
+	}
+	if q.cfg.Trains == nil {
+		q.cfg.Trains = next.Trains
+	}
+	q.cfg.Repos = repos
+	q.cfg.Finisher = fin
+	return nil
+}
+
+func (q *Queue) repo(name string) (RepoConfig, bool) {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	rc, ok := q.cfg.Repos[name]
+	return rc, ok
+}
+
+func (q *Queue) repoNames() []string {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	return slices.Collect(maps.Keys(q.cfg.Repos))
+}
+
+func (q *Queue) finisher() Finisher {
+	q.rmu.RLock()
+	defer q.rmu.RUnlock()
+	return q.cfg.Finisher
+}
+
+func (q *Queue) Configured(name string) bool {
+	_, ok := q.repo(name)
+	return ok
+}
+
 func (q *Queue) Enqueue(ctx context.Context, c Candidate) (Candidate, error) {
-	if _, ok := q.cfg.Repos[c.Repo]; !ok {
+	if !q.Configured(c.Repo) {
 		return Candidate{}, model.BadRequest("mergequeue: repo %q is not configured", c.Repo)
 	}
 	if c.PR <= 0 || c.TaskID == "" {
@@ -156,7 +214,7 @@ func (q *Queue) Run(ctx context.Context, interval time.Duration) {
 	var wg sync.WaitGroup
 	defer wg.Wait()
 	for {
-		for repo := range q.cfg.Repos {
+		for _, repo := range q.repoNames() {
 			wg.Add(1)
 			go func() {
 				defer wg.Done()
@@ -180,7 +238,7 @@ func (q *Queue) Run(ctx context.Context, interval time.Duration) {
 }
 
 func (q *Queue) Process(ctx context.Context, repo string) (*Candidate, error) {
-	rc, ok := q.cfg.Repos[repo]
+	rc, ok := q.repo(repo)
 	if !ok {
 		return nil, model.BadRequest("mergequeue: repo %q is not configured", repo)
 	}
@@ -246,6 +304,10 @@ type rejection struct{ reason string }
 func (r *rejection) Error() string { return r.reason }
 
 func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidate) error {
+	if reason := rc.missingToken(); reason != "" {
+		return q.fail(ctx, c, &rejection{reason: reason})
+	}
+	ctx = withCredential(ctx, rc)
 	if err := q.save(ctx, c, StateRunning); err != nil {
 		return err
 	}
@@ -280,8 +342,22 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 	c.MergedSHA = sha
 	return errors.Join(
 		q.save(ctx, c, StateMerged),
-		q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d rebased onto %s, `%s` passed, merged (fast-forward) as %s.", c.PR, c.Base, verify, short(sha))),
+		q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d rebased onto %s, `%s` passed, merged (fast-forward) as %s.", c.PR, c.Base, verify, short(sha))+q.finish(ctx, c, sha)),
 	)
+}
+
+func (q *Queue) finish(ctx context.Context, c *Candidate, sha string) string {
+	fin := q.finisher()
+	if fin == nil {
+		return ""
+	}
+	err := fin.Merged(context.WithoutCancel(ctx), c.Repo, c.PR, sha)
+	if err == nil {
+		return ""
+	}
+	msg := redactCredentials(err.Error())
+	q.cfg.Logger.Warn("mergequeue: pull request not marked merged", "repo", c.Repo, "pr", c.PR, "err", msg)
+	return fmt.Sprintf("\n\nWarning: the pull request could not be marked merged on the host: %s", msg)
 }
 
 func (q *Queue) ensureRepo(ctx context.Context, dir string, rc RepoConfig, log *strings.Builder) error {
@@ -329,7 +405,7 @@ func (q *Queue) prepare(ctx context.Context, dir string, rc RepoConfig, c *Candi
 func (q *Queue) verify(ctx context.Context, dir string, rc RepoConfig, log *strings.Builder) error {
 	fmt.Fprintf(log, "$ %s\n", strings.Join(rc.Verify, " "))
 	out, err := q.cfg.Runner.Run(ctx, dir, rc.Verify[0], rc.Verify[1:]...)
-	log.WriteString(out)
+	log.WriteString(redact(ctx, out))
 	if err != nil {
 		fmt.Fprintf(log, "%v\n", err)
 		return &rejection{reason: fmt.Sprintf("`%s` failed", strings.Join(rc.Verify, " "))}
@@ -361,9 +437,10 @@ func (q *Queue) notify(ctx context.Context, c *Candidate, body string) error {
 }
 
 func (q *Queue) git(ctx context.Context, dir string, log *strings.Builder, args ...string) (string, error) {
-	fmt.Fprintf(log, "$ git %s\n", redactCredentials(strings.Join(args, " ")))
-	out, err := q.cfg.Runner.Run(ctx, dir, "git", args...)
-	log.WriteString(redactCredentials(out))
+	fmt.Fprintf(log, "$ git %s\n", redact(ctx, strings.Join(args, " ")))
+	out, err := q.cfg.Runner.Run(gitContext(ctx), dir, "git", args...)
+	out = redact(ctx, out)
+	log.WriteString(out)
 	if err != nil {
 		fmt.Fprintf(log, "%v\n", err)
 	}

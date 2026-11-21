@@ -73,7 +73,7 @@ export function HelpRequestsView({ revision }: { revision: number }) {
     </div>
     <ResourceState error={list.error} loading={list.data === undefined} retry={list.refresh} rows={3} />
     {list.data && !requests.length && <EmptyState>No {status === "all" ? "" : `${status} `}help requests.</EmptyState>}
-    {!!requests.length && <div className="table-wrap">
+    {!!requests.length && <div className="table-wrap" role="region" aria-label="Help requests" tabIndex={0}>
       <table>
         <thead><tr><th>Request</th><th>Type</th><th>Task</th><th>Agent</th><th>Status</th><th>Created</th></tr></thead>
         <tbody>{requests.map((request) => (

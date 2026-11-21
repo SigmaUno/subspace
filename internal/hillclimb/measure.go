@@ -18,10 +18,19 @@ type Runner interface {
 	Run(ctx context.Context, repo, branch, cmd string) (string, error)
 }
 
+const (
+	Topic        = "hillclimb"
+	EventUpdated = "hillclimb.updated"
+	EventAttempt = "hillclimb.attempt"
+)
+
 type Measurer struct {
-	Store  Store
-	Runner Runner
-	Now    func() time.Time
+	Store     Store
+	Runner    Runner
+	Now       func() time.Time
+	Check     func(ctx context.Context, j *Job) error
+	BranchURL func(repo, branch string) string
+	Publish   func(topics []string, typ string, data any)
 
 	mu       sync.Mutex
 	inflight map[string]int
@@ -31,12 +40,33 @@ func NewMeasurer(s Store, r Runner) *Measurer {
 	return &Measurer{Store: s, Runner: r, Now: time.Now, inflight: map[string]int{}}
 }
 
-func (m *Measurer) CreateJob(j *Job) error {
+type AttemptEvent struct {
+	JobID   string `json:"job_id"`
+	BriefID string `json:"brief_id"`
+	Point
+}
+
+func (m *Measurer) CreateJob(ctx context.Context, j *Job) error {
 	if err := j.Validate(); err != nil {
 		return err
 	}
+	if m.Check != nil {
+		if err := m.Check(ctx, j); err != nil {
+			return err
+		}
+	}
 	j.CreatedAt = m.Now().UTC()
-	return m.Store.CreateJob(j)
+	if err := m.Store.CreateJob(j); err != nil {
+		return err
+	}
+	m.publish(j, EventUpdated, j)
+	return nil
+}
+
+func (m *Measurer) publish(j *Job, typ string, data any) {
+	if m.Publish != nil {
+		m.Publish([]string{"brief:" + j.BriefID, Topic}, typ, data)
+	}
 }
 
 func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (*Attempt, *Job, error) {
@@ -79,6 +109,10 @@ func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (
 	if err := m.Store.UpdateJob(j); err != nil {
 		return a, nil, err
 	}
+	m.publish(j, EventAttempt, AttemptEvent{JobID: j.ID, BriefID: j.BriefID, Point: Point{
+		N: j.Attempts, AttemptID: a.ID, AgentID: a.AgentID, Branch: a.Branch, Value: a.Value, Best: j.Best, Status: a.Status, MeasuredAt: a.MeasuredAt,
+	}})
+	m.publish(j, EventUpdated, j)
 	return a, j, nil
 }
 
@@ -107,8 +141,10 @@ type Point struct {
 	AttemptID  int64     `json:"attempt_id"`
 	AgentID    string    `json:"agent_id"`
 	Branch     string    `json:"branch"`
+	BranchURL  string    `json:"branch_url,omitempty"`
 	Value      *float64  `json:"value"`
 	Best       *float64  `json:"best"`
+	Status     string    `json:"status"`
 	MeasuredAt time.Time `json:"measured_at"`
 }
 
@@ -127,10 +163,14 @@ func (m *Measurer) Series(jobID string) (*Job, []Point, error) {
 		if a.Value != nil && (best == nil || j.better(*a.Value, *best)) {
 			best = a.Value
 		}
-		pts = append(pts, Point{
+		p := Point{
 			N: i + 1, AttemptID: a.ID, AgentID: a.AgentID, Branch: a.Branch,
-			Value: a.Value, Best: best, MeasuredAt: a.MeasuredAt,
-		})
+			Value: a.Value, Best: best, Status: a.Status, MeasuredAt: a.MeasuredAt,
+		}
+		if m.BranchURL != nil {
+			p.BranchURL = m.BranchURL(j.Repo, a.Branch)
+		}
+		pts = append(pts, p)
 	}
 	return j, pts, nil
 }

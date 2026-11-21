@@ -326,7 +326,7 @@ func (h *harness) work(ctx context.Context, m *client.MCP, a *agent, t *model.Ta
 	if a.role == model.RoleTester {
 		_, _ = m.ReportTests(ctx, t.ID, 5+r.IntN(50), r.IntN(3), "soak run")
 	}
-	if _, err := m.Submit(ctx, board.SubmitInput{TaskID: t.ID, PRURL: "https://git.example/soak/pull/" + strings.TrimPrefix(t.ID, "T-"),
+	if _, err := m.Submit(ctx, board.SubmitInput{TaskID: t.ID, PRURL: h.prURL(t),
 		Summary: "soak change"}); err == nil {
 		h.count("submit")
 	}
@@ -348,6 +348,7 @@ func (h *harness) leaderLoop(ctx context.Context, m *client.MCP, r *rand.Rand) {
 				h.propose(ctx, m, b.ID, r)
 			case "approved":
 				if cols, err := m.Board(ctx, b.ID); err == nil {
+					h.noteTasks(cols)
 					h.lead(ctx, m, b.ID, cols, r)
 				}
 			}
@@ -498,6 +499,9 @@ func (h *harness) inbox(ctx context.Context, r *rand.Rand) {
 				a = client.DecisionAction{Action: decisions.ActionReject, Note: "split it differently"}
 			}
 		case decisions.KindMerge:
+			if r.IntN(2) == 0 && h.enqueueMerge(ctx, d.TaskID) {
+				continue
+			}
 			a = client.DecisionAction{Action: decisions.ActionMerge, Note: "merged"}
 		case decisions.KindUnblock:
 			h.unblock(ctx, d)
@@ -658,7 +662,7 @@ type sseFleet struct {
 }
 
 func newSSEFleet(ctx context.Context) *sseFleet {
-	f := &sseFleet{parent: ctx, topicSets: [][]string{{"all"}, {"board"}, {"agents", "control"}, {"plans", "questions"}, {"board", "control"}}}
+	f := &sseFleet{parent: ctx, topicSets: [][]string{{"all"}, {"board"}, {"agents", "control"}, {"plans", "questions"}, {"board", "control"}, {"output"}}}
 	f.ctx, f.cancel = context.WithCancel(ctx)
 	return f
 }

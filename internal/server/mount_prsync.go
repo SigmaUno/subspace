@@ -1,6 +1,9 @@
 package server
 
 import (
+	"context"
+	"fmt"
+
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/prsync"
 )
@@ -25,18 +28,17 @@ func mountPRStatus(d Deps) {
 		detach()
 	}()
 
-	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
-	if err != nil {
-		d.Log.Error("pr status sync disabled", "err", err)
-		return
-	}
-	if !ok {
-		return
-	}
-	p, err := prsync.New(prsync.Options{Config: cfg, Board: d.Board, Store: st, Hub: d.Hub, Log: d.Log})
-	if err != nil {
-		d.Log.Error("pr status sync disabled", "err", err)
-		return
-	}
-	d.Leader.Go(d.Ctx, p.Run)
+	d.Leader.Go(d.Ctx, func(ctx context.Context) {
+		superviseRepos(ctx, d, func(ctx context.Context) (func(context.Context), error) {
+			cfg, ok, err := resolveRepos(ctx, d, "pr status sync")
+			if err != nil || !ok {
+				return nil, err
+			}
+			p, err := prsync.New(prsync.Options{Config: cfg, Board: d.Board, Store: st, Hub: d.Hub, Log: d.Log})
+			if err != nil {
+				return nil, fmt.Errorf("pr status sync disabled: %w", err)
+			}
+			return p.Run, nil
+		})
+	})
 }

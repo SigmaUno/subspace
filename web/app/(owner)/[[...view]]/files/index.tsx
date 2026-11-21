@@ -103,7 +103,7 @@ function ScopeFiles({ scope }: { scope: string }) {
     </ul>}
     <ResourceState error={files.error} loading={!files.data} retry={files.refresh} rows={4} />
     {files.data && !files.data.artifacts.length && <EmptyState>No files in this scope.</EmptyState>}
-    {!!files.data?.artifacts.length && <div className="table-wrap">
+    {!!files.data?.artifacts.length && <div className="table-wrap" role="region" aria-label="Files" tabIndex={0}>
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead>
         <tbody>

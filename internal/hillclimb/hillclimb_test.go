@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/model"
 )
 
 type fakeRunner struct {
@@ -212,5 +213,81 @@ func TestCreateValidationAndNotFound(t *testing.T) {
 	}
 	if code := getJSON(t, srv, "/hillclimb/jobs/H-99/series", &e); code != http.StatusNotFound || e.Error.Code != "not_found" {
 		t.Fatalf("series of missing job: %d %+v", code, e)
+	}
+}
+
+func TestBriefFilterEventsAndBranchLinks(t *testing.T) {
+	m, srv := newEnv(&fakeRunner{outs: []string{"4", "3"}})
+	defer srv.Close()
+	runner := &hillclimb.GitRunner{Repos: map[string]string{
+		"o/gh":    "https://user:secret@github.com/o/gh.git",
+		"o/forge": "https://git.example.com/o/forge",
+		"o/local": "/srv/git/local.git",
+	}}
+	m.BranchURL = runner.BranchURL
+	var mu sync.Mutex
+	var events []string
+	m.Publish = func(topics []string, typ string, _ any) {
+		mu.Lock()
+		defer mu.Unlock()
+		events = append(events, typ+"@"+topics[0])
+	}
+
+	_, gh := postJob(t, srv, `{"brief_id":"B-1","repo":"o/gh","metric_cmd":"x","direction":"min"}`)
+	_, forge := postJob(t, srv, `{"brief_id":"B-2","repo":"o/forge","metric_cmd":"x","direction":"min"}`)
+	_, local := postJob(t, srv, `{"brief_id":"B-2","repo":"o/local","metric_cmd":"x","direction":"min"}`)
+	for _, j := range []hillclimb.Job{gh, forge, local} {
+		if _, _, err := m.Measure(context.Background(), j.ID, "a", "sub/t-1-speedup"); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	var list struct {
+		Jobs []hillclimb.Job `json:"jobs"`
+	}
+	getJSON(t, srv, "/hillclimb/jobs?brief_id=B-2", &list)
+	if len(list.Jobs) != 2 || list.Jobs[0].ID != forge.ID || list.Jobs[1].ID != local.ID {
+		t.Fatalf("brief filter: %+v", list.Jobs)
+	}
+
+	for id, want := range map[string]string{
+		gh.ID:    "https://github.com/o/gh/tree/sub/t-1-speedup",
+		forge.ID: "https://git.example.com/o/forge/src/branch/sub/t-1-speedup",
+		local.ID: "",
+	} {
+		var s struct {
+			Points []hillclimb.Point `json:"points"`
+		}
+		getJSON(t, srv, "/hillclimb/jobs/"+id+"/series", &s)
+		if len(s.Points) != 1 || s.Points[0].BranchURL != want || s.Points[0].Status != hillclimb.AttemptOK {
+			t.Fatalf("%s points: %+v", id, s.Points)
+		}
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 9 || events[0] != "hillclimb.updated@brief:B-1" || events[8] != "hillclimb.updated@brief:B-2" || events[7] != "hillclimb.attempt@brief:B-2" {
+		t.Fatalf("events: %v", events)
+	}
+}
+
+func TestCreateRejectedByCheck(t *testing.T) {
+	m, srv := newEnv(&fakeRunner{outs: []string{"1"}})
+	defer srv.Close()
+	m.Check = func(_ context.Context, j *hillclimb.Job) error {
+		if j.BriefID != "B-1" {
+			return model.NotFound("brief %s not found", j.BriefID)
+		}
+		return nil
+	}
+	if resp, _ := postJob(t, srv, `{"brief_id":"B-9","repo":"r","metric_cmd":"x","direction":"min"}`); resp.StatusCode != http.StatusNotFound {
+		t.Fatalf("status %d", resp.StatusCode)
+	}
+	var list struct {
+		Jobs []hillclimb.Job `json:"jobs"`
+	}
+	getJSON(t, srv, "/hillclimb/jobs", &list)
+	if len(list.Jobs) != 0 {
+		t.Fatalf("job stored despite rejection: %+v", list.Jobs)
 	}
 }

@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/SigmaUno/subspace/internal/breaker"
+	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -21,8 +22,15 @@ func init() {
 		d.API.Mount(d.Mux, "GET /api/v1/breakers", h)
 		d.API.Mount(d.Mux, "POST /api/v1/breakers/{provider}/reset", h)
 
-		svc := usage.New(breakerUsageStore{usage.NewPersisted(d.Store, 1), d.Breakers}, usage.Config{})
+		svc := usage.New(breakerUsageStore{d.Usage, d.Breakers}, d.UsageSetup.Config)
 		svc.Attrib = usage.StoreAttributor(d.Store)
+		svc.Capacity = usage.CapacityFunc(d.Board.CapacityUsage)
+		svc.Briefs = d.Board
+		svc.Breaker = func(provider, mdl string) string { return string(d.Breakers.State(provider, mdl)) }
+		svc.Paused = func() bool { p, _ := d.Board.Paused(); return p }
+		if d.Cfg.Now != nil {
+			svc.Now = d.Cfg.Now
+		}
 		svc.Allow = func(ctx context.Context, a model.Actor, taskID, briefID string) error {
 			if taskID != "" {
 				t, err := d.Board.GetTask(ctx, a, taskID)
@@ -54,6 +62,9 @@ func init() {
 			d.Registry.Register(t)
 		}
 		d.Registry.Register(providerErrorTool(d))
+		mountUsage(d, svc)
+
+		mountProbe(d)
 
 		detach := decisions.Attach(d.Store, breakerDecisions{d.Breakers})
 		go func() {
@@ -63,6 +74,32 @@ func init() {
 	})
 }
 
+func mountProbe(d Deps) {
+	p := &breaker.Prober{
+		Set: d.Breakers, Getenv: d.getenv(), Now: d.Cfg.Now,
+		Targets: func(ctx context.Context) ([]capacity.Limit, error) {
+			v, err := d.Board.Capacity(ctx)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]capacity.Limit, 0, len(v.Limits))
+			for _, r := range v.Limits {
+				out = append(out, r.Limit)
+			}
+			return out, nil
+		},
+	}
+	d.API.Mount(d.Mux, "GET /api/v1/providers", breaker.ProbeHandler(p))
+	every, err := breaker.ProbeIntervalFromEnv(d.getenv())
+	if err != nil {
+		d.Log.Error("provider probes disabled", "err", err)
+		return
+	}
+	if every > 0 {
+		go p.Run(d.Ctx, every)
+	}
+}
+
 func breakerLog(log *slog.Logger) func(breaker.Status) {
 	return func(s breaker.Status) {
 		log.Warn("provider breaker changed", "provider", s.Provider, "model", s.Model, "state", s.State, "error_rate", s.ErrorRate)
@@ -70,12 +107,12 @@ func breakerLog(log *slog.Logger) func(breaker.Status) {
 }
 
 type breakerUsageStore struct {
-	usage.Store
+	*usage.Persisted
 	set *breaker.Set
 }
 
 func (s breakerUsageStore) Put(ctx context.Context, recs []usage.Record) error {
-	if err := s.Store.Put(ctx, recs); err != nil {
+	if err := s.Persisted.Put(ctx, recs); err != nil {
 		return err
 	}
 	for _, r := range recs {

@@ -91,6 +91,9 @@ func (w *PushWatcher) task(ctx context.Context, t *model.Task) {
 	if cur.reviewer != "" && cur.reviewer != prev.reviewer {
 		w.Push.Event(cur.reviewer, map[string]any{"type": "task_assigned", "task_id": t.ID})
 	}
+	if cur.status == model.StatusDone || cur.status == model.StatusCancelled {
+		delete(w.tasks, t.ID)
+	}
 	w.Push.Updated(ctx, TaskResource(t.ID))
 }
 
@@ -136,6 +139,7 @@ func (w *PushWatcher) agent(a *model.Agent) {
 	w.agents[a.ID] = a.Status
 	switch {
 	case a.Status == model.AgentRevoked:
+		delete(w.agents, a.ID)
 		w.Push.DropAgent(a.ID)
 	case a.Status == model.AgentPaused && prev != model.AgentPaused:
 		w.Push.Event(a.ID, map[string]any{"type": "paused", "scope": "agent"})

@@ -18,6 +18,7 @@ const (
 	EnvPausedMax     = "SUBSPACE_ALERTS_PAUSED_MAX"
 	EnvFlappingMax   = "SUBSPACE_ALERTS_FLAPPING_MAX"
 	EnvBackupMaxAge  = "SUBSPACE_ALERTS_BACKUP_MAX_AGE"
+	EnvOffsiteMaxAge = "SUBSPACE_ALERTS_OFFSITE_MAX_AGE"
 	EnvDiskMinFree   = "SUBSPACE_ALERTS_DISK_MIN_FREE_BYTES"
 	EnvDBMaxBytes    = "SUBSPACE_ALERTS_DB_MAX_BYTES"
 	EnvWALMaxBytes   = "SUBSPACE_ALERTS_WAL_MAX_BYTES"
@@ -32,6 +33,7 @@ type Thresholds struct {
 	PausedMax     int
 	FlappingMax   int
 	BackupMaxAge  time.Duration
+	OffsiteMaxAge time.Duration
 	DiskMinFree   uint64
 	DBMaxBytes    uint64
 	WALMaxBytes   uint64
@@ -47,6 +49,7 @@ func Defaults() Thresholds {
 		PausedMax:     3,
 		FlappingMax:   1,
 		BackupMaxAge:  48 * time.Hour,
+		OffsiteMaxAge: 48 * time.Hour,
 		DiskMinFree:   1 << 30,
 		DBMaxBytes:    8 << 30,
 		WALMaxBytes:   512 << 20,
@@ -56,7 +59,7 @@ func Defaults() Thresholds {
 
 var ReloadKeys = []string{
 	EnvInterval, EnvStallAfter, EnvProgressAfter, EnvReviewAfter, EnvPausedMax, EnvFlappingMax,
-	EnvBackupMaxAge, EnvDiskMinFree, EnvDBMaxBytes, EnvWALMaxBytes, EnvLaggedRatio,
+	EnvBackupMaxAge, EnvOffsiteMaxAge, EnvDiskMinFree, EnvDBMaxBytes, EnvWALMaxBytes, EnvLaggedRatio,
 }
 
 func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
@@ -116,6 +119,7 @@ func parse(getenv func(string) string, invalid func(key string)) Thresholds {
 	duration(EnvProgressAfter, &t.ProgressAfter)
 	duration(EnvReviewAfter, &t.ReviewAfter)
 	duration(EnvBackupMaxAge, &t.BackupMaxAge)
+	duration(EnvOffsiteMaxAge, &t.OffsiteMaxAge)
 	count(EnvPausedMax, &t.PausedMax)
 	count(EnvFlappingMax, &t.FlappingMax)
 	size(EnvDiskMinFree, &t.DiskMinFree)

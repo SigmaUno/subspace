@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -62,6 +63,19 @@ func (t *tx) Costs(q store.CostQuery) ([]store.CostRow, error) {
 		sum(cache_read)::bigint, sum(cache_write)::bigint, sum(cost_eur)::float8 FROM cost_records
 		WHERE ts >= $1 AND ts < $2 AND ($3::text = '' OR brief_id = $3) GROUP BY 1, 2 ORDER BY 1, 2`,
 		q.Since.UnixMilli(), q.Until.UnixMilli(), q.BriefID)
+}
+
+func (t *tx) ListCosts(since, until time.Time) ([]store.CostRecord, error) {
+	return list(t, func(s scanner) (store.CostRecord, error) {
+		var r store.CostRecord
+		var ts int64
+		err := s.Scan(&r.Key, &ts, &r.BriefID, &r.TaskID, &r.ComponentID, &r.AgentID, &r.Kind, &r.Role, &r.Provider, &r.Model,
+			&r.TokensIn, &r.TokensOut, &r.CacheRead, &r.CacheWrite, &r.CostEUR)
+		r.TS = time.UnixMilli(ts).UTC()
+		return r, err
+	}, `SELECT key, ts, brief_id, task_id, component_id, agent_id, kind, role, provider, model,
+		tokens_in, tokens_out, cache_read, cache_write, cost_eur FROM cost_records WHERE ts >= $1 AND ts < $2 ORDER BY ts, key`,
+		since.UnixMilli(), until.UnixMilli())
 }
 
 var _ store.CostsTx = (*tx)(nil)

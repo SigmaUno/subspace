@@ -3,7 +3,7 @@
 .PHONY: all build test test-full vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
-.PHONY: sync acceptance
+.PHONY: sync acceptance loadtest-trace-guard
 
 GO ?= go
 BIN := bin
@@ -66,6 +66,9 @@ loadtest:
 # Short version used in CI.
 loadtest-short:
 	$(GO) run ./cmd/loadtest -agents 50 -duration 20s -max-error-rate 0
+
+loadtest-trace-guard:
+	SUBSPACE_TRACE_GUARD=1 $(GO) test -count=1 -timeout 30m -run TestTracingOverheadGuard -v ./internal/loadtest
 
 # 1000 agents ramped in over 20s, 500 SSE subscribers; JSON report and pprof profiles under bin/.
 loadtest-1000:

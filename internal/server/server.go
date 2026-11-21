@@ -34,7 +34,11 @@ import (
 	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
+
+const traceShutdown = 5 * time.Second
 
 type Config struct {
 	Addr            string
@@ -62,6 +66,8 @@ type Config struct {
 	InstanceID      string
 	LeaderInterval  time.Duration
 	LeaderTTL       time.Duration
+	DrainDelay      time.Duration
+	SchemaReadOnly  bool
 }
 
 type Server struct {
@@ -77,6 +83,7 @@ type Server struct {
 	Leader  *ha.Elector
 	cluster *cluster
 	closers []func()
+	tracer  *trace.Tracer
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -135,6 +142,16 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 			return nil, err
 		}
 	}
+	off, err := openOffsite(env, cfg.BackupDir)
+	if err != nil {
+		return nil, err
+	}
+	tcfg, err := trace.ConfigFromEnv(env)
+	if err != nil {
+		return nil, err
+	}
+	tracing := tcfg.Build(cfg.Log, board.Version, cfg.InstanceID)
+	ctx = trace.WithTracer(ctx, tracing.Tracer)
 	var capCfg capacity.Config
 	if path := env(board.EnvCapacityFile); path != "" {
 		c, err := capacity.Load(path)
@@ -143,7 +160,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		}
 		capCfg = c
 	}
-	st, err := openStore(cfg.DBPath)
+	st, err := openStore(cfg.DBPath, store.OpenOptions{ReadOnlyNewer: cfg.SchemaReadOnly})
 	if err != nil {
 		return nil, err
 	}
@@ -199,7 +216,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	cl.start(ctx)
 
 	reg := mcp.NewRegistry(b)
-	climber := newHillclimb(st, b, reg, cfg.Log)
+	climber := newHillclimb(st, b, reg, hub, cfg.Log)
 	m := mcp.NewServer(cache, reg)
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
 	m.Hooks = b
@@ -213,7 +230,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest := &api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}
 	rest.Register(mux)
 
-	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{Now: cfg.Now})
+	feed := decisions.New(decisions.StoreSource{Store: st, Overlay: b.OverlayAgent}, decisionActions{b}, decisions.Options{Now: cfg.Now})
 	rest.Mount(mux, "/api/v1/decisions", decisions.Handler(feed, cfg.Log))
 	rest.Mount(mux, "/api/v1/decisions/", decisions.Handler(feed, cfg.Log))
 
@@ -222,14 +239,16 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/conversations", router.Handler())
 	rest.Mount(mux, "/api/v1/conversations/", router.Handler())
 
-	compStore := components.NewMemory()
+	compStore := components.NewKV(st)
 	comps := components.NewService(compStore, componentSource{b, st}, nil)
+	comps.Changed = b.AuditComponents
 	b.SetComponentPaths(func(briefID, id string) []string { return comps.Paths(ctx, briefID, id) })
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
 	lib := prompts.New(cfg.PromptsDir)
 	mcp.RegisterTaskTemplates(reg, b, lib)
+	mcp.RegisterPrompts(reg, lib)
 	m.Surface = &mcp.Surface{B: b, Lib: lib}
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
 	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())
@@ -240,15 +259,30 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
+	drain := make(chan struct{})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !ready(st, drain) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	brkCfg, err := breaker.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		cl.close()
 		_ = st.Close()
 		return nil, err
 	}
+	usageCfg, err := usageConfigFromEnv(env)
+	if err != nil {
+		cl.close()
+		_ = st.Close()
+		return nil, err
+	}
 	var closers []func()
-	deps := Deps{Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
-		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
+	deps := Deps{Usage: usage.NewPersisted(st, usageCfg.EURToUSD), UsageSetup: usageCfg, Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
+		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore, Comps: comps,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)
 	rl.Register("trusted-proxies", []string{envTrustedProxies}, deps.Trust)
@@ -268,12 +302,21 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		h = w(h, deps)
 	}
 	h = newAllowlisted(h, deps)
+	h = tracing.Tracer.Handler(h, func(r *http.Request) string { _, p := mux.Handler(r); return p })
 	if err := rl.Check(); err != nil {
 		cl.close()
 		_ = st.Close()
 		return nil, err
 	}
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, closers: closers, drain: make(chan struct{})}
+	if tracing.Exporter != nil {
+		tracing.Start()
+		closers = append([]func(){func() {
+			cctx, cancel := context.WithTimeout(context.Background(), traceShutdown)
+			defer cancel()
+			_ = tracing.Close(cctx)
+		}}, closers...)
+	}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, closers: closers, drain: drain, tracer: tracing.Tracer}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -281,6 +324,24 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 func (s *Server) Reload(ctx context.Context, note string) (reload.Result, error) {
 	return reloadConfig(ctx, s.reload, s.Board, s.cfg.Log, note)
+}
+
+func ready(st store.Store, drain <-chan struct{}) bool {
+	if ro, ok := st.(interface{ ReadOnly() bool }); ok && ro.ReadOnly() {
+		return false
+	}
+	var closed <-chan struct{}
+	if d, ok := st.(interface{ Done() <-chan struct{} }); ok {
+		closed = d.Done()
+	}
+	select {
+	case <-drain:
+		return false
+	case <-closed:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Server) beginDrain() { s.drainOnce.Do(func() { close(s.drain) }) }
@@ -331,6 +392,7 @@ func (s *Server) Close() error {
 	for _, f := range slices.Backward(s.closers) {
 		f()
 	}
+	s.resign(context.Background())
 	s.cluster.close()
 	return s.Store.Close()
 }
@@ -348,9 +410,9 @@ func (s *Server) Run(ctx context.Context) error {
 }
 
 func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
-	bgCtx, stopBg := context.WithCancel(ctx)
+	bgCtx, stopBg := context.WithCancel(trace.WithTracer(ctx, s.tracer))
 	defer stopBg()
-	flushCtx, stopFlush := context.WithCancel(context.WithoutCancel(ctx))
+	flushCtx, stopFlush := context.WithCancel(trace.WithTracer(context.WithoutCancel(ctx), s.tracer))
 	defer stopFlush()
 
 	var bg, flusher sync.WaitGroup
@@ -370,9 +432,14 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	case serveErr = <-errc:
 	}
 	s.cfg.Log.Info("shutting down", "timeout", s.cfg.ShutdownTimeout)
+	drained := time.After(s.cfg.DrainDelay)
 	s.beginDrain()
 	stopBg()
 	bg.Wait()
+	s.resign(ctx)
+	if serveErr == nil {
+		<-drained
+	}
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 	defer cancel()
@@ -389,7 +456,16 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	return serveErr
 }
 
+func (s *Server) resign(ctx context.Context) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
+	defer cancel()
+	if err := s.Leader.Resign(rctx); err != nil {
+		s.cfg.Log.Warn("leader hand-off timed out", "err", err)
+	}
+}
+
 func (s *Server) RunBackground(ctx context.Context) {
+	ctx = trace.WithTracer(ctx, s.tracer)
 	var wg sync.WaitGroup
 	wg.Go(func() { s.Leader.Lead(ctx, s.sweepLoop) })
 	wg.Go(func() { s.flushLoop(ctx) })
@@ -404,9 +480,12 @@ func (s *Server) sweepLoop(ctx context.Context) {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := s.Board.Sweep(ctx); err != nil && ctx.Err() == nil {
+			tctx, span := trace.StartRoot(ctx, "leader.sweep", trace.KindInternal, trace.String("subspace.instance", s.cfg.InstanceID))
+			if err := s.Board.Sweep(tctx); err != nil && ctx.Err() == nil {
+				span.Fail("sweep failed")
 				s.cfg.Log.Error("sweep", "err", err)
 			}
+			span.End()
 		}
 	}
 }
@@ -420,7 +499,9 @@ func (s *Server) flushLoop(ctx context.Context) {
 			s.Board.Flush(context.Background())
 			return
 		case <-t.C:
-			s.Board.Flush(context.Background())
+			tctx, span := trace.StartRoot(ctx, "board.flush", trace.KindInternal)
+			s.Board.Flush(context.WithoutCancel(tctx))
+			span.End()
 		}
 	}
 }

@@ -96,7 +96,7 @@ type trainRun struct {
 }
 
 func (q *Queue) ProcessTrain(ctx context.Context, repo string) (*Train, error) {
-	rc, ok := q.cfg.Repos[repo]
+	rc, ok := q.repo(repo)
 	if !ok || rc.MaxTrain <= 0 {
 		return nil, fmt.Errorf("mergequeue: repo %q does not use merge trains", repo)
 	}
@@ -108,6 +108,7 @@ func (q *Queue) ProcessTrain(ctx context.Context, repo string) (*Train, error) {
 }
 
 func (q *Queue) processTrain(ctx context.Context, repo string, rc RepoConfig) (*Train, error) {
+	ctx = withCredential(ctx, rc)
 	if t, err := q.recoverTrain(ctx, repo, rc); t != nil || err != nil {
 		return t, err
 	}
@@ -163,6 +164,12 @@ func (q *Queue) pickTrain(ctx context.Context, repo string, rc RepoConfig) (*tra
 				}
 				continue
 			}
+		}
+		if reason := rc.missingToken(); reason != "" {
+			if err := q.eject(ctx, c, reason, ""); err != nil {
+				return nil, err
+			}
+			continue
 		}
 		cs, hold, reason, err := q.protection(ctx, rc, c)
 		if err != nil {
@@ -427,6 +434,7 @@ func (r *trainRun) test(ctx context.Context, sha string) (bool, string, error) {
 	r.t.Runs++
 	fmt.Fprintf(&r.log, "$ %s  # %s\n", strings.Join(r.rc.Verify, " "), short(sha))
 	out, err := q.cfg.Runner.Run(ctx, r.dir, r.rc.Verify[0], r.rc.Verify[1:]...)
+	out = redact(ctx, out)
 	r.log.WriteString(out)
 	if err != nil {
 		fmt.Fprintf(&r.log, "%v\n", err)
@@ -489,7 +497,7 @@ func (r *trainRun) finalize(ctx context.Context) error {
 			c.MergedSHA = m.SHA
 			err := errors.Join(q.save(ctx, c, StateMerged),
 				q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d merged into %s as %s by merge train %s (%s), `%s` passed.",
-					c.PR, t.Base, short(m.SHA), t.ID, strings.Join(prs, ", "), verify)))
+					c.PR, t.Base, short(m.SHA), t.ID, strings.Join(prs, ", "), verify)+q.finish(ctx, c, m.SHA)))
 			if err != nil {
 				return err
 			}

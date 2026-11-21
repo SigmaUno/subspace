@@ -485,6 +485,16 @@
       },
       "type": "object"
     },
+    "list_prompts": {
+      "additionalProperties": false,
+      "properties": {
+        "tag": {
+          "description": "only prompts with this tag",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
     "list_spawns": {
       "additionalProperties": false,
       "properties": {
@@ -730,6 +740,26 @@
       ],
       "type": "object"
     },
+    "render_prompt": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "prompt id from list_prompts",
+          "type": "string"
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "value for every variable the prompt declares",
+          "type": "object"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
     "report_provider_error": {
       "additionalProperties": false,
       "properties": {
@@ -907,6 +937,55 @@
           "type": "string"
         }
       },
+      "type": "object"
+    },
+    "set_components": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief id, e.g. B-1",
+          "type": "string"
+        },
+        "components": {
+          "description": "the complete component plan",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "description": "names of components this one depends on",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "description": {
+                "description": "what the component is responsible for",
+                "type": "string"
+              },
+              "name": {
+                "description": "unique component name",
+                "type": "string"
+              },
+              "paths": {
+                "description": "repository-relative paths the component owns",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "brief_id",
+        "components"
+      ],
       "type": "object"
     },
     "supersede_knowledge": {

@@ -13,6 +13,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/retryq"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const maxTracked = 4096
@@ -229,6 +230,9 @@ func (s *Service) loop(ctx context.Context, sub events.Subscription) {
 				delete(pending, id)
 				continue
 			}
+			if n.TraceID == "" && !ev.Trace.TraceID.IsZero() {
+				n.TraceID, n.flags = ev.Trace.TraceID.String(), ev.Trace.Flags
+			}
 			pending[id] = *n
 			if s.cfg.Window < 0 {
 				flush()
@@ -282,7 +286,13 @@ func (l *lane) drain(ctx context.Context) {
 func (l *lane) deliver(ctx context.Context, n Notification) {
 	cfg := l.s.cfg
 	for attempt := 1; ; attempt++ {
-		err := l.sink.Send(ctx, n)
+		sctx, span := trace.Continue(ctx, n.TraceID, n.flags, "notify.deliver", trace.KindClient,
+			trace.String("subspace.sink", l.sink.Name()), trace.String("subspace.notification_id", n.ID), trace.Int("subspace.attempt", attempt))
+		err := l.sink.Send(sctx, n)
+		if err != nil {
+			span.Fail("send failed")
+		}
+		span.End()
 		if err == nil {
 			l.s.sent.Add(1)
 			return

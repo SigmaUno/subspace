@@ -87,14 +87,14 @@ func testBrief(id string, created time.Time) *model.Brief {
 	return &model.Brief{
 		ID: id, Title: "Title " + id, Body: "# body\nline", Repos: []string{"SigmaUno/foo", "SigmaUno/bar"},
 		Status: "open", Budget: model.BriefBudget{MaxCostEUR: 12.5, MaxParallelAgent: 7},
-		AllowedProviders: []string{"anthropic", "deepseek"}, CrossReview: true, PlanStatus: "none", CreatedAt: created,
+		AllowedProviders: []string{"anthropic", "deepseek"}, CrossReview: true, RiskyPaths: []string{"internal/auth/**", "db"}, PlanStatus: "none", CreatedAt: created,
 	}
 }
 
 func scenarioBriefs(t *testing.T, s store.Store) {
 	b1 := testBrief("B-1", time.UnixMilli(1760000000123).UTC())
 	b2 := testBrief("B-2", time.UnixMilli(1000).UTC())
-	b2.Repos, b2.AllowedProviders, b2.Status, b2.CrossReview = nil, nil, "closed", false
+	b2.Repos, b2.AllowedProviders, b2.RiskyPaths, b2.Status, b2.CrossReview = nil, nil, nil, "closed", false
 	b10 := testBrief("B-10", time.UnixMilli(1000).UTC())
 	b1.Playbook, b1.QualityGates = "hotfix", model.QualityGates{Tests: true, MinTestsPassed: 3, MaxPRAgeHours: 12}
 	b10.Playbook, b10.QualityGates = "careful", model.QualityGates{Scope: true}
@@ -106,7 +106,7 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 		}
 		return nil
 	})
-	b2.Repos, b2.AllowedProviders = []string{}, []string{}
+	b2.Repos, b2.AllowedProviders, b2.RiskyPaths = []string{}, []string{}, []string{}
 	wantErr(t, store.ErrDuplicate, s.Atomic(context.Background(), func(tx store.Tx) error { return tx.InsertBrief(b1) }))
 
 	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status, b1.AutoDoneOnMerge = "new", 99.25, []string{"openai"}, "closed", true

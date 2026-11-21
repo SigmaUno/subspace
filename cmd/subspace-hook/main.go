@@ -21,7 +21,7 @@ const (
 	budget   = 1700 * time.Millisecond
 	backstop = 1950 * time.Millisecond
 	redacted = "<redacted>"
-	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|instructions [flags] [text]"
+	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|usage|provider-error|instructions [flags] [text | -]"
 )
 
 type config struct {
@@ -49,7 +49,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
-	case "heartbeat", "log", "status", "note", "notify", "instructions":
+	case "heartbeat", "log", "status", "note", "notify", "usage", "provider-error", "instructions":
 	default:
 		_, _ = fmt.Fprintln(stderr, usage)
 		return exitUsage
@@ -136,6 +136,10 @@ func (h *hook) dispatch(ctx context.Context, cmd string, args []string, stderr i
 		return h.note(ctx, *task, text)
 	case "notify":
 		return h.notify(ctx, *task, text)
+	case "usage":
+		return h.usage(ctx, *task)
+	case "provider-error":
+		return h.providerError(ctx)
 	}
 	return h.instructions(ctx)
 }
@@ -149,8 +153,11 @@ func (h *hook) heartbeat(ctx context.Context, task string) error {
 }
 
 func (h *hook) log(ctx context.Context, task, stream, text string) error {
-	if text == "" {
-		text = readPayload(ctx, h.stdin).logText()
+	switch text {
+	case "-":
+		text = strings.TrimSpace(tail(readText(ctx, h.stdin, h.cfg.token), maxChunk))
+	case "":
+		text = readPayload(ctx, h.stdin, h.cfg.token).logText()
 	}
 	if text == "" {
 		return nil
@@ -172,7 +179,7 @@ func (h *hook) log(ctx context.Context, task, stream, text string) error {
 
 func (h *hook) status(ctx context.Context, task, status string, progress int, note string) error {
 	if note == "" {
-		note = readPayload(ctx, h.stdin).statusNote()
+		note = readPayload(ctx, h.stdin, h.cfg.token).statusNote()
 	}
 	if _, ok := h.lim.reserve("status"); !ok {
 		return nil
@@ -188,7 +195,7 @@ func (h *hook) status(ctx context.Context, task, status string, progress int, no
 	args := map[string]any{
 		"task_id": task,
 		"status":  status,
-		"note":    strings.ReplaceAll(clip(note, maxNote), h.cfg.token, redacted),
+		"note":    clip(strings.ReplaceAll(note, h.cfg.token, redacted), maxNote),
 	}
 	if progress >= 0 {
 		args["progress_pct"] = progress
@@ -198,7 +205,7 @@ func (h *hook) status(ctx context.Context, task, status string, progress int, no
 
 func (h *hook) note(ctx context.Context, task, text string) error {
 	if text == "" {
-		text = readPayload(ctx, h.stdin).noteText()
+		text = readPayload(ctx, h.stdin, h.cfg.token).noteText()
 	}
 	if text == "" {
 		return nil
@@ -206,7 +213,7 @@ func (h *hook) note(ctx context.Context, task, text string) error {
 	if _, ok := h.lim.reserve("note"); !ok {
 		return nil
 	}
-	_, err := h.client().AddNote(ctx, task, strings.ReplaceAll(clip(text, maxNote), h.cfg.token, redacted))
+	_, err := h.client().AddNote(ctx, task, clip(strings.ReplaceAll(text, h.cfg.token, redacted), maxNote))
 	return err
 }
 

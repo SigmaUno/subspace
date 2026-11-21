@@ -3,7 +3,10 @@ package capacity
 import (
 	"encoding/json"
 	"fmt"
+	"net/url"
 	"os"
+	"regexp"
+	"strings"
 
 	"github.com/SigmaUno/subspace/internal/model"
 )
@@ -25,8 +28,23 @@ func (c Config) Validate() error {
 		if l.MaxConcurrency < 0 || l.RequestsPerMin < 0 {
 			return fmt.Errorf("limit %d: values must be >= 0", i)
 		}
+		if l.KeyEnv != "" && (!keyEnvRe.MatchString(l.KeyEnv) || strings.HasPrefix(l.KeyEnv, "SUBSPACE_")) {
+			return fmt.Errorf("limit %d: key_env must name an environment variable matching [A-Z][A-Z0-9_]* outside SUBSPACE_*", i)
+		}
+		if l.BaseURL != "" {
+			u, err := url.Parse(l.BaseURL)
+			if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" || u.User != nil {
+				return fmt.Errorf("limit %d: base_url must be an http or https URL without credentials", i)
+			}
+		}
 	}
 	return nil
+}
+
+var keyEnvRe = regexp.MustCompile(`^[A-Z][A-Z0-9_]{0,127}$`)
+
+func (l Limit) Probeable() bool {
+	return l.KeyEnv != "" && l.Provider != "*" && l.Model != "*"
 }
 
 func Load(path string) (Config, error) {

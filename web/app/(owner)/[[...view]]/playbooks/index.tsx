@@ -166,7 +166,7 @@ export function PlaybooksPanel() {
     {current && <PlaybookForm key={`${current.name}:${current.updated_at}`} playbook={current} done={finish} cancel={() => setEditing(null)} />}
     <Feedback error={error} />
     {playbooks.data && !list.length && <EmptyState>No playbooks.</EmptyState>}
-    {!!list.length && <div className="table-wrap">
+    {!!list.length && <div className="table-wrap" role="region" aria-label="Playbooks" tabIndex={0}>
       <table>
         <thead><tr><th>Playbook</th><th>Rules</th><th>Defaults</th><th>Actions</th></tr></thead>
         <tbody>{list.map((playbook) => (

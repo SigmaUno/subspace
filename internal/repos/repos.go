@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/redact"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -55,6 +56,7 @@ type Repo struct {
 	MergeTestCommand  []string  `json:"merge_test_command"`
 	MergeWorkDir      string    `json:"merge_work_dir"`
 	TokenEnv          string    `json:"token_env"`
+	AgentTokenEnv     string    `json:"agent_token_env"`
 	Enabled           bool      `json:"enabled"`
 	CreatedAt         time.Time `json:"created_at"`
 	UpdatedAt         time.Time `json:"updated_at"`
@@ -69,6 +71,7 @@ type Input struct {
 	MergeTestCommand  []string `json:"merge_test_command"`
 	MergeWorkDir      string   `json:"merge_work_dir"`
 	TokenEnv          string   `json:"token_env"`
+	AgentTokenEnv     string   `json:"agent_token_env"`
 	Enabled           *bool    `json:"enabled"`
 }
 
@@ -79,7 +82,7 @@ type Source interface {
 func (in Input) Repo() Repo {
 	return Repo{Name: in.Name, Host: in.Host, BaseURL: in.BaseURL, DefaultBranch: in.DefaultBranch,
 		ProtectedBranches: in.ProtectedBranches, MergeTestCommand: in.MergeTestCommand, MergeWorkDir: in.MergeWorkDir,
-		TokenEnv: in.TokenEnv, Enabled: in.Enabled == nil || *in.Enabled}
+		TokenEnv: in.TokenEnv, AgentTokenEnv: in.AgentTokenEnv, Enabled: in.Enabled == nil || *in.Enabled}
 }
 
 func (r *Repo) Validate() error {
@@ -110,11 +113,27 @@ func (r *Repo) Validate() error {
 	if err := r.validateMerge(); err != nil {
 		return err
 	}
-	if r.TokenEnv != "" && (!tokenEnvRe.MatchString(r.TokenEnv) || redact.Contains(r.TokenEnv)) {
-		return model.BadRequest("token_env must be the name of an environment variable (A-Z, 0-9 and _), never the token itself")
+	if err := validTokenEnv("token_env", r.TokenEnv); err != nil {
+		return err
 	}
-	if serverSecret(r.TokenEnv) {
-		return model.BadRequest("token_env must not name a Subspace server setting; only SUBSPACE_* variables ending in %s are allowed", strings.Join(gitTokenSuffixes, ", "))
+	if err := validTokenEnv("agent_token_env", r.AgentTokenEnv); err != nil {
+		return err
+	}
+	if r.AgentTokenEnv != "" && r.AgentTokenEnv == r.TokenEnv {
+		return model.BadRequest("agent_token_env must differ from token_env: agents get a token limited to non-protected branches, not the server token")
+	}
+	return nil
+}
+
+func validTokenEnv(field, env string) error {
+	if env == "" {
+		return nil
+	}
+	if !tokenEnvRe.MatchString(env) || redact.Contains(env) {
+		return model.BadRequest("%s must be the name of an environment variable (A-Z, 0-9 and _), never the token itself", field)
+	}
+	if serverSecret(env) {
+		return model.BadRequest("%s must not name a Subspace server setting; only SUBSPACE_* variables ending in %s are allowed", field, strings.Join(gitTokenSuffixes, ", "))
 	}
 	return nil
 }
@@ -246,6 +265,42 @@ func (r Repo) Token() string {
 	return os.Getenv(r.TokenEnv)
 }
 
+func (r Repo) AgentToken() string {
+	if r.AgentTokenEnv == "" {
+		return ""
+	}
+	return os.Getenv(r.AgentTokenEnv)
+}
+
+const credentialHelper = `!f() { test "$1" = get && printf 'username=subspace-agent\npassword=%s\n' "$SUBSPACE_GIT_TOKEN"; }; f` //nolint:gosec // reads the token from the environment
+
+func (r Repo) AgentEnv() (env map[string]string, secret string) {
+	secret = r.AgentToken()
+	if secret == "" {
+		return nil, ""
+	}
+	env = map[string]string{
+		"SUBSPACE_GIT_TOKEN":          secret,
+		"SUBSPACE_GIT_URL":            r.BaseURL,
+		"SUBSPACE_GIT_DEFAULT_BRANCH": r.DefaultBranch,
+		"GIT_TERMINAL_PROMPT":         "0",
+		"GIT_CONFIG_COUNT":            "1",
+		"GIT_CONFIG_KEY_0":            "credential." + r.BaseURL + ".helper",
+		"GIT_CONFIG_VALUE_0":          credentialHelper,
+	}
+	switch {
+	case r.Host == HostForgejo:
+		env["GITEA_SERVER_URL"] = r.BaseURL
+		env["GITEA_SERVER_TOKEN"] = secret
+	case strings.EqualFold(hostOf(r.BaseURL), "github.com"):
+		env["GH_TOKEN"] = secret
+	default:
+		env["GH_HOST"] = hostOf(r.BaseURL)
+		env["GH_ENTERPRISE_TOKEN"] = secret
+	}
+	return env, secret
+}
+
 func (r Repo) APIURL() string {
 	switch {
 	case r.Host == HostForgejo:
@@ -267,9 +322,18 @@ func hostOf(raw string) string {
 	return u.Host
 }
 
+const ChangedEvent = "repos.changed"
+
 type Store struct {
 	St  store.Store
 	Now func() time.Time
+	Pub events.Publisher
+}
+
+func (s *Store) changed(action, name string) {
+	if s.Pub != nil {
+		s.Pub.Publish([]string{"control"}, ChangedEvent, map[string]string{"action": action, "name": name})
+	}
 }
 
 type sqlTx interface {
@@ -296,7 +360,7 @@ func SupportsSQL(ctx context.Context, st store.Store) bool {
 	return ok
 }
 
-const cols = `name, host, base_url, default_branch, protected_branches, merge_test_command, merge_work_dir, token_env, enabled, created_at, updated_at`
+const cols = `name, host, base_url, default_branch, protected_branches, merge_test_command, merge_work_dir, token_env, agent_token_env, enabled, created_at, updated_at`
 
 func (s *Store) now() time.Time {
 	if s.Now != nil {
@@ -313,7 +377,7 @@ func scan(rows *sql.Rows) ([]Repo, error) {
 		var protected, command string
 		var enabled int
 		var created, updated int64
-		if err := rows.Scan(&r.Name, &r.Host, &r.BaseURL, &r.DefaultBranch, &protected, &command, &r.MergeWorkDir, &r.TokenEnv, &enabled, &created, &updated); err != nil {
+		if err := rows.Scan(&r.Name, &r.Host, &r.BaseURL, &r.DefaultBranch, &protected, &command, &r.MergeWorkDir, &r.TokenEnv, &r.AgentTokenEnv, &enabled, &created, &updated); err != nil {
 			return nil, err
 		}
 		if err := errors.Join(json.Unmarshal([]byte(protected), &r.ProtectedBranches), json.Unmarshal([]byte(command), &r.MergeTestCommand)); err != nil {
@@ -388,7 +452,7 @@ func (s *Store) Get(ctx context.Context, name string) (Repo, error) {
 func snapshot(r *Repo) map[string]any {
 	return map[string]any{"name": r.Name, "host": r.Host, "base_url": r.BaseURL, "default_branch": r.DefaultBranch,
 		"protected_branches": r.ProtectedBranches, "merge_test_command": r.MergeTestCommand, "merge_work_dir": r.MergeWorkDir,
-		"token_env": r.TokenEnv, "enabled": r.Enabled}
+		"token_env": r.TokenEnv, "agent_token_env": r.AgentTokenEnv, "enabled": r.Enabled}
 }
 
 func (s *Store) audit(ctx context.Context, tx store.Tx, tool string, before, after *Repo) error {
@@ -422,13 +486,16 @@ func (s *Store) Create(ctx context.Context, r Repo) (Repo, error) {
 			return err
 		}
 		protected, command := encode(r)
-		if _, err := q.Exec(`INSERT INTO repos (`+cols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-			r.Name, r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, flag(r.Enabled),
+		if _, err := q.Exec(`INSERT INTO repos (`+cols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			r.Name, r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, r.AgentTokenEnv, flag(r.Enabled),
 			r.CreatedAt.UnixMilli(), r.UpdatedAt.UnixMilli()); err != nil {
 			return err
 		}
 		return s.audit(ctx, tx, "create_repo", nil, &r)
 	})
+	if err == nil {
+		s.changed("create", r.Name)
+	}
 	return r, err
 }
 
@@ -450,22 +517,39 @@ func (s *Store) Update(ctx context.Context, name string, r Repo) (Repo, error) {
 		}
 		protected, command := encode(r)
 		if _, err := q.Exec(`UPDATE repos SET host = ?, base_url = ?, default_branch = ?, protected_branches = ?, merge_test_command = ?,
-			merge_work_dir = ?, token_env = ?, enabled = ?, updated_at = ? WHERE name = ?`,
-			r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, flag(r.Enabled), r.UpdatedAt.UnixMilli(), old.Name); err != nil {
+			merge_work_dir = ?, token_env = ?, agent_token_env = ?, enabled = ?, updated_at = ? WHERE name = ?`,
+			r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, r.AgentTokenEnv, flag(r.Enabled), r.UpdatedAt.UnixMilli(), old.Name); err != nil {
 			return err
 		}
 		out = r
 		return s.audit(ctx, tx, "update_repo", old, &r)
 	})
+	if err == nil {
+		s.changed("update", out.Name)
+	}
 	return out, err
 }
 
+func (s *Store) AgentCredentials(ctx context.Context, name string) (map[string]string, string, error) {
+	r, err := s.Get(ctx, name)
+	if err != nil {
+		return nil, "", err
+	}
+	if !r.Enabled {
+		return nil, "", nil
+	}
+	env, secret := r.AgentEnv()
+	return env, secret, nil
+}
+
 func (s *Store) Delete(ctx context.Context, name string) error {
-	return s.St.Atomic(ctx, func(tx store.Tx) error {
+	var deleted string
+	err := s.St.Atomic(ctx, func(tx store.Tx) error {
 		old, err := load(tx, name)
 		if err != nil {
 			return err
 		}
+		deleted = old.Name
 		q, err := sqlOf(tx)
 		if err != nil {
 			return err
@@ -475,6 +559,10 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 		}
 		return s.audit(ctx, tx, "delete_repo", old, nil)
 	})
+	if err == nil {
+		s.changed("delete", deleted)
+	}
+	return err
 }
 
 func (s *Store) Check(tx store.Tx, repo, branch string) error {

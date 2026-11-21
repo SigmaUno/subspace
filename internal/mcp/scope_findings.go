@@ -15,7 +15,10 @@ type ScopeSource interface {
 
 var scopeSources sync.Map
 
-func BindScope(b *board.Board, s ScopeSource) { scopeSources.Store(b, s) }
+func BindScope(b *board.Board, s ScopeSource) (unbind func()) {
+	scopeSources.Store(b, s)
+	return func() { scopeSources.CompareAndDelete(b, s) }
+}
 
 func RegisterScope(r *Registry, b *board.Board) {
 	t := r.tools["list_reviews"]

@@ -217,7 +217,7 @@ func collect(out *[]Finding) adder {
 func isWorker(t *Task) bool { return t.Role == "" || t.Role == model.RoleWorker }
 
 func coverage(r *Rules, brief model.Brief, tasks []Task, add adder) {
-	if r.Coverage == CoverageNone || (r.Coverage == CoverageTesterOrReviewer && brief.CrossReview) {
+	if r.Coverage == CoverageNone || (r.Coverage == CoverageTesterOrReviewer && brief.ReviewsAll()) {
 		return
 	}
 	tested := map[string]bool{}

@@ -10,7 +10,7 @@ import type { LiveStatus } from "../shared/live";
 export function TopNav({ section }: { section: string }) {
   return <nav aria-label="Workspace">
     {primaryNav.map((item) => (
-      <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined}>{item.name}</Link>
+      <Link key={item.id} href={item.href} data-tour={`nav-${item.id}`} aria-current={section === item.id ? "page" : undefined}>{item.name}</Link>
     ))}
     <MoreMenu section={section} />
   </nav>;

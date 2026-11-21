@@ -297,7 +297,7 @@ func (s *Service) prune(ctx context.Context, seg Segment) error {
 		return err
 	}
 	if seg.Kind == Transcripts {
-		if err := s.archiveFiles(rows); err != nil {
+		if err := s.archiveFiles(ctx, rows); err != nil {
 			return err
 		}
 	}
@@ -366,7 +366,7 @@ func (s *Service) Restore(ctx context.Context, id int64) (*Segment, error) {
 		return nil, err
 	}
 	if seg.Kind == Transcripts {
-		if err := s.restoreFiles(rows); err != nil {
+		if rows, err = s.restoreFiles(rows); err != nil {
 			return nil, err
 		}
 	}

@@ -9,6 +9,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/mcp"
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/search"
 )
@@ -19,14 +20,14 @@ func init() {
 		if now == nil {
 			now = time.Now
 		}
-		mcp.BindLeaderInfo(d.Board, leaderInfo{
+		unbindOnDone(d, mcp.BindLeaderInfo(d.Board, leaderInfo{
 			d:        d,
 			forecast: forecast.NewService(forecast.StoreSource{Store: d.Store, Estimator: estimator(d)}, forecast.Options{}, now),
 			report:   report.NewService(report.StoreSource{Store: d.Store}, now),
 			search:   search.New(d.Store, d.Log),
 			feed:     d.Feed,
 			stats:    agentstats.NewService(agentstats.StoreSource{Store: d.Store}, now),
-		})
+		}))
 	})
 }
 
@@ -60,6 +61,10 @@ func (l leaderInfo) Components(ctx context.Context, briefID string) ([]component
 		return nil, err
 	}
 	return l.d.Components.List(ctx, briefID)
+}
+
+func (l leaderInfo) SetComponents(ctx context.Context, actor model.Actor, briefID string, specs []components.Spec) ([]components.Component, error) {
+	return l.d.Comps.SetPlan(ctx, actor, briefID, specs)
 }
 
 func (l leaderInfo) AgentStats(ctx context.Context, agentID string) ([]any, error) {

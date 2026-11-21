@@ -2,7 +2,9 @@ package sqlite
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
+	"time"
 
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -89,23 +91,25 @@ CREATE TRIGGER IF NOT EXISTS audit_no_delete BEFORE DELETE ON audit BEGIN SELECT
 
 const auditNoUpdate = `CREATE TRIGGER IF NOT EXISTS audit_no_update BEFORE UPDATE ON audit BEGIN SELECT RAISE(ABORT, 'audit is append-only'); END;`
 
-func migrate(db *sql.DB) error {
-	for _, t := range store.CoreTables {
-		for _, c := range t.Defs() {
-			if err := addColumn(db, t.Table(), c.Name, sqlType(c)); err != nil {
-				return err
-			}
-		}
-	}
-	for _, c := range extraColumns {
-		if err := addColumn(db, c.table, c.column, c.def); err != nil {
-			return err
-		}
-	}
-	return migrateAuditChain(db)
+const schemaVersionTable = `CREATE TABLE IF NOT EXISTS schema_version (
+  id INTEGER PRIMARY KEY CHECK (id = 1), version INTEGER NOT NULL, hash TEXT NOT NULL, updated_at INTEGER NOT NULL
+);`
+
+const auditHashDDL = `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`
+
+func (c columnDef) ddl() string {
+	return `ALTER TABLE ` + c.table + ` ADD COLUMN ` + c.column + ` ` + c.def
 }
 
-const auditHashColumn = `SELECT count(*) FROM pragma_table_info('audit') WHERE name='hash'`
+func columns() []columnDef {
+	var out []columnDef
+	for _, t := range store.CoreTables {
+		for _, c := range t.Defs() {
+			out = append(out, columnDef{t.Table(), c.Name, sqlType(c)})
+		}
+	}
+	return append(out, extraColumns...)
+}
 
 func sqlType(c store.ColumnDef) string {
 	t := "TEXT"
@@ -118,23 +122,100 @@ func sqlType(c store.ColumnDef) string {
 	return t + c.Constraint()
 }
 
-func migrateAuditChain(db *sql.DB) error {
-	var n int
-	if err := db.QueryRow(auditHashColumn).Scan(&n); err != nil || n > 0 {
-		return err
+func BinarySchema() store.SchemaVersion {
+	units := []string{schema}
+	for _, c := range columns() {
+		units = append(units, c.ddl())
 	}
-	t, err := db.Begin()
+	units = append(units, auditHashDDL)
+	units = append(units, extraSchemas...)
+	for _, c := range extensionColumns {
+		units = append(units, c.ddl())
+	}
+	units = append(units, auditDeleteTrigger)
+	return store.SchemaOf(units...)
+}
+
+func initSchema(wdb *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
+	t, err := wdb.Begin()
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = t.Rollback() }()
-	if err := t.QueryRow(auditHashColumn).Scan(&n); err != nil {
+	stored, err := readSchemaVersion(t)
+	if err != nil {
+		return false, err
+	}
+	bin := BinarySchema()
+	act, err := store.CheckSchema(stored, bin, o)
+	if err != nil || act == store.SchemaReadOnly {
+		return act == store.SchemaReadOnly, err
+	}
+	if err := migrate(t); err != nil {
+		return false, err
+	}
+	if act == store.SchemaMigrate {
+		if err := writeSchemaVersion(t, bin); err != nil {
+			return false, err
+		}
+	}
+	return false, t.Commit()
+}
+
+func readSchemaVersion(t *sql.Tx) (*store.SchemaVersion, error) {
+	var n int
+	if err := t.QueryRow(`SELECT count(*) FROM sqlite_master WHERE type = 'table' AND name = 'schema_version'`).Scan(&n); err != nil || n == 0 {
+		return nil, err
+	}
+	var s store.SchemaVersion
+	err := t.QueryRow(`SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&s.Version, &s.Hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &s, err
+}
+
+func writeSchemaVersion(t *sql.Tx, s store.SchemaVersion) error {
+	if _, err := t.Exec(schemaVersionTable); err != nil {
 		return err
 	}
-	if n > 0 {
-		return nil
+	_, err := t.Exec(`INSERT INTO schema_version (id, version, hash, updated_at) VALUES (1, ?, ?, ?)
+		ON CONFLICT (id) DO UPDATE SET version = excluded.version, hash = excluded.hash, updated_at = excluded.updated_at`,
+		s.Version, s.Hash, time.Now().UnixMilli())
+	return err
+}
+
+func migrate(t *sql.Tx) error {
+	if _, err := t.Exec(schema); err != nil {
+		return err
 	}
-	if _, err := t.Exec(`ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`); err != nil {
+	for _, c := range columns() {
+		if err := addColumn(t, c); err != nil {
+			return err
+		}
+	}
+	if err := migrateAuditChain(t); err != nil {
+		return err
+	}
+	for _, ddl := range extraSchemas {
+		if _, err := t.Exec(ddl); err != nil {
+			return err
+		}
+	}
+	for _, c := range extensionColumns {
+		if err := addColumn(t, c); err != nil {
+			return err
+		}
+	}
+	return migrateAuditDeleteTrigger(t)
+}
+
+func migrateAuditChain(t *sql.Tx) error {
+	var n int
+	if err := t.QueryRow(`SELECT count(*) FROM pragma_table_info('audit') WHERE name='hash'`).Scan(&n); err != nil || n > 0 {
+		return err
+	}
+	if _, err := t.Exec(auditHashDDL); err != nil {
 		return err
 	}
 	if _, err := t.Exec(`DROP TRIGGER IF EXISTS audit_no_update`); err != nil {
@@ -149,10 +230,8 @@ func migrateAuditChain(db *sql.DB) error {
 			return err
 		}
 	}
-	if _, err := t.Exec(auditNoUpdate); err != nil {
-		return err
-	}
-	return t.Commit()
+	_, err = t.Exec(auditNoUpdate)
+	return err
 }
 
 func chainExisting(t *sql.Tx) ([]model.AuditHead, error) {
@@ -180,13 +259,13 @@ func chainExisting(t *sql.Tx) ([]model.AuditHead, error) {
 	return out, rows.Err()
 }
 
-func addColumn(db *sql.DB, table, column, def string) error {
+func addColumn(t *sql.Tx, c columnDef) error {
 	var n int
-	err := db.QueryRow(`SELECT count(*) FROM pragma_table_info('`+table+`') WHERE name=?`, column).Scan(&n)
+	err := t.QueryRow(`SELECT count(*) FROM pragma_table_info('`+c.table+`') WHERE name=?`, c.column).Scan(&n)
 	if err != nil || n > 0 {
 		return err
 	}
-	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
+	_, err = t.Exec(c.ddl())
 	return err
 }
 
@@ -196,4 +275,10 @@ var extraColumns []columnDef
 
 func RegisterColumn(table, column, def string) {
 	extraColumns = append(extraColumns, columnDef{table, column, def})
+}
+
+var extensionColumns []columnDef
+
+func RegisterExtensionColumn(table, column, def string) {
+	extensionColumns = append(extensionColumns, columnDef{table, column, def})
 }

@@ -174,6 +174,9 @@
           "tool": {
             "type": "string"
           },
+          "trace_id": {
+            "type": "string"
+          },
           "ts": {
             "format": "date-time",
             "type": "string"
@@ -1332,6 +1335,16 @@
           "path": {
             "type": "string"
           },
+          "remote": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BackupRemote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "verified": {
             "type": "boolean"
           }
@@ -1342,6 +1355,34 @@
           "created_at",
           "name",
           "path",
+          "verified"
+        ],
+        "type": "object"
+      },
+      "BackupRemote": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bytes",
+          "error",
+          "object",
+          "uploaded_at",
           "verified"
         ],
         "type": "object"
@@ -1686,6 +1727,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "status": {
             "type": "string"
           },
@@ -1707,6 +1757,7 @@
           "playbook",
           "quality_gates",
           "repos",
+          "risky_paths",
           "status",
           "title"
         ],
@@ -1813,6 +1864,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "title": {
             "type": "string"
           }
@@ -1893,6 +1953,15 @@
               }
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "status": {
             "type": [
               "string",
@@ -1970,6 +2039,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "task_budget": {
             "oneOf": [
               {
@@ -1995,6 +2073,7 @@
           "playbook",
           "quality_gates",
           "repos",
+          "risky_paths",
           "task_budget",
           "title"
         ],
@@ -2336,8 +2415,14 @@
           "available": {
             "type": "integer"
           },
+          "base_url": {
+            "type": "string"
+          },
           "in_use": {
             "type": "integer"
+          },
+          "key_env": {
+            "type": "string"
           },
           "max_concurrency": {
             "type": "integer"
@@ -2364,6 +2449,12 @@
       },
       "CapacityLimitConfig": {
         "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "key_env": {
+            "type": "string"
+          },
           "max_concurrency": {
             "type": "integer"
           },
@@ -3119,6 +3210,39 @@
         ],
         "type": "object"
       },
+      "Document": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "enabled",
+          "name",
+          "rules",
+          "timezone"
+        ],
+        "type": "object"
+      },
       "DrillResult": {
         "properties": {
           "backup": {
@@ -3167,6 +3291,134 @@
           "started_at",
           "status",
           "trigger"
+        ],
+        "type": "object"
+      },
+      "DryRunInput": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "as": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Document"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spawn": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicySpawn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "DryRunResult": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "errors",
+          "facts",
+          "findings",
+          "matched",
+          "message",
+          "outcome",
+          "steps"
         ],
         "type": "object"
       },
@@ -3460,6 +3712,35 @@
         ],
         "type": "object"
       },
+      "FactInfo": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "description",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
       "Failure": {
         "properties": {
           "agent_id": {
@@ -3472,6 +3753,28 @@
         "required": [
           "agent_id",
           "error"
+        ],
+        "type": "object"
+      },
+      "Finding": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "severity"
         ],
         "type": "object"
       },
@@ -4202,12 +4505,18 @@
           "branch": {
             "type": "string"
           },
+          "branch_url": {
+            "type": "string"
+          },
           "measured_at": {
             "format": "date-time",
             "type": "string"
           },
           "n": {
             "type": "integer"
+          },
+          "status": {
+            "type": "string"
           },
           "value": {
             "type": [
@@ -4223,7 +4532,101 @@
           "branch",
           "measured_at",
           "n",
+          "status",
           "value"
+        ],
+        "type": "object"
+      },
+      "Hold": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "actor_role": {
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "actor_id",
+          "actor_role",
+          "args",
+          "brief_id",
+          "created_at",
+          "decided_at",
+          "expires_at",
+          "id",
+          "matched",
+          "message",
+          "note",
+          "plan_id",
+          "result",
+          "status",
+          "target",
+          "task_id"
         ],
         "type": "object"
       },
@@ -4945,6 +5348,41 @@
         ],
         "type": "object"
       },
+      "Match": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "effect",
+          "message",
+          "policy",
+          "policy_id",
+          "rule",
+          "version"
+        ],
+        "type": "object"
+      },
       "Me": {
         "properties": {
           "role": {
@@ -5605,6 +6043,240 @@
         ],
         "type": "object"
       },
+      "Policy": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "created_at",
+          "description",
+          "enabled",
+          "id",
+          "name",
+          "rules",
+          "timezone",
+          "updated_at",
+          "version",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "PolicyDecision": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "actor_role": {
+            "type": "string"
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "hold_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "actor_id",
+          "actor_role",
+          "brief_id",
+          "errors",
+          "facts",
+          "hold_id",
+          "id",
+          "matched",
+          "message",
+          "outcome",
+          "target",
+          "task_id",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "PolicyFacts": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "effects": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/FactInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "actions",
+          "effects",
+          "facts"
+        ],
+        "type": "object"
+      },
+      "PolicyHoldDecision": {
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PolicyLint": {
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "findings",
+          "ok"
+        ],
+        "type": "object"
+      },
+      "PolicySpawn": {
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "worker_kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "n",
+          "provider",
+          "role",
+          "worker_kind"
+        ],
+        "type": "object"
+      },
       "Preview": {
         "properties": {
           "cron": {
@@ -5841,6 +6513,44 @@
           "role",
           "spec",
           "title"
+        ],
+        "type": "object"
+      },
+      "ProviderProbe": {
+        "properties": {
+          "breaker": {
+            "type": "string"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "latency_ms": {
+            "type": "integer"
+          },
+          "model": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "provider": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "breaker",
+          "checked_at",
+          "latency_ms",
+          "model",
+          "ok",
+          "provider"
         ],
         "type": "object"
       },
@@ -6623,6 +7333,9 @@
       },
       "Repo": {
         "properties": {
+          "agent_token_env": {
+            "type": "string"
+          },
           "base_url": {
             "type": "string"
           },
@@ -6672,6 +7385,7 @@
           }
         },
         "required": [
+          "agent_token_env",
           "base_url",
           "created_at",
           "default_branch",
@@ -6688,6 +7402,9 @@
       },
       "RepoInput": {
         "properties": {
+          "agent_token_env": {
+            "type": "string"
+          },
           "base_url": {
             "type": "string"
           },
@@ -7404,6 +8121,25 @@
           "ok",
           "rows",
           "segments"
+        ],
+        "type": "object"
+      },
+      "Rule": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "then": {
+            "$ref": "#/components/schemas/Then"
+          },
+          "when": {
+            "$ref": "#/components/schemas/When"
+          }
+        },
+        "required": [
+          "id",
+          "then",
+          "when"
         ],
         "type": "object"
       },
@@ -8656,6 +9392,32 @@
         ],
         "type": "object"
       },
+      "Then": {
+        "properties": {
+          "effect": {
+            "type": "string"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "per": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "effect"
+        ],
+        "type": "object"
+      },
       "ThreadPost": {
         "properties": {
           "body": {
@@ -8960,6 +9722,436 @@
         ],
         "type": "object"
       },
+      "UsageBriefBudget": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "budget_eur": {
+            "type": "number"
+          },
+          "budget_usd": {
+            "type": "number"
+          },
+          "remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spent_usd": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "budget_eur",
+          "budget_usd",
+          "remaining_usd",
+          "spent_usd",
+          "status",
+          "title"
+        ],
+        "type": "object"
+      },
+      "UsageCapacity": {
+        "properties": {
+          "agents_in_use": {
+            "type": "integer"
+          },
+          "credits_remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "global_max_agents": {
+            "type": "integer"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CapacityLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/UsageModelCapacity"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "agents_in_use",
+          "credits_remaining_usd",
+          "global_max_agents",
+          "limits",
+          "models"
+        ],
+        "type": "object"
+      },
+      "UsageCredits": {
+        "properties": {
+          "remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spent_usd": {
+            "type": "number"
+          },
+          "total_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "remaining_usd",
+          "spent_usd",
+          "total_usd"
+        ],
+        "type": "object"
+      },
+      "UsageGroup": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "key",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
+      "UsageModelCapacity": {
+        "properties": {
+          "in_use": {
+            "type": "integer"
+          },
+          "limited_by": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "requests_1m": {
+            "type": "integer"
+          },
+          "spawnable": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_use",
+          "limited_by",
+          "model",
+          "provider",
+          "requests_1m",
+          "spawnable"
+        ],
+        "type": "object"
+      },
+      "UsagePoint": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "UsageProviderStatus": {
+        "properties": {
+          "concurrency_headroom": {
+            "type": "integer"
+          },
+          "in_use": {
+            "type": "integer"
+          },
+          "last_rate_limited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_concurrency": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate_limited_1h": {
+            "type": "integer"
+          },
+          "rate_limited_5m": {
+            "type": "integer"
+          },
+          "requests_1m": {
+            "type": "integer"
+          },
+          "requests_per_min": {
+            "type": "integer"
+          },
+          "rpm_headroom": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "concurrency_headroom",
+          "in_use",
+          "last_rate_limited_at",
+          "max_concurrency",
+          "provider",
+          "rate_limited_1h",
+          "rate_limited_5m",
+          "requests_1m",
+          "requests_per_min",
+          "rpm_headroom",
+          "status"
+        ],
+        "type": "object"
+      },
+      "UsageSeries": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/UsagePoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "points"
+        ],
+        "type": "object"
+      },
+      "UsageSeriesResponse": {
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/UsageSeries"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "from",
+          "group_by",
+          "series",
+          "to"
+        ],
+        "type": "object"
+      },
+      "UsageSummary": {
+        "properties": {
+          "briefs": {
+            "items": {
+              "$ref": "#/components/schemas/UsageBriefBudget"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "credits": {
+            "$ref": "#/components/schemas/UsageCredits"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroup"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          }
+        },
+        "required": [
+          "briefs",
+          "credits",
+          "from",
+          "group_by",
+          "groups",
+          "to",
+          "totals"
+        ],
+        "type": "object"
+      },
+      "UsageTotals": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
+      "Version": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/Document"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "document",
+          "version"
+        ],
+        "type": "object"
+      },
       "WebhookCreated": {
         "properties": {
           "secret": {
@@ -9119,6 +10311,27 @@
           "id",
           "pending",
           "url"
+        ],
+        "type": "object"
+      },
+      "When": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "match": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "match"
         ],
         "type": "object"
       }
@@ -12977,7 +14190,15 @@
     "/api/v1/hillclimb/jobs": {
       "get": {
         "operationId": "getHillclimbJobs",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -15040,6 +16261,567 @@
         ]
       }
     },
+    "/api/v1/policies": {
+      "get": {
+        "operationId": "getPolicies",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "policies": {
+                      "items": {
+                        "$ref": "#/components/schemas/Policy"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "policies"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List owner policies with their lint warnings",
+        "tags": [
+          "policies"
+        ]
+      },
+      "post": {
+        "operationId": "postPolicies",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Create a policy; documents with lint errors are rejected",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/decisions": {
+      "get": {
+        "operationId": "getPoliciesDecisions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "decisions": {
+                      "items": {
+                        "$ref": "#/components/schemas/PolicyDecision"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decisions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Policy decisions taken on real actions, newest first",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/evaluate": {
+      "post": {
+        "operationId": "postPoliciesEvaluate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Dry-run the stored policies, or a draft, against a sample action; nothing is recorded",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/facts": {
+      "get": {
+        "operationId": "getPoliciesFacts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyFacts"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Facts, actions and effects available to policy rules",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/lint": {
+      "post": {
+        "operationId": "postPoliciesLint",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyLint"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Lint a policy document without saving it",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/{id}": {
+      "delete": {
+        "operationId": "deletePoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete a policy and its versions",
+        "tags": [
+          "policies"
+        ]
+      },
+      "get": {
+        "operationId": "getPoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a policy",
+        "tags": [
+          "policies"
+        ]
+      },
+      "put": {
+        "operationId": "putPoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace a policy; the version increases by one",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/{id}/versions": {
+      "get": {
+        "operationId": "getPoliciesByIdVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "versions": {
+                      "items": {
+                        "$ref": "#/components/schemas/Version"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "versions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Stored versions of a policy, newest first",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policy-holds": {
+      "get": {
+        "operationId": "getPolicyHolds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "holds": {
+                      "items": {
+                        "$ref": "#/components/schemas/Hold"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "holds"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Actions held for owner approval by a policy, newest first",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}": {
+      "get": {
+        "operationId": "getPolicyHoldsById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a policy hold",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}/approve": {
+      "post": {
+        "operationId": "postPolicyHoldsByIdApprove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyHoldDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Approve a held action; assign and approve_plan are carried out at once, other actions pass on the next try",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}/reject": {
+      "post": {
+        "operationId": "postPolicyHoldsByIdReject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyHoldDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Reject a held action",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
     "/api/v1/prompts": {
       "get": {
         "operationId": "getPrompts",
@@ -15164,6 +16946,45 @@
         "summary": "Render a prompt template; template variables are query parameters",
         "tags": [
           "prompts"
+        ]
+      }
+    },
+    "/api/v1/providers": {
+      "get": {
+        "operationId": "getProviders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "providers": {
+                      "items": {
+                        "$ref": "#/components/schemas/ProviderProbe"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "providers"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Provider probe results per capacity limit",
+        "tags": [
+          "providers"
         ]
       }
     },
@@ -17232,6 +19053,255 @@
         ]
       }
     },
+    "/api/v1/usage/capacity": {
+      "get": {
+        "operationId": "getUsageCapacity",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageCapacity"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Live capacity with headroom per provider and model",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/providers": {
+      "get": {
+        "operationId": "getUsageProviders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "providers": {
+                      "items": {
+                        "$ref": "#/components/schemas/UsageProviderStatus"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "providers"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Provider request and rate-limit status",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/series": {
+      "get": {
+        "operationId": "getUsageSeries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "bucket",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSeriesResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Usage time series",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/summary": {
+      "get": {
+        "operationId": "getUsageSummary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "group_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummary"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Usage totals grouped by agent, task, brief, model, provider or source",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
     "/api/v1/webhooks-out": {
       "get": {
         "operationId": "getWebhooksOut",
@@ -17674,6 +19744,25 @@
           "mcp"
         ]
       }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadyz",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Readiness: 200 while this instance takes traffic, 503 with an empty body while it migrates, drains or runs read-only",
+        "tags": [
+          "system"
+        ]
+      }
     }
   },
   "security": [
@@ -17803,7 +19892,16 @@
       "name": "playbooks"
     },
     {
+      "name": "policies"
+    },
+    {
+      "name": "policy-holds"
+    },
+    {
       "name": "prompts"
+    },
+    {
+      "name": "providers"
     },
     {
       "name": "prs"
@@ -17852,6 +19950,9 @@
     },
     {
       "name": "tokens"
+    },
+    {
+      "name": "usage"
     },
     {
       "name": "webhooks-out"

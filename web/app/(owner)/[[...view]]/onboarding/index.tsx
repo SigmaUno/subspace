@@ -5,6 +5,7 @@ import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react
 import { api, commaList, useResource, useSubmit, value } from "../../../../lib/client";
 import type { Agent, Brief, Plan, Registration } from "../../../../lib/types";
 import type { Charter, OnboardingMemory, OnboardingProgress, OnboardingState, OnboardingStep } from "../../../../lib/onboarding-types";
+import { readTourCompleted, subscribeTour } from "../../../../lib/tour";
 import { Feedback } from "../shared/components";
 import type { Revisions } from "../shared/live";
 import { CopyBlock } from "../shared/copy";
@@ -153,13 +154,14 @@ function PlanStep({ plans, decided }: { plans: Plan[]; decided: () => void }) {
   </div>;
 }
 
-export function Onboarding({ revisions }: { revisions: Revisions }) {
+export function Onboarding({ revisions, startTour }: { revisions: Revisions; startTour: () => void }) {
   const state = useResource<OnboardingState>("state", revisions.control);
   const charter = useResource<Charter>("charter", 0);
   const agents = useResource<{ agents: Agent[] }>("agents?limit=1000", revisions.agents);
   const briefs = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revisions.briefs);
   const plans = useResource<{ plans: Plan[] }>("plans?status=proposed&limit=1000", revisions.plans);
   const memorized = useSyncExternalStore(subscribe, read, () => "");
+  const toured = useSyncExternalStore(subscribeTour, readTourCompleted, () => false);
   const [registered, setRegistered] = useState<Registration[] | null>(null);
 
   const loaded = state.data && charter.data && agents.data && briefs.data && plans.data;
@@ -191,7 +193,10 @@ export function Onboarding({ revisions }: { revisions: Revisions }) {
   return <section className="panel stack" data-write aria-label="Getting started">
     <div className="heading">
       <h2>Getting started</h2>
-      <button type="button" onClick={() => write("dismissed")}>Dismiss checklist</button>
+      <div className="actions">
+        <button type="button" onClick={startTour}>{toured ? "Replay tour" : "Take the tour"}</button>
+        <button type="button" onClick={() => write("dismissed")}>Dismiss checklist</button>
+      </div>
     </div>
     <ol className="stack">
       {steps.map((step, index) => <li key={step.id} className="stack">

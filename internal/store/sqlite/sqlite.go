@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const maxBatch = 128
@@ -43,6 +45,8 @@ type Store struct {
 	quit  chan struct{}
 	wg    sync.WaitGroup
 	once  sync.Once
+
+	readOnly bool
 }
 
 var _ store.Store = (*Store)(nil)
@@ -62,7 +66,9 @@ func dsn(path string, immediate bool) string {
 	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
 
-func Open(path string) (*Store, error) {
+func Open(path string) (*Store, error) { return OpenWith(path, store.OpenOptions{}) }
+
+func OpenWith(path string, o store.OpenOptions) (*Store, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("create db dir: %w", err)
@@ -82,37 +88,18 @@ func Open(path string) (*Store, error) {
 	}
 	rdb.SetMaxOpenConns(16)
 	rdb.SetMaxIdleConns(16)
+	var readOnly bool
 	if !seeded {
-		if err := initSchema(wdb); err != nil {
+		if readOnly, err = initSchema(wdb, o); err != nil {
 			_ = wdb.Close()
 			_ = rdb.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if err := migrateAuditDeleteTrigger(wdb); err != nil {
-		_ = wdb.Close()
-		_ = rdb.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
+	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{}), readOnly: readOnly}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
-}
-
-func initSchema(wdb *sql.DB) error {
-	if _, err := wdb.Exec(schema); err != nil {
-		return err
-	}
-	if err := migrate(wdb); err != nil {
-		return err
-	}
-	for _, ddl := range extraSchemas {
-		if _, err := wdb.Exec(ddl); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s *Store) Close() error {
@@ -129,6 +116,8 @@ func (s *Store) Close() error {
 
 func (s *Store) Done() <-chan struct{} { return s.quit }
 
+func (s *Store) ReadOnly() bool { return s.readOnly }
+
 func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
 	return t.q.ExecContext(t.ctx, q, args...)
 }
@@ -138,6 +127,9 @@ func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
 }
 
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
+	if s.readOnly {
+		return store.ErrReadOnly
+	}
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
 	case s.reqs <- r:
@@ -188,6 +180,7 @@ func (s *Store) writer() {
 }
 
 func (s *Store) runBatch(first *wreq) {
+	start := time.Now()
 	ctx := context.Background()
 	t, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
@@ -201,6 +194,11 @@ func (s *Store) runBatch(first *wreq) {
 		batch = append(batch, batchOp{r: r, err: s.runOp(ctx, q, r)})
 	}
 	cerr := t.Commit()
+	var tb trace.Batch
+	for i := range batch {
+		tb.Add(batch[i].r.ctx)
+	}
+	tb.End("store.commit", start, cerr, trace.Int("db.batch.size", len(batch)))
 	for i := range batch {
 		op := &batch[i]
 		if op.err == nil {
@@ -234,7 +232,7 @@ func (s *Store) runOp(ctx context.Context, q *writeQ, r *wreq) error {
 	if _, err := q.ExecContext(ctx, "SAVEPOINT op"); err != nil {
 		return err
 	}
-	if err := safeRun(r.fn, &tx{q: q, ctx: ctx}); err != nil {
+	if err := safeRun(r.fn, &tx{q: q, ctx: ctx, trace: trace.Recorded(r.ctx)}); err != nil {
 		_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
 		_, _ = q.ExecContext(ctx, "RELEASE op")
 		return err

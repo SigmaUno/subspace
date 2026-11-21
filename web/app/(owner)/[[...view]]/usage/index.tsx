@@ -3,7 +3,7 @@
 import { useContext, useState } from "react";
 import { money, useResource } from "../../../../lib/client";
 import type {
-  BriefBudget, ProviderStatus, UsageGroup, UsagePoint, UsageSeriesResponse, UsageSummary,
+  BriefBudget, LiveCapacity, ModelCapacity, ProviderStatus, UsageGroup, UsagePoint, UsageSeriesResponse, UsageSummary,
 } from "../../../../lib/usage-types";
 import { Clock, EntityLink } from "../shared/components";
 import { OrgBudget } from "../org-budget";
@@ -14,6 +14,7 @@ const groupings = [
   { id: "provider", name: "Provider" },
   { id: "model", name: "Model" },
   { id: "agent", name: "Agent" },
+  { id: "task", name: "Task" },
   { id: "brief", name: "Brief" },
 ] as const;
 
@@ -51,7 +52,7 @@ function DailyCost({ points }: { points: UsagePoint[] }) {
 
 function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
   if (!groups.length) return <EmptyState>No usage recorded in this period.</EmptyState>;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Cost breakdown" tabIndex={0}>
     <table>
       <thead><tr><th>{name}</th><th>Cost</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th><th>Rate limited</th></tr></thead>
       <tbody>{groups.map((group) => (
@@ -71,7 +72,7 @@ function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
 
 function BudgetBurn({ briefs }: { briefs: BriefBudget[] }) {
   if (!briefs.length) return <EmptyState>No briefs.</EmptyState>;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Budget burn" tabIndex={0}>
     <table>
       <thead><tr><th>Brief</th><th>Status</th><th>Budget</th><th>Spent</th><th>Burn</th></tr></thead>
       <tbody>{briefs.map((brief) => {
@@ -121,6 +122,24 @@ function ProviderTile({ provider }: { provider: ProviderStatus }) {
   </article>;
 }
 
+function CapacityTable({ models }: { models: ModelCapacity[] }) {
+  if (!models.length) return <EmptyState>No providers or models seen yet.</EmptyState>;
+  return <div className="table-wrap" role="region" aria-label="Live capacity" tabIndex={0}>
+    <table>
+      <thead><tr><th>Model</th><th>In use</th><th>Requests last minute</th><th>Can spawn now</th><th>Limited by</th></tr></thead>
+      <tbody>{models.map((item) => (
+        <tr key={`${item.provider}/${item.model}`}>
+          <th scope="row">{item.model}<div className="meta">{item.provider}</div></th>
+          <td>{count.format(item.in_use)}</td>
+          <td>{count.format(item.requests_1m)}</td>
+          <td className={item.spawnable === 0 ? "stale" : undefined}>{item.spawnable < 0 ? "No limit" : count.format(item.spawnable)}</td>
+          <td>{item.limited_by || "—"}</td>
+        </tr>
+      ))}</tbody>
+    </table>
+  </div>;
+}
+
 export function UsageView({ revision }: { revision: number }) {
   const now = useContext(Clock);
   const [by, setBy] = useState<(typeof groupings)[number]["id"]>("provider");
@@ -128,8 +147,9 @@ export function UsageView({ revision }: { revision: number }) {
   const summary = useResource<UsageSummary>(range && `usage/summary?${new URLSearchParams({ ...range, group_by: by })}`, revision);
   const series = useResource<UsageSeriesResponse>(range && `usage/series?${new URLSearchParams({ ...range, bucket: "day" })}`, revision);
   const providers = useResource<{ providers: ProviderStatus[] }>("usage/providers", revision);
+  const capacity = useResource<LiveCapacity>("usage/capacity", revision);
   const current = summary.data?.group_by === by ? summary.data : undefined;
-  const retry = () => { summary.refresh(); series.refresh(); providers.refresh(); };
+  const retry = () => { summary.refresh(); series.refresh(); providers.refresh(); capacity.refresh(); };
   const points = series.data?.series?.[0]?.points;
   const credits = summary.data?.credits;
 
@@ -140,7 +160,7 @@ export function UsageView({ revision }: { revision: number }) {
         {credits?.remaining_usd != null && <span className={`pill ${credits.remaining_usd <= 0 ? "revoked" : ""}`}>{usd.format(credits.remaining_usd)} credits left</span>}
       </div>}
     </div>
-    <ResourceState error={summary.error || series.error || providers.error} loading={!summary.data || !providers.data} retry={retry} rows={4} />
+    <ResourceState error={summary.error || series.error || providers.error || capacity.error} loading={!summary.data || !providers.data} retry={retry} rows={4} />
 
     <OrgBudget revision={revision} />
 
@@ -150,6 +170,13 @@ export function UsageView({ revision }: { revision: number }) {
       {!!providers.data?.providers?.length && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(16rem, 1fr))", gap: ".8rem" }}>
         {providers.data.providers.map((provider) => <ProviderTile key={provider.provider} provider={provider} />)}
       </div>}
+    </section>
+
+    <section className="stack">
+      <div className="heading"><h2>Live capacity</h2>
+        {capacity.data && <span className="meta">{capacity.data.agents_in_use}{capacity.data.global_max_agents > 0 ? ` / ${capacity.data.global_max_agents}` : ""} agents in use</span>}
+      </div>
+      {capacity.data && <CapacityTable models={capacity.data.models ?? []} />}
     </section>
 
     <section className="panel stack">

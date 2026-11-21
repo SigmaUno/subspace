@@ -281,3 +281,31 @@ func auditedTools(t *testing.T) []string {
 	sort.Strings(out)
 	return out
 }
+
+func TestFromAuditSplitsTheTraceIDFromTheNote(t *testing.T) {
+	const id = "4bf92f3577b34da6a3ce929d0e0e4736"
+	cases := []struct {
+		name, note, text, trace string
+	}{
+		{"trace only", "trace=" + id, "", id},
+		{"token and trace", "token=root; trace=" + id, "", id},
+		{"token, note and trace", "token=K-4; too big; trace=" + id, "too big", id},
+		{"note that mentions a trace", "see trace=" + id, "see trace=" + id, ""},
+		{"malformed id", "token=root; trace=XYZ2f3577b34da6a3ce929d0e0e4736", "trace=XYZ2f3577b34da6a3ce929d0e0e4736", ""},
+		{"no trace", "token=K-4; too big", "too big", ""},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			it := FromAudit(audit("owner", "owner", "reject_plan", "", c.note, nil, m{"plan_id": "P-3", "status": "rejected"}))
+			if it.TraceID != c.trace {
+				t.Fatalf("trace id %q, want %q", it.TraceID, c.trace)
+			}
+			if c.text != "" && !strings.Contains(it.Text, c.text) {
+				t.Fatalf("text %q lost note %q", it.Text, c.text)
+			}
+			if c.trace != "" && strings.Contains(it.Text, "trace=") {
+				t.Fatalf("text %q leaks the trace tag", it.Text)
+			}
+		})
+	}
+}

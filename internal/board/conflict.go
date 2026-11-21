@@ -60,6 +60,17 @@ func (b *Board) taskPaths(briefID string, in TaskInput) (model.Paths, error) {
 	return out, nil
 }
 
+func needsReview(br *model.Brief, t *model.Task) bool {
+	if !br.CrossReview {
+		return false
+	}
+	if len(br.RiskyPaths) == 0 || len(t.Paths) == 0 {
+		return true
+	}
+	hit, err := conflict.Overlap(t.Paths, br.RiskyPaths)
+	return hit || err != nil
+}
+
 func (b *Board) pathConflicts(tx store.Tx, t *model.Task, agentID string) ([]*model.Task, error) {
 	if len(t.Paths) == 0 || b.ConflictMode() == conflict.Off {
 		return nil, nil

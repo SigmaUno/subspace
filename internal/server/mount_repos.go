@@ -16,8 +16,9 @@ func mountRepos(d Deps) {
 		d.Log.Error("repository registry disabled", "err", "store does not support SQL extensions")
 		return
 	}
-	s := &repos.Store{St: d.Store, Now: d.Cfg.Now}
+	s := &repos.Store{St: d.Store, Now: d.Cfg.Now, Pub: d.Hub}
 	d.Board.SetRepoCheck(s.Check)
+	d.Board.SetRepoCredentials(s.AgentCredentials)
 	h := repos.Handler(s, nil, d.Log)
 	d.API.Mount(d.Mux, "/api/v1/repos", h)
 	d.API.Mount(d.Mux, "/api/v1/repos/", h)

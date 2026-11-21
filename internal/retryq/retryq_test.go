@@ -23,6 +23,25 @@ func TestExpSchedule(t *testing.T) {
 	}
 }
 
+func TestExpEdges(t *testing.T) {
+	for _, c := range []struct {
+		base, limit time.Duration
+		attempt     int
+		want        time.Duration
+	}{
+		{time.Second, time.Minute, 0, time.Second},
+		{time.Second, time.Minute, -3, time.Second},
+		{time.Nanosecond, time.Second, 1, time.Nanosecond},
+		{time.Nanosecond, 5, 3, 4},
+		{0, time.Minute, 1, time.Minute},
+		{-time.Second, time.Minute, 2, time.Minute},
+	} {
+		if got := Exp(c.base, c.limit, c.attempt); got != c.want {
+			t.Errorf("Exp(%v, %v, %d) = %v, want %v", c.base, c.limit, c.attempt, got, c.want)
+		}
+	}
+}
+
 func TestExpIsMonotonicAndCapped(t *testing.T) {
 	r := rand.New(rand.NewPCG(3, 5))
 	for range 5000 {

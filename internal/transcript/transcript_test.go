@@ -441,3 +441,49 @@ func toJSON(v any) string {
 	b, _ := json.Marshal(v)
 	return string(b)
 }
+
+func TestKeyBlockMaskingFollowsTheAgentThatPrintedIt(t *testing.T) {
+	r := newRig(t)
+	svc := r.service(nil)
+	pem := strings.Repeat("-", 5) + "%s RSA PRIVATE KEY" + strings.Repeat("-", 5)
+	body := "QUJDREVGR0g="
+	svc.Add([]agentout.Line{
+		line("T-1", "w1", fmt.Sprintf(pem, "BEGIN"), 0),
+		line("T-1", "t1", "fixture.go:3: "+fmt.Sprintf(pem, "END"), 1),
+		line("T-1", "w1", body, 2),
+		line("T-1", "t1", "tests ok", 3),
+		line("T-1", "w1", fmt.Sprintf(pem, "END"), 4),
+	})
+	if err := svc.Flush(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	got := readAll(t, svc, "T-1")
+	if len(got) != 5 || got[2].Text != "****" || got[3].Text != "tests ok" {
+		t.Fatalf("lines: %+v", got)
+	}
+}
+
+func TestPerTaskCachesStayBoundedAndOffsetsContinue(t *testing.T) {
+	r := newRig(t)
+	n := transcript.MaxCachedTasks + 50
+	for i := range n {
+		r.tasks.briefs[fmt.Sprintf("T-%d", 100+i)] = "B-1"
+	}
+	svc := r.service(func(c *transcript.Config) { c.MaxBytes = 0 })
+	for i := range n {
+		svc.Add(burst(fmt.Sprintf("T-%d", 100+i), 0, 1))
+	}
+	if err := svc.Flush(context.Background(), ""); err != nil {
+		t.Fatal(err)
+	}
+	if c := svc.Cached(); c > transcript.MaxCachedTasks {
+		t.Fatalf("caching %d tasks, limit %d", c, transcript.MaxCachedTasks)
+	}
+	for _, id := range []string{"T-100", fmt.Sprintf("T-%d", 100+n-1)} {
+		svc.Add(burst(id, 1, 2))
+		got := readAll(t, svc, id)
+		if len(got) != 3 || got[0].Offset != 1 || got[1].Offset != 2 || got[2].Offset != 3 {
+			t.Fatalf("%s offsets after the cache dropped it: %+v", id, got)
+		}
+	}
+}

@@ -8,7 +8,9 @@
 .incident-dialog { width: min(40rem, 94vw); max-height: 84vh; overflow: auto; box-shadow: var(--shadow-lg); }
 .incident-dialog fieldset { display: grid; gap: .5rem; margin: 0; padding: .6rem .8rem; border: 1px solid var(--border); border-radius: var(--radius); }
 .incident-dialog label { display: grid; gap: .2rem; font-size: .8125rem; }
-.incident-dialog .incident-choice { display: flex; align-items: flex-start; gap: .5rem; }
-.incident-dialog .incident-choice input { width: auto; margin-top: .2rem; }
+.incident-dialog .incident-choice { display: grid; grid-template-columns: auto minmax(0, 1fr); align-items: start; gap: .1rem .5rem; }
+.incident-dialog .incident-choice input { grid-row: span 2; width: auto; margin-top: .2rem; }
+.incident-dialog .incident-choice > :not(input) { grid-column: 2; }
+.incident-dialog .incident-choice .meta { font-weight: 400; }
 .incident-dialog ul { margin: 0; padding-left: 1.1rem; font-size: .8125rem; }
 .incident-dialog code { overflow-wrap: anywhere; }

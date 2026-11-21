@@ -8,6 +8,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/components"
@@ -17,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
 
 type Deps struct {
@@ -31,10 +33,16 @@ type Deps struct {
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
 
+	Backups *backup.Scheduler
+	Offsite *offsiteSetup
+
 	MCP        *mcp.Server
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
+	Usage      *usage.Persisted
+	UsageSetup usageSetup
 	Components components.Store
+	Comps      *components.Service
 	LocalHub   events.Hub
 	Leader     *ha.Elector
 	KeyLock    func(ctx context.Context, key string) (func(), error)
@@ -64,3 +72,5 @@ var extraMounts []func(Deps)
 var wraps []func(http.Handler, Deps) http.Handler
 
 func registerMount(f func(Deps)) { extraMounts = append(extraMounts, f) } //nolint:unused
+
+func unbindOnDone(d Deps, unbind func()) { context.AfterFunc(d.Ctx, unbind) }

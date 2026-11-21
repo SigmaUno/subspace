@@ -58,6 +58,13 @@ export function deletePlaybooksByName(
   return r.request("DELETE", "/api/v1/playbooks/{name}", { ...args, response: "none" });
 }
 
+export function deletePoliciesById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/policies/{id}", { ...args, response: "none" });
+}
+
 export function deletePushSubscriptions(
   r: Requester,
   args: { body: T.PushSubscriptionRemove },
@@ -437,8 +444,9 @@ export function getHelpRequests(
 
 export function getHillclimbJobs(
   r: Requester,
+  args?: { query?: { brief_id?: string } },
 ): Promise<{ jobs: T.HillclimbJob[] | null }> {
-  return r.request("GET", "/api/v1/hillclimb/jobs", { response: "json" });
+  return r.request("GET", "/api/v1/hillclimb/jobs", { ...args, response: "json" });
 }
 
 export function getHillclimbJobsByIdSeries(
@@ -616,6 +624,53 @@ export function getPlaybooksByName(
   return r.request("GET", "/api/v1/playbooks/{name}", { ...args, response: "json" });
 }
 
+export function getPolicies(
+  r: Requester,
+): Promise<{ policies: T.Policy[] | null }> {
+  return r.request("GET", "/api/v1/policies", { response: "json" });
+}
+
+export function getPoliciesById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.Policy> {
+  return r.request("GET", "/api/v1/policies/{id}", { ...args, response: "json" });
+}
+
+export function getPoliciesByIdVersions(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<{ versions: T.Version[] | null }> {
+  return r.request("GET", "/api/v1/policies/{id}/versions", { ...args, response: "json" });
+}
+
+export function getPoliciesDecisions(
+  r: Requester,
+  args?: { query?: { outcome?: string; action?: string; task_id?: string; before?: number; limit?: number } },
+): Promise<{ decisions: T.PolicyDecision[] | null }> {
+  return r.request("GET", "/api/v1/policies/decisions", { ...args, response: "json" });
+}
+
+export function getPoliciesFacts(
+  r: Requester,
+): Promise<T.PolicyFacts> {
+  return r.request("GET", "/api/v1/policies/facts", { response: "json" });
+}
+
+export function getPolicyHolds(
+  r: Requester,
+  args?: { query?: { status?: string; limit?: number } },
+): Promise<{ holds: T.Hold[] | null }> {
+  return r.request("GET", "/api/v1/policy-holds", { ...args, response: "json" });
+}
+
+export function getPolicyHoldsById(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<T.Hold> {
+  return r.request("GET", "/api/v1/policy-holds/{id}", { ...args, response: "json" });
+}
+
 export function getPrompts(
   r: Requester,
   args?: { query?: { tag?: string } },
@@ -635,6 +690,12 @@ export function getPromptsByIdRender(
   args: { path: { id: string } },
 ): Promise<{ id: string; text: string }> {
   return r.request("GET", "/api/v1/prompts/{id}/render", { ...args, response: "json" });
+}
+
+export function getProviders(
+  r: Requester,
+): Promise<{ providers: T.ProviderProbe[] | null }> {
+  return r.request("GET", "/api/v1/providers", { response: "json" });
 }
 
 export function getPrs(
@@ -815,6 +876,32 @@ export function getTokens(
   r: Requester,
 ): Promise<{ tokens: T.APIToken[] | null }> {
   return r.request("GET", "/api/v1/tokens", { response: "json" });
+}
+
+export function getUsageCapacity(
+  r: Requester,
+): Promise<T.UsageCapacity> {
+  return r.request("GET", "/api/v1/usage/capacity", { response: "json" });
+}
+
+export function getUsageProviders(
+  r: Requester,
+): Promise<{ providers: T.UsageProviderStatus[] | null }> {
+  return r.request("GET", "/api/v1/usage/providers", { response: "json" });
+}
+
+export function getUsageSeries(
+  r: Requester,
+  args?: { query?: { bucket?: string; group_by?: string; from?: string; to?: string; agent_id?: string; brief_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<T.UsageSeriesResponse> {
+  return r.request("GET", "/api/v1/usage/series", { ...args, response: "json" });
+}
+
+export function getUsageSummary(
+  r: Requester,
+  args?: { query?: { group_by?: string; from?: string; to?: string; agent_id?: string; brief_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<T.UsageSummary> {
+  return r.request("GET", "/api/v1/usage/summary", { ...args, response: "json" });
 }
 
 export function getWebhooksOut(
@@ -1180,6 +1267,41 @@ export function postPlaybooksByNameClone(
   return r.request("POST", "/api/v1/playbooks/{name}/clone", { ...args, response: "json" });
 }
 
+export function postPolicies(
+  r: Requester,
+  args: { body: T.Document },
+): Promise<T.Policy> {
+  return r.request("POST", "/api/v1/policies", { ...args, response: "json" });
+}
+
+export function postPoliciesEvaluate(
+  r: Requester,
+  args: { body: T.DryRunInput },
+): Promise<T.DryRunResult> {
+  return r.request("POST", "/api/v1/policies/evaluate", { ...args, response: "json" });
+}
+
+export function postPoliciesLint(
+  r: Requester,
+  args: { body: T.Document },
+): Promise<T.PolicyLint> {
+  return r.request("POST", "/api/v1/policies/lint", { ...args, response: "json" });
+}
+
+export function postPolicyHoldsByIdApprove(
+  r: Requester,
+  args: { path: { id: string }; body?: T.PolicyHoldDecision },
+): Promise<T.Hold> {
+  return r.request("POST", "/api/v1/policy-holds/{id}/approve", { ...args, response: "json" });
+}
+
+export function postPolicyHoldsByIdReject(
+  r: Requester,
+  args: { path: { id: string }; body?: T.PolicyHoldDecision },
+): Promise<T.Hold> {
+  return r.request("POST", "/api/v1/policy-holds/{id}/reject", { ...args, response: "json" });
+}
+
 export function postPushSubscriptions(
   r: Requester,
   args: { body: T.PushSubscriptionInput },
@@ -1395,6 +1517,13 @@ export function putPlaybooksByName(
   args: { path: { name: string }; body: T.PlaybookInput },
 ): Promise<T.Playbook> {
   return r.request("PUT", "/api/v1/playbooks/{name}", { ...args, response: "json" });
+}
+
+export function putPoliciesById(
+  r: Requester,
+  args: { path: { id: string }; body: T.Document },
+): Promise<T.Policy> {
+  return r.request("PUT", "/api/v1/policies/{id}", { ...args, response: "json" });
 }
 
 export function putReposByOwnerByName(

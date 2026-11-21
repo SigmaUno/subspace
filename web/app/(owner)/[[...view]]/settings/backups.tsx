@@ -22,7 +22,7 @@ export function BackupsPanel({ list, refresh }: { list: BackupList; refresh: () 
       <Feedback error={form.error} />
     </form>
     {!backups.length && <EmptyState>No backups yet.</EmptyState>}
-    {!!backups.length && <div className="table-wrap">
+    {!!backups.length && <div className="table-wrap" role="region" aria-label="Backups" tabIndex={0}>
       <table>
         <thead><tr><th>Name</th><th>Created</th><th>Size</th><th>Integrity</th></tr></thead>
         <tbody>{backups.map((backup) => (

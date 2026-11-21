@@ -9,6 +9,12 @@ The owner can override it at runtime with `PUT /api/v1/capacity`, which is persi
 - `provider` / `model`: a limit applies to agents whose provider and model match. `"*"` matches anything.
 - `max_concurrency`: agents of that provider/model that may be in use at once. `0` means unlimited.
 - `requests_per_min`: informational only in Phase 0 (SPEC §14 Q2); not enforced.
+- `key_env` (optional): name of a server environment variable holding an API key for this provider. Limits with a
+  concrete provider and model and a `key_env` are probed with a 1-token request every
+  `SUBSPACE_PROVIDER_PROBE_INTERVAL` (default `5m`); results are at `GET /api/v1/providers` and on the overview, and
+  failures feed the provider circuit breaker. Names starting with `SUBSPACE_` are rejected.
+- `base_url` (optional): API base URL; required for providers other than `anthropic`, `openai` and `deepseek`
+  (OpenAI-compatible).
 
 ## Limits
 

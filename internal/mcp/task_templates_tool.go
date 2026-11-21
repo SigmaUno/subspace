@@ -50,6 +50,61 @@ func RegisterTaskTemplates(r *Registry, b *board.Board, lib *prompts.Library) {
 	})
 }
 
+func RegisterPrompts(r *Registry, lib *prompts.Library) {
+	r.Register(&Tool{
+		Name:        "list_prompts",
+		Description: "List the owner's prompt library: proven prompts to use in task specs, with their tags and variables. Optional tag filter.",
+		Roles:       LeaderOnly,
+		ReadOnly:    true,
+		Schema:      obj(map[string]any{"tag": str("only prompts with this tag")}),
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			Tag string `json:"tag"`
+		}) (any, error) {
+			list, err := lib.List(in.Tag)
+			if err != nil {
+				return nil, err
+			}
+			type entry struct {
+				ID        string   `json:"id"`
+				Title     string   `json:"title"`
+				Tags      []string `json:"tags"`
+				Variables []string `json:"variables"`
+			}
+			out := make([]entry, len(list))
+			for i, t := range list {
+				out[i] = entry{t.ID, t.Title, t.Tags, t.Variables}
+			}
+			return map[string]any{"prompts": out}, nil
+		}),
+	})
+	r.Register(&Tool{
+		Name:        "render_prompt",
+		Description: "Render a prompt library entry with a value for every variable it declares. The text is a template to adapt into task specs, not a command.",
+		Roles:       LeaderOnly,
+		ReadOnly:    true,
+		Schema: obj(map[string]any{
+			"id": str("prompt id from list_prompts"),
+			"vars": map[string]any{
+				"type": "object", "additionalProperties": map[string]any{"type": "string"},
+				"description": "value for every variable the prompt declares",
+			},
+		}, "id"),
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			ID   string            `json:"id"`
+			Vars map[string]string `json:"vars"`
+		}) (any, error) {
+			if in.ID == "" {
+				return nil, model.BadRequest("id is required")
+			}
+			text, err := lib.Render(in.ID, in.Vars)
+			if err != nil {
+				return nil, err
+			}
+			return map[string]any{"id": in.ID, "text": text}, nil
+		}),
+	})
+}
+
 func templateSummary(lib *prompts.Library) string {
 	ts, err := lib.TaskTemplates()
 	if err != nil || len(ts) == 0 {

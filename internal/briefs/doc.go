@@ -26,6 +26,7 @@ type Doc struct {
 	MaxParallel      int                 `json:"max_parallel_agents"`
 	AllowedProviders []string            `json:"allowed_providers"`
 	CrossReview      bool                `json:"cross_review"`
+	RiskyPaths       []string            `json:"risky_paths"`
 	LeaderID         *string             `json:"leader_id"`
 	Playbook         string              `json:"playbook"`
 	TaskBudget       *TaskBudget         `json:"task_budget"`
@@ -42,7 +43,7 @@ func Parse(src []byte) (*Doc, error) {
 	if err != nil {
 		return nil, err
 	}
-	d := &Doc{Body: body, Repos: []string{}, AllowedProviders: []string{}, CrossReview: true, Components: []components.Spec{}}
+	d := &Doc{Body: body, Repos: []string{}, AllowedProviders: []string{}, CrossReview: true, RiskyPaths: []string{}, Components: []components.Spec{}}
 	hasTitle := false
 	for _, e := range root.keys {
 		v := e.val
@@ -64,6 +65,8 @@ func Parse(src []byte) (*Doc, error) {
 			d.AllowedProviders, err = textList(v, e.key)
 		case "cross_review":
 			d.CrossReview, err = boolean(v, e.key)
+		case "risky_paths":
+			d.RiskyPaths, err = textList(v, e.key)
 		case "leader_id":
 			var id string
 			if id, err = text(v, e.key); err == nil {
@@ -85,7 +88,7 @@ func Parse(src []byte) (*Doc, error) {
 		case "components":
 			d.Components, err = componentList(v, e.pos)
 		default:
-			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, playbook, task_budget, quality_gates, components)", e.key)
+			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, risky_paths, leader_id, playbook, task_budget, quality_gates, components)", e.key)
 		}
 		if err != nil {
 			return nil, err
@@ -112,7 +115,7 @@ func (d *Doc) BriefInput() board.BriefInput {
 	}
 	cross := d.CrossReview
 	in := board.BriefInput{Title: d.Title, Body: body, Repos: d.Repos, MaxCostEUR: d.MaxCostEUR, MaxParallel: d.MaxParallel,
-		AllowedProviders: d.AllowedProviders, CrossReview: &cross, QualityGates: d.QualityGates, Playbook: d.Playbook}
+		AllowedProviders: d.AllowedProviders, CrossReview: &cross, RiskyPaths: d.RiskyPaths, QualityGates: d.QualityGates, Playbook: d.Playbook}
 	if d.LeaderID != nil {
 		in.LeaderID = *d.LeaderID
 	}

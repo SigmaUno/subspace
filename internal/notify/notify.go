@@ -19,10 +19,12 @@ type Notification struct {
 	Priority int       `json:"priority"`
 	BriefID  string    `json:"brief_id,omitempty"`
 	TaskID   string    `json:"task_id,omitempty"`
+	TraceID  string    `json:"trace_id,omitempty"`
 	TS       time.Time `json:"ts"`
 	Actions  []Action  `json:"actions,omitempty"`
 	decision string
 	choices  int
+	flags    byte
 }
 
 type Action struct {

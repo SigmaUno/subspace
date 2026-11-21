@@ -20,6 +20,7 @@ function RepoForm({ repo, done, cancel }: { repo?: Repo; done: () => void; cance
       default_branch: value(fields, "default_branch"), protected_branches: commaList(value(fields, "protected_branches")),
       merge_test_command: value(fields, "merge_test_command").split(/\s+/).filter(Boolean),
       merge_work_dir: value(fields, "merge_work_dir"), token_env: value(fields, "token_env"),
+      agent_token_env: value(fields, "agent_token_env"),
       enabled: fields.get("enabled") === "on",
     };
     if (repo) await api<Repo>(repoPath(repo.name), "PUT", body);
@@ -39,13 +40,15 @@ function RepoForm({ repo, done, cancel }: { repo?: Repo; done: () => void; cance
         defaultValue={repo?.protected_branches.join(", ")} /></label>
       <label>Token variable<input name="token_env" placeholder="GITHUB_TOKEN" pattern="[A-Z_][A-Z0-9_]*" maxLength={64}
         defaultValue={repo?.token_env} /></label>
+      <label>Agent token variable<input name="agent_token_env" placeholder="AGENT_GITHUB_TOKEN" pattern="[A-Z_][A-Z0-9_]*" maxLength={64}
+        defaultValue={repo?.agent_token_env} /></label>
       <label>Merge test command<input name="merge_test_command" placeholder="make test"
         defaultValue={repo?.merge_test_command.join(" ")} /></label>
       <label>Merge work directory<input name="merge_work_dir" placeholder="/data/mergequeue" maxLength={500}
         defaultValue={repo?.merge_work_dir} /></label>
     </div>
     <label><input name="enabled" type="checkbox" defaultChecked={repo?.enabled ?? true} /> Enabled</label>
-    <p className="meta">The token variable is the name of an environment variable on the server, never the token itself.</p>
+    <p className="meta">The token variable is the name of an environment variable on the server, never the token itself. The agent token variable names a separate bot token limited to non-protected branches; spawned agents get it to push their task branch and open the PR.</p>
     <Feedback error={form.error} />
     <div className="actions">
       <button className="primary" disabled={form.busy}>{repo ? "Save repository" : "Add repository"}</button>
@@ -112,7 +115,7 @@ export function RepositoriesView() {
     <Feedback error={error} />
     <ResourceState error={repos.error} loading={repos.data === undefined} retry={repos.refresh} rows={3} />
     {repos.data && !list.length && <EmptyState>No repositories registered. Any repository is accepted.</EmptyState>}
-    {!!list.length && <div className="table-wrap">
+    {!!list.length && <div className="table-wrap" role="region" aria-label="Repositories" tabIndex={0}>
       <table>
         <thead><tr><th>Repository</th><th>Host</th><th>Branches</th><th>Merge queue</th><th>Actions</th></tr></thead>
         <tbody>{list.map((repo) => (
@@ -120,7 +123,8 @@ export function RepositoriesView() {
             <th scope="row">{repo.name}
               <div className="meta"><span className={`pill ${repo.enabled ? "active" : ""}`}>{repo.enabled ? "enabled" : "disabled"}</span></div></th>
             <td>{repo.host}<div className="meta">{repo.base_url}</div>
-              <div className="meta">{repo.token_env ? `token ${repo.token_env}` : "no token"}</div></td>
+              <div className="meta">{repo.token_env ? `token ${repo.token_env}` : "no token"}</div>
+              <div className="meta">{repo.agent_token_env ? `agent token ${repo.agent_token_env}` : "no agent token"}</div></td>
             <td>{repo.default_branch}<div className="meta">{repo.protected_branches.length ? `protected ${repo.protected_branches.join(", ")}` : "none protected"}</div></td>
             <td>{repo.merge_test_command.length ? repo.merge_test_command.join(" ") : "—"}
               {repo.merge_work_dir && <div className="meta">{repo.merge_work_dir}</div>}</td>

@@ -1,0 +1,25 @@
+{
+  "policy": {
+    "name": "no weekend assignments without a tester task",
+    "enabled": true,
+    "timezone": "Europe/Berlin",
+    "rules": [
+      {"id": "weekend", "when": {"actions": ["assign"], "match": "time.weekday in [\"sat\", \"sun\"] && target.tester_tasks == 0"},
+       "then": {"effect": "deny", "message": "no weekend assignments to agents without a tester task"}}
+    ]
+  },
+  "cases": [
+    {"name": "saturday without tester task", "action": "assign", "now": "2026-11-21T10:00:00Z",
+     "facts": {"target.tester_tasks": 0}, "want": "deny", "applied": ["weekend"]},
+    {"name": "saturday with a tester task", "action": "assign", "now": "2026-11-21T10:00:00Z",
+     "facts": {"target.tester_tasks": 1}, "want": "allow"},
+    {"name": "friday 23:30 UTC is saturday in Berlin", "action": "assign", "now": "2026-11-20T23:30:00Z",
+     "facts": {"target.tester_tasks": 0}, "want": "deny", "applied": ["weekend"]},
+    {"name": "sunday 23:30 UTC is monday in Berlin", "action": "assign", "now": "2026-11-22T23:30:00Z",
+     "facts": {"target.tester_tasks": 0}, "want": "allow"},
+    {"name": "spring DST switch sunday", "action": "assign", "now": "2027-03-28T01:30:00Z",
+     "facts": {"target.tester_tasks": 0}, "want": "deny", "applied": ["weekend"]},
+    {"name": "monday morning", "action": "assign", "now": "2026-11-23T08:00:00Z",
+     "facts": {"target.tester_tasks": 0}, "want": "allow"}
+  ]
+}

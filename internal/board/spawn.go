@@ -43,7 +43,7 @@ func (b *Board) usage(tx store.Tx) (capacity.Usage, map[string]bool, error) {
 		if a.Status == model.AgentRevoked {
 			continue
 		}
-		a = b.overlayAgent(a)
+		a = b.OverlayAgent(a)
 		live := a.Spawned && (now.Sub(a.CreatedAt) < spawnGrace || (a.LastSeenAt != nil && now.Sub(*a.LastSeenAt) < 2*b.o.Lease))
 		if busy[a.ID] || live {
 			u[[2]string{a.Provider, a.Model}]++
@@ -58,6 +58,16 @@ func (b *Board) capConfig() capacity.Config {
 	cfg := b.capCfg
 	cfg.Gate = b.capGate
 	return cfg
+}
+
+func (b *Board) CapacityUsage(ctx context.Context) (cfg capacity.Config, u capacity.Usage, err error) {
+	cfg = b.capConfig()
+	cfg.Gate = nil
+	err = b.read(ctx, func(tx store.Tx) error {
+		u, _, err = b.usage(tx)
+		return err
+	})
+	return cfg, u, err
 }
 
 func (b *Board) SetCapacityGate(g capacity.Gate) {
@@ -158,7 +168,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	var ls []launch
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
-		br, err := b.checkSpawn(tx, in)
+		br, err := b.checkSpawn(tx, w, a, in)
 		if err != nil {
 			return err
 		}
@@ -198,7 +208,7 @@ func (b *Board) spawnCapacity(tx store.Tx) (capacity.Config, error) {
 	return cfg, nil
 }
 
-func (b *Board) checkSpawn(tx store.Tx, in SpawnInput) (*model.Brief, error) {
+func (b *Board) checkSpawn(tx store.Tx, w *wctx, a model.Actor, in SpawnInput) (*model.Brief, error) {
 	if err := pausedTx(tx); err != nil {
 		return nil, err
 	}
@@ -217,6 +227,10 @@ func (b *Board) checkSpawn(tx store.Tx, in SpawnInput) (*model.Brief, error) {
 		return nil, model.Forbidden("provider %q is not allowed for brief %s", in.Provider, br.ID)
 	}
 	if err := b.checkBudget(tx, &model.Task{}, br); err != nil {
+		return nil, err
+	}
+	sp := in
+	if err := b.checkPolicy(tx, w, PolicyRequest{Action: "request_spawn", Actor: a, Brief: br, Spawn: &sp}); err != nil {
 		return nil, err
 	}
 	u, busy, err := b.usage(tx)
@@ -284,7 +298,7 @@ func (b *Board) createSpawn(tx store.Tx, w *wctx, a model.Actor, br *model.Brief
 		return launch{}, err
 	}
 	w.spawn(sp)
-	return launch{sp, tok, ag}, nil
+	return launch{sp: sp, tok: tok, ag: ag, repo: soleRepo(br)}, nil
 }
 
 func (w *wctx) spawn(sp *model.Spawn) {
@@ -292,14 +306,26 @@ func (w *wctx) spawn(sp *model.Spawn) {
 	w.emit([]string{"agents", "brief:" + sp.BriefID}, "spawn.updated", &cp)
 }
 
+func soleRepo(br *model.Brief) string {
+	if len(br.Repos) == 1 {
+		return br.Repos[0]
+	}
+	return ""
+}
+
 func (b *Board) launch(ctx context.Context, l launch) *model.Spawn {
 	c := b.ConnectInfo(l.ag.ID, l.tok)
+	env, secret := b.agentCredentials(ctx, l.repo)
 	serr := b.o.Spawner.Spawn(ctx, spawner.Request{AgentID: l.ag.ID, Kind: l.ag.Kind, Model: l.ag.Model, Provider: l.ag.Provider,
-		JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok})
+		JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok, Env: env})
 	sp := *l.sp
 	ag := *l.ag
 	if serr != nil {
-		sp.Status, sp.Error = "failed", strp(serr.Error())
+		msg := serr.Error()
+		if secret != "" {
+			msg = strings.ReplaceAll(msg, secret, "[redacted]")
+		}
+		sp.Status, sp.Error = "failed", strp(msg)
 		ag.Status, ag.PauseReason = model.AgentRevoked, strp("spawn failed")
 	} else {
 		sp.Status = "spawned"
@@ -331,9 +357,10 @@ func (b *Board) launch(ctx context.Context, l launch) *model.Spawn {
 }
 
 type launch struct {
-	sp  *model.Spawn
-	tok string
-	ag  *model.Agent
+	sp   *model.Spawn
+	tok  string
+	ag   *model.Agent
+	repo string
 }
 
 func (b *Board) abandonSpawns(ctx context.Context, briefID string, ls []launch) {

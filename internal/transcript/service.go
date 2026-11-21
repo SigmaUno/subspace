@@ -19,6 +19,7 @@ import (
 
 const (
 	queuedOverhead = 64
+	maxCachedTasks = 4096
 	maskedLine     = "****"
 	keyBegin       = "-----BEGIN "
 	keyEnd         = "-----END "
@@ -242,7 +243,7 @@ func (s *Service) flushTask(ctx context.Context, task string, q []queued) error 
 	}
 	for i := range q {
 		if !q[i].clean {
-			q[i].text, q[i].clean = s.scrub(task, q[i].text), true
+			q[i].text, q[i].clean = s.scrub(task+"\x00"+q[i].agent+"\x00"+q[i].stream, q[i].text), true
 		}
 	}
 	touched := false
@@ -262,7 +263,7 @@ func (s *Service) flushTask(ctx context.Context, task string, q []queued) error 
 			return err
 		}
 		next = seg.LastOffset + 1
-		s.heads[task] = next
+		s.cacheHead(task, next)
 		q = q[n:]
 		touched = true
 	}
@@ -302,20 +303,30 @@ func (s *Service) brief(ctx context.Context, task string) (string, error) {
 	if err != nil {
 		return "", err
 	}
+	if len(s.briefs) >= maxCachedTasks {
+		clear(s.briefs)
+	}
 	s.briefs[task] = info.BriefID
 	return info.BriefID, nil
 }
 
-func (s *Service) scrub(task, text string) string {
-	if s.inKey[task] {
+func (s *Service) cacheHead(task string, next int64) {
+	if _, ok := s.heads[task]; !ok && len(s.heads) >= maxCachedTasks {
+		clear(s.heads)
+	}
+	s.heads[task] = next
+}
+
+func (s *Service) scrub(source, text string) string {
+	if s.inKey[source] {
 		if strings.Contains(text, keyEnd) && strings.Contains(text, keyMarker) {
-			s.inKey[task] = false
+			delete(s.inKey, source)
 		}
 		return maskedLine
 	}
 	out := redact.String(text)
 	if i := strings.Index(out, keyBegin); i >= 0 && strings.Contains(out[i:], keyMarker) && !strings.Contains(out[i:], keyEnd) {
-		s.inKey[task] = true
+		s.inKey[source] = true
 	}
 	return out
 }

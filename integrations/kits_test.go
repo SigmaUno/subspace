@@ -102,6 +102,12 @@ func TestPluginAndScripts(t *testing.T) {
 	if strings.Contains(src, "from \"@") {
 		t.Fatal("plugin must not import packages")
 	}
+	if m := regexp.MustCompile(`"--",\s*[^"\s]`).FindString(src); m != "" {
+		t.Fatalf("plugin passes tool output on the command line, visible to every local user: %q", m)
+	}
+	if !strings.Contains(src, "process.env.SUBSPACE_TOKEN") {
+		t.Fatal("plugin must remove the agent token from tool output before cutting it")
+	}
 
 	sh, err := exec.LookPath("sh")
 	if err != nil {

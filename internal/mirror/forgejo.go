@@ -23,6 +23,8 @@ const (
 	maxPages    = 20
 	pageSize    = 50
 	maxErrBody  = 512
+
+	maxKnownIssues = 100000
 )
 
 var statusColors = map[string]string{
@@ -59,6 +61,7 @@ type ForgejoMirror struct {
 
 	mu     sync.Mutex // serializes writes so concurrent upserts cannot duplicate
 	labels map[string]int64
+	issues map[string]int64 // task id -> issue number; the search index lags behind new issues
 }
 
 var _ IssueMirror = (*ForgejoMirror)(nil)
@@ -82,6 +85,7 @@ func NewForgejo(cfg ForgejoConfig) (*ForgejoMirror, error) {
 		owner:  cfg.Owner,
 		repo:   cfg.Repo,
 		client: c,
+		issues: map[string]int64{},
 	}, nil
 }
 
@@ -169,6 +173,7 @@ func (m *ForgejoMirror) Upsert(ctx context.Context, t TaskView) (string, error) 
 		if err != nil {
 			return "", err
 		}
+		m.remember(t.ID, created.Number)
 		if state == "closed" {
 			if err := m.setState(ctx, created.Number, state); err != nil {
 				return "", err
@@ -229,6 +234,15 @@ func (m *ForgejoMirror) setState(ctx context.Context, number int64, state string
 // The server-side search is only a pre-filter; the exact marker is checked here.
 func (m *ForgejoMirror) find(ctx context.Context, taskID string) (*issue, error) {
 	marker := Marker(taskID)
+	collected := 0
+	if number, ok := m.issues[taskID]; ok {
+		var known issue
+		err := m.do(ctx, http.MethodGet, m.repoPath("/issues/"+strconv.FormatInt(number, 10)), nil, &known)
+		if err == nil && strings.HasPrefix(known.Body, marker+"\n") {
+			return &known, nil
+		}
+		delete(m.issues, taskID)
+	}
 	for page := 1; page <= maxPages; page++ {
 		q := url.Values{}
 		q.Set("type", "issues")
@@ -237,36 +251,49 @@ func (m *ForgejoMirror) find(ctx context.Context, taskID string) (*issue, error)
 		q.Set("limit", strconv.Itoa(pageSize))
 		q.Set("page", strconv.Itoa(page))
 		var found []issue
-		if err := m.do(ctx, http.MethodGet, m.repoPath("/issues")+"?"+q.Encode(), nil, &found); err != nil {
+		header, err := m.doHeader(ctx, http.MethodGet, m.repoPath("/issues")+"?"+q.Encode(), nil, &found)
+		if err != nil {
 			return nil, err
 		}
 		for i := range found {
 			if strings.HasPrefix(found[i].Body, marker+"\n") {
+				m.remember(taskID, found[i].Number)
 				return &found[i], nil
 			}
 		}
-		if len(found) < pageSize {
+		collected += len(found)
+		if !hasMore(header, collected, len(found)) {
 			return nil, nil
 		}
 	}
 	return nil, nil
 }
 
+func (m *ForgejoMirror) remember(taskID string, number int64) {
+	if len(m.issues) >= maxKnownIssues {
+		clear(m.issues)
+	}
+	m.issues[taskID] = number
+}
+
 // labelID returns the id of a repository label, creating it if missing.
 func (m *ForgejoMirror) labelID(ctx context.Context, name, color string) (int64, error) {
 	if m.labels == nil {
 		m.labels = map[string]int64{}
+		collected := 0
 		for page := 1; page <= maxPages; page++ {
 			var ls []issueLabel
 			path := m.repoPath("/labels") + "?limit=" + strconv.Itoa(pageSize) + "&page=" + strconv.Itoa(page)
-			if err := m.do(ctx, http.MethodGet, path, nil, &ls); err != nil {
+			header, err := m.doHeader(ctx, http.MethodGet, path, nil, &ls)
+			if err != nil {
 				m.labels = nil
 				return 0, err
 			}
 			for _, l := range ls {
 				m.labels[l.Name] = l.ID
 			}
-			if len(ls) < pageSize {
+			collected += len(ls)
+			if !hasMore(header, collected, len(ls)) {
 				break
 			}
 		}
@@ -290,17 +317,32 @@ func (m *ForgejoMirror) repoPath(suffix string) string {
 }
 
 func (m *ForgejoMirror) do(ctx context.Context, method, path string, in, out any) error {
+	_, err := m.doHeader(ctx, method, path, in, out)
+	return err
+}
+
+func hasMore(h http.Header, collected, n int) bool {
+	if more := h.Get("X-Hasmore"); more != "" {
+		return more == "true"
+	}
+	if total, err := strconv.Atoi(h.Get("X-Total-Count")); err == nil {
+		return collected < total && n > 0
+	}
+	return n >= pageSize
+}
+
+func (m *ForgejoMirror) doHeader(ctx context.Context, method, path string, in, out any) (http.Header, error) {
 	var body io.Reader
 	if in != nil {
 		raw, err := json.Marshal(in)
 		if err != nil {
-			return err
+			return nil, err
 		}
 		body = bytes.NewReader(raw)
 	}
 	req, err := http.NewRequestWithContext(ctx, method, m.base+path, body)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	req.Header.Set("Authorization", "token "+m.token)
 	req.Header.Set("Accept", "application/json")
@@ -309,20 +351,20 @@ func (m *ForgejoMirror) do(ctx context.Context, method, path string, in, out any
 	}
 	resp, err := m.client.Do(req)
 	if err != nil {
-		return fmt.Errorf("mirror: forgejo %s %s: %w", method, req.URL.Path, err)
+		return nil, fmt.Errorf("mirror: forgejo %s %s: %w", method, req.URL.Path, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		snippet, _ := netguard.ReadBody(resp.Body, maxErrBody)
-		return fmt.Errorf("mirror: forgejo %s %s: status %d: %s", method, req.URL.Path, resp.StatusCode,
+		return nil, fmt.Errorf("mirror: forgejo %s %s: status %d: %s", method, req.URL.Path, resp.StatusCode,
 			strings.TrimSpace(string(snippet)))
 	}
 	if out == nil {
 		_, _ = io.Copy(io.Discard, resp.Body)
-		return nil
+		return resp.Header, nil
 	}
 	if err := json.NewDecoder(resp.Body).Decode(out); err != nil {
-		return fmt.Errorf("mirror: forgejo %s %s: decode: %w", method, req.URL.Path, err)
+		return nil, fmt.Errorf("mirror: forgejo %s %s: decode: %w", method, req.URL.Path, err)
 	}
-	return nil
+	return resp.Header, nil
 }

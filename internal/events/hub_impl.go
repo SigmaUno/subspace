@@ -5,6 +5,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const TopicAll = "all"
@@ -37,6 +39,7 @@ type sub struct {
 	mark    int64
 	dropped atomic.Int64
 	closed  bool
+	quiet   bool
 }
 
 func NewHub() Hub {
@@ -75,6 +78,17 @@ func (h *hub) Subscribe(topics []string) Subscription {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	return h.subscribe(topics)
+}
+
+func (h *hub) SubscribeQuiet(topics []string) Subscription {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	s := h.subscribe(topics)
+	if !s.closed {
+		s.quiet = true
+		h.count--
+	}
+	return s
 }
 
 func (h *hub) subscribe(topics []string) *sub {
@@ -131,10 +145,14 @@ func (s *sub) wants(topics []string) bool {
 }
 
 func (h *hub) Publish(topics []string, typ string, data any) {
+	h.PublishTrace(topics, typ, data, trace.SpanContext{})
+}
+
+func (h *hub) PublishTrace(topics []string, typ string, data any, tc trace.SpanContext) {
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
+	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, Trace: tc, enc: &encoded{}}
 	h.record(ev, topics)
 
 	for _, s := range h.topics[TopicAll] {
@@ -219,6 +237,8 @@ func (h *hub) removeLocked(s *sub) {
 			h.topics[t] = set
 		}
 	}
-	h.count--
+	if !s.quiet {
+		h.count--
+	}
 	close(s.ch)
 }

@@ -36,7 +36,7 @@ export function MoreMenu({ section }: { section: string }) {
   }, [open]);
 
   return <div className="nav-more" ref={root}>
-    <button type="button" className="nav-more-button" ref={button} aria-expanded={open} aria-controls={menuID}
+    <button type="button" className="nav-more-button" data-tour="more" ref={button} aria-expanded={open} aria-controls={menuID}
       aria-current={active ? "page" : undefined} onClick={() => setOpenAt(open ? null : section)}>More</button>
     {open && <div className="nav-menu" id={menuID}>
       {moreNav.map((group) => <div key={group.name} role="group" aria-label={group.name}>

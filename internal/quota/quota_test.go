@@ -2,6 +2,7 @@ package quota_test
 
 import (
 	"fmt"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -204,10 +205,14 @@ func TestQuotaEndpoints(t *testing.T) {
 	f.REST("POST", "/api/v1/agents/old/revoke", map[string]any{})
 
 	for name, body := range map[string]map[string]any{
-		"negative cost":  {"max_cost_eur_per_day": -1},
-		"negative tasks": {"max_tasks_per_day": -1},
-		"fraction":       {"max_concurrent_tasks": 1.5},
-		"unknown field":  {"max_tasks": 3},
+		"negative cost":       {"max_cost_eur_per_day": -1},
+		"negative tasks":      {"max_tasks_per_day": -1},
+		"fraction":            {"max_concurrent_tasks": 1.5},
+		"unknown field":       {"max_tasks": 3},
+		"cost too high":       {"max_cost_eur_per_day": 1000000.5},
+		"tasks too high":      {"max_tasks_per_day": 1000001},
+		"concurrent too high": {"max_concurrent_tasks": 1000001},
+		"negative concurrent": {"max_concurrent_tasks": -1},
 	} {
 		if code, _ := f.REST("PUT", "/api/v1/agents/w1/quota", body); code != 400 {
 			t.Errorf("%s: %d, want 400", name, code)
@@ -218,6 +223,20 @@ func TestQuotaEndpoints(t *testing.T) {
 	}
 	if code, _ := f.REST("PUT", "/api/v1/agents/old/quota", map[string]any{}); code != 409 {
 		t.Errorf("revoked agent: %d", code)
+	}
+
+	if code, out := f.REST("PUT", "/api/v1/agents/w1/quota", map[string]any{"max_cost_eur_per_day": 1e6, "max_tasks_per_day": 1000000, "max_concurrent_tasks": 1000000}); code != 200 {
+		t.Fatalf("upper bounds: %d %v", code, out)
+	}
+	var many []string
+	for i := range 501 {
+		many = append(many, fmt.Sprintf("x%d", i))
+	}
+	if code, out := f.REST("POST", "/api/v1/agents/quota-bulk", map[string]any{"ids": many[:500], "quota": map[string]any{}}); code != 200 || out["failed"] != float64(500) {
+		t.Fatalf("bulk of 500: %d %v", code, out["failed"])
+	}
+	if code, _ := f.REST("POST", "/api/v1/agents/quota-bulk", map[string]any{"ids": many, "quota": map[string]any{}}); code != 400 {
+		t.Fatalf("bulk of 501: %d", code)
 	}
 
 	code, out := f.REST("PUT", "/api/v1/agents/w1/quota", map[string]any{"max_cost_eur_per_day": 2.5, "max_tasks_per_day": 4, "max_concurrent_tasks": 2})
@@ -260,7 +279,95 @@ func TestQuotaEndpoints(t *testing.T) {
 	}
 
 	_, audit := f.REST("GET", "/api/v1/audit?tool=set_agent_quota", nil)
-	if n := len(audit["events"].([]any)); n != 3 {
+	if n := len(audit["events"].([]any)); n != 4 {
 		t.Errorf("%d set_agent_quota audit events, want 3", n)
+	}
+}
+
+func TestQuotaWarningIsPublishedOncePerDay(t *testing.T) {
+	f := newFixture(t, 2)
+	sub := f.Srv.Hub.Subscribe([]string{"control"})
+	defer sub.Close()
+	warnings := func(wait time.Duration) []map[string]any {
+		var out []map[string]any
+		timeout := time.After(wait)
+		for {
+			select {
+			case ev := <-sub.C():
+				if ev.Type == "quota.warning" {
+					out = append(out, ev.Data.(map[string]any))
+				}
+			case <-timeout:
+				return out
+			}
+		}
+	}
+	tok := f.worker("w1")
+	f.setQuota("w1", map[string]any{"max_cost_eur_per_day": 10})
+	f.assign(f.tasks[0], "w1")
+	f.Must(tok, "claim_task", map[string]any{"task_id": f.tasks[0]})
+	cost := func(eur float64) {
+		f.Must(tok, "update_status", map[string]any{"task_id": f.tasks[0], "status": "in_progress", "cost_eur": eur})
+	}
+
+	other := f.worker("w2")
+	f.setQuota("w2", map[string]any{"max_tasks_per_day": 1})
+	f.Must(f.lead, "assign", map[string]any{"task_id": f.tasks[1], "agent_id": "w2"})
+	f.Must(other, "claim_task", map[string]any{"task_id": f.tasks[1]})
+	if w := warnings(time.Second); len(w) != 1 || w[0]["agent_id"] != "w2" || w[0]["level"] != "exceeded" {
+		t.Fatalf("warning on claim: %v", w)
+	}
+
+	cost(8.9)
+	if w := warnings(150 * time.Millisecond); len(w) != 0 {
+		t.Fatalf("warning below 90%%: %v", w)
+	}
+	cost(9.1)
+	w := warnings(time.Second)
+	if len(w) != 1 || w[0]["agent_id"] != "w1" || w[0]["level"] != "warning" || w[0]["tasks"] != 1 || w[0]["concurrent_tasks"] != 1 {
+		t.Fatalf("warning at 91%%: %v", w)
+	}
+	cost(9.5)
+	if w := warnings(150 * time.Millisecond); len(w) != 0 {
+		t.Fatalf("warned twice in one day: %v", w)
+	}
+	f.setQuota("w1", map[string]any{"max_cost_eur_per_day": 20})
+	if w := warnings(150 * time.Millisecond); len(w) != 0 {
+		t.Fatalf("warning under a raised quota: %v", w)
+	}
+	f.setQuota("w1", map[string]any{"max_cost_eur_per_day": 10})
+	if w := warnings(time.Second); len(w) != 1 || w[0]["level"] != "warning" {
+		t.Fatalf("no warning after the quota was lowered again: %v", w)
+	}
+	cost(10.5)
+	if w := warnings(150 * time.Millisecond); len(w) != 0 {
+		t.Fatalf("warned again on exceeding: %v", w)
+	}
+
+	if u := f.usage("w1"); u["concurrent_tasks"] != float64(1) || u["tasks"] != float64(1) || u["level"] != "exceeded" {
+		t.Fatalf("usage: %v", u)
+	}
+	_, out := f.REST("GET", "/api/v1/decisions", nil)
+	var summary, w2summary string
+	for _, d := range out["decisions"].([]any) {
+		switch d := d.(map[string]any); d["id"] {
+		case "quota:w1":
+			summary = d["summary"].(string)
+		case "quota:w2":
+			w2summary = d["summary"].(string)
+		}
+	}
+	if !strings.Contains(w2summary, ", 1 of 1 tasks started,") {
+		t.Fatalf("w2 summary %q", w2summary)
+	}
+	if summary != "€10.50 of 10 spent, 1 of unlimited tasks started, 1 of unlimited running; the window resets 2026-11-22T00:00:00Z" {
+		t.Fatalf("summary %q", summary)
+	}
+
+	f.setQuota("w1", map[string]any{})
+	f.clk.Set(time.Date(2026, 11, 21, 11, 0, 0, 0, time.UTC))
+	cost(30)
+	if w := warnings(150 * time.Millisecond); len(w) != 0 {
+		t.Fatalf("warning without a quota: %v", w)
 	}
 }

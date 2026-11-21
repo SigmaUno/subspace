@@ -81,7 +81,7 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
     {registered && <RegistrationResults items={registered} dismiss={() => setRegistered(null)} />}
     <ResourceState error={agents.error} loading={!agents.data} retry={agents.refresh} rows={5} />
     {agents.data && !agents.data.agents?.length && <EmptyState>No agents registered.</EmptyState>}
-    {!!agents.data?.agents?.length && <div className="table-wrap">
+    {!!agents.data?.agents?.length && <div className="table-wrap" role="region" aria-label="Agents" tabIndex={0}>
       <div className="registry-table">
         <div className="registry-row selectable registry-head"><SelectAll ids={agents.data.agents.map((agent) => agent.id)} bulk={bulk} name="agents" /><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
@@ -198,7 +198,7 @@ export function QuestionsView({ revision, openThread }: { revision: number; open
   </>;
 }
 
-type LimitInput = Pick<CapacityLimit, "provider" | "model" | "max_concurrency" | "requests_per_min">;
+type LimitInput = Pick<CapacityLimit, "provider" | "model" | "max_concurrency" | "requests_per_min" | "key_env" | "base_url">;
 type Draft = { global_max_agents: number; limits: LimitInput[] };
 
 const whole = (amount: number) => Number.isInteger(amount) && amount >= 0;
@@ -234,8 +234,8 @@ export function CapacityView({ revision, embedded }: { revision: number; embedde
       if (problem) throw new Error(problem);
       const response = await api<Capacity>("capacity", "PUT", {
         global_max_agents: settings.global_max_agents,
-        limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min }) => ({
-          provider: provider.trim(), model: model.trim(), max_concurrency, requests_per_min,
+        limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min, key_env, base_url }) => ({
+          provider: provider.trim(), model: model.trim(), max_concurrency, requests_per_min, key_env, base_url,
         })),
       });
       capacity.setData(response);

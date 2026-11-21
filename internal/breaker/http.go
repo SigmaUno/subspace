@@ -24,6 +24,17 @@ func Handler(s *Set) http.Handler {
 	return mux
 }
 
+func ProbeHandler(p *Prober) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		out, err := p.List(r.Context())
+		if err != nil {
+			fail(w, err)
+			return
+		}
+		write(w, http.StatusOK, map[string]any{"providers": out})
+	})
+}
+
 func fail(w http.ResponseWriter, err error) {
 	e := model.AsError(err)
 	write(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})

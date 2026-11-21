@@ -23,9 +23,13 @@ const (
 	pageSize  = 50
 
 	maxCommitPages = 20
+	maxReviewPages = 20
 )
 
-var errLimited = errors.New("prsync: local rate limit reached")
+var (
+	errLimited = errors.New("prsync: local rate limit reached")
+	errStale   = errors.New("prsync: pull request commits are behind the head")
+)
 
 type hostError struct {
 	status     int
@@ -43,6 +47,7 @@ func (e *hostError) Error() string {
 type cached struct {
 	etag string
 	body []byte
+	meta pageMeta
 	used time.Time
 }
 
@@ -66,12 +71,17 @@ type host struct {
 func hostKey(name string) string { return "host:" + name }
 
 func (f *fetcher) get(ctx context.Context, h *host, endpoint string, v any) error {
+	_, err := f.getPage(ctx, h, endpoint, v)
+	return err
+}
+
+func (f *fetcher) getPage(ctx context.Context, h *host, endpoint string, v any) (pageMeta, error) {
 	if !f.limits.Allow(hostKey(h.name)) || !f.limits.Allow(globalKey) {
-		return errLimited
+		return pageMeta{}, errLimited
 	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
 	if err != nil {
-		return err
+		return pageMeta{}, err
 	}
 	if h.kind == KindGitHub {
 		req.Header.Set("Accept", "application/vnd.github+json")
@@ -93,33 +103,49 @@ func (f *fetcher) get(ctx context.Context, h *host, endpoint string, v any) erro
 	}
 	resp, err := f.http.Do(req)
 	if err != nil {
-		return fmt.Errorf("%s: %w", h.name, err)
+		return pageMeta{}, fmt.Errorf("%s: %w", h.name, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
 	body, err := netguard.ReadBody(resp.Body, 8<<20)
 	if err != nil {
-		return fmt.Errorf("%s: read response: %w", h.name, err)
+		return pageMeta{}, fmt.Errorf("%s: read response: %w", h.name, err)
 	}
 	now := f.clock.Now()
+	meta := pageMeta{more: resp.Header.Get("X-Hasmore"), total: resp.Header.Get("X-Total-Count")}
 	switch {
 	case resp.StatusCode == http.StatusNotModified && c != nil:
 		c.used = now
-		body = c.body
+		body, meta = c.body, c.meta
 	case resp.StatusCode == http.StatusOK:
 		if etag := resp.Header.Get("ETag"); etag != "" {
-			f.cache[endpoint] = &cached{etag: etag, body: body, used: now}
+			f.cache[endpoint] = &cached{etag: etag, body: body, meta: meta, used: now}
 		} else {
 			delete(f.cache, endpoint)
 		}
 	case resp.StatusCode == http.StatusNotFound:
-		return githost.ErrNotFound
+		return pageMeta{}, githost.ErrNotFound
 	default:
-		return throttle(resp, now)
+		return pageMeta{}, throttle(resp, now)
 	}
 	if err := json.Unmarshal(body, v); err != nil {
-		return fmt.Errorf("%s: decode response: %w", h.name, err)
+		return pageMeta{}, fmt.Errorf("%s: decode response: %w", h.name, err)
 	}
-	return nil
+	return meta, nil
+}
+
+type pageMeta struct {
+	more  string
+	total string
+}
+
+func (m pageMeta) hasMore(collected, n int) bool {
+	if m.more != "" {
+		return m.more == "true"
+	}
+	if total, err := strconv.Atoi(m.total); err == nil {
+		return collected < total && n > 0
+	}
+	return n >= pageSize
 }
 
 func throttle(resp *http.Response, now time.Time) error {
@@ -234,8 +260,8 @@ func (f *fetcher) fetch(ctx context.Context, h *host, repo string, number int64,
 		out.draft = out.draft || strings.HasPrefix(t, "WIP:") || strings.HasPrefix(t, "[WIP]")
 	}
 
-	var reviews []apiReview
-	if err := f.get(ctx, h, prURL+"/reviews"+page, &reviews); err != nil {
+	reviews, err := f.reviews(ctx, h, prURL, page)
+	if err != nil {
 		return pull{}, err
 	}
 	out.reviews, out.decision = decide(reviews)
@@ -269,11 +295,15 @@ func (f *fetcher) fetch(ctx context.Context, h *host, repo string, number int64,
 		return out, nil
 	}
 	d := scope.Diff{HeadSHA: out.headSHA, HeadRef: p.Head.Ref}
-	if err := f.files(ctx, h, prURL, page, &d); err != nil {
-		return pull{}, err
-	}
 	commits, complete, err := f.commits(ctx, h, prURL, page)
 	if err != nil {
+		return pull{}, err
+	}
+	if h.kind == KindForgejo && out.state == StateOpen && complete && len(commits) > 0 &&
+		!slices.ContainsFunc(commits, func(c apiCommit) bool { return c.SHA == out.headSHA }) {
+		return pull{}, errStale
+	}
+	if err := f.files(ctx, h, prURL, page, &d); err != nil {
 		return pull{}, err
 	}
 	d.Authors = authors(commits)
@@ -288,11 +318,14 @@ func pageURL(base, page string, n int) string { return base + page + "&page=" + 
 
 func (f *fetcher) files(ctx context.Context, h *host, prURL, page string, d *scope.Diff) error {
 	seen := map[string]bool{}
+	collected := 0
 	for n := 1; ; n++ {
 		var batch []apiFile
-		if err := f.get(ctx, h, pageURL(prURL+"/files", page, n), &batch); err != nil {
+		meta, err := f.getPage(ctx, h, pageURL(prURL+"/files", page, n), &batch)
+		if err != nil {
 			return err
 		}
+		collected += len(batch)
 		fresh := false
 		for _, af := range batch {
 			if af.Filename == "" || seen[af.Filename] {
@@ -312,7 +345,7 @@ func (f *fetcher) files(ctx context.Context, h *host, prURL, page string, d *sco
 				d.Files = append(d.Files, af.PreviousFilename)
 			}
 		}
-		if len(batch) < pageSize || !fresh {
+		if !meta.hasMore(collected, len(batch)) || !fresh {
 			return nil
 		}
 	}
@@ -322,15 +355,32 @@ func (f *fetcher) commits(ctx context.Context, h *host, prURL, page string) ([]a
 	var all []apiCommit
 	for n := 1; n <= maxCommitPages; n++ {
 		var batch []apiCommit
-		if err := f.get(ctx, h, pageURL(prURL+"/commits", page, n), &batch); err != nil {
+		meta, err := f.getPage(ctx, h, pageURL(prURL+"/commits", page, n), &batch)
+		if err != nil {
 			return nil, false, err
 		}
 		all = append(all, batch...)
-		if len(batch) < pageSize {
+		if !meta.hasMore(len(all), len(batch)) {
 			return all, true, nil
 		}
 	}
 	return all, false, nil
+}
+
+func (f *fetcher) reviews(ctx context.Context, h *host, prURL, page string) ([]apiReview, error) {
+	var all []apiReview
+	for n := 1; n <= maxReviewPages; n++ {
+		var batch []apiReview
+		meta, err := f.getPage(ctx, h, pageURL(prURL+"/reviews", page, n), &batch)
+		if err != nil {
+			return nil, err
+		}
+		all = append(all, batch...)
+		if !meta.hasMore(len(all), len(batch)) {
+			break
+		}
+	}
+	return all, nil
 }
 
 func authors(commits []apiCommit) []string {

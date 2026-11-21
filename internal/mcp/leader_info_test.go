@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 )
 
@@ -120,6 +122,28 @@ func TestLeaderInfoToolsOverMCP(t *testing.T) {
 	}
 }
 
+func TestListDecisionsIgnoresUnflushedActivityAsStale(t *testing.T) {
+	e := servertest.Start(t, server.Config{PublicURL: "http://sub.test",
+		FlushEvery: time.Hour, SweepEvery: time.Hour, Lease: time.Minute})
+	lead := e.Register("rex", "leader", "other")
+	worker := e.Register("w1", "worker", "claude-code")
+	_, br := e.REST("POST", "/api/v1/briefs", map[string]any{"title": "Info", "repos": []string{"o/r"}})
+	brief := br["id"].(string)
+	plan := e.Must(lead, "propose_plan", map[string]any{"brief_id": brief, "tasks": []any{
+		map[string]any{"title": "implement frobnicator", "spec": "s", "repo": "o/r"},
+	}})["plan"].(map[string]any)
+	if code, _ := e.REST("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("approve: %d", code)
+	}
+	task := plan["tasks"].([]any)[0].(map[string]any)["id"].(string)
+	e.Must(lead, "assign", map[string]any{"task_id": task, "agent_id": "w1"})
+	e.Must(worker, "claim_task", map[string]any{"task_id": task})
+
+	if ds := list(t, e.Must(lead, "list_decisions", map[string]any{}), "decisions"); len(ds) != 0 {
+		t.Fatalf("active agent reported as stale: %v", ds)
+	}
+}
+
 func TestLeaderInfoToolErrors(t *testing.T) {
 	e := newInfoEnv(t)
 	for tool, args := range map[string]map[string]any{
@@ -204,5 +228,51 @@ func TestLeaderInfoToolsExemptFromLoopProtection(t *testing.T) {
 	_, a := e.REST("GET", "/api/v1/agents/rex", nil)
 	if a["status"] != "active" {
 		t.Fatalf("leader %v", a)
+	}
+}
+
+func TestSetComponentsOverMCPFeedsArchitecture(t *testing.T) {
+	e := newInfoEnv(t)
+	out := e.Must(e.lead, "set_components", map[string]any{"brief_id": e.brief, "components": []any{
+		map[string]any{"name": "core", "paths": []string{"internal/core"}},
+		map[string]any{"name": "web", "depends_on": []string{"core"}},
+	}})
+	cs := list(t, out, "components")
+	if len(cs) != 2 || cs[1].(map[string]any)["depends_on"].([]any)[0] != "C-1" {
+		t.Fatalf("components %v", cs)
+	}
+	if got := list(t, e.Must(e.lead, "get_components", map[string]any{"brief_id": e.brief}), "components"); len(got) != 2 {
+		t.Fatalf("get_components after replace: %v", got)
+	}
+	linked := e.Must(e.lead, "create_task", map[string]any{"brief_id": e.brief, "title": "core work", "spec": "s", "repo": "o/r", "component_id": "C-1"})["task"].(map[string]any)["id"].(string)
+	e.Must(e.lead, "assign", map[string]any{"task_id": linked, "agent_id": "w1"})
+	code, arch := e.REST("GET", "/api/v1/briefs/"+e.brief+"/architecture", nil)
+	if code != 200 {
+		t.Fatalf("architecture: %d %v", code, arch)
+	}
+	nodes := list(t, arch, "nodes")
+	if len(nodes) != 2 || nodes[0].(map[string]any)["name"] != "core" || len(list(t, arch, "edges")) != 1 {
+		t.Fatalf("architecture %v", arch)
+	}
+	owners := list(t, nodes[0].(map[string]any), "owners")
+	if len(owners) != 1 || owners[0].(map[string]any)["agent_id"] != "w1" {
+		t.Fatalf("owners %v", owners)
+	}
+
+	_, audit := e.REST("GET", "/api/v1/audit?tool=set_components", nil)
+	if evs := list(t, audit, "events"); len(evs) != 2 || evs[0].(map[string]any)["agent_id"] != "owner" || evs[1].(map[string]any)["agent_id"] != "rex" {
+		t.Fatalf("audit %v", audit)
+	}
+
+	bad, isErr := e.Call(e.lead, "set_components", map[string]any{"brief_id": e.brief, "components": []any{
+		map[string]any{"name": "a", "depends_on": []string{"b"}}, map[string]any{"name": "b", "depends_on": []string{"a"}},
+	}})
+	if !isErr || bad["error"].(map[string]any)["code"] != "bad_request" {
+		t.Fatalf("cyclic plan: %v", bad)
+	}
+	for name, tok := range map[string]string{"worker": e.worker, "tester": e.tester, "reviewer": e.reviewer} {
+		if res, _ := e.Call(tok, "set_components", map[string]any{"brief_id": e.brief, "components": []any{map[string]any{"name": "x"}}}); res["rpc_error"] == nil {
+			t.Errorf("%s set components: %v", name, res)
+		}
 	}
 }

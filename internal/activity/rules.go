@@ -22,6 +22,8 @@ var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {to
 
 var rules = map[string]rule{
 	"log_output":            {icon: "terminal", text: "{actor} streamed output{task? on }"},
+	"report_usage":          {icon: "activity", text: "{actor} reported model usage{task? on }"},
+	"report_provider_error": {icon: "alert", severity: SevWarning, text: "{actor} reported a provider error"},
 	"incident_start":        {icon: "alert", severity: SevError, text: "{actor} declared incident {a.id}: {a.reason}"},
 	"incident_end":          {icon: "check", severity: SevSuccess, text: "{actor} ended incident {a.id}{a.note?: }"},
 	"redeliver_webhook_out": {icon: "webhook", text: "{actor} redelivered outbound webhook delivery {a.id}"},
@@ -48,6 +50,7 @@ var rules = map[string]rule{
 	"create_repo":           {icon: "git", text: "{actor} registered repository {a.name}"},
 	"delete_repo":           {icon: "git", severity: SevWarning, text: "{actor} removed repository {b.name}"},
 	"update_repo":           {icon: "git", text: "{actor} updated repository {a.name}"},
+	"enqueue_merge":         {icon: "git", text: "{actor} queued {a.repo}#{a.pr} for merge{task? for }"},
 	"create_gateway":        {icon: "plug", text: "{actor} added MCP gateway {a.name}"},
 	"update_gateway":        {icon: "plug", text: "{actor} updated MCP gateway {a.name}"},
 	"delete_gateway":        {icon: "plug", severity: SevWarning, text: "{actor} removed MCP gateway {b.name}"},
@@ -113,6 +116,7 @@ var rules = map[string]rule{
 	"set_brief_leader": {icon: "folder", text: "{actor} changed the leader of brief {a.brief_id}{a.leader_id? to }"},
 	"set_budget":       {icon: "budget", text: "{actor} changed the budget of brief {a.brief_id}", onTask: "{actor} changed the budget of {task}"},
 	"set_capacity":     {icon: "settings", text: "{actor} set capacity to {a.global_max_agents} agents and {a.limits} limits"},
+	"set_components":   {icon: "folder", text: "{actor} replaced the architecture of brief {a.brief_id} ({a.components} components)"},
 	"set_limits":       {icon: "budget", text: "{actor} set spend limits to {a.daily_cost_eur} per day and {a.weekly_cost_eur} per week"},
 	"spawn_bot":        {icon: "spawn", text: "{actor} spawned bot {a.bot}{note?: }"},
 	"stop_spawn":       {icon: "stop", text: "{actor} stopped spawn {a.spawn_id} ({a.reason})"},

@@ -247,3 +247,20 @@ func TestTemplatesRenderToImportableBriefs(t *testing.T) {
 		t.Fatalf("unknown template: %d %v", code, r)
 	}
 }
+
+func TestImportRiskyPaths(t *testing.T) {
+	e := servertest.New(t)
+	doc := "---\ntitle: Risky\nrisky_paths: [internal/auth/**, migrations]\n---\nbody\n"
+	code, out := post(t, e, "/api/v1/briefs/import", "text/markdown", []byte(doc))
+	if code != http.StatusCreated {
+		t.Fatalf("import: %d %v", code, out)
+	}
+	br := out["brief"].(map[string]any)
+	if br["cross_review"] != true || !reflect.DeepEqual(br["risky_paths"], []any{"internal/auth/**", "migrations"}) {
+		t.Fatalf("brief: %v", br)
+	}
+	code, out = post(t, e, "/api/v1/briefs/import", "text/markdown", []byte(strings.Replace(doc, "title: Risky", "title: Risky\ncross_review: false", 1)))
+	if code != http.StatusBadRequest {
+		t.Fatalf("risky_paths without cross review: %d %v", code, out)
+	}
+}

@@ -34,7 +34,7 @@ func init() {
 		h := svc.Handler()
 		d.API.Mount(d.Mux, "/api/v1/artifacts", h)
 		d.API.Mount(d.Mux, "/api/v1/artifacts/", h)
-		mcp.BindArtifacts(d.Board, svc.Tools())
+		unbindOnDone(d, mcp.BindArtifacts(d.Board, svc.Tools()))
 	})
 }
 

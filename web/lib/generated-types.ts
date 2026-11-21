@@ -62,6 +62,7 @@ export interface Brief {
   budget: BriefBudget;
   allowed_providers: string[] | null;
   cross_review: boolean;
+  risky_paths: string[] | null;
   auto_done_on_merge: boolean;
   cost_used: number;
   plan_status: string;
@@ -91,6 +92,7 @@ export interface BriefPreview {
   max_parallel_agents: number;
   allowed_providers: string[] | null;
   cross_review: boolean;
+  risky_paths: string[] | null;
   leader_id: string | null;
   playbook: string;
   task_budget: BriefTaskBudget | null;
@@ -149,6 +151,8 @@ export interface CapacityLimit {
   model: string;
   max_concurrency: number;
   requests_per_min: number;
+  key_env?: string;
+  base_url?: string;
   in_use: number;
   available: number;
 }
@@ -158,6 +162,8 @@ export interface CapacityLimitConfig {
   model: string;
   max_concurrency: number;
   requests_per_min: number;
+  key_env?: string;
+  base_url?: string;
 }
 
 export interface CapacityView {
@@ -324,8 +330,10 @@ export interface HillclimbPoint {
   attempt_id: number;
   agent_id: string;
   branch: string;
+  branch_url?: string;
   value: number | null;
   best: number | null;
+  status: string;
   measured_at: string;
 }
 
@@ -416,6 +424,148 @@ export interface PlaybookRequiredTask {
   pattern: string;
   role: string;
   severity: string;
+}
+
+export interface Policy {
+  id: string;
+  version: number;
+  name: string;
+  description: string;
+  enabled: boolean;
+  timezone: string;
+  rules: PolicyRule[] | null;
+  warnings: PolicyFinding[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyDecision {
+  id: string;
+  ts: string;
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  task_id: string;
+  brief_id: string;
+  target: string;
+  outcome: string;
+  message: string;
+  hold_id: string;
+  matched: PolicyMatch[] | null;
+  facts: Record<string, unknown> | null;
+  errors: string[] | null;
+}
+
+export interface PolicyDocument {
+  name: string;
+  description: string;
+  enabled: boolean;
+  timezone: string;
+  rules: PolicyRule[] | null;
+}
+
+export interface PolicyDryRunInput {
+  action: string;
+  actor_id?: string;
+  task_id?: string;
+  agent_id?: string;
+  brief_id?: string;
+  plan_id?: string;
+  as?: string;
+  spawn?: PolicySpawn;
+  at?: string;
+  facts?: Record<string, unknown>;
+  policy?: PolicyDocument;
+}
+
+export interface PolicyDryRunResult {
+  outcome: string;
+  message: string;
+  matched: PolicyMatch[] | null;
+  facts: Record<string, unknown> | null;
+  errors: string[] | null;
+  steps: number;
+  action: string;
+  at?: string;
+  findings: PolicyFinding[] | null;
+}
+
+export interface PolicyFact {
+  name: string;
+  type: string;
+  description: string;
+  actions: string[] | null;
+}
+
+export interface PolicyFinding {
+  severity: string;
+  code: string;
+  rule?: string;
+  message: string;
+}
+
+export interface PolicyHold {
+  id: string;
+  status: string;
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  task_id: string;
+  brief_id: string;
+  plan_id: string;
+  target: string;
+  args: Record<string, string> | null;
+  message: string;
+  matched: PolicyMatch[] | null;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  note: string;
+  result: string;
+}
+
+export interface PolicyMatch {
+  policy_id: string;
+  policy: string;
+  version: number;
+  rule: string;
+  effect: string;
+  message: string;
+  applied: boolean;
+}
+
+export interface PolicyRule {
+  id: string;
+  when: PolicyWhen;
+  then: PolicyThen;
+}
+
+export interface PolicySpawn {
+  worker_kind: string;
+  provider: string;
+  model: string;
+  role: string;
+  n: number;
+}
+
+export interface PolicyThen {
+  effect: string;
+  message?: string;
+  provider?: string;
+  max?: number;
+  per?: string;
+  timeout?: string;
+}
+
+export interface PolicyVersion {
+  version: number;
+  document: PolicyDocument;
+  created_at: string;
+}
+
+export interface PolicyWhen {
+  actions: string[] | null;
+  match: string;
 }
 
 export interface Prompt {

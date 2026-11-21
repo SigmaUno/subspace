@@ -14,6 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -63,8 +64,10 @@ type Board struct {
 	capDB   bool
 	quality QualityGate
 	rules   PlaybookRules
+	policy  Policy
 
 	repoCheck RepoCheck
+	repoCreds RepoCredentials
 	leak      LeakScanner
 
 	expiries map[string][]time.Time
@@ -161,6 +164,7 @@ type wctx struct {
 	events []pending
 	inval  []string
 	forget []string
+	policy []policyCheck
 }
 
 type pending struct {
@@ -225,7 +229,10 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
 	w := &wctx{b: b, ctx: ctx}
-	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget = nil, nil, nil; return fn(tx, w) })
+	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget, w.policy = nil, nil, nil, nil; return fn(tx, w) })
+	if len(w.policy) > 0 {
+		err = b.settlePolicy(ctx, w.policy, err)
+	}
 	if b.o.Invalidate != nil {
 		for _, id := range w.inval {
 			b.o.Invalidate(id)
@@ -238,8 +245,9 @@ func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) 
 		b.forget(id)
 	}
 	if b.o.Hub != nil {
+		tc := trace.From(ctx)
 		for _, e := range w.events {
-			b.o.Hub.Publish(e.topics, e.typ, e.data)
+			events.PublishTrace(b.o.Hub, e.topics, e.typ, e.data, tc)
 		}
 	}
 	return nil
@@ -283,7 +291,7 @@ func (b *Board) overlay(t *model.Task) *model.Task {
 	return &cp
 }
 
-func (b *Board) overlayAgent(a *model.Agent) *model.Agent {
+func (b *Board) OverlayAgent(a *model.Agent) *model.Agent {
 	b.mu.Lock()
 	s, ok := b.seen[a.ID]
 	b.mu.Unlock()

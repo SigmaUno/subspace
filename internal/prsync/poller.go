@@ -57,7 +57,6 @@ type Poller struct {
 	byWeb map[string]*host
 
 	mu        sync.Mutex
-	loaded    bool
 	last      map[string]Status
 	retries   map[string]*retry
 	hostUntil map[string]time.Time
@@ -127,19 +126,17 @@ func (p *Poller) Run(ctx context.Context) {
 func (p *Poller) SyncOnce(ctx context.Context) error {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	if !p.loaded {
-		if err := p.load(ctx); err != nil {
-			return err
-		}
-	}
 	tasks, err := p.b.ListTasks(ctx, board.TaskQuery{Status: polled, Limit: 100000})
 	if err != nil {
+		return err
+	}
+	if err := p.track(ctx, tasks); err != nil {
 		return err
 	}
 	now := p.clock.Now()
 	tasks = slices.DeleteFunc(tasks, func(t *model.Task) bool {
 		r := p.retries[t.ID]
-		return t.PRURL == nil || *t.PRURL == "" || (r != nil && now.Before(r.next))
+		return t.PRURL == nil || *t.PRURL == "" || p.unregistered(t.Repo) || (r != nil && now.Before(r.next))
 	})
 	slices.SortStableFunc(tasks, func(a, b *model.Task) int { return p.lastChecked(a.ID).Compare(p.lastChecked(b.ID)) })
 	var errs []error
@@ -155,6 +152,14 @@ func (p *Poller) SyncOnce(ctx context.Context) error {
 	return errors.Join(errs...)
 }
 
+func (p *Poller) unregistered(repo string) bool {
+	if !p.cfg.Strict {
+		return false
+	}
+	_, ok := p.cfg.Repos[strings.ToLower(repo)]
+	return !ok
+}
+
 func (p *Poller) lastChecked(taskID string) time.Time {
 	if c := p.last[taskID].CheckedAt; c != nil {
 		return *c
@@ -162,19 +167,38 @@ func (p *Poller) lastChecked(taskID string) time.Time {
 	return time.Time{}
 }
 
-func (p *Poller) load(ctx context.Context) error {
-	raws, err := p.st.PRStatuses(ctx)
-	if err != nil {
-		return err
+func (p *Poller) track(ctx context.Context, tasks []*model.Task) error {
+	polled := make(map[string]bool, len(tasks))
+	for _, t := range tasks {
+		polled[t.ID] = true
 	}
-	for _, raw := range raws {
+	for id := range p.last {
+		if !polled[id] {
+			delete(p.last, id)
+		}
+	}
+	for id := range p.retries {
+		if !polled[id] {
+			delete(p.retries, id)
+		}
+	}
+	for _, t := range tasks {
+		if _, ok := p.last[t.ID]; ok || t.PRURL == nil || *t.PRURL == "" {
+			continue
+		}
+		raw, ok, err := p.st.PRStatus(ctx, t.ID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
 		var s Status
 		if err := json.Unmarshal(raw, &s); err != nil {
 			return err
 		}
-		p.last[s.TaskID] = s
+		p.last[t.ID] = s
 	}
-	p.loaded = true
 	return nil
 }
 
@@ -221,7 +245,7 @@ func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) err
 	}
 	pr, err := p.f.fetch(ctx, h, repo, number, prevPtr)
 	if err != nil {
-		if errors.Is(err, errLimited) || ctx.Err() != nil {
+		if errors.Is(err, errLimited) || errors.Is(err, errStale) || ctx.Err() != nil {
 			return nil
 		}
 		var he *hostError

@@ -110,6 +110,7 @@ type Brief struct {
 	Budget           BriefBudget  `json:"budget"`
 	AllowedProviders []string     `json:"allowed_providers"`
 	CrossReview      bool         `json:"cross_review"`
+	RiskyPaths       []string     `json:"risky_paths"`
 	AutoDoneOnMerge  bool         `json:"auto_done_on_merge"`
 	CostUsed         float64      `json:"cost_used"`
 	PlanStatus       string       `json:"plan_status"`
@@ -131,6 +132,8 @@ type QualityGates struct {
 }
 
 func (q QualityGates) Enabled() bool { return q != QualityGates{} }
+
+func (b *Brief) ReviewsAll() bool { return b.CrossReview && len(b.RiskyPaths) == 0 }
 
 func (b *Brief) LedBy(leaderID string) bool {
 	return b.LeaderID == nil || *b.LeaderID == leaderID
@@ -308,11 +311,11 @@ func (e *Error) HTTPStatus() int {
 		return http.StatusBadRequest
 	case "unauthorized", "token_expired":
 		return http.StatusUnauthorized
-	case "forbidden", "not_assigned":
+	case "forbidden", "not_assigned", "policy_denied":
 		return http.StatusForbidden
 	case "not_found":
 		return http.StatusNotFound
-	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed":
+	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed", "policy_hold":
 		return http.StatusConflict
 	case "paused", "agent_paused":
 		return http.StatusLocked

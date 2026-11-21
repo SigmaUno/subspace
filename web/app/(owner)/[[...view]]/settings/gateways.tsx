@@ -167,7 +167,7 @@ export function GatewaysView() {
     <Feedback error={error} />
     <ResourceState error={gateways.error} loading={gateways.data === undefined} retry={gateways.refresh} rows={3} />
     {gateways.data && !list.length && <EmptyState>No gateways configured. Agents only see Subspace tools.</EmptyState>}
-    {!!list.length && <div className="table-wrap">
+    {!!list.length && <div className="table-wrap" role="region" aria-label="Gateways" tabIndex={0}>
       <table>
         <thead><tr><th>Gateway</th><th>Upstream</th><th>Access</th><th>Limits</th><th>Actions</th></tr></thead>
         <tbody>{list.map((gateway) => (

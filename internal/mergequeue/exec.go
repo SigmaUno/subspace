@@ -18,7 +18,7 @@ func (r ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (
 	cmd := exec.CommandContext(ctx, name, args...) // #nosec G204
 	cmd.Dir = dir
 	env := slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "SUBSPACE_") })
-	cmd.Env = append(append(env, "GIT_TERMINAL_PROMPT=0"), r.Env...)
+	cmd.Env = append(append(append(env, "GIT_TERMINAL_PROMPT=0"), r.Env...), envFrom(ctx)...)
 	out := tailBuffer{max: maxLog}
 	cmd.Stdout = &out
 	cmd.Stderr = &out

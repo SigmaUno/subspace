@@ -42,6 +42,7 @@ export interface ActivityItem {
   targets: ActivityRef[] | null;
   text: string;
   tool?: string;
+  trace_id?: string;
   ts: string;
 }
 
@@ -331,6 +332,15 @@ export interface Backup {
   created_at: string;
   name: string;
   path: string;
+  remote?: BackupRemote | null;
+  verified: boolean;
+}
+
+export interface BackupRemote {
+  bytes: number;
+  error: string;
+  object: string;
+  uploaded_at: string;
   verified: boolean;
 }
 
@@ -417,6 +427,7 @@ export interface Brief {
   playbook: string;
   quality_gates: QualityGates;
   repos: string[] | null;
+  risky_paths: string[] | null;
   status: string;
   title: string;
 }
@@ -443,6 +454,7 @@ export interface BriefInput {
   playbook?: string;
   quality_gates?: QualityGates | null;
   repos?: string[] | null;
+  risky_paths?: string[] | null;
   title: string;
 }
 
@@ -458,6 +470,7 @@ export interface BriefPatch {
   max_cost_eur?: number | null;
   max_parallel_agents?: number | null;
   quality_gates?: QualityGates | null;
+  risky_paths?: string[] | null;
   status?: string | null;
 }
 
@@ -472,6 +485,7 @@ export interface BriefPreview {
   playbook: string;
   quality_gates: QualityGates | null;
   repos: string[] | null;
+  risky_paths: string[] | null;
   task_budget: BriefTaskBudget | null;
   title: string;
 }
@@ -560,7 +574,9 @@ export interface CapacityConfig {
 
 export interface CapacityLimit {
   available: number;
+  base_url?: string;
   in_use: number;
+  key_env?: string;
   max_concurrency: number;
   model: string;
   provider: string;
@@ -568,6 +584,8 @@ export interface CapacityLimit {
 }
 
 export interface CapacityLimitConfig {
+  base_url?: string;
+  key_env?: string;
   max_concurrency: number;
   model: string;
   provider: string;
@@ -765,6 +783,14 @@ export interface Discovered {
   refused?: string;
 }
 
+export interface Document {
+  description: string;
+  enabled: boolean;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+}
+
 export interface DrillResult {
   backup: string;
   backup_bytes: number;
@@ -775,6 +801,32 @@ export interface DrillResult {
   started_at: string;
   status: string;
   trigger: string;
+}
+
+export interface DryRunInput {
+  action: string;
+  actor_id?: string;
+  agent_id?: string;
+  as?: string;
+  at?: string | null;
+  brief_id?: string;
+  facts?: Record<string, unknown> | null;
+  plan_id?: string;
+  policy?: Document | null;
+  spawn?: PolicySpawn | null;
+  task_id?: string;
+}
+
+export interface DryRunResult {
+  action: string;
+  at?: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  findings: Finding[] | null;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  steps: number;
 }
 
 export interface EndOutcome {
@@ -854,9 +906,23 @@ export interface Expiry {
   expires_in: string;
 }
 
+export interface FactInfo {
+  actions: string[] | null;
+  description: string;
+  name: string;
+  type: string;
+}
+
 export interface Failure {
   agent_id: string;
   error: string;
+}
+
+export interface Finding {
+  code: string;
+  message: string;
+  rule?: string;
+  severity: string;
 }
 
 export interface Forecast {
@@ -1035,9 +1101,31 @@ export interface HillclimbPoint {
   attempt_id: number;
   best: number | null;
   branch: string;
+  branch_url?: string;
   measured_at: string;
   n: number;
+  status: string;
   value: number | null;
+}
+
+export interface Hold {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  args: Record<string, string> | null;
+  brief_id: string;
+  created_at: string;
+  decided_at: string | null;
+  expires_at: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  note: string;
+  plan_id: string;
+  result: string;
+  status: string;
+  target: string;
+  task_id: string;
 }
 
 export interface Ignored {
@@ -1214,6 +1302,16 @@ export interface LogLine {
   ts: string;
 }
 
+export interface Match {
+  applied: boolean;
+  effect: string;
+  message: string;
+  policy: string;
+  policy_id: string;
+  rule: string;
+  version: number;
+}
+
 export interface Me {
   role: string;
   scope: string;
@@ -1364,6 +1462,59 @@ export interface PlaybookInput {
   required_tasks?: RequiredTask[] | null;
 }
 
+export interface Policy {
+  created_at: string;
+  description: string;
+  enabled: boolean;
+  id: string;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+  updated_at: string;
+  version: number;
+  warnings: Finding[] | null;
+}
+
+export interface PolicyDecision {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  brief_id: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  hold_id: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  target: string;
+  task_id: string;
+  ts: string;
+}
+
+export interface PolicyFacts {
+  actions: string[] | null;
+  effects: string[] | null;
+  facts: FactInfo[] | null;
+}
+
+export interface PolicyHoldDecision {
+  note?: string;
+}
+
+export interface PolicyLint {
+  findings: Finding[] | null;
+  ok: boolean;
+}
+
+export interface PolicySpawn {
+  model: string;
+  n: number;
+  provider: string;
+  role: string;
+  worker_kind: string;
+}
+
 export interface Preview {
   cron: string;
   next: string[] | null;
@@ -1420,6 +1571,16 @@ export interface ProposedTask {
   role: string;
   spec: string;
   title: string;
+}
+
+export interface ProviderProbe {
+  breaker: string;
+  checked_at: string | null;
+  error?: string;
+  latency_ms: number;
+  model: string;
+  ok: boolean;
+  provider: string;
 }
 
 export interface PushSubscription {
@@ -1615,6 +1776,7 @@ export interface ReplayTransition {
 }
 
 export interface Repo {
+  agent_token_env: string;
   base_url: string;
   created_at: string;
   default_branch: string;
@@ -1629,6 +1791,7 @@ export interface Repo {
 }
 
 export interface RepoInput {
+  agent_token_env?: string;
   base_url?: string;
   default_branch?: string;
   enabled?: boolean | null;
@@ -1801,6 +1964,12 @@ export interface RetentionVerification {
   ok: boolean;
   rows: number;
   segments: number;
+}
+
+export interface Rule {
+  id: string;
+  then: Then;
+  when: When;
 }
 
 export interface Run {
@@ -2077,6 +2246,15 @@ export interface TestResult {
   reported_at: string;
 }
 
+export interface Then {
+  effect: string;
+  max?: number;
+  message?: string;
+  per?: string;
+  provider?: string;
+  timeout?: string;
+}
+
 export interface ThreadPost {
   body: string;
 }
@@ -2153,6 +2331,114 @@ export interface TranscriptPage {
   task_id: string;
 }
 
+export interface UsageBriefBudget {
+  brief_id: string;
+  budget_eur: number;
+  budget_usd: number;
+  remaining_usd: number | null;
+  spent_usd: number;
+  status: string;
+  title: string;
+}
+
+export interface UsageCapacity {
+  agents_in_use: number;
+  credits_remaining_usd: number | null;
+  global_max_agents: number;
+  limits: CapacityLimit[] | null;
+  models: UsageModelCapacity[] | null;
+}
+
+export interface UsageCredits {
+  remaining_usd: number | null;
+  spent_usd: number;
+  total_usd: number | null;
+}
+
+export interface UsageGroup {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  key: string;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+export interface UsageModelCapacity {
+  in_use: number;
+  limited_by: string;
+  model: string;
+  provider: string;
+  requests_1m: number;
+  spawnable: number;
+}
+
+export interface UsagePoint {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  ts: string;
+}
+
+export interface UsageProviderStatus {
+  concurrency_headroom: number;
+  in_use: number;
+  last_rate_limited_at: string | null;
+  max_concurrency: number;
+  provider: string;
+  rate_limited_1h: number;
+  rate_limited_5m: number;
+  requests_1m: number;
+  requests_per_min: number;
+  rpm_headroom: number;
+  status: string;
+}
+
+export interface UsageSeries {
+  key: string;
+  points: UsagePoint[] | null;
+}
+
+export interface UsageSeriesResponse {
+  bucket: string;
+  from: string;
+  group_by: string;
+  series: UsageSeries[] | null;
+  to: string;
+}
+
+export interface UsageSummary {
+  briefs: UsageBriefBudget[] | null;
+  credits: UsageCredits;
+  from: string;
+  group_by: string;
+  groups: UsageGroup[] | null;
+  to: string;
+  totals: UsageTotals;
+}
+
+export interface UsageTotals {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+export interface Version {
+  created_at: string;
+  document: Document;
+  version: number;
+}
+
 export interface WebhookCreated {
   secret: string;
   webhook: WebhookSubscription | null;
@@ -2188,4 +2474,9 @@ export interface WebhookSubscription {
   id: string;
   pending: number;
   url: string;
+}
+
+export interface When {
+  actions: string[] | null;
+  match: string;
 }

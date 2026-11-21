@@ -1,0 +1,8 @@
+#!/bin/sh
+d=$FAKE_HC_DIR
+while [ "$1" != "--" ]; do shift; done
+shift
+host=$1
+cmd=$2
+echo "$host" >>"$d/hosts"
+exec sh -c "$cmd"

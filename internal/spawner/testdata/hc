@@ -1,0 +1,14 @@
+#!/bin/sh
+d=$FAKE_HC_DIR
+{ printf '%s\0' "$@"; } >"$d/$$.args"
+touch "$d/active.$$"
+ls "$d" | grep -c '^active\.' >>"$d/conc"
+case "${FAKE_HC_MODE:-}" in
+sleep) exec sleep 30 ;;
+slow) sleep 0.3 ;;
+huge) head -c 50000000 /dev/zero | tr '\0' x ;;
+fail) echo "boom: $SUBSPACE_TOKEN"; rm -f "$d/active.$$"; exit 1 ;;
+gone) echo "error: no such agent" >&2; rm -f "$d/active.$$"; exit 1 ;;
+esac
+if [ "$1" = ls ] && [ -n "${FAKE_HC_LS:-}" ]; then cat "$FAKE_HC_LS"; fi
+rm -f "$d/active.$$"

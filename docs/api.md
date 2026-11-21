@@ -347,7 +347,7 @@ A reaper checks `spawned` spawns every `SUBSPACE_SPAWN_REAP_INTERVAL` (default `
 - Agent revoked by other means: `stopped` (`agent_revoked`).
 - On server start the spawner's status is asked for every `spawned` spawn: `exited` ones are `stopped` (`exited`), the others record `process`.
 
-Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`.
+Durations use Go syntax; `0` disables a rule. The `noop` spawner cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`. The `hc` spawner stops processes with `hc kill` and reports `process` from `hc` listings (an unparseable or truncated listing stays `unknown`). When the spawner can send text to a running agent (`hc`), a connected agent that has no `in_progress` task and gets a task in `assigned` or `changes_requested` receives one nudge per task and status, pointing it at `list_my_tasks`; nothing is sent while paused.
 
 ### Audit
 | Method | Path | Body → Response |

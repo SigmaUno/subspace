@@ -71,7 +71,7 @@ func TestArchitectureEndpoint(t *testing.T) {
 	}
 
 	svc := components.NewService(components.NewMemory(), src, func() time.Time { return now })
-	_, err := svc.SetPlan(context.Background(), "B-1", []components.Spec{
+	_, err := svc.SetPlan(context.Background(), model.Owner, "B-1", []components.Spec{
 		{Name: "core", Description: "domain logic", Paths: []string{"internal/core/", "./internal/model"}},
 		{Name: "api", Paths: []string{"internal/api"}, DependsOn: []string{"Core"}},
 	})
@@ -205,13 +205,13 @@ func TestSetPlanRejectsInvalidAndKeepsPrevious(t *testing.T) {
 	svc := components.NewService(store, src, nil)
 	ctx := context.Background()
 
-	if _, err := svc.SetPlan(ctx, "B-1", []components.Spec{{Name: "a"}}); err != nil {
+	if _, err := svc.SetPlan(ctx, model.Owner, "B-1", []components.Spec{{Name: "a"}}); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := svc.SetPlan(ctx, "B-1", []components.Spec{{Name: "a", DependsOn: []string{"a"}}}); err == nil {
+	if _, err := svc.SetPlan(ctx, model.Owner, "B-1", []components.Spec{{Name: "a", DependsOn: []string{"a"}}}); err == nil {
 		t.Fatal("expected error")
 	}
-	if _, err := svc.SetPlan(ctx, "B-2", []components.Spec{{Name: "a"}}); model.AsError(err).Code != "not_found" {
+	if _, err := svc.SetPlan(ctx, model.Owner, "B-2", []components.Spec{{Name: "a"}}); model.AsError(err).Code != "not_found" {
 		t.Fatalf("unknown brief: %v", err)
 	}
 	got, err := store.List(ctx, "B-1")

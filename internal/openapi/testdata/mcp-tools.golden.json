@@ -909,6 +909,55 @@
       },
       "type": "object"
     },
+    "set_components": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief id, e.g. B-1",
+          "type": "string"
+        },
+        "components": {
+          "description": "the complete component plan",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "depends_on": {
+                "description": "names of components this one depends on",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "description": {
+                "description": "what the component is responsible for",
+                "type": "string"
+              },
+              "name": {
+                "description": "unique component name",
+                "type": "string"
+              },
+              "paths": {
+                "description": "repository-relative paths the component owns",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              }
+            },
+            "required": [
+              "name"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "brief_id",
+        "components"
+      ],
+      "type": "object"
+    },
     "supersede_knowledge": {
       "additionalProperties": false,
       "properties": {

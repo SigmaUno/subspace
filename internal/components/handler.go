@@ -27,7 +27,7 @@ func Handler(svc *Service) http.Handler {
 			writeError(w, model.BadRequest("invalid JSON body"))
 			return
 		}
-		comps, err := svc.SetPlan(r.Context(), r.PathValue("id"), body.Components)
+		comps, err := svc.SetPlan(r.Context(), model.Owner, r.PathValue("id"), body.Components)
 		if err != nil {
 			writeError(w, err)
 			return

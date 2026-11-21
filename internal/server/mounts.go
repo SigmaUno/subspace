@@ -39,6 +39,7 @@ type Deps struct {
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
 	Components components.Store
+	Comps      *components.Service
 	LocalHub   events.Hub
 	Leader     *ha.Elector
 	KeyLock    func(ctx context.Context, key string) (func(), error)

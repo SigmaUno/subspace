@@ -9,8 +9,6 @@ CREATE TABLE IF NOT EXISTS briefs (
   max_cost_eur DOUBLE PRECISION NOT NULL, max_parallel INTEGER NOT NULL, allowed_providers JSONB NOT NULL,
   plan_status TEXT NOT NULL, created_at BIGINT NOT NULL, cross_review BOOLEAN NOT NULL DEFAULT TRUE
 );
-ALTER TABLE briefs ADD COLUMN IF NOT EXISTS cross_review BOOLEAN NOT NULL DEFAULT TRUE;
-ALTER TABLE briefs ADD COLUMN IF NOT EXISTS auto_done_on_merge BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS briefs_status ON briefs(status, created_at);
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -18,7 +16,6 @@ CREATE TABLE IF NOT EXISTS plans (
   note TEXT, created_at BIGINT NOT NULL, decided_at BIGINT NOT NULL DEFAULT 0,
   warnings JSONB NOT NULL DEFAULT '[]'
 );
-ALTER TABLE plans ADD COLUMN IF NOT EXISTS warnings JSONB NOT NULL DEFAULT '[]';
 CREATE INDEX IF NOT EXISTS plans_brief ON plans(brief_id, status);
 
 CREATE TABLE IF NOT EXISTS tasks (
@@ -32,9 +29,6 @@ CREATE TABLE IF NOT EXISTS tasks (
   tests_passed INTEGER NOT NULL DEFAULT -1, tests_failed INTEGER NOT NULL DEFAULT 0, tests_at BIGINT NOT NULL DEFAULT 0,
   blocked_reason TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expiries INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
-ALTER TABLE tasks ADD COLUMN IF NOT EXISTS component_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS tasks_brief ON tasks(brief_id, status);
 CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee, status);
 CREATE INDEX IF NOT EXISTS tasks_reviewer ON tasks(reviewer, status);
@@ -46,7 +40,6 @@ CREATE TABLE IF NOT EXISTS agents (
   status TEXT NOT NULL, pause_reason TEXT NOT NULL DEFAULT '', token_hash TEXT NOT NULL,
   last_seen_at BIGINT NOT NULL DEFAULT 0, created_at BIGINT NOT NULL, spawned BOOLEAN NOT NULL DEFAULT FALSE
 );
-ALTER TABLE agents ADD COLUMN IF NOT EXISTS token_expires_at BIGINT NOT NULL DEFAULT 0;
 CREATE UNIQUE INDEX IF NOT EXISTS agents_token ON agents(token_hash);
 CREATE INDEX IF NOT EXISTS agents_role ON agents(role, status);
 

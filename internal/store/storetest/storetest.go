@@ -111,6 +111,7 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 
 	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status, b1.AutoDoneOnMerge = "new", 99.25, []string{"openai"}, "closed", true
 	b1.Playbook, b1.QualityGates.Review = "", true
+	b1.LeaderID = ptr("rex")
 	write(t, s, func(tx store.Tx) error { return tx.UpdateBrief(b1) })
 	wantErr(t, store.ErrNotFound, s.Atomic(context.Background(), func(tx store.Tx) error {
 		return tx.UpdateBrief(testBrief("B-404", time.Now()))

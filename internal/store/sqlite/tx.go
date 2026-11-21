@@ -3,6 +3,9 @@ package sqlite
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"strconv"
+	"strings"
 	"sync"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -138,19 +141,110 @@ func (t *tx) NextID(prefix string) (string, error) {
 	if err != nil {
 		return "", err
 	}
-	return prefix + "-" + itoa(n), nil
+	return prefix + "-" + strconv.FormatInt(n, 10), nil
 }
 
-func itoa(n int64) string {
+func ph(int) string { return "?" }
+
+func isDup(err error) bool {
+	return err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed")
+}
+
+func mapErr(err error) error {
+	switch {
+	case errors.Is(err, sql.ErrNoRows):
+		return store.ErrNotFound
+	case isDup(err):
+		return store.ErrDuplicate
+	}
+	return err
+}
+
+func (t *tx) exec(q string, args ...any) error {
+	_, err := t.q.ExecContext(t.ctx, q, args...)
+	return mapErr(err)
+}
+
+func (t *tx) update(q string, args ...any) error {
+	res, err := t.q.ExecContext(t.ctx, q, args...)
+	if err != nil {
+		return mapErr(err)
+	}
+	n, err := res.RowsAffected()
+	if err != nil {
+		return err
+	}
 	if n == 0 {
-		return "0"
+		return store.ErrNotFound
 	}
-	var b [20]byte
-	i := len(b)
-	for n > 0 {
-		i--
-		b[i] = byte('0' + n%10)
-		n /= 10
+	return nil
+}
+
+func get[T any](t *tx, scan func(store.Scanner) (T, error), q string, args ...any) (T, error) {
+	v, err := scan(t.q.QueryRowContext(t.ctx, q, args...))
+	return v, mapErr(err)
+}
+
+func list[T any](t *tx, scan func(store.Scanner) (T, error), q string, args ...any) ([]T, error) {
+	rows, err := t.q.QueryContext(t.ctx, q, args...)
+	if err != nil {
+		return nil, err
 	}
-	return string(b[i:])
+	defer func() { _ = rows.Close() }()
+	out := []T{}
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+type where struct {
+	conds []string
+	args  []any
+}
+
+func (w *where) eq(col, v string) {
+	if v != "" {
+		w.add(col+"=?", v)
+	}
+}
+
+func (w *where) add(cond string, args ...any) {
+	w.conds = append(w.conds, cond)
+	w.args = append(w.args, args...)
+}
+
+func (w *where) afterCreated(table, afterID string) {
+	if afterID != "" {
+		at := `(SELECT created_at FROM ` + table + ` WHERE id=?)`
+		w.add(`(created_at > `+at+` OR (created_at = `+at+` AND id > ?))`, afterID, afterID, afterID)
+	}
+}
+
+func (w *where) afterCreatedNum(table, afterID string) {
+	if afterID != "" {
+		n := store.IDNum(afterID)
+		at := `(SELECT created_at FROM ` + table + ` WHERE id=?)`
+		w.add(`(created_at > `+at+` OR (created_at = `+at+` AND (`+idNum+` > ? OR (`+idNum+` = ? AND id > ?))))`,
+			afterID, afterID, n, n, afterID)
+	}
+}
+
+func (w *where) clause() string {
+	if len(w.conds) == 0 {
+		return ""
+	}
+	return " WHERE " + strings.Join(w.conds, " AND ")
+}
+
+func (w *where) limit(n int) string {
+	if n <= 0 {
+		return ""
+	}
+	w.args = append(w.args, n)
+	return " LIMIT ?"
 }

@@ -1,0 +1,4 @@
+Owner: {{.Vars.owner}}. Merge policy: {{.Vars.merge_policy}}.
+Leader {{.Leader}} plans and assigns. Workers: {{range $i, $w := .Workers}}{{if $i}}, {{end}}{{$w}}{{end}}.
+Tester {{.Tester}} writes and runs tests. Reviewer {{.Reviewer}} reviews every PR.
+Repositories: {{range $i, $r := .Repos}}{{if $i}}, {{end}}{{$r}}{{end}}. Work only on task branches.

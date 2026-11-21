@@ -104,18 +104,7 @@ func New(ctx context.Context, o Options) (*Guard, error) {
 	if err := g.load(ctx, stateKey, &g.st); err != nil {
 		return nil, err
 	}
-	if g.st.Seen == nil {
-		g.st.Seen = map[string]float64{}
-	}
-	if g.st.Tripped == nil {
-		g.st.Tripped = map[Window]string{}
-	}
-	if g.st.Warned == nil {
-		g.st.Warned = map[Window]string{}
-	}
-	if g.st.WarnedAt == nil {
-		g.st.WarnedAt = map[Window]int64{}
-	}
+	g.st.init()
 	return g, nil
 }
 

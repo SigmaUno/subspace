@@ -51,7 +51,7 @@ func mountWebPush(d Deps) {
 	)
 	attach := func() {
 		start.Do(func() {
-			notify.New(notify.Config{Sinks: []notify.Sink{svc}, Log: d.Log, Mint: actionMinter(d)}).Start(d.Ctx, d.Hub)
+			notify.New(notify.Config{Sinks: []notify.Sink{svc}, Log: d.Log, Mint: actionMinter(d)}).Start(d.Ctx, d.Leader.Gate(d.Hub))
 		})
 	}
 	svc, err = webpush.New(d.Ctx, webpush.Options{
@@ -74,7 +74,9 @@ func mountWebPush(d Deps) {
 	d.API.Mount(d.Mux, "GET /api/v1/push/subscriptions", h)
 	d.API.Mount(d.Mux, "POST /api/v1/push/subscriptions", h)
 	d.API.Mount(d.Mux, "DELETE /api/v1/push/subscriptions", h)
-	if subs, err := svc.List(d.Ctx); err != nil {
+	if isPostgres(d.Cfg.DBPath) {
+		attach()
+	} else if subs, err := svc.List(d.Ctx); err != nil {
 		d.Log.Error("web push subscriptions unavailable", "err", err)
 	} else if len(subs) > 0 {
 		attach()

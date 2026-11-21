@@ -47,39 +47,60 @@ func init() {
 		h := persistAutopilotSpawn(d, ap, persistAutopilotFlags(d, ap, autopilot.Handler(ap)))
 		d.API.Mount(d.Mux, "/api/v1/autopilot", h)
 		d.API.Mount(d.Mux, "/api/v1/autopilot/", h)
-		go ap.Run(d.Ctx, interval)
+		d.Leader.Go(d.Ctx, func(ctx context.Context) {
+			if isPostgres(d.Cfg.DBPath) {
+				go syncAutopilotFlags(ctx, d, ap, interval)
+			}
+			ap.Run(ctx, interval)
+		})
 	})
 }
 
-func restoreAutopilotFlags(d Deps, ap *autopilot.Service) {
-	briefs, err := d.Board.ListBriefs(d.Ctx, "")
-	if err != nil {
-		d.Log.Error("autopilot restore flags", "err", err)
-		return
+func syncAutopilotFlags(ctx context.Context, d Deps, ap *autopilot.Service, every time.Duration) {
+	t := time.NewTicker(every)
+	defer t.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-t.C:
+		}
+		err := loadAutopilotFlags(ctx, d, ap)
+		if err != nil && ctx.Err() == nil {
+			d.Log.Error("autopilot sync flags", "err", err)
+		}
 	}
-	err = d.Store.View(d.Ctx, func(tx store.Tx) error {
+}
+
+func restoreAutopilotFlags(d Deps, ap *autopilot.Service) {
+	if err := loadAutopilotFlags(d.Ctx, d, ap); err != nil {
+		d.Log.Error("autopilot restore flags", "err", err)
+	}
+}
+
+func loadAutopilotFlags(ctx context.Context, d Deps, ap *autopilot.Service) error {
+	briefs, err := d.Board.ListBriefs(ctx, "")
+	if err != nil {
+		return err
+	}
+	return d.Store.View(ctx, func(tx store.Tx) error {
 		for _, b := range briefs {
-			v, ok, err := tx.GetKV(autopilotKVPrefix + b.ID)
+			v, _, err := tx.GetKV(autopilotKVPrefix + b.ID)
 			if err != nil {
 				return err
 			}
-			if ok && v == "true" {
-				ap.SetEnabled(b.ID, true)
-			}
-			if raw, ok, err := tx.GetKV(autopilotSpawnKVPrefix + b.ID); err != nil {
+			ap.SetEnabled(b.ID, v == "true")
+			raw, _, err := tx.GetKV(autopilotSpawnKVPrefix + b.ID)
+			if err != nil {
 				return err
-			} else if ok && raw != "" {
-				var c autopilot.SpawnConfig
-				if json.Unmarshal([]byte(raw), &c) == nil {
-					ap.SetSpawn(b.ID, c)
-				}
+			}
+			var c autopilot.SpawnConfig
+			if raw == "" || json.Unmarshal([]byte(raw), &c) == nil {
+				ap.SetSpawn(b.ID, c)
 			}
 		}
 		return nil
 	})
-	if err != nil {
-		d.Log.Error("autopilot restore flags", "err", err)
-	}
 }
 
 func persistAutopilotFlags(d Deps, ap *autopilot.Service, next http.Handler) http.Handler {

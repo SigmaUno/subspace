@@ -3518,6 +3518,67 @@
         ],
         "type": "object"
       },
+      "HAEventStats": {
+        "properties": {
+          "dropped": {
+            "type": "integer"
+          },
+          "received": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "dropped",
+          "received"
+        ],
+        "type": "object"
+      },
+      "HAStatus": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "events": {
+            "$ref": "#/components/schemas/HAEventStats"
+          },
+          "instance": {
+            "type": "string"
+          },
+          "leader": {
+            "type": "boolean"
+          },
+          "leader_instance": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lease_seconds": {
+            "type": "number"
+          },
+          "since": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "term": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "backend",
+          "events",
+          "instance",
+          "leader",
+          "leader_instance",
+          "lease_seconds",
+          "since",
+          "term"
+        ],
+        "type": "object"
+      },
       "Health": {
         "properties": {
           "paused": {
@@ -11754,6 +11815,31 @@
         ]
       }
     },
+    "/api/v1/ha": {
+      "get": {
+        "operationId": "getHa",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HAStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Leader election and cross-instance event status of this instance",
+        "tags": [
+          "ha"
+        ]
+      }
+    },
     "/api/v1/help-requests": {
       "get": {
         "operationId": "getHelpRequests",
@@ -16240,6 +16326,9 @@
     },
     {
       "name": "digest"
+    },
+    {
+      "name": "ha"
     },
     {
       "name": "help-requests"

@@ -3,7 +3,7 @@
 .PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
-.PHONY: sync
+.PHONY: sync acceptance
 
 GO ?= go
 BIN := bin
@@ -30,6 +30,9 @@ vet:
 
 lint:
 	golangci-lint run ./...
+
+acceptance:
+	GOMAXPROCS=2 $(GO) test -race -count=1 -timeout 180s -v -run TestAcceptanceSwarm ./internal/acceptance/
 
 fmt:
 	gofmt -w .

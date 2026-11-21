@@ -24,6 +24,6 @@ func TestGeneratedTypesUpToDate(t *testing.T) {
 		t.Fatal(err)
 	}
 	if !bytes.Equal(got, want) {
-		t.Fatal("web/lib/generated-types.ts is stale; run `make gen-ts`")
+		t.Fatal("web/lib/generated-types.ts is stale; run `make gen-ts` and commit the file (types come from cmd/gen-ts/registry.go)")
 	}
 }

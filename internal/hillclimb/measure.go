@@ -18,6 +18,12 @@ type Runner interface {
 	Run(ctx context.Context, repo, branch, cmd string) (string, error)
 }
 
+const (
+	Topic        = "hillclimb"
+	EventUpdated = "hillclimb.updated"
+	EventAttempt = "hillclimb.attempt"
+)
+
 type Measurer struct {
 	Store     Store
 	Runner    Runner
@@ -34,6 +40,12 @@ func NewMeasurer(s Store, r Runner) *Measurer {
 	return &Measurer{Store: s, Runner: r, Now: time.Now, inflight: map[string]int{}}
 }
 
+type AttemptEvent struct {
+	JobID   string `json:"job_id"`
+	BriefID string `json:"brief_id"`
+	Point
+}
+
 func (m *Measurer) CreateJob(ctx context.Context, j *Job) error {
 	if err := j.Validate(); err != nil {
 		return err
@@ -47,13 +59,13 @@ func (m *Measurer) CreateJob(ctx context.Context, j *Job) error {
 	if err := m.Store.CreateJob(j); err != nil {
 		return err
 	}
-	m.publish(j, "hillclimb.updated")
+	m.publish(j, EventUpdated, j)
 	return nil
 }
 
-func (m *Measurer) publish(j *Job, typ string) {
+func (m *Measurer) publish(j *Job, typ string, data any) {
 	if m.Publish != nil {
-		m.Publish([]string{"brief:" + j.BriefID, "hillclimb"}, typ, j)
+		m.Publish([]string{"brief:" + j.BriefID, Topic}, typ, data)
 	}
 }
 
@@ -97,7 +109,10 @@ func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (
 	if err := m.Store.UpdateJob(j); err != nil {
 		return a, nil, err
 	}
-	m.publish(j, "hillclimb.attempt")
+	m.publish(j, EventAttempt, AttemptEvent{JobID: j.ID, BriefID: j.BriefID, Point: Point{
+		N: j.Attempts, AttemptID: a.ID, AgentID: a.AgentID, Branch: a.Branch, Value: a.Value, Best: j.Best, Status: a.Status, MeasuredAt: a.MeasuredAt,
+	}})
+	m.publish(j, EventUpdated, j)
 	return a, j, nil
 }
 

@@ -53,3 +53,7 @@ internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32"
 internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "64:ff9b:1::/48" and "100::/64"
 internal/netguard/netguard.go	"::/96", "64:ff9b:1::/48", "100::/64", "2001::/32", "2001:db8::/32", "fec0::/10",	swap arguments "::/96" and "64:ff9b:1::/48"
 internal/netguard/netguard.go	return netip.AddrFrom4([4]byte(b[2:6])), true	change constant 6 to 7
+internal/leakguard/guard.go	if !errors.Is(err, auth.ErrTokenExpired) {	swap arguments err and auth.ErrTokenExpired
+internal/leakguard/guard.go	case errors.Is(err, tokens.ErrRevoked):	swap arguments err and tokens.ErrRevoked
+internal/leakguard/scan.go	return err == nil && len(b) == secretBytes	replace && with ||
+internal/leakguard/store.go	if err := rows.Scan(&l.ID, &l.Kind, &l.Subject, &l.Channel, &l.Author, &ms, &resolved); err != nil {	swap arguments &l.Channel and &l.Author

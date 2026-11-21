@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgconn"
 
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -19,8 +20,25 @@ type querier interface {
 }
 
 type tx struct {
-	q   querier
-	ctx context.Context
+	q     querier
+	ctx   context.Context
+	batch *batchCache
+}
+
+type kvEntry struct {
+	v  string
+	ok bool
+}
+
+type batchCache struct {
+	head *model.AuditHead
+	kv   map[string]kvEntry
+}
+
+func (t *tx) touch(q string) {
+	if t.batch != nil && (strings.Contains(q, "audit") || strings.Contains(q, "kv")) {
+		*t.batch = batchCache{}
+	}
 }
 
 var _ store.Tx = (*tx)(nil)
@@ -45,10 +63,12 @@ func (t *tx) NextID(prefix string) (string, error) {
 }
 
 func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
+	t.touch(strings.ToLower(q))
 	return t.q.ExecContext(t.ctx, rebind(q), args...)
 }
 
 func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
+	t.touch(strings.ToLower(q))
 	return t.q.QueryContext(t.ctx, rebind(q), args...)
 }
 

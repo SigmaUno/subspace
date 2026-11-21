@@ -36,7 +36,7 @@ func (t *tx) InsertAudit(e *model.AuditEvent) error {
 	if err != nil {
 		return err
 	}
-	head, err := t.AuditHead(math.MaxInt64)
+	head, err := t.auditTip()
 	if err != nil {
 		return err
 	}
@@ -52,7 +52,21 @@ func (t *tx) InsertAudit(e *model.AuditEvent) error {
 		return err
 	}
 	e.ID, e.Hash = rec.ID, hash
+	if t.batch != nil {
+		t.batch.head = &model.AuditHead{ID: rec.ID, Hash: hash}
+	}
 	return nil
+}
+
+func (t *tx) auditTip() (model.AuditHead, error) {
+	if t.batch != nil && t.batch.head != nil {
+		return *t.batch.head, nil
+	}
+	h, err := t.AuditHead(math.MaxInt64)
+	if err == nil && t.batch != nil {
+		t.batch.head = &h
+	}
+	return h, err
 }
 
 func jsonText(v any) string {
@@ -166,17 +180,38 @@ func (t *tx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
 }
 
 func (t *tx) GetKV(key string) (string, bool, error) {
+	if t.batch != nil {
+		if e, ok := t.batch.kv[key]; ok {
+			return e.v, e.ok, nil
+		}
+	}
 	var v string
 	err := t.q.QueryRowContext(t.ctx, `SELECT v FROM kv WHERE k = $1`, key).Scan(&v)
+	found := err == nil
 	if errors.Is(err, sql.ErrNoRows) {
-		return "", false, nil
+		err = nil
 	}
 	if err != nil {
 		return "", false, err
 	}
-	return v, true, nil
+	t.cacheKV(key, v, found)
+	return v, found, nil
 }
 
 func (t *tx) SetKV(key, value string) error {
-	return t.exec(`INSERT INTO kv(k, v) VALUES($1, $2) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, key, value)
+	if err := t.exec(`INSERT INTO kv(k, v) VALUES($1, $2) ON CONFLICT(k) DO UPDATE SET v = excluded.v`, key, value); err != nil {
+		return err
+	}
+	t.cacheKV(key, value, true)
+	return nil
+}
+
+func (t *tx) cacheKV(key, v string, ok bool) {
+	if t.batch == nil {
+		return
+	}
+	if t.batch.kv == nil {
+		t.batch.kv = map[string]kvEntry{}
+	}
+	t.batch.kv[key] = kvEntry{v: v, ok: ok}
 }

@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -53,7 +54,7 @@ type Store struct {
 	wg   sync.WaitGroup
 	once sync.Once
 
-	idem idemQueue
+	idemSweep atomic.Int64
 }
 
 var _ store.Store = (*Store)(nil)
@@ -285,6 +286,7 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 		return fail(err)
 	}
 	ok := make([]bool, len(batch))
+	cache := &batchCache{}
 	open := false
 	for i, r := range batch {
 		if cerr := r.ctx.Err(); cerr != nil {
@@ -302,7 +304,7 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 			}
 			open = true
 		}
-		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
+		e := safeRun(r.fn, &tx{q: t, ctx: ctx, batch: cache})
 		if e == nil {
 			release := "RELEASE SAVEPOINT op"
 			if i < len(batch)-1 {
@@ -321,6 +323,7 @@ func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
 				_ = t.Rollback()
 				return fail(rerr)
 			}
+			*cache = batchCache{}
 			open = true
 			errs[i] = e
 			continue

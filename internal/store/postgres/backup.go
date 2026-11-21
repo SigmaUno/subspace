@@ -167,6 +167,7 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		if err := flush(); err != nil {
 			return err
 		}
+		t.touch("audit")
 		identity, err := identityTables(t)
 		if err != nil {
 			return err

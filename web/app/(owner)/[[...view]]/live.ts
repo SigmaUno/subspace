@@ -5,7 +5,7 @@ import type { Message } from "../../../lib/types";
 
 const scopes = [
   "board", "agents", "thread", "questions", "plans", "briefs", "control", "capacity",
-  "decisions", "architecture", "chat", "metrics",
+  "decisions", "architecture", "chat", "metrics", "activity",
 ] as const;
 type Scope = typeof scopes[number];
 export type Revisions = Record<Scope, number>;
@@ -32,6 +32,7 @@ const eventScopes = {
   "conversation.updated": ["chat"],
   "hillclimb.updated": ["metrics"],
   "hillclimb.attempt": ["metrics"],
+  "activity.new": ["activity"],
 } as const;
 
 export type LiveStatus = "connected" | "reconnecting" | "offline";
@@ -41,7 +42,7 @@ const retryDelay = 5_000;
 export function useLive(topics: string) {
   const [revisions, setRevisions] = useState<Revisions>({
     board: 0, agents: 0, thread: 0, questions: 0, plans: 0, briefs: 0, control: 0, capacity: 0,
-    decisions: 0, architecture: 0, chat: 0, metrics: 0,
+    decisions: 0, architecture: 0, chat: 0, metrics: 0, activity: 0,
   });
   const [recent, setRecent] = useState<Record<string, Message>>({});
   const [status, setStatus] = useState<LiveStatus>("reconnecting");

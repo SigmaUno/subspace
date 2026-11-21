@@ -3,6 +3,7 @@ package mergequeue
 import (
 	"context"
 	"fmt"
+	"slices"
 	"sync"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -20,6 +21,9 @@ type MemStore struct {
 	seq   int
 	byID  map[string]Candidate
 	order []string
+
+	trainSeq int
+	trains   []*Train
 }
 
 func NewMemStore() *MemStore {
@@ -66,4 +70,66 @@ func (s *MemStore) List(_ context.Context, repo string) ([]*Candidate, error) {
 		}
 	}
 	return out, nil
+}
+
+func (s *MemStore) InsertTrain(_ context.Context, t *Train) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.trainSeq++
+	t.ID = fmt.Sprintf("MQT-%d", s.trainSeq)
+	s.trains = append(s.trains, cloneTrain(t))
+	return nil
+}
+
+func (s *MemStore) UpdateTrain(_ context.Context, t *Train) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, x := range s.trains {
+		if x.ID == t.ID {
+			s.trains[i] = cloneTrain(t)
+			return nil
+		}
+	}
+	return store.ErrNotFound
+}
+
+func (s *MemStore) GetTrain(_ context.Context, id string) (*Train, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, x := range s.trains {
+		if x.ID == id {
+			return cloneTrain(x), nil
+		}
+	}
+	return nil, store.ErrNotFound
+}
+
+func (s *MemStore) ListTrains(_ context.Context, repo string, limit int) ([]*Train, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*Train
+	for _, x := range slices.Backward(s.trains) {
+		if (repo == "" || x.Repo == repo) && (limit <= 0 || len(out) < limit) {
+			out = append(out, cloneTrain(x))
+		}
+	}
+	return out, nil
+}
+
+func (s *MemStore) ActiveTrains(_ context.Context, repo string) ([]*Train, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*Train
+	for _, x := range s.trains {
+		if x.Repo == repo && x.Active() {
+			out = append(out, cloneTrain(x))
+		}
+	}
+	return out, nil
+}
+
+func cloneTrain(t *Train) *Train {
+	c := *t
+	c.Members = slices.Clone(t.Members)
+	return &c
 }

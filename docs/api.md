@@ -421,7 +421,7 @@ All tools return an object; `task` = Task object above.
 - `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions, then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
 - `whoami {}` → `{"agent":Agent,"paused":false,"server_time":"..."}`
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
-- `get_task {"task_id"}` → `{"task":Task}` (own/assigned tasks; leader: any)
+- `get_task {"task_id"}` → `{"task":Task}` or `{"task":Task,"context":TaskContext}` (own/assigned tasks; leader: any). `context` is only present for the task's assignee, see Handoff context.
 - `heartbeat {"task_id?","note?"}` → `{"ok":true,"paused":false,"lease_expires_at":"..."|null}`. Extends leases of my in_progress tasks (or only `task_id`). Cheap (in-memory, batched).
 - `update_status {"task_id","status":"in_progress|blocked","progress_pct?":0-100,"note?","cost_eur?":number}` → `{"task":Task}`. `cost_eur` is cumulative cost spent. Exceeding task/brief budget forces `blocked`. Cannot set submitted/approved/done.
 - `add_note {"task_id?","body"}` → `{"message":Message}` (task thread, or own agent thread if no task)
@@ -435,7 +435,7 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Worker/tester**
-- `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"..."}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.
+- `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.
 - `release_task {"task_id","reason?"}` → `{"task":Task}` (→ `assigned`)
 - `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`, or → `approved` when the brief has `cross_review:false`; releases lease; `pr_url` required for worker, optional for tester)
 
@@ -457,6 +457,22 @@ All tools return an object; `task` = Task object above.
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
 - `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}`; 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+
+### Handoff context
+`get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.
+
+```jsonc
+// TaskContext
+{"previous_assignees":["claude-1"],              // agents that claimed or were assigned the task before, oldest first, at most 10, never the caller
+ "branch":"sub/t-3-add-login","pr_url":"https://...",   // pr_url null until submitted
+ "tests":{"passed":7,"failed":2,"reported_at":"..."},   // or null
+ "review_rounds":2,"review_comments":"...",             // comments of the latest changes_requested review, "" when none
+ "messages":[{"id":42,"author":"claude-1","role":"worker","kind":"note","at":"...","text":"..."}],   // last 20 task thread messages
+ "minutes_used":12,"cost_used":0.4,
+ "truncated":false}                                     // true when messages were dropped or review comments shortened
+```
+
+Message texts are whitespace-collapsed, cut to 300 characters and redacted for tokens and secrets; `review_comments` is redacted and cut to 1500 characters. The serialized object never exceeds 8 KiB: when it would, the oldest messages are dropped first, then the review comments are shortened, and `truncated` is set.
 
 ### Threads scoping summary
 Agent thread `agent:<id>`: leader messages to the agent, owner replies, answers, system notices. Task thread `task:<id>`: status changes (auto), notes, questions/answers, reviews, tests. Brief thread `brief:<id>`: plan decisions, leader notes.

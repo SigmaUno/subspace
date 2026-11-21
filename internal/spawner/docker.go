@@ -32,6 +32,8 @@ const (
 	DefaultEgressAlias   = "subspace-egress"
 	DefaultEgressPort    = 3128
 	DefaultPidsLimit     = 512
+	DefaultCPUs          = 2
+	DefaultMemoryBytes   = 4 << 30
 	DefaultWorkdirBytes  = 2 << 30
 	DefaultTmpBytes      = 256 << 20
 
@@ -274,7 +276,8 @@ func (d *Docker) limitsFor(r Request) (Limits, error) {
 	if err := r.Limits.validate(); err != nil {
 		return Limits{}, err
 	}
-	l := Limits{Pids: DefaultPidsLimit}.over(d.cfg.Limits).over(d.cfg.Profiles[r.Kind]).over(r.Limits)
+	base := Limits{CPUs: DefaultCPUs, MemoryBytes: max(DefaultMemoryBytes, d.cfg.WorkdirBytes+DefaultTmpBytes+1<<30), Pids: DefaultPidsLimit}
+	l := base.over(d.cfg.Limits).over(d.cfg.Profiles[r.Kind]).over(r.Limits)
 	return l, l.validate()
 }
 

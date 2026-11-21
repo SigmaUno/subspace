@@ -332,6 +332,18 @@ func (f *fakeEngine) agentBody(t *testing.T, agentID string) createBody {
 	return createBody{}
 }
 
+func TestDockerAgentsAreBoundedWithoutConfiguredLimits(t *testing.T) {
+	d, f := dockerFixture(t, func(c *DockerConfig) { c.Limits, c.Profiles = Limits{}, nil })
+	req := testRequest()
+	if err := d.Spawn(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	hc := f.agentBody(t, req.AgentID).HostConfig
+	if hc.Memory <= d.cfg.WorkdirBytes+DefaultTmpBytes || hc.MemorySwap != hc.Memory || hc.NanoCpus <= 0 {
+		t.Fatalf("unbounded agent: memory %d swap %d cpus %d", hc.Memory, hc.MemorySwap, hc.NanoCpus)
+	}
+}
+
 func TestDockerReplacesStaleEgress(t *testing.T) {
 	d, f := dockerFixture(t, func(c *DockerConfig) {
 		c.EgressImage = "subspace/egress:2"

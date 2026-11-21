@@ -33,6 +33,11 @@ const eventScopes = {
   "hillclimb.attempt": ["metrics"],
 } as const;
 
+const windows: Partial<Record<Scope, number>> = {
+  board: 1500, agents: 1500, capacity: 1500, decisions: 1500, architecture: 1500, metrics: 1500, briefs: 1500,
+  thread: 300, chat: 300,
+};
+
 export function useLive(topics: string) {
   const [revisions, setRevisions] = useState<Revisions>({
     board: 0, agents: 0, thread: 0, questions: 0, plans: 0, briefs: 0, control: 0, capacity: 0,
@@ -43,30 +48,50 @@ export function useLive(topics: string) {
 
   useEffect(() => {
     const stream = new EventSource(`/api/v1/events?${new URLSearchParams({ topics })}`);
-    const pending = new Set<Scope>();
+    const lanes = new Map<number, Set<Scope>>();
+    const timers = new Map<number, ReturnType<typeof setTimeout>>();
     const messages = new Map<string, Message>();
     const taskStatuses = new Map<string, string>();
-    let timer: ReturnType<typeof setTimeout> | undefined;
+    let frame: number | undefined;
+    let opened = false;
 
-    function invalidate(changed: readonly Scope[]) {
-      changed.forEach((scope) => pending.add(scope));
-      if (timer) return;
-      timer = setTimeout(() => {
-        const refreshed = Array.from(pending);
-        const updates = Object.fromEntries(messages);
-        pending.clear();
-        messages.clear();
-        timer = undefined;
-        setRevisions((current) => {
-          const next = { ...current };
-          refreshed.forEach((scope) => { next[scope] += 1; });
-          return next;
-        });
-        if (Object.keys(updates).length) setRecent((current) => ({ ...current, ...updates }));
-      }, 650);
+    function bump(lane: number) {
+      const refreshed = Array.from(lanes.get(lane) ?? []);
+      lanes.delete(lane);
+      timers.delete(lane);
+      if (!refreshed.length) return;
+      setRevisions((current) => {
+        const next = { ...current };
+        refreshed.forEach((scope) => { next[scope] += 1; });
+        return next;
+      });
     }
 
-    stream.addEventListener("hello", () => { setConnected(true); invalidate(scopes); });
+    function paint() {
+      frame = undefined;
+      bump(0);
+      if (!messages.size) return;
+      const updates = Object.fromEntries(messages);
+      messages.clear();
+      setRecent((current) => ({ ...current, ...updates }));
+    }
+
+    function invalidate(changed: readonly Scope[]) {
+      for (const scope of changed) {
+        const lane = windows[scope] ?? 0;
+        const pending = lanes.get(lane) ?? new Set<Scope>();
+        pending.add(scope);
+        lanes.set(lane, pending);
+        if (lane > 0 && !timers.has(lane)) timers.set(lane, setTimeout(() => bump(lane), lane));
+      }
+      if ((lanes.has(0) || messages.size) && frame === undefined) frame = requestAnimationFrame(paint);
+    }
+
+    stream.addEventListener("hello", () => {
+      setConnected(true);
+      if (opened) invalidate(scopes);
+      opened = true;
+    });
     stream.addEventListener("lagged", () => invalidate(scopes));
     stream.onerror = () => setConnected(false);
     stream.addEventListener("message.created", (event: MessageEvent<string>) => {
@@ -90,7 +115,8 @@ export function useLive(topics: string) {
       stream.addEventListener(event, () => invalidate(changed));
     });
     return () => {
-      if (timer) clearTimeout(timer);
+      timers.forEach((timer) => clearTimeout(timer));
+      if (frame !== undefined) cancelAnimationFrame(frame);
       stream.close();
     };
   }, [topics]);

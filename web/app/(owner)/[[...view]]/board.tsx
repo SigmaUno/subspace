@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useContext, useState } from "react";
+import { memo, useContext, useDeferredValue, useMemo, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
@@ -57,7 +57,7 @@ export function BriefsView({ revision }: { revision: number }) {
   );
 }
 
-function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; openThread: (thread: Thread) => void }) {
+const TaskCard = memo(function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; openThread: (thread: Thread) => void }) {
   const pr = safeURL(task.pr_url);
   const now = useContext(Clock);
   const attention = ["blocked", "needs_owner"].includes(task.status) ||
@@ -79,16 +79,21 @@ function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; open
       {pr && <a href={pr} target="_blank" rel="noreferrer">Open pull request</a>}
     </article>
   );
-}
+});
 
 export function Kanban({ board, agents, openThread }: {
   board: Board; agents: Agent[]; openThread: (thread: Thread) => void;
 }) {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatus] = useState("");
-  const byID = new Map(agents.map((agent) => [agent.id, agent]));
+  const deferredFilter = useDeferredValue(filter);
+  const byID = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
-  const needle = filter.toLowerCase().trim();
+  const columns = useMemo(() => {
+    const needle = deferredFilter.toLowerCase().trim();
+    return Object.fromEntries(statuses.map(([status]) => [status, (board.columns[status] ?? []).filter((task) =>
+      !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle)))]));
+  }, [board, deferredFilter]);
 
   return <section className="stack">
     <div className="heading">
@@ -104,8 +109,7 @@ export function Kanban({ board, agents, openThread }: {
     </div>
     <section className="board" aria-label="Kanban board" tabIndex={0}>
       {visibleStatuses.map(([status, name]) => {
-        const tasks = (board.columns[status] ?? []).filter((task) =>
-          !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle)));
+        const tasks = columns[status];
         return <section className="column" aria-label={name} key={status} data-status={status}>
           <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
           <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"

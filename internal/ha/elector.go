@@ -65,6 +65,12 @@ type Elector struct {
 	termCtx  context.Context
 	end      context.CancelFunc
 	changed  chan struct{}
+	running  int
+	idle     []chan struct{}
+
+	resign     chan struct{}
+	resignOnce sync.Once
+	released   chan struct{}
 }
 
 func New(o Options) *Elector {
@@ -86,7 +92,7 @@ func New(o Options) *Elector {
 	if o.Backend == "" {
 		o.Backend = "single"
 	}
-	e := &Elector{o: o, clock: time.Now, changed: make(chan struct{})}
+	e := &Elector{o: o, clock: time.Now, changed: make(chan struct{}), resign: make(chan struct{}), released: make(chan struct{})}
 	if o.Lock == nil {
 		e.promote(e.clock())
 		e.holder = o.ID
@@ -126,9 +132,37 @@ func (e *Elector) current() (context.Context, <-chan struct{}) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.leadingLocked() {
+		e.running++
 		return e.termCtx, nil
 	}
 	return nil, e.changed
+}
+
+func (e *Elector) leave() {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	e.running--
+	if e.running == 0 {
+		for _, c := range e.idle {
+			close(c)
+		}
+		e.idle = nil
+	}
+}
+
+func (e *Elector) waitIdle(ctx context.Context) {
+	e.mu.Lock()
+	if e.running == 0 {
+		e.mu.Unlock()
+		return
+	}
+	c := make(chan struct{})
+	e.idle = append(e.idle, c)
+	e.mu.Unlock()
+	select {
+	case <-c:
+	case <-ctx.Done():
+	}
 }
 
 func (e *Elector) promote(start time.Time) {
@@ -197,15 +231,15 @@ func (e *Elector) setHolder(h string) {
 }
 
 func (e *Elector) Run(ctx context.Context) {
+	defer close(e.released)
+	defer e.handOff()
 	if e.o.Lock == nil {
-		<-ctx.Done()
-		e.demote()
+		select {
+		case <-ctx.Done():
+		case <-e.resign:
+		}
 		return
 	}
-	defer func() {
-		e.demote()
-		e.o.Lock.Release()
-	}()
 	t := time.NewTicker(e.o.Interval)
 	defer t.Stop()
 	for {
@@ -213,8 +247,30 @@ func (e *Elector) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-e.resign:
+			return
 		case <-t.C:
 		}
+	}
+}
+
+func (e *Elector) handOff() {
+	e.demote()
+	ctx, cancel := context.WithTimeout(context.Background(), e.o.TTL)
+	e.waitIdle(ctx)
+	cancel()
+	if e.o.Lock != nil {
+		e.o.Lock.Release()
+	}
+}
+
+func (e *Elector) Resign(ctx context.Context) error {
+	e.resignOnce.Do(func() { close(e.resign) })
+	select {
+	case <-e.released:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
 	}
 }
 
@@ -284,6 +340,7 @@ func (e *Elector) Lead(ctx context.Context, fn func(context.Context)) {
 		run, cancel := context.WithCancel(ctx)
 		stop := context.AfterFunc(term, cancel)
 		fn(run)
+		e.leave()
 		<-run.Done()
 		stop()
 		cancel()

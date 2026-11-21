@@ -9,11 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strconv"
 	"strings"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const SignatureHeader = "X-Subspace-Signature"
@@ -53,7 +54,7 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 	if err != nil {
 		var ue *url.Error
 		if errors.As(err, &ue) {
-			err = fmt.Errorf("%s: %w", s.name, ue.Err)
+			err = fmt.Errorf("%s: %w", s.name, netguard.Scrub(err))
 		}
 		if errors.Is(err, ErrBlockedTarget) {
 			return permanentError{err}
@@ -61,7 +62,7 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	netguard.Drain(resp.Body, 4096)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return nil

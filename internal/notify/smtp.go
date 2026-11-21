@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 var (
@@ -41,7 +43,7 @@ type smtpSink struct {
 	starttls  bool
 	from      string
 	to        []string
-	dialer    *net.Dialer
+	dialer    *netguard.Guard
 	tlsConfig *tls.Config
 }
 
@@ -50,7 +52,7 @@ func NewSMTP(raw string, o SMTPOptions) (Sink, error) {
 	if err != nil {
 		return nil, errors.New("notify: invalid smtp url")
 	}
-	s := &smtpSink{starttls: o.STARTTLS, dialer: guardedDialer(o.AllowPrivate), tlsConfig: o.TLS}
+	s := &smtpSink{starttls: o.STARTTLS, dialer: newGuard(o.AllowPrivate), tlsConfig: o.TLS}
 	if s.tlsConfig == nil {
 		s.tlsConfig = &tls.Config{MinVersion: tls.VersionTLS12}
 	}

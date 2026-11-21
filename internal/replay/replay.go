@@ -135,6 +135,8 @@ type History struct {
 	tasks       map[string]*model.Task
 	roles       map[string]string
 	events      []*model.AuditEvent
+	marks       []time.Time
+	high        time.Time
 	checkpoints []*state
 	head        *state
 	scanned     int64
@@ -167,10 +169,14 @@ func (h *History) Append(events []*model.AuditEvent) {
 			continue
 		}
 		h.scanned = e.ID
+		if e.TS.After(h.high) {
+			h.high = e.TS
+		}
 		if !h.relevant(e) {
 			continue
 		}
 		h.events = append(h.events, e)
+		h.marks = append(h.marks, h.high)
 		h.apply(h.head, e, nil)
 		if h.head.n%h.every == 0 {
 			h.checkpoints = append(h.checkpoints, h.head.clone())
@@ -366,7 +372,7 @@ func (h *History) Resolve(at string) (int, error) {
 	if err != nil {
 		return 0, model.BadRequest("at must be an RFC 3339 time or an audit id: %q", at)
 	}
-	return sort.Search(len(h.events), func(i int) bool { return h.events[i].TS.After(t) }), nil
+	return sort.Search(len(h.marks), func(i int) bool { return h.marks[i].After(t) }), nil
 }
 
 func (h *History) auditID(n int) (int64, *time.Time) {

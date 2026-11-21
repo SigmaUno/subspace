@@ -11,12 +11,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 type spawnLifecycleStore interface {
-	SpawnLifecycles(ctx context.Context) (map[string]sqlite.SpawnLifecycle, error)
-	SaveSpawnLifecycle(ctx context.Context, l sqlite.SpawnLifecycle, sp *model.Spawn, ev *model.AuditEvent) error
+	SpawnLifecycles(ctx context.Context) (map[string]store.SpawnLifecycle, error)
+	SaveSpawnLifecycle(ctx context.Context, l store.SpawnLifecycle, sp *model.Spawn, ev *model.AuditEvent) error
 }
 
 type lifecycleRecords struct{ s spawnLifecycleStore }
@@ -34,7 +34,7 @@ func (l lifecycleRecords) Records(ctx context.Context) (map[string]lifecycle.Rec
 }
 
 func (l lifecycleRecords) Save(ctx context.Context, rec lifecycle.Record, sp *model.Spawn, ev *model.AuditEvent) error {
-	return l.s.SaveSpawnLifecycle(ctx, sqlite.SpawnLifecycle(rec), sp, ev)
+	return l.s.SaveSpawnLifecycle(ctx, store.SpawnLifecycle(rec), sp, ev)
 }
 
 func init() {

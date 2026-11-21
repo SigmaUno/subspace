@@ -1,7 +1,9 @@
 package loadtest
 
 import (
+	"context"
 	"math"
+	"runtime/metrics"
 	"sort"
 	"sync"
 	"sync/atomic"
@@ -214,4 +216,40 @@ func (r *Recorder) Snapshot() (OpReport, []OpReport, []string) {
 	samples := append([]string(nil), r.overall.samples...)
 	r.overall.mu.Unlock()
 	return r.overall.report("overall"), ops, samples
+}
+
+type HeapReport struct {
+	StartMB float64 `json:"live_start_mb"`
+	EndMB   float64 `json:"live_end_mb"`
+	MaxMB   float64 `json:"live_max_mb"`
+}
+
+func sampleHeap(ctx context.Context, from time.Time) func() HeapReport {
+	ctx, cancel := context.WithCancel(ctx)
+	done := make(chan HeapReport, 1)
+	go func() {
+		var rep HeapReport
+		started := false
+		sample := []metrics.Sample{{Name: "/gc/heap/live:bytes"}}
+		t := time.NewTicker(time.Second)
+		defer t.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				done <- rep
+				return
+			case now := <-t.C:
+				metrics.Read(sample)
+				mb := float64(sample[0].Value.Uint64()) / (1 << 20)
+				if !started && !now.Before(from) {
+					rep.StartMB, started = mb, true
+				}
+				rep.EndMB, rep.MaxMB = mb, max(rep.MaxMB, mb)
+			}
+		}
+	}()
+	return func() HeapReport {
+		cancel()
+		return <-done
+	}
 }

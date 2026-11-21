@@ -34,10 +34,10 @@ function ConversationPanel({ target, revision }: { target: string; revision: num
     <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");
       if (!body) return;
-      const result = await api<{ conversation_id: string }>("messages", "POST", { to: target, body });
-      if (result.conversation_id) {
-        sessionStorage.setItem(storageKey, result.conversation_id);
-        setID(result.conversation_id);
+      const result = await api<{ id: string }>("messages", "POST", { to: target, body });
+      if (result.id) {
+        sessionStorage.setItem(storageKey, result.id);
+        setID(result.id);
       }
       element.reset();
       setSent(true);

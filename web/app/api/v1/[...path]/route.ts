@@ -15,7 +15,7 @@ async function forward(request: NextRequest, context: Context) {
   }
 
   const { path } = await context.params;
-  if (path.some((part) => !/^[a-z0-9_-]+$/i.test(part))) {
+  if (path.some((part) => !/^[a-z0-9_:-]+$/i.test(part))) {
     return apiError(400, "Invalid API path.");
   }
 

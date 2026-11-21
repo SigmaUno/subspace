@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
+	"fmt"
 	"os"
 
-	"github.com/SigmaUno/subspace/internal/prsync"
 	"github.com/SigmaUno/subspace/internal/reviewsync"
 )
 
@@ -40,22 +40,27 @@ func mountReviewSync(d Deps) {
 		d.Log.Error("review comment sync disabled", "err", "store does not keep review comments")
 		return
 	}
-	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
-	if err != nil {
-		d.Log.Error("review comment sync disabled", "err", err)
-		return
-	}
-	if !ok {
-		d.Log.Error("review comment sync disabled", "err", "no repositories are registered and SUBSPACE_PRSYNC_CONFIG is not set")
-		return
-	}
-	svc, err := reviewsync.New(reviewsync.Options{
-		Tasks: d.Board, Store: reviewComments{st}, Hosts: reviewsync.HostsFromConfig(cfg, nil), Repos: cfg.Repos,
-		PublicURL: d.Cfg.PublicURL, Mode: mode, Log: d.Log,
+	d.Leader.Go(d.Ctx, func(ctx context.Context) {
+		superviseRepos(ctx, d, func(ctx context.Context) (func(context.Context), error) {
+			cfg, ok, err := resolveRepos(ctx, d, "review comment sync")
+			if err != nil {
+				return nil, err
+			}
+			if !ok {
+				d.Log.Warn("review comment sync waiting for repositories: none are registered and SUBSPACE_PRSYNC_CONFIG is not set")
+				return nil, nil
+			}
+			svc, err := reviewsync.New(reviewsync.Options{
+				Tasks: d.Board, Store: reviewComments{st}, Hosts: reviewsync.HostsFromConfig(cfg, nil), Repos: cfg.Repos,
+				PublicURL: d.Cfg.PublicURL, Mode: mode, Log: d.Log,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("review comment sync disabled: %w", err)
+			}
+			return func(ctx context.Context) {
+				svc.Start(ctx, d.Leader.Gate(d.Hub))
+				<-ctx.Done()
+			}, nil
+		})
 	})
-	if err != nil {
-		d.Log.Error("review comment sync disabled", "err", err)
-		return
-	}
-	svc.Start(d.Ctx, d.Leader.Gate(d.Hub))
 }

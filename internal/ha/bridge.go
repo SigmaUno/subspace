@@ -108,6 +108,10 @@ func (b *Bridge) PublishTrace(topics []string, typ string, data any, tc trace.Sp
 
 func (b *Bridge) Subscribe(topics []string) events.Subscription { return b.o.Local.Subscribe(topics) }
 
+func (b *Bridge) SubscribeQuiet(topics []string) events.Subscription {
+	return events.SubscribeQuiet(b.o.Local, topics)
+}
+
 func (b *Bridge) Subscribers() int { return b.o.Local.Subscribers() }
 
 func (b *Bridge) Resume(topics []string, after int64) events.Resumed {

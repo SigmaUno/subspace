@@ -96,7 +96,7 @@ type trainRun struct {
 }
 
 func (q *Queue) ProcessTrain(ctx context.Context, repo string) (*Train, error) {
-	rc, ok := q.cfg.Repos[repo]
+	rc, ok := q.repo(repo)
 	if !ok || rc.MaxTrain <= 0 {
 		return nil, fmt.Errorf("mergequeue: repo %q does not use merge trains", repo)
 	}

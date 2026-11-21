@@ -308,6 +308,7 @@ func (e *env) contractEmitAll() {
 		map[string]any{"id": "spawn", "when": map[string]any{"actions": []string{"request_spawn"}}, "then": map[string]any{"effect": "require_owner_approval"}},
 	}})
 	e.mustFail(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "codex", "model": "m", "n": 1}, "policy_hold")
+	e.restWant(201, "POST", "/api/v1/repos", map[string]any{"name": "o/contract", "host": "github"})
 }
 
 func TestContractSSEEventsEmitted(t *testing.T) {

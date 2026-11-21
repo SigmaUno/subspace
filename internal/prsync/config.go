@@ -38,6 +38,7 @@ type Config struct {
 	Rate     Rate
 	Hosts    map[string]HostConfig
 	Repos    map[string]string
+	Strict   bool
 }
 
 var (

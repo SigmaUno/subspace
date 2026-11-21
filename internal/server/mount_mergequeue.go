@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -70,13 +71,10 @@ const (
 )
 
 func mountMergeQueue(d Deps) {
-	f, ok, err := mqConfig(d)
+	f, _, err := mqConfig(d)
 	if err != nil {
-		d.Log.Error("mergequeue disabled", "err", err)
-		return
-	}
-	if !ok {
-		return
+		d.Log.Error("mergequeue has no repositories", "err", err)
+		f = mqFile{Repos: map[string]mqRepo{}}
 	}
 	if err := startMergeQueue(d, f); err != nil {
 		d.Log.Error("mergequeue disabled", "err", err)
@@ -100,7 +98,7 @@ func mqConfig(d Deps) (mqFile, bool, error) {
 	}
 	path := os.Getenv(mqConfigEnv)
 	if path == "" {
-		return mqFile{}, false, nil
+		return f, false, nil
 	}
 	repos.Deprecated(d.Log, mqConfigEnv)
 	raw, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
@@ -113,6 +111,36 @@ func mqConfig(d Deps) (mqFile, bool, error) {
 	return f, true, nil
 }
 
+type mqRuntime struct {
+	repos    map[string]mergequeue.RepoConfig
+	bases    map[string]string
+	finisher mergequeue.Finisher
+}
+
+func mqBuild(d Deps, f mqFile) (mqRuntime, error) {
+	if isPostgres(d.Cfg.DBPath) && f.WorkDir == "" {
+		for name, r := range f.Repos {
+			if r.WorkDir == "" {
+				return mqRuntime{}, fmt.Errorf("workdir is required with the postgres backend (repo %s)", name)
+			}
+		}
+	}
+	rt := mqRuntime{
+		repos:    make(map[string]mergequeue.RepoConfig, len(f.Repos)),
+		bases:    make(map[string]string, len(f.Repos)),
+		finisher: mqFinisher(d, f),
+	}
+	for name, r := range f.Repos {
+		rt.repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir,
+			Host: r.Host, TokenEnv: r.TokenEnv, Token: os.Getenv(r.TokenEnv)}
+		rt.bases[name] = r.Base
+		if r.Base == "" {
+			rt.bases[name] = "main"
+		}
+	}
+	return rt, nil
+}
+
 func startMergeQueue(d Deps, f mqFile) error {
 	var err error
 	interval := 30 * time.Second
@@ -121,29 +149,17 @@ func startMergeQueue(d Deps, f mqFile) error {
 			return fmt.Errorf("invalid interval %q", f.Interval)
 		}
 	}
-	if isPostgres(d.Cfg.DBPath) && f.WorkDir == "" {
-		for name, r := range f.Repos {
-			if r.WorkDir == "" {
-				return fmt.Errorf("workdir is required with the postgres backend (repo %s)", name)
-			}
-		}
+	rt, err := mqBuild(d, f)
+	if err != nil {
+		return err
 	}
-	if f.WorkDir == "" {
-		f.WorkDir = filepath.Join(filepath.Dir(d.Cfg.DBPath), "mergequeue")
+	workDir := f.WorkDir
+	if workDir == "" {
+		workDir = filepath.Join(filepath.Dir(d.Cfg.DBPath), "mergequeue")
 	}
 	life, ok := d.Store.(interface{ Done() <-chan struct{} })
 	if !ok {
 		return errors.New("store does not support the merge queue")
-	}
-	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
-	bases := make(map[string]string, len(f.Repos))
-	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir,
-			Host: r.Host, TokenEnv: r.TokenEnv, Token: os.Getenv(r.TokenEnv)}
-		bases[name] = r.Base
-		if r.Base == "" {
-			bases[name] = "main"
-		}
 	}
 	gate := mqGate{d.Board}
 	var checks mergequeue.Checks
@@ -151,14 +167,14 @@ func startMergeQueue(d Deps, f mqFile) error {
 		checks = mqChecks{ps}
 	}
 	q, err := mergequeue.New(mergequeue.Config{
-		Repos:    repos,
-		WorkDir:  f.WorkDir,
+		Repos:    rt.repos,
+		WorkDir:  workDir,
 		Store:    mqStore{st: d.Store, merged: mqTasks{d.Board}.done},
 		Runner:   mqRunner,
 		Notifier: mqNotifier{d.Board},
 		Gate:     gate,
 		Tasks:    mqTasks{d.Board},
-		Finisher: mqFinisher(d, f),
+		Finisher: rt.finisher,
 		Deps:     mqDeps{d.Board},
 		Checks:   checks,
 		Logger:   d.Log,
@@ -166,7 +182,13 @@ func startMergeQueue(d Deps, f mqFile) error {
 	if err != nil {
 		return err
 	}
-	h := &mqHandler{q: q, st: mqStore{st: d.Store}, gate: gate, bases: bases, log: d.Log}
+	h := &mqHandler{q: q, st: mqStore{st: d.Store}, gate: gate, bases: rt.bases, log: d.Log}
+	var reloadMu sync.Mutex
+	h.refresh = func() {
+		reloadMu.Lock()
+		defer reloadMu.Unlock()
+		mqReload(d, q, h)
+	}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /mergequeue/candidates", h.list)
 	mux.HandleFunc("GET /mergequeue/candidates/{id}", h.get)
@@ -181,8 +203,26 @@ func startMergeQueue(d Deps, f mqFile) error {
 		<-life.Done()
 		cancel()
 	}()
+	watchRepos(ctx, d, h.refresh)
 	d.Leader.Go(ctx, func(ctx context.Context) { q.Run(ctx, interval) })
 	return nil
+}
+
+func mqReload(d Deps, q *mergequeue.Queue, h *mqHandler) {
+	f, _, err := mqConfig(d)
+	if err != nil {
+		d.Log.Error("mergequeue reload failed", "err", err)
+		return
+	}
+	rt, err := mqBuild(d, f)
+	if err == nil {
+		err = q.Reconfigure(rt.repos, rt.finisher)
+	}
+	if err != nil {
+		d.Log.Error("mergequeue reload failed", "err", err)
+		return
+	}
+	h.setBases(rt.bases)
 }
 
 func mqFinisher(d Deps, f mqFile) mergequeue.Finisher {
@@ -396,11 +436,27 @@ func (n mqNotifier) Notify(ctx context.Context, taskID, body string) error {
 }
 
 type mqHandler struct {
-	q     *mergequeue.Queue
-	st    mqStore
-	gate  mqGate
+	q    *mergequeue.Queue
+	st   mqStore
+	gate mqGate
+	log  *slog.Logger
+
+	refresh func()
+
+	mu    sync.RWMutex
 	bases map[string]string
-	log   *slog.Logger
+}
+
+func (h *mqHandler) setBases(b map[string]string) {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.bases = b
+}
+
+func (h *mqHandler) base(repo string) string {
+	h.mu.RLock()
+	defer h.mu.RUnlock()
+	return h.bases[repo]
 }
 
 func (h *mqHandler) list(w http.ResponseWriter, r *http.Request) {
@@ -452,11 +508,17 @@ func (h *mqHandler) add(ctx context.Context, taskID string, pr int, base string)
 	if err != nil {
 		return mergequeue.Candidate{}, err
 	}
+	if !h.q.Configured(t.Repo) && h.refresh != nil {
+		h.refresh()
+	}
+	if !h.q.Configured(t.Repo) {
+		return mergequeue.Candidate{}, model.Conflict("merge queue disabled for repo %s", t.Repo)
+	}
 	if pr == 0 {
 		pr = prNumber(t.PRURL)
 	}
 	if base == "" {
-		base = h.bases[t.Repo]
+		base = h.base(t.Repo)
 	}
 	return h.q.Enqueue(ctx, mergequeue.Candidate{Repo: t.Repo, PR: pr, Head: t.Branch, Base: base, TaskID: t.ID})
 }
@@ -475,7 +537,7 @@ func (h *mqHandler) Extend(ctx context.Context, ds []*decisions.Decision) ([]*de
 			out = append(out, d)
 			continue
 		}
-		if _, ok := h.bases[t.Repo]; !ok {
+		if !h.q.Configured(t.Repo) {
 			out = append(out, d)
 			continue
 		}

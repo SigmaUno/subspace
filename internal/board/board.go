@@ -61,6 +61,7 @@ type Board struct {
 
 	expiries map[string][]time.Time
 
+	pauseOp  sync.Mutex
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string

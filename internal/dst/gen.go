@@ -5,12 +5,13 @@ import (
 	"math/rand"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
 func NewWorld(seed int64) World {
 	r := rand.New(rand.NewSource(seed)) //nolint:gosec // deterministic simulation
-	w := World{Lease: 15 * time.Minute, Leader: "lead", MaxParallel: 2 + r.Intn(6)}
+	w := World{Seed: seed, Lease: 15 * time.Minute, Leader: "lead", MaxParallel: 2 + r.Intn(6)}
 	if r.Intn(3) > 0 {
 		w.BriefCost = float64(5 + r.Intn(40))
 	}
@@ -52,28 +53,49 @@ type agentSim struct {
 	hbEvery      time.Duration
 	lastHB       time.Time
 	crashedUntil time.Time
+	token        int
 }
 
 type Gen struct {
 	r       *rand.Rand
 	w       World
 	setup   Setup
+	serial  bool
+	leader  *agentSim
 	agents  []*agentSim
+	known   map[string]bool
 	queue   []Op
 	last    Op
 	hasLast bool
 }
 
-func NewGen(seed int64, w World, s Setup) *Gen {
-	g := &Gen{r: rand.New(rand.NewSource(seed ^ 0x5d5c)), w: w, setup: s} //nolint:gosec // deterministic simulation
+func NewGen(seed int64, w World, s Setup, serial bool) *Gen {
+	g := &Gen{r: rand.New(rand.NewSource(seed ^ 0x5d5c)), w: w, setup: s, serial: serial, known: map[string]bool{}} //nolint:gosec // deterministic simulation
 	for _, a := range w.Agents {
-		hb := time.Duration(1+g.r.Intn(5)) * time.Minute
-		if g.r.Intn(4) == 0 {
-			hb = w.Lease - 2*time.Minute + time.Duration(g.r.Intn(5))*time.Minute
-		}
-		g.agents = append(g.agents, &agentSim{spec: a, hbEvery: hb})
+		g.add(a)
 	}
+	if w.Server != nil {
+		g.queue = append(g.queue, Op{Kind: OpApprove, Target: s.PlanID})
+	}
+	g.leader = &agentSim{spec: AgentSpec{ID: w.Leader, Role: model.RoleLeader}}
 	return g
+}
+
+func (g *Gen) add(a AgentSpec) {
+	hb := time.Duration(1+g.r.Intn(5)) * time.Minute
+	if g.r.Intn(4) == 0 {
+		hb = g.w.Lease - 2*time.Minute + time.Duration(g.r.Intn(5))*time.Minute
+	}
+	g.agents = append(g.agents, &agentSim{spec: a, hbEvery: hb})
+	g.known[a.ID] = true
+}
+
+func (g *Gen) sync(s *State) {
+	for _, a := range s.Agents {
+		if !g.known[a.ID] && a.ID != g.w.Leader && a.Role != model.RoleLeader {
+			g.add(AgentSpec{ID: a.ID, Role: a.Role, Kind: a.Kind, Provider: a.Provider})
+		}
+	}
 }
 
 func (g *Gen) pick(n int) int { return g.r.Intn(n) }
@@ -81,6 +103,7 @@ func (g *Gen) pick(n int) int { return g.r.Intn(n) }
 func (g *Gen) chance(p int) bool { return g.r.Intn(100) < p }
 
 func (g *Gen) Next(s *State) Op {
+	g.sync(s)
 	op := g.next(s)
 	g.last, g.hasLast = op, true
 	return op
@@ -95,29 +118,82 @@ func (g *Gen) next(s *State) Op {
 	if g.hasLast && g.last.Mutating() && g.chance(5) {
 		return g.last
 	}
+	if g.w.Server != nil && g.chance(18) {
+		return g.server(s)
+	}
 	switch p := g.pick(100); {
-	case p < 12:
+	case p < 11:
 		d := time.Duration(10+g.pick(170)) * time.Second
 		if g.chance(10) {
 			d = time.Duration(5+g.pick(20)) * time.Minute
 		}
 		return Op{Kind: OpAdvance, Dur: d}
-	case p < 18:
+	case p < 12:
+		if g.chance(60) {
+			return Op{Kind: OpAdvance, Dur: -time.Duration(1+g.pick(30)) * time.Minute}
+		}
+		return Op{Kind: OpAdvance, Dur: time.Duration(1+g.pick(6)) * time.Hour}
+	case p < 17:
 		return Op{Kind: OpSweep}
-	case p < 22:
+	case p < 20:
 		return Op{Kind: OpFlush}
-	case p < 25:
+	case p < 23:
 		if op, ok := g.race(s); ok {
 			return op
 		}
 		return Op{Kind: OpSweep}
-	case p < 32:
+	case p < 26:
+		if g.serial {
+			return Op{Kind: OpSweep}
+		}
+		return g.batch(s)
+	case p < 27:
+		return Op{Kind: OpRestart, Crash: g.chance(50)}
+	case p < 30:
+		return g.sse(s)
+	case p < 37:
 		return g.owner(s)
-	case p < 45:
-		return g.leader(s)
+	case p < 49:
+		return g.leaderOp(s)
 	default:
+		if g.w.Server != nil && g.chance(80) {
+			if as := g.working(s); len(as) > 0 {
+				return g.agent(s, as[g.pick(len(as))])
+			}
+		}
 		return g.agent(s, g.agents[g.pick(len(g.agents))])
 	}
+}
+
+func (g *Gen) working(s *State) []*agentSim {
+	var out []*agentSim
+	for _, a := range g.agents {
+		if s.Now.Before(a.crashedUntil) {
+			continue
+		}
+		if a.spec.Role == model.RoleReviewer {
+			if len(g.reviewable(s, a)) > 0 {
+				out = append(out, a)
+			}
+		} else if len(g.mine(s, a.spec.ID, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested)) > 0 {
+			out = append(out, a)
+		}
+	}
+	return out
+}
+
+func (g *Gen) reviewable(s *State, a *agentSim) []*model.Task {
+	var out []*model.Task
+	for _, t := range g.tasksIn(s, model.StatusSubmitted, model.StatusInReview) {
+		if t.Reviewer != nil && *t.Reviewer != a.spec.ID {
+			continue
+		}
+		if w := s.Agent(deref(t.Assignee)); w != nil && w.Provider == a.spec.Provider {
+			continue
+		}
+		out = append(out, t)
+	}
+	return out
 }
 
 func (g *Gen) race(s *State) (Op, bool) {
@@ -135,13 +211,83 @@ func (g *Gen) race(s *State) (Op, bool) {
 	if d < 0 {
 		d = 0
 	}
-	hb := Op{Kind: OpHeartbeat, Actor: *t.Assignee, Task: t.ID}
+	hb := Op{Kind: OpHeartbeat, Actor: *t.Assignee, Task: t.ID, Token: g.knownToken(*t.Assignee)}
 	if g.chance(50) {
 		g.queue = append(g.queue, hb, Op{Kind: OpSweep})
 	} else {
 		g.queue = append(g.queue, Op{Kind: OpSweep}, hb)
 	}
 	return Op{Kind: OpAdvance, Dur: d}, true
+}
+
+func (g *Gen) knownToken(id string) int {
+	if id == g.leader.spec.ID {
+		return g.leader.token
+	}
+	for _, a := range g.agents {
+		if a.spec.ID == id {
+			return a.token
+		}
+	}
+	return 0
+}
+
+func (g *Gen) batch(s *State) Op {
+	n := 2 + g.pick(4)
+	used := map[string]bool{}
+	capacitySet := false
+	var sub []Op
+	for tries := 0; len(sub) < n && tries < 4*n; tries++ {
+		var op Op
+		switch p := g.pick(100); {
+		case p < 30:
+			op = g.owner(s)
+		case p < 45:
+			op = g.leaderOp(s)
+		default:
+			op = g.agent(s, g.agents[g.pick(len(g.agents))])
+		}
+		switch op.Kind {
+		case OpAdvance:
+			continue
+		case OpSetCapacity:
+			if capacitySet {
+				continue
+			}
+			capacitySet = true
+		}
+		if op.Actor != "" {
+			if used[op.Actor] {
+				continue
+			}
+			used[op.Actor] = true
+		}
+		sub = append(sub, op)
+	}
+	return Op{Kind: OpBatch, Sub: sub}
+}
+
+func (g *Gen) sse(s *State) Op {
+	switch p := g.pick(100); {
+	case p < 30 || len(s.Subs) == 0:
+		topics := []string{"all", "board", "agents", "control", "questions", "plans", g.anyBrief(s)}
+		topic := topics[g.pick(len(topics))]
+		if g.chance(30) {
+			topic = "task:" + g.anyTask(s)
+		}
+		return Op{Kind: OpSubscribe, Target: topic}
+	case p < 50:
+		return Op{Kind: OpUnsubscribe, N: g.pick(len(s.Subs))}
+	default:
+		return Op{Kind: OpDrain, N: g.pick(len(s.Subs)), Limit: g.pick(64)}
+	}
+}
+
+func (g *Gen) anyBrief(s *State) string {
+	if len(s.Briefs) == 0 {
+		return "brief:B-1"
+	}
+	return "brief:" + s.Briefs[g.pick(len(s.Briefs))].ID
 }
 
 func (g *Gen) tasksIn(s *State, statuses ...string) []*model.Task {
@@ -173,51 +319,113 @@ func (g *Gen) choose(ts []*model.Task, s *State) string {
 
 func (g *Gen) agentsWithRole(role string) []AgentSpec {
 	var out []AgentSpec
-	for _, a := range g.w.Agents {
-		if a.Role == role {
-			out = append(out, a)
+	for _, a := range g.agents {
+		if a.spec.Role == role {
+			out = append(out, a.spec)
 		}
 	}
 	return out
 }
 
+func (g *Gen) plan(s *State) string {
+	id := g.setup.PlanID
+	for _, p := range s.Plans {
+		if p.Status == model.PlanProposed {
+			return p.ID
+		}
+		id = p.ID
+	}
+	return id
+}
+
 func (g *Gen) owner(s *State) Op {
 	switch p := g.pick(100); {
+	case p < 13:
+		return Op{Kind: OpApprove, Target: g.plan(s)}
 	case p < 15:
-		return Op{Kind: OpApprove, Target: g.setup.PlanID}
-	case p < 19:
+		return Op{Kind: OpReject, Target: g.plan(s)}
+	case p < 18:
 		return Op{Kind: OpPauseAll}
-	case p < 40:
+	case p < 36:
 		return Op{Kind: OpResumeAll}
-	case p < 75:
+	case p < 62:
+		if g.w.Server != nil && g.chance(85) {
+			return Op{Kind: OpMarkDone, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner), s)}
+		}
 		return Op{Kind: OpMarkDone, Task: g.choose(g.tasksIn(s, model.StatusApproved, model.StatusNeedsOwner), s)}
-	case p < 90:
-		return Op{Kind: OpReopen, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner, model.StatusBlocked), s)}
+	case p < 65:
+		return Op{Kind: OpCancel, Task: g.choose(g.tasksIn(s, model.StatusInProgress, model.StatusAssigned, model.StatusSubmitted), s)}
+	case p < 76:
+		return Op{Kind: OpReopen, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner, model.StatusBlocked, model.StatusCancelled), s)}
+	case p < 82:
+		ids := []string{g.leader.spec.ID}
+		for _, a := range g.agents {
+			ids = append(ids, a.spec.ID)
+		}
+		return Op{Kind: OpRotate, Target: ids[g.pick(len(ids))]}
+	case p < 87:
+		providers := []string{"*", "anthropic", "openai", "deepseek"}
+		op := Op{Kind: OpSetCapacity, Target: providers[g.pick(len(providers))], Limit: g.pick(5)}
+		if g.chance(40) {
+			op.N = len(g.w.Agents) + g.pick(6)
+		}
+		return op
+	case p < 91:
+		prefixes := []string{"bk", "bx"}
+		if g.chance(30) {
+			return Op{Kind: OpRegister, Target: fmt.Sprintf("%s-%03d", prefixes[g.pick(2)], 1+g.pick(6))}
+		}
+		return Op{Kind: OpBulk, Target: prefixes[g.pick(2)], N: 1 + g.pick(6)}
 	default:
 		return Op{Kind: OpAnswer, Target: fmt.Sprintf("Q-%d", 1+g.pick(5))}
 	}
 }
 
-func (g *Gen) leader(s *State) Op {
-	switch p := g.pick(100); {
-	case p < 55:
-		ts := g.tasksIn(s, model.StatusReady)
-		role := model.RoleWorker
-		id := g.choose(ts, s)
-		if t := s.Task(id); t != nil {
-			role = t.Role
+func (g *Gen) leaderOp(s *State) Op {
+	l := g.leader
+	g.refresh(s, l)
+	op := Op{Actor: l.spec.ID}
+	if br := s.Brief(g.firstBrief(s)); br != nil && br.PlanStatus == model.PlanRejected && g.chance(60) {
+		op.Kind = OpPropose
+	} else {
+		switch p := g.pick(100); {
+		case p < 50:
+			ts := g.tasksIn(s, model.StatusReady)
+			role := model.RoleWorker
+			id := g.choose(ts, s)
+			if t := s.Task(id); t != nil {
+				role = t.Role
+			}
+			op.Kind, op.Task, op.Target = OpAssign, id, g.agentID(role)
+		case p < 78:
+			op.Kind, op.Task, op.Target = OpAssignReviewer, g.choose(g.tasksIn(s, model.StatusSubmitted), s), g.agentID(model.RoleReviewer)
+		case p < 92:
+			ts := g.tasksIn(s, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked)
+			role := model.RoleWorker
+			id := g.choose(ts, s)
+			if t := s.Task(id); t != nil {
+				role = t.Role
+			}
+			op.Kind, op.Task, op.Target = OpReassign, id, g.agentID(role)
+		default:
+			kinds := []string{model.KindClaudeCode, model.KindCodex, model.KindOpenCode}
+			op.Kind, op.Target, op.N = OpSpawn, kinds[g.pick(len(kinds))], 1+g.pick(3)
 		}
-		return Op{Kind: OpAssign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
-	case p < 85:
-		return Op{Kind: OpAssignReviewer, Actor: g.w.Leader, Task: g.choose(g.tasksIn(s, model.StatusSubmitted), s), Target: g.agentID(model.RoleReviewer)}
-	default:
-		ts := g.tasksIn(s, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested, model.StatusBlocked)
-		role := model.RoleWorker
-		id := g.choose(ts, s)
-		if t := s.Task(id); t != nil {
-			role = t.Role
-		}
-		return Op{Kind: OpReassign, Actor: g.w.Leader, Task: id, Target: g.agentID(role)}
+	}
+	op.Token = l.token
+	return op
+}
+
+func (g *Gen) firstBrief(s *State) string {
+	if len(s.Briefs) == 0 {
+		return ""
+	}
+	return s.Briefs[0].ID
+}
+
+func (g *Gen) refresh(s *State, a *agentSim) {
+	if cur := s.Tokens[a.spec.ID]; a.token < cur && g.chance(30) {
+		a.token = cur
 	}
 }
 
@@ -240,16 +448,28 @@ func (g *Gen) mine(s *State, id string, statuses ...string) []*model.Task {
 }
 
 func (g *Gen) agent(s *State, a *agentSim) Op {
+	g.refresh(s, a)
+	op := g.agentOp(s, a)
+	if op.Kind != OpAdvance {
+		op.Token = a.token
+	}
+	return op
+}
+
+func (g *Gen) agentOp(s *State, a *agentSim) Op {
 	id := a.spec.ID
 	if s.Now.Before(a.crashedUntil) {
 		return Op{Kind: OpAdvance, Dur: time.Duration(1+g.pick(30)) * time.Second}
 	}
 	if a.spec.Role == model.RoleReviewer {
-		ts := g.tasksIn(s, model.StatusSubmitted, model.StatusInReview)
 		var cand []*model.Task
-		for _, t := range ts {
-			if t.Reviewer == nil || *t.Reviewer == id {
-				cand = append(cand, t)
+		if g.w.Server != nil {
+			cand = g.reviewable(s, a)
+		} else {
+			for _, t := range g.tasksIn(s, model.StatusSubmitted, model.StatusInReview) {
+				if t.Reviewer == nil || *t.Reviewer == id {
+					cand = append(cand, t)
+				}
 			}
 		}
 		if g.chance(3) {
@@ -267,7 +487,7 @@ func (g *Gen) agent(s *State, a *agentSim) Op {
 		return Op{Kind: OpClaim, Actor: id, Task: g.choose(g.mine(s, id, model.StatusAssigned, model.StatusChangesRequested), s)}
 	}
 	t := held[g.pick(len(held))]
-	if s.Now.Sub(a.lastHB) >= a.hbEvery {
+	if s.Now.Sub(a.lastHB) >= a.hbEvery || s.Now.Before(a.lastHB) {
 		a.lastHB = s.Now
 		task := t.ID
 		if g.chance(20) {
@@ -292,4 +512,69 @@ func (g *Gen) agent(s *State, a *agentSim) Op {
 	default:
 		return Op{Kind: OpHeartbeat, Actor: id, Task: g.anyTask(s)}
 	}
+}
+
+var searchTerms = []string{"task k", "TASK K1", "spec", "k1", "%", "_", "k1_", "sim", "spawn", "w", "r0"}
+
+func (g *Gen) server(s *State) Op {
+	switch p := g.pick(100); {
+	case p < 16:
+		return Op{Kind: OpAutopilotTick}
+	case p < 34:
+		return Op{Kind: OpMergeTick}
+	case p < 42:
+		return Op{Kind: OpEnqueue, Task: g.choose(g.tasksIn(s, model.StatusApproved), s)}
+	case p < 54:
+		return g.webhook(s)
+	case p < 57:
+		return Op{Kind: OpWebhookRace, Task: g.choose(g.tasksIn(s, model.StatusApproved), s), Target: "github_pr_merged"}
+	case p < 61:
+		return Op{Kind: OpCancel, Task: g.choose(g.tasksIn(s, model.StatusApproved, model.StatusSubmitted, model.StatusInReview, model.StatusAssigned), s)}
+	case p < 73:
+		var ts []*model.Task
+		for _, t := range s.Tasks {
+			if t.Role == model.RoleTester && t.Assignee != nil {
+				ts = append(ts, t)
+			}
+		}
+		if len(ts) == 0 {
+			return Op{Kind: OpSearch, Target: "task", Text: "k1"}
+		}
+		t := ts[g.pick(len(ts))]
+		failed := 0
+		if g.chance(35) {
+			failed = 1 + g.pick(3)
+		}
+		return Op{Kind: OpReportTests, Actor: *t.Assignee, Task: t.ID, N: failed, Token: g.knownToken(*t.Assignee)}
+	case p < 84:
+		return Op{Kind: OpInstrSave, Target: g.instrKey(), Text: fmt.Sprintf("rule %d", g.pick(4))}
+	case p < 88:
+		return Op{Kind: OpInstrRollback, Target: g.instrKey(), N: g.pick(6)}
+	default:
+		kind := "task"
+		if g.chance(30) {
+			kind = "agent"
+		}
+		return Op{Kind: OpSearch, Target: kind, Text: searchTerms[g.pick(len(searchTerms))]}
+	}
+}
+
+func (g *Gen) instrKey() string {
+	return instrScopes[g.pick(len(instrScopes))] + "/" + instructions.Kinds[g.pick(len(instructions.Kinds))]
+}
+
+func (g *Gen) webhook(s *State) Op {
+	t := g.choose(g.tasksIn(s, model.StatusApproved, model.StatusDone, model.StatusSubmitted, model.StatusInReview), s)
+	op := Op{Kind: OpWebhook, Task: t, Target: fixtureNames[g.pick(len(fixtureNames))], Forged: g.chance(10)}
+	owner := Op{Kind: OpMarkDone, Task: t}
+	switch p := g.pick(100); {
+	case p < 30:
+		g.queue = append(g.queue, owner)
+	case p < 55:
+		g.queue = append(g.queue, op)
+		return owner
+	case p < 70:
+		g.queue = append(g.queue, op)
+	}
+	return op
 }

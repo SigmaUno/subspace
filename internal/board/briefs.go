@@ -60,6 +60,8 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 	if reason == "" {
 		reason = "paused by owner"
 	}
+	b.pauseOp.Lock()
+	defer b.pauseOp.Unlock()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := tx.SetKV("paused", reason); err != nil {
 			return err
@@ -86,6 +88,8 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 }
 
 func (b *Board) ResumeAll(ctx context.Context) error {
+	b.pauseOp.Lock()
+	defer b.pauseOp.Unlock()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := tx.SetKV("paused", ""); err != nil {
 			return err

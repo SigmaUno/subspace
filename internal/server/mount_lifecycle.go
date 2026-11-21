@@ -2,20 +2,17 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"log/slog"
 	"net/http"
 	"os"
-	"strconv"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 )
-
-const maxListLimit = 1000
 
 type spawnLifecycleStore interface {
 	SpawnLifecycles(ctx context.Context) (map[string]store.SpawnLifecycle, error)
@@ -101,17 +98,12 @@ type lifecycleHandler struct {
 
 func (h *lifecycleHandler) list(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	limit, _ := strconv.Atoi(q.Get("limit"))
-	sps, next, err := h.r.List(r.Context(), q.Get("brief_id"), q.Get("cursor"), min(limit, maxListLimit))
+	sps, next, err := h.r.List(r.Context(), q.Get("brief_id"), q.Get("cursor"), httpx.Limit(r))
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	var cursor any
-	if next != "" {
-		cursor = next
-	}
-	writeLifecycle(w, http.StatusOK, map[string]any{"spawns": sps, "next_cursor": cursor})
+	httpx.WriteJSON(w, http.StatusOK, httpx.Page("spawns", sps, next))
 }
 
 func (h *lifecycleHandler) stop(w http.ResponseWriter, r *http.Request) {
@@ -120,19 +112,9 @@ func (h *lifecycleHandler) stop(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeLifecycle(w, http.StatusOK, sp)
+	httpx.WriteJSON(w, http.StatusOK, sp)
 }
 
 func (h *lifecycleHandler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("spawn lifecycle", "err", err)
-	}
-	writeLifecycle(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func writeLifecycle(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpx.Fail(w, h.log, "spawn lifecycle", err)
 }

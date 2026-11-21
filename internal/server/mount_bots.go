@@ -2,15 +2,14 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -125,7 +124,7 @@ func (h *botsHandler) list(w http.ResponseWriter, r *http.Request) {
 	for i, a := range as {
 		bots[i] = h.live(a)
 	}
-	h.write(w, http.StatusOK, map[string]any{"bots": bots})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"bots": bots})
 }
 
 func (h *botsHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -142,7 +141,7 @@ func (h *botsHandler) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	h.write(w, http.StatusCreated, map[string]any{"bot": reg.Agent, "connect": reg.Connect})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"bot": reg.Agent, "connect": reg.Connect})
 }
 
 func (h *botsHandler) bulk(w http.ResponseWriter, r *http.Request) {
@@ -159,7 +158,7 @@ func (h *botsHandler) bulk(w http.ResponseWriter, r *http.Request) {
 	for i, reg := range regs {
 		out[i] = map[string]any{"bot": reg.Agent, "connect": reg.Connect}
 	}
-	h.write(w, http.StatusCreated, map[string]any{"bots": out})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"bots": out})
 }
 
 func (h *botsHandler) spawn(w http.ResponseWriter, r *http.Request) {
@@ -192,7 +191,7 @@ func (h *botsHandler) spawn(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	h.write(w, http.StatusCreated, map[string]any{"spawns": sps})
+	httpx.WriteJSON(w, http.StatusCreated, map[string]any{"spawns": sps})
 }
 
 func (h *botsHandler) rotate(w http.ResponseWriter, r *http.Request) {
@@ -210,7 +209,7 @@ func (h *botsHandler) rotate(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	h.write(w, http.StatusOK, map[string]any{"bot": reg.Agent, "connect": reg.Connect})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"bot": reg.Agent, "connect": reg.Connect})
 }
 
 func (h *botsHandler) remove(w http.ResponseWriter, r *http.Request) {
@@ -283,7 +282,7 @@ func (h *botsHandler) kill(w http.ResponseWriter, r *http.Request) {
 			stopped = true
 		}
 	}
-	h.write(w, http.StatusOK, map[string]any{"bot": h.live(a), "stopped": stopped})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"bot": h.live(a), "stopped": stopped})
 }
 
 func (h *botsHandler) reply(w http.ResponseWriter) func(*model.Agent, error) {
@@ -292,7 +291,7 @@ func (h *botsHandler) reply(w http.ResponseWriter) func(*model.Agent, error) {
 			h.fail(w, err)
 			return
 		}
-		h.write(w, http.StatusOK, map[string]any{"bot": h.live(a)})
+		httpx.WriteJSON(w, http.StatusOK, map[string]any{"bot": h.live(a)})
 	}
 }
 
@@ -305,31 +304,13 @@ func (h *botsHandler) valid(w http.ResponseWriter, err error) bool {
 }
 
 func (h *botsHandler) decode(w http.ResponseWriter, r *http.Request, v any) bool {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, botsMaxBody))
-	if err != nil {
-		h.fail(w, model.BadRequest("request body too large or unreadable"))
-		return false
-	}
-	if len(raw) == 0 {
-		return true
-	}
-	if err := json.Unmarshal(raw, v); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	if err := httpx.Decode(w, r, botsMaxBody, v); err != nil {
+		h.fail(w, err)
 		return false
 	}
 	return true
 }
 
 func (h *botsHandler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("bots", "err", err)
-	}
-	h.write(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func (h *botsHandler) write(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpx.Fail(w, h.log, "bots", err)
 }

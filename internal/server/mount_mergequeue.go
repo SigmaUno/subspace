@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,6 +15,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/repos"
@@ -358,7 +358,7 @@ func (h *mqHandler) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusOK, map[string]any{"candidates": cs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"candidates": cs})
 }
 
 func (h *mqHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -367,22 +367,21 @@ func (h *mqHandler) get(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusOK, c)
+	httpx.WriteJSON(w, http.StatusOK, c)
 }
 
 func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		h.fail(w, model.BadRequest("request body too large or unreadable"))
-		return
-	}
 	var in struct {
 		TaskID string `json:"task_id"`
 		PR     int    `json:"pr"`
 		Base   string `json:"base"`
 	}
-	if err := json.Unmarshal(raw, &in); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	raw, err := httpx.Body(w, r, 1<<20)
+	if err == nil {
+		err = httpx.Unmarshal(raw, &in)
+	}
+	if err != nil {
+		h.fail(w, err)
 		return
 	}
 	if in.TaskID == "" {
@@ -405,21 +404,11 @@ func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusCreated, c)
+	httpx.WriteJSON(w, http.StatusCreated, c)
 }
 
 func (h *mqHandler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("mergequeue error", "err", err)
-	}
-	writeMQ(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func writeMQ(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpx.Fail(w, h.log, "mergequeue error", err)
 }
 
 func prNumber(u *string) int {

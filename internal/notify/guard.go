@@ -30,7 +30,10 @@ func CheckURL(raw string, allowPrivate bool) error {
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return fmt.Errorf("notify: unsupported scheme %q", u.Scheme)
 	}
-	host := strings.ToLower(u.Hostname())
+	return checkHost(strings.ToLower(u.Hostname()), allowPrivate)
+}
+
+func checkHost(host string, allowPrivate bool) error {
 	if host == "" {
 		return errors.New("notify: url has no host")
 	}
@@ -46,7 +49,7 @@ func CheckURL(raw string, allowPrivate bool) error {
 	return nil
 }
 
-func NewClient(allowPrivate bool, timeout time.Duration) *http.Client {
+func guardedDialer(allowPrivate bool) *net.Dialer {
 	d := &net.Dialer{Timeout: 5 * time.Second}
 	if !allowPrivate {
 		d.Control = func(_, address string, _ syscall.RawConn) error {
@@ -61,6 +64,11 @@ func NewClient(allowPrivate bool, timeout time.Duration) *http.Client {
 			return nil
 		}
 	}
+	return d
+}
+
+func NewClient(allowPrivate bool, timeout time.Duration) *http.Client {
+	d := guardedDialer(allowPrivate)
 	return &http.Client{
 		Timeout:       timeout,
 		Transport:     &http.Transport{DialContext: d.DialContext, MaxIdleConns: 4, IdleConnTimeout: 30 * time.Second},

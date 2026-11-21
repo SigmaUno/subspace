@@ -11,6 +11,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"strconv"
 	"strings"
 )
@@ -50,6 +51,10 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = fmt.Errorf("%s: %w", s.name, ue.Err)
+		}
 		if errors.Is(err, ErrBlockedTarget) {
 			return permanentError{err}
 		}

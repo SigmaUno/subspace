@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log/slog"
 	"net/http"
 	"slices"
 	"strings"
@@ -269,6 +270,9 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 	res, err := t.Handler(ctx, &Call{Actor: a, Args: p.Arguments})
 	if err != nil {
 		e := model.AsError(err)
+		if e.Code == "internal" {
+			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
+		}
 		return toolResult(errBody(e.Code, e.Message), true), nil
 	}
 	return toolResult(res, false), nil

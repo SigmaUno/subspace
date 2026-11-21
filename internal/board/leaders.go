@@ -2,6 +2,8 @@ package board
 
 import (
 	"context"
+	"database/sql"
+	"errors"
 	"fmt"
 
 	"github.com/SigmaUno/subspace/internal/model"
@@ -375,4 +377,25 @@ func (b *Board) SetBriefLeader(ctx context.Context, id, leaderID string) (*model
 		return nil
 	})
 	return out, err
+}
+
+type sqlExec interface {
+	Exec(q string, args ...any) (sql.Result, error)
+	Query(q string, args ...any) (*sql.Rows, error)
+}
+
+var errNoSQLTx = errors.New("store transaction does not expose SQL")
+
+func (t *leaderTx) Exec(q string, args ...any) (sql.Result, error) {
+	if e, ok := t.Tx.(sqlExec); ok {
+		return e.Exec(q, args...)
+	}
+	return nil, errNoSQLTx
+}
+
+func (t *leaderTx) Query(q string, args ...any) (*sql.Rows, error) {
+	if e, ok := t.Tx.(sqlExec); ok {
+		return e.Query(q, args...)
+	}
+	return nil, errNoSQLTx
 }

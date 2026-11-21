@@ -181,6 +181,7 @@ Commands:
   logs [--level LEVEL] [--since ID] [--limit N]
   questions [--status open|answered] [--limit N]
   state
+  about
   me
   task-templates
   reload
@@ -346,6 +347,7 @@ func registry() map[string]entry {
 		"logs":           {parse: parseLogs},
 		"questions":      {parse: listing("questions", "questions", 1000, "status")},
 		"state":          {parse: plain("state", request{method: http.MethodGet, path: "state"})},
+		"about":          {parse: plain("about", request{method: http.MethodGet, path: "about"})},
 		"me":             {parse: plain("me", request{method: http.MethodGet, path: "me"})},
 		"task-templates": {parse: plain("task-templates", request{method: http.MethodGet, path: "task-templates"})},
 	}

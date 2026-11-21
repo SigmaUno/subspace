@@ -405,7 +405,9 @@ func (v *subsystems) wire(ctx context.Context) error {
 	v.tr = tr
 	v.out.SetSink(tr.Add)
 	v.guard = leakguard.New(leakguard.Options{Board: s.b, Store: s.st, Agents: s.cache, Pub: s.BoardSystem.hub, Log: discard, Now: s.clock.Now})
-	s.b.SetLeakScanner(v.guard.Scan)
+	if !s.o.NoLeakScanner {
+		s.b.SetLeakScanner(v.guard.Scan)
+	}
 	do := drill.Options{Store: s.st, Backups: backupList{s}, Dir: filepath.Join(s.dir, "drill"), Pub: s.BoardSystem.hub, Now: s.clock.Now, Log: discard}
 	if s.pg != nil {
 		do.Unsupported = "postgres backups are not restorable by drills"

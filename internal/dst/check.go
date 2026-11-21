@@ -556,6 +556,10 @@ func (c *Checker) checkLeases(st *step, pre, post *State) *Violation {
 			}
 		case OpRelease, OpSubmit, OpBlock, OpReassign, OpCancel, OpAcceptSplit:
 			delete(c.leases, op.Task)
+		case OpLeak:
+			if op.Text == board.ChannelSummary {
+				delete(c.leases, op.Task)
+			}
 		case OpPauseAll, OpIncidentStart:
 			c.leases = map[string]lease{}
 		}

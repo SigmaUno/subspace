@@ -9,6 +9,8 @@ import (
 	"slices"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/board"
 )
 
 type minimizer struct {
@@ -149,6 +151,23 @@ func alternatives(op Op) [][]Op {
 				alt.Text = strings.Join(slices.Delete(slices.Clone(parts), j, j+1), ",")
 				out = append(out, []Op{alt})
 			}
+		}
+	case OpLogOutput:
+		if op.N != 0 {
+			a := op
+			a.N = 0
+			out = append(out, []Op{a})
+		}
+		if first, _, ok := strings.Cut(op.Text, "\n"); ok {
+			a := op
+			a.Text = first
+			out = append(out, []Op{a})
+		}
+	case OpLeak:
+		if op.Text != board.ChannelMessage {
+			a := op
+			a.Text, a.Task = board.ChannelMessage, ""
+			out = append(out, []Op{a})
 		}
 	case OpSetQuota:
 		if op.Cost != 0 {

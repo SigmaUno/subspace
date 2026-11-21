@@ -229,14 +229,17 @@ func TestDetectsServerFaults(t *testing.T) {
 		o    ServerOptions
 		inv  string
 		from int64
+		v4   bool
 	}{
-		{"merge_without_gate", ServerOptions{AutoApprove: true}, InvMerge, 4},
-		{"claim_without_quota", ServerOptions{NoQuotaGate: true}, InvQuota, 3},
-		{"approve_without_quality_gates", ServerOptions{NoQualityGate: true}, InvGates, 9},
+		{"merge_without_gate", ServerOptions{AutoApprove: true}, InvMerge, 4, false},
+		{"claim_without_quota", ServerOptions{NoQuotaGate: true}, InvQuota, 3, false},
+		{"approve_without_quality_gates", ServerOptions{NoQualityGate: true}, InvGates, 9, false},
+		{"leaks_without_scanner", ServerOptions{NoLeakScanner: true}, InvLeak, 1, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
 			r := ServerRunner(t.TempDir())
+			r.Subsystems = tc.v4
 			r.Factory = NewServerFactory(tc.o)
 			for seed := tc.from; seed < tc.from+3; seed++ {
 				o, err := r.Run(context.Background(), seed, 400)

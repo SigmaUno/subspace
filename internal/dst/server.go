@@ -166,6 +166,7 @@ type ServerOptions struct {
 	AutoApprove   bool
 	NoQuotaGate   bool
 	NoQualityGate bool
+	NoLeakScanner bool
 }
 
 type ServerSystem struct {

@@ -6,6 +6,7 @@ import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
 import { PlanEditor } from "./plan-edit";
+import { EmptyState, ResourceState } from "./states";
 import { VirtualList } from "./virtual";
 
 function RegistrationForm({ complete }: { complete: (items: Registration[]) => void }) {
@@ -94,8 +95,8 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
       <button className="primary" disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
     {showForm && <RegistrationForm complete={(items) => { setRegistered(items); setShowForm(false); agents.refresh(); }} />}
     {registered && <RegistrationResults items={registered} dismiss={() => setRegistered(null)} />}
-    <Feedback error={agents.error} loading={!agents.data} />
-    {agents.data && !agents.data.agents?.length && <p className="empty">No agents registered.</p>}
+    <ResourceState error={agents.error} loading={!agents.data} retry={agents.refresh} rows={5} />
+    {agents.data && !agents.data.agents?.length && <EmptyState>No agents registered.</EmptyState>}
     {!!agents.data?.agents?.length && <div className="table-wrap">
       <div className="registry-table">
         <div className="registry-row registry-head"><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
@@ -149,8 +150,8 @@ export function PlansView({ revision, openThread }: { revision: number; openThre
   const items = plans.data?.plans?.filter((plan) => !decided.includes(plan.id)) ?? [];
   return <>
     <div className="heading"><h1>Plan approvals</h1></div>
-    <Feedback error={plans.error} loading={!plans.data} />
-    {plans.data && !items.length && <p className="empty">No plans awaiting approval.</p>}
+    <ResourceState error={plans.error} loading={!plans.data} retry={plans.refresh} />
+    {plans.data && !items.length && <EmptyState>No plans awaiting approval.</EmptyState>}
     {items.map((plan) => <PlanCard key={plan.id} plan={plan} openThread={openThread} changed={plans.refresh} decided={(id) => {
       setDecided((current) => [...current, id]);
       plans.refresh();
@@ -190,8 +191,8 @@ export function QuestionsView({ revision, openThread }: { revision: number; open
   const items = questions.data?.questions?.filter((question) => !answered.includes(question.id)) ?? [];
   return <>
     <div className="heading"><h1>Questions inbox</h1></div>
-    <Feedback error={questions.error} loading={!questions.data} />
-    {questions.data && !items.length && <p className="empty">No open questions.</p>}
+    <ResourceState error={questions.error} loading={!questions.data} retry={questions.refresh} />
+    {questions.data && !items.length && <EmptyState>No open questions.</EmptyState>}
     {items.map((question) => <QuestionCard key={question.id} question={question} openThread={openThread} answered={(id) => {
       setAnswered((current) => [...current, id]);
       questions.refresh();
@@ -230,7 +231,7 @@ export function CapacityView({ revision }: { revision: number }) {
 
   return <>
     <div className="heading"><h1>Capacity settings</h1>{current && <span className="pill">{current.agents_in_use} agents in use</span>}</div>
-    <Feedback error={capacity.error} loading={!current} />
+    <ResourceState error={capacity.error} loading={!current} retry={capacity.refresh} rows={4} />
     {settings && <form className="panel stack" onSubmit={(event) => form.submit(event, async () => {
       const problem = capacityProblem(settings);
       if (problem) throw new Error(problem);
@@ -251,7 +252,7 @@ export function CapacityView({ revision }: { revision: number }) {
             onChange={(event) => update({ ...settings, global_max_agents: event.target.valueAsNumber })} />
         </label>
         <h2>Provider and model limits</h2>
-        {!settings.limits.length && <p className="muted">No provider or model limits configured.</p>}
+        {!settings.limits.length && <EmptyState>No provider or model limits configured.</EmptyState>}
         {settings.limits.map((limit, index) => {
           const usage = current?.limits?.find((row) => row.provider === limit.provider && row.model === limit.model);
           function edit(changes: Partial<LimitInput>) {

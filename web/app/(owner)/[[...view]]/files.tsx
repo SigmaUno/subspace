@@ -4,6 +4,7 @@ import { useRef, useState, type DragEvent } from "react";
 import { api, useResource } from "../../../lib/client";
 import type { Artifact, ArtifactList, ScopeKind, ScopeOptions } from "../../../lib/files-types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 const kinds: { id: ScopeKind; name: string; resource: keyof ScopeOptions; prefix: string }[] = [
   { id: "agent", name: "Agent", resource: "agents", prefix: "agent" },
@@ -120,8 +121,9 @@ function ScopeFiles({ scope }: { scope: string }) {
           : <><progress max={100} value={item.percent} aria-label={`Uploading ${item.name}`} /><span>{item.percent}%</span></>}
       </li>)}
     </ul>}
-    <Feedback error={error || files.error} loading={!files.data} />
-    {files.data && !files.data.artifacts.length && <p className="empty">No files in this scope.</p>}
+    <Feedback error={error} />
+    <ResourceState error={files.error} loading={!files.data} retry={files.refresh} rows={4} />
+    {files.data && !files.data.artifacts.length && <EmptyState>No files in this scope.</EmptyState>}
     {!!files.data?.artifacts.length && <div className="table-wrap">
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead>
@@ -166,8 +168,8 @@ export function FilesView() {
         </label>
       </div>
     </div>
-    <Feedback error={options.error} loading={!list} />
-    {list && !items.length && <p className="empty">No {kind.resource} yet.</p>}
+    <ResourceState error={options.error} loading={!list} retry={options.refresh} rows={2} />
+    {list && !items.length && <EmptyState>No {kind.resource} yet.</EmptyState>}
     {id && <ScopeFiles key={`${kind.prefix}:${id}`} scope={`${kind.prefix}:${id}`} />}
   </>;
 }

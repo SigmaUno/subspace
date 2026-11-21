@@ -7,6 +7,7 @@ import type { Candidate, CandidateList, CandidateState, EnqueueRequest } from ".
 import type { Task } from "../../../lib/types";
 import { Feedback } from "./components";
 import { useLive } from "./live";
+import { ConnectionStatus, EmptyState, ResourceState } from "./states";
 
 const stateLabels: Record<CandidateState, string> = {
   queued: "Queued",
@@ -42,12 +43,12 @@ function CandidateDetail({ candidate }: { candidate: Candidate }) {
   return <div className="stack">
     <div className="heading"><h2>{candidate.id}</h2><span className="pill">{stateLabels[candidate.state]}</span></div>
     {candidate.merged_sha && <p className="meta">Merged as <code>{candidate.merged_sha}</code></p>}
-    {candidate.log ? <pre>{candidate.log.slice(-logExcerpt)}</pre> : <p className="empty">No log yet.</p>}
+    {candidate.log ? <pre>{candidate.log.slice(-logExcerpt)}</pre> : <EmptyState>No log yet.</EmptyState>}
   </div>;
 }
 
 export function MergeQueuePage() {
-  const { revisions } = useLive("all");
+  const { revisions, status } = useLive("all");
   const candidates = useResource<CandidateList>("mergequeue/candidates", revisions.board);
   const approved = useResource<{ tasks: Task[] }>("tasks?status=approved", revisions.board);
   const [repo, setRepo] = useState("");
@@ -68,6 +69,7 @@ export function MergeQueuePage() {
         <Link href="/">Swarm</Link>
         <Link href="/mergequeue" aria-current="page">Merge queue</Link>
       </nav>
+      <div className="top-actions"><ConnectionStatus status={status} /></div>
     </header>
     <main className="workspace">
       <div className="heading">
@@ -84,11 +86,11 @@ export function MergeQueuePage() {
           </label>
         </div>
       </div>
-      <Feedback error={candidates.error || approved.error} loading={!candidates.data} />
+      <ResourceState error={candidates.error || approved.error} loading={!candidates.data} retry={() => { candidates.refresh(); approved.refresh(); }} rows={4} />
 
       <section className="panel stack">
         <h2>Approved tasks</h2>
-        {approved.data && !tasks.length && <p className="empty">No approved tasks waiting for the queue.</p>}
+        {approved.data && !tasks.length && <EmptyState>No approved tasks waiting for the queue.</EmptyState>}
         {!!tasks.length && <div className="table-wrap">
           <table>
             <thead><tr><th>Task</th><th>Repo</th><th>Branch</th><th>PR</th><th>Queue</th></tr></thead>
@@ -107,7 +109,7 @@ export function MergeQueuePage() {
 
       <section className="panel stack">
         <h2>Candidates</h2>
-        {candidates.data && !queue.length && <p className="empty">The queue is empty.</p>}
+        {candidates.data && !queue.length && <EmptyState>The queue is empty.</EmptyState>}
         {!!queue.length && <div className="table-wrap">
           <table>
             <thead><tr><th>Candidate</th><th>Repo</th><th>Rebase</th><th>State</th><th>Updated</th></tr></thead>

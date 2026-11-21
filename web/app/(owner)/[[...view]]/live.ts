@@ -33,13 +33,18 @@ const eventScopes = {
   "hillclimb.attempt": ["metrics"],
 } as const;
 
+export type LiveStatus = "connected" | "reconnecting" | "offline";
+
+const retryDelay = 5_000;
+
 export function useLive(topics: string) {
   const [revisions, setRevisions] = useState<Revisions>({
     board: 0, agents: 0, thread: 0, questions: 0, plans: 0, briefs: 0, control: 0, capacity: 0,
     decisions: 0, architecture: 0, chat: 0, metrics: 0,
   });
   const [recent, setRecent] = useState<Record<string, Message>>({});
-  const [connected, setConnected] = useState(false);
+  const [status, setStatus] = useState<LiveStatus>("reconnecting");
+  const [attempt, setAttempt] = useState(0);
 
   useEffect(() => {
     const stream = new EventSource(`/api/v1/events?${new URLSearchParams({ topics })}`);
@@ -47,6 +52,7 @@ export function useLive(topics: string) {
     const messages = new Map<string, Message>();
     const taskStatuses = new Map<string, string>();
     let timer: ReturnType<typeof setTimeout> | undefined;
+    let reconnect: ReturnType<typeof setTimeout> | undefined;
 
     function invalidate(changed: readonly Scope[]) {
       changed.forEach((scope) => pending.add(scope));
@@ -66,9 +72,21 @@ export function useLive(topics: string) {
       }, 650);
     }
 
-    stream.addEventListener("hello", () => { setConnected(true); invalidate(scopes); });
+    stream.addEventListener("hello", () => { setStatus("connected"); invalidate(scopes); });
     stream.addEventListener("lagged", () => invalidate(scopes));
-    stream.onerror = () => setConnected(false);
+    stream.onerror = () => {
+      if (stream.readyState === EventSource.CLOSED) {
+        stream.close();
+        setStatus("offline");
+        reconnect = setTimeout(() => setAttempt((count) => count + 1), retryDelay);
+      } else {
+        setStatus(navigator.onLine ? "reconnecting" : "offline");
+      }
+    };
+    const online = () => setStatus("reconnecting");
+    const offline = () => setStatus("offline");
+    window.addEventListener("online", online);
+    window.addEventListener("offline", offline);
     stream.addEventListener("message.created", (event: MessageEvent<string>) => {
       try {
         const { data } = JSON.parse(event.data) as { data?: Message };
@@ -91,9 +109,12 @@ export function useLive(topics: string) {
     });
     return () => {
       if (timer) clearTimeout(timer);
+      if (reconnect) clearTimeout(reconnect);
+      window.removeEventListener("online", online);
+      window.removeEventListener("offline", offline);
       stream.close();
     };
-  }, [topics]);
+  }, [topics, attempt]);
 
-  return { revisions, recent, connected };
+  return { revisions, recent, connected: status === "connected", status };
 }

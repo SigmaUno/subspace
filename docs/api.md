@@ -188,6 +188,38 @@ Plan edits post a system message to the brief thread and append an audit event (
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |
 
+### Pull request status
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/tasks/{id}/pr` | → PRStatus, the latest snapshot of the task's PR. 404 for an unknown task or a task never synced. |
+| GET | `/api/v1/prs?brief_id=&state=&limit=` | → `{"prs":[PRStatus]}` ordered by task id; `state` is `open`, `merged` or `closed`; `limit` default 100, max 1000, 400 if not a positive integer. |
+
+```jsonc
+// PRStatus
+{"task_id":"T-3","brief_id":"B-1","url":"https://github.com/o/r/pull/7","host":"gh","repo":"o/r","number":7,
+ "state":"open",                                   // open|merged|closed; "" until the first successful fetch
+ "draft":false,"checks":"success",                 // success|failure|pending|none
+ "mergeable":true,                                 // null while the host computes it
+ "head_sha":"0a1b2c...","reviews":[{"user":"alice","state":"approved"}],   // latest decisive review per user: approved|changes_requested
+ "review_decision":"approved",                     // approved|changes_requested|none
+ "merge_ready":false,"error":null,                 // error: last failed fetch, cleared on success
+ "checked_at":"...","changed_at":"..."}
+```
+
+The snapshots are stored in the database and survive restarts. A poller runs when `SUBSPACE_PRSYNC_CONFIG` names a JSON file; every `SUBSPACE_PRSYNC_INTERVAL` (default `30s`, overrides the file's `interval`) it fetches the PR of each `submitted`, `in_review` and `approved` task with a `pr_url`: the pull request, its reviews and the head commit's statuses (plus check runs on GitHub). Least recently checked tasks go first.
+
+```jsonc
+{"interval":"30s",
+ "rate":{"per_minute":600,"burst":60},             // global request budget (default shown; per_minute 0 = unlimited)
+ "hosts":{"gh":{"kind":"github","token_env":"GITHUB_TOKEN","rate":{"per_minute":120,"burst":20}},   // url default https://github.com, api_url default https://api.github.com (or <url>/api/v3)
+          "forge":{"kind":"forgejo","url":"https://forge.example.com","token":"..."}},             // api_url default <url>/api/v1
+ "repos":{"SigmaUno/subspace":"gh"}}               // repo → host; unmapped repos use the host whose url host matches the PR url
+```
+
+`token_env` reads the token from that environment variable; tokens are only sent as `Authorization` headers and never logged or stored. Requests are conditional (`If-None-Match` with the last `ETag`, cached in memory). Each request takes a token from the global and the host bucket; when one is empty the task waits for the next cycle. A host answering 429 (or 403 with `X-RateLimit-Remaining: 0`) is paused for `Retry-After` / until `X-RateLimit-Reset`. Other failures set `error` and back the task off with jitter: a random delay between half and all of `interval × 2^(failures-1)`, capped at 32 intervals.
+
+When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
+
 ### Agents
 | Method | Path | Body → Response |
 |---|---|---|
@@ -263,13 +295,13 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 ```jsonc
 // Decision
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|merge-ready
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
 ```
 
-Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status). Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|

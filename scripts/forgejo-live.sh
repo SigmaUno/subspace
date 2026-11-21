@@ -64,6 +64,7 @@ up() {
     -e FORGEJO__actions__ENABLED=false \
     -e FORGEJO__mailer__ENABLED=false \
     -e FORGEJO__log__LEVEL=Warn \
+    -e "FORGEJO__api__MAX_RESPONSE_ITEMS=${SUBSPACE_FORGEJO_MAX_ITEMS:-25}" \
     -e "FORGEJO__webhook__ALLOWED_HOST_LIST=loopback" \
     -e FORGEJO__webhook__DELIVER_TIMEOUT=10 \
     "$IMAGE" >/dev/null

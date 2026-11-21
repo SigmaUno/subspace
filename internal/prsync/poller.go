@@ -221,7 +221,7 @@ func (p *Poller) syncTask(ctx context.Context, t *model.Task, now time.Time) err
 	}
 	pr, err := p.f.fetch(ctx, h, repo, number, prevPtr)
 	if err != nil {
-		if errors.Is(err, errLimited) || ctx.Err() != nil {
+		if errors.Is(err, errLimited) || errors.Is(err, errStale) || ctx.Err() != nil {
 			return nil
 		}
 		var he *hostError

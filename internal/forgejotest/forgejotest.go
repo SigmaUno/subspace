@@ -272,3 +272,41 @@ func (r *Repo) WaitMergeable(t testing.TB, n int64) {
 		time.Sleep(200 * time.Millisecond)
 	}
 }
+
+func (r *Repo) Git(t testing.TB, dir string, args ...string) string {
+	t.Helper()
+	cmd := exec.Command("git", args...)
+	cmd.Dir = dir
+	cmd.Env = append(os.Environ(),
+		"GIT_CONFIG_GLOBAL="+os.DevNull, "GIT_CONFIG_NOSYSTEM=1", "GIT_TERMINAL_PROMPT=0",
+		"GIT_AUTHOR_NAME=live", "GIT_AUTHOR_EMAIL=live@example.invalid",
+		"GIT_COMMITTER_NAME=live", "GIT_COMMITTER_EMAIL=live@example.invalid",
+	)
+	out, err := cmd.CombinedOutput()
+	text := strings.ReplaceAll(string(out), r.I.Token, "[token]")
+	if err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.ReplaceAll(strings.Join(args, " "), r.I.Token, "[token]"), err, text)
+	}
+	return strings.TrimSpace(text)
+}
+
+func (r *Repo) Clone(t testing.TB) string {
+	t.Helper()
+	dir := filepath.Join(t.TempDir(), "work")
+	r.Git(t, t.TempDir(), "clone", "-q", r.CloneURL(), dir)
+	return dir
+}
+
+func (r *Repo) CommitFile(t testing.TB, dir, file, content string) string {
+	t.Helper()
+	path := filepath.Join(dir, file)
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	r.Git(t, dir, "add", file)
+	r.Git(t, dir, "commit", "-q", "-m", "add "+file)
+	return r.Git(t, dir, "rev-parse", "HEAD")
+}

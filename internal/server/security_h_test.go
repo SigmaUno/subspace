@@ -5,6 +5,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/SigmaUno/subspace/internal/servertest"
@@ -52,4 +53,43 @@ func TestOwnerAllowlistCoversSpawnListing(t *testing.T) {
 	if code, out := peerDo(t, "127.0.0.2", req); code != http.StatusForbidden {
 		t.Fatalf("spawn listing from unlisted peer: %d %s", code, out)
 	}
+}
+
+func TestBotTokensHonourExpiresIn(t *testing.T) {
+	e := servertest.New(t)
+	expiry := func(label string, code int, out map[string]any, key string) {
+		t.Helper()
+		if code/100 != 2 {
+			t.Fatalf("%s: %d %v", label, code, out)
+		}
+		if out[key].(map[string]any)["token_expires_at"] == nil {
+			t.Fatalf("%s: token without expiry: %v", label, out)
+		}
+	}
+	code, out := e.REST("POST", "/api/v1/bots", map[string]any{"name": "b1", "kind": "codex", "model": "m", "expires_in": "1h"})
+	expiry("create", code, out, "bot")
+	code, out = e.REST("POST", "/api/v1/bots/bulk", map[string]any{"prefix": "bb", "count": 1, "kind": "codex", "model": "m", "expires_in": "1h"})
+	if code/100 != 2 {
+		t.Fatalf("bulk: %d %v", code, out)
+	}
+	expiry("bulk", code, out["bots"].([]any)[0].(map[string]any), "bot")
+	if code, out := e.REST("POST", "/api/v1/bots", map[string]any{"name": "b2", "kind": "codex", "model": "m"}); code != 201 {
+		t.Fatalf("create b2: %d %v", code, out)
+	}
+	code, out = e.REST("POST", "/api/v1/bots/b2/rotate-token", map[string]any{"expires_in": "1h"})
+	expiry("rotate", code, out, "bot")
+	if code, out := e.REST("POST", "/api/v1/bots", map[string]any{"name": "b3", "kind": "codex", "model": "m", "expires_in": "-1h"}); code != 400 {
+		t.Fatalf("negative expires_in: %d %v", code, out)
+	}
+}
+
+func TestRequestSpawnRejectsUnsafeModel(t *testing.T) {
+	e := servertest.New(t)
+	lead := e.Register("rex", "leader", "other")
+	_, br := e.REST("POST", "/api/v1/briefs", map[string]any{"title": "B"})
+	bid := br["id"].(string)
+	for _, m := range []string{"--dangerously-skip-permissions", "m; rm -rf /", "m\nx", strings.Repeat("m", 300)} {
+		e.MustFail(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "claude-code", "model": m, "n": 1}, "bad_request")
+	}
+	e.Must(lead, "request_spawn", map[string]any{"brief_id": bid, "worker_kind": "claude-code", "model": "anthropic/claude-sonnet-5.5@2026", "n": 1})
 }

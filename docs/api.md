@@ -509,13 +509,13 @@ Agent management with a liveness flag. A bot is an Agent plus `live` (active and
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/bots?role=&status=` | → `{"bots":[Bot]}` |
-| POST | `/api/v1/bots` | `{"name","role","kind","provider","model"}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
-| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model"}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
+| POST | `/api/v1/bots` | `{"name","role","kind","provider","model","expires_in":""}` → `{"bot":Agent,"connect":Connect}` (201; token shown once). |
+| POST | `/api/v1/bots/bulk` | `{"prefix","count","role","kind","provider","model","expires_in":""}` → `{"bots":[{"bot":Agent,"connect":Connect}]}` (201). |
 | POST | `/api/v1/bots/spawn` | `{"brief_id","kind","model","n":1,"role","provider"}` → `{"spawns":[Spawn]}` (201). Same checks as `request_spawn`; `kind` `other` is rejected. |
 | GET | `/api/v1/bots/{id}` | → `{"bot":Bot}` |
 | DELETE | `/api/v1/bots/{id}` | → `{"bot":Bot}` revoked. 409 if already revoked. |
 | POST | `/api/v1/bots/{id}/revoke` | `{"reason":""}` → `{"bot":Bot}`; same as DELETE. |
-| POST | `/api/v1/bots/{id}/rotate-token` | `{}` → `{"bot":Agent,"connect":Connect}` (new token once). |
+| POST | `/api/v1/bots/{id}/rotate-token` | `{"expires_in":""}` → `{"bot":Agent,"connect":Connect}` (new token once). `expires_in` as for agents. |
 | POST | `/api/v1/bots/{id}/pause` | `{"reason":""}` → `{"bot":Bot}` paused (default reason `paused by owner`). 409 if revoked. |
 | POST | `/api/v1/bots/{id}/resume` | `{}` → `{"bot":Bot}` |
 | POST | `/api/v1/bots/{id}/kill` | `{"reason":""}` → `{"bot":Bot,"stopped":true}`. Pauses the bot (default reason `killed by owner`), then asks the spawner to stop it; `stopped` is `false` when the spawner cannot stop processes. |
@@ -711,7 +711,7 @@ All tools return an object; `task` = Task object above.
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
-- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 
 ### Handoff context
 `get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.

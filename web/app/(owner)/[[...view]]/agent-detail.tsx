@@ -107,7 +107,7 @@ function Usage({ id, now, revision }: { id: string; now: number; revision: numbe
     <div className="heading"><h2>Usage</h2><span className="meta">Last {days} days</span></div>
     <Feedback error={summary.error} loading={!summary.data} />
     {summary.data && !group && <p className="empty">No usage recorded in this period.</p>}
-    {group && <div className="table-wrap">
+    {group && <div className="table-wrap" role="region" aria-label="Usage" tabIndex={0}>
       <table>
         <thead><tr><th>Cost</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th><th>Rate limited</th></tr></thead>
         <tbody><tr>
@@ -133,7 +133,7 @@ function AuditTrail({ id, revision }: { id: string; revision: number }) {
     <h2>Audit trail</h2>
     <Feedback error={audit.error} loading={!audit.loaded} />
     {audit.loaded && !events.length && <p className="empty">No audit events.</p>}
-    {!!events.length && <div className="table-wrap">
+    {!!events.length && <div className="table-wrap" role="region" aria-label="Audit events" tabIndex={0}>
       <table>
         <thead><tr><th>Time</th><th>Tool</th><th>Task</th><th>Before</th><th>After</th><th>Note</th></tr></thead>
         <tbody>{events.map((event) => <tr key={event.id}>

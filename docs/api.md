@@ -25,13 +25,9 @@ Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashe
 
 Managed API tokens are 32 random bytes, base64url, prefixed `ssu_`, stored as SHA-256 hashes and returned once on create. Scope `owner` may call every `/api/v1` endpoint. Scope `viewer` may only use `GET`/`HEAD` (including SSE and mounted read endpoints) and never `/api/v1/tokens`; anything else is 403 `forbidden`. This is enforced centrally before any handler runs. Revoked or expired tokens are 401. Every state-changing owner action records the acting token id in the audit `note` as `token=<id>` (`token=root` for the env token), followed by `; <note>` when the action has its own note. `last_used_at` is written at most once per minute per token.
 
-<<<<<<< HEAD
 A `/api/v1` request body with a JSON, text or empty content type that contains an agent or API token (`ssp_` or `ssu_` followed by 43 base64url characters) is rejected with 400 `bad_request` before any handler runs, so tokens never reach the charter, notes, reasons or any other stored text. Other bodies (artifact uploads) are not inspected.
 
-Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` is always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
-=======
 Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` and `/readyz` are always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
->>>>>>> origin/ws/server/o-rolling-upgrade
 
 Errors (REST): HTTP status + body
 ```json
@@ -51,6 +47,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "budget":{"max_cost_eur":50.0,"max_parallel_agents":10},
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
  "cross_review":true,"auto_done_on_merge":false,
+  "auto_approve_plan":false,                                // true: propose_plan approves the plan at once, see Plans
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected; cost_used includes cancelled tasks
  "leader_id":null,                                         // leader agent that owns the brief; null = any leader
  "quality_gates":{"tests":false,"min_tests_passed":0,"checks":false,"scope":false,   // see Quality gates; all off by default
@@ -169,13 +166,9 @@ The leader restores the newest backup into a temporary database in the data dir 
  "started_at":"...","finished_at":"..."}
 ```
 
-<<<<<<< HEAD
-A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing. Setting `SUBSPACE_DRILL_EVERY` to a positive duration with a Postgres `SUBSPACE_DB` refuses to start.
-=======
 With `SUBSPACE_DRILL_SOURCE=remote` (default `local`) the `restore` check downloads and decrypts the newest off-site backup instead of copying the local file, so the drill proves the remote copy and the key restore; with off-site backups configured and no local backup the drill also falls back to the remote copy. The drill's `backup` is then the remote object name and `backup_bytes` the decrypted size. A download that fails authentication fails the `restore` check. `remote` without `SUBSPACE_OFFSITE_KIND` disables scheduled drills.
 
-A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing.
->>>>>>> origin/ws/server/o-offsite-backup
+A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing. Setting `SUBSPACE_DRILL_EVERY` to a positive duration with a Postgres `SUBSPACE_DB` refuses to start.
 
 ### Off-site backups
 After a local backup is written and verified, the leader copies it to a second destination, encrypted on this machine. Nothing is sent unless `SUBSPACE_OFFSITE_KIND` is set; an invalid configuration stops the server at start. Needs `SUBSPACE_BACKUP_DIR` (the default on SQLite).
@@ -282,10 +275,10 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":"","quality_gates":{},"playbook":""}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off; `playbook` names a playbook (empty = none), see Playbooks. |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"auto_approve_plan":false,"leader_id":"","quality_gates":{},"playbook":""}` → Brief (201). `cross_review` defaults to `true`; `auto_approve_plan` defaults to `false`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off; `playbook` names a playbook (empty = none), see Playbooks. |
 | GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
-| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
+| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, auto_approve_plan, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
 | | | `status` is `open` or `closed`. Closing cancels `backlog`/`ready`/`assigned` tasks and moves `in_progress` tasks to `blocked` (`blocked_reason` `brief_closed`, lease released), each with a system message in the task thread; `submitted`, `in_review`, `approved` and every other status stay for the owner to finish. A closed brief rejects claims, spawns, plans and new tasks (409), and its board stays readable. The brief thread gets a system summary (cancelled/blocked counts, tasks per status, cost used). Reopening posts a brief-thread message; tasks cancelled by closing stay cancelled and `brief_closed` tasks stay blocked until unblocked. Setting the current status again changes nothing. Audit events: `close_brief` (one for the brief, one per affected task) and `reopen_brief`. |
 | POST | `/api/v1/briefs/{id}/leader` | `{"agent_id":"rex"}` → Brief. Hands the brief to that leader; `null` or `""` = any leader. 400 without `agent_id` or for an agent that is not a leader, 404 for an unknown brief or agent, 409 for a revoked agent. See Leader scoping. |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
@@ -393,6 +386,8 @@ What a playbook does:
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
 | POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{},"priority":0,"component_id":"","paths":[]}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
 | DELETE | `/api/v1/plans/{id}/tasks/{taskId}` | → Plan. Drops a `backlog` task of a `proposed` plan: the task becomes `cancelled` and stays in `tasks`. 409 while a non-cancelled task still lists it in `depends_on` (edit those first, the message names them) or if the plan is not `proposed`; 404 if the task is not part of the plan. |
+
+Plan approval is optional per brief. By default the owner approves every plan. With `auto_approve_plan` set on the brief (create or `PATCH`), a leader's `propose_plan` approves the plan in the same transaction: tasks go `backlog → ready`, the brief's `plan_status` becomes `approved`, and the audit log records `propose_plan` followed by `approve_plan` by the leader with note `auto-approved by brief setting`. Lint, owner policies (`approve_plan`) and budgets apply as for an owner approval; a policy that denies or holds the approval rejects the `propose_plan` call as a whole. An auto-approved plan is no longer `proposed`, so it cannot be rejected or edited; the owner can `cancel` its tasks.
 
 Plan edits post a system message to the brief thread and append an audit event (`add_plan_task`, `drop_plan_task`).
 

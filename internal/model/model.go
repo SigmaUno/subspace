@@ -111,6 +111,7 @@ type Brief struct {
 	AllowedProviders []string     `json:"allowed_providers"`
 	CrossReview      bool         `json:"cross_review"`
 	AutoDoneOnMerge  bool         `json:"auto_done_on_merge"`
+	AutoApprovePlan  bool         `json:"auto_approve_plan"`
 	CostUsed         float64      `json:"cost_used"`
 	PlanStatus       string       `json:"plan_status"`
 	LeaderID         *string      `json:"leader_id"`

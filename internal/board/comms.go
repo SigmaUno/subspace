@@ -237,7 +237,7 @@ var roleInstructions = map[string]string{
 	model.RoleWorker:   "FLOW: list_my_tasks → claim_task → work on the branch named in the task, heartbeat every few minutes → open a PR → submit(task_id, pr_url, summary). On changes_requested, read the review in the task thread, fix, claim_task again, submit again.",
 	model.RoleTester:   "FLOW: list_my_tasks → claim_task → write/run tests on the task's branch (never change application code) → report_tests(passed, failed, log_excerpt) → submit.",
 	model.RoleReviewer: "FLOW: list_reviews → read the PR against the acceptance criteria → review(task_id, verdict approve|changes_requested, comments). Never edit code or merge.",
-	model.RoleLeader:   "FLOW: get_brief → propose_plan (the owner must approve it) → after approval assign ready tasks to agents (list_agents, capacity), reassign/unblock as needed, request_spawn when more workers are needed. Never write code, merge, or edit the charter.",
+	model.RoleLeader:   "FLOW: get_brief → propose_plan (the owner approves it unless the brief auto-approves plans) → once tasks are ready assign ready tasks to agents (list_agents, capacity), reassign/unblock as needed, request_spawn when more workers are needed. Never write code, merge, or edit the charter.",
 }
 
 var kindInstructions = map[string]string{

@@ -43,6 +43,7 @@ export function BriefsView({ revision }: { revision: number }) {
             max_cost_eur: Number(value(fields, "cost")),
             max_parallel_agents: Number(value(fields, "parallel")),
             playbook: value(fields, "playbook"),
+            auto_approve_plan: fields.get("auto_approve_plan") === "on",
           });
           router.push(`/briefs/${encodeURIComponent(brief.id)}`);
         })}>
@@ -56,6 +57,7 @@ export function BriefsView({ revision }: { revision: number }) {
             <label>Max parallel agents<input name="parallel" type="number" min="1" defaultValue="10" required /></label>
             {!!playbooks.list.length && <PlaybookPicker playbooks={playbooks.list} selected={playbook} onChange={setPlaybook} />}
           </div>
+          <label className="inline"><input type="checkbox" name="auto_approve_plan" /> Approve plans automatically</label>
           <Feedback error={form.error} />
           <div><button type="submit" className="primary" disabled={form.busy}>Create brief</button></div>
         </form>
@@ -67,7 +69,7 @@ export function BriefsView({ revision }: { revision: number }) {
           <Link key={brief.id} href={`/briefs/${encodeURIComponent(brief.id)}`} className="panel brief-link">
             <span className="meta">{brief.id} · {brief.status}{brief.playbook && ` · ${brief.playbook}`}</span>
             <h2>{brief.title}</h2>
-            <span className="meta">{brief.repos?.join(", ") || "No repositories"} · Plan {brief.plan_status}</span>
+            <span className="meta">{brief.repos?.join(", ") || "No repositories"} · Plan {brief.plan_status}{brief.auto_approve_plan && " (auto-approve)"}</span>
             <span className="meta">{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)} · {brief.budget.max_parallel_agents} parallel agents</span>
           </Link>
         ))}

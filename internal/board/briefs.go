@@ -168,6 +168,7 @@ type BriefInput struct {
 	LeaderID         string              `json:"leader_id,omitempty"`
 	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
 	Playbook         string              `json:"playbook,omitempty"`
+	AutoApprovePlan  bool                `json:"auto_approve_plan,omitempty"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -216,7 +217,7 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 		}
 		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
 			Budget:           model.BriefBudget{MaxCostEUR: maxCost, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, AutoApprovePlan: in.AutoApprovePlan, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
@@ -245,6 +246,7 @@ type BriefPatch struct {
 	AllowedProviders *[]string           `json:"allowed_providers"`
 	CrossReview      *bool               `json:"cross_review"`
 	AutoDoneOnMerge  *bool               `json:"auto_done_on_merge"`
+	AutoApprovePlan  *bool               `json:"auto_approve_plan,omitempty"`
 	Status           *string             `json:"status"`
 	LeaderID         *string             `json:"leader_id,omitempty"`
 	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
@@ -314,6 +316,9 @@ func (b *Board) patchBrief(tx store.Tx, br *model.Brief, p BriefPatch) (func(sto
 			}
 		}
 		br.CrossReview = *p.CrossReview
+	}
+	if p.AutoApprovePlan != nil {
+		br.AutoApprovePlan = *p.AutoApprovePlan
 	}
 	if p.AutoDoneOnMerge != nil {
 		br.AutoDoneOnMerge = *p.AutoDoneOnMerge
@@ -486,7 +491,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err := w.post(tx, model.ThreadBrief, br.ID, a, model.MsgSystem, fmt.Sprintf("Plan %s proposed with %d tasks", pid, len(tasks))); err != nil {
 			return err
 		}
-		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks), "task_ids": ids, "superseded": superseded}, in.Note)
+		if err := w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks), "task_ids": ids, "superseded": superseded}, in.Note); err != nil {
+			return err
+		}
+		if !br.AutoApprovePlan {
+			return nil
+		}
+		return b.settlePlan(tx, w, p, br, a, true, "auto-approved by brief setting")
 	})
 	return out, err
 }
@@ -604,54 +615,61 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 		if err != nil {
 			return err
 		}
-		if approve {
-			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "approve_plan", Actor: model.Owner, Plan: p, Brief: br, Args: map[string]string{"note": note}}); err != nil {
-				return err
-			}
-		}
-		now := b.now()
-		p.DecidedAt = &now
-		p.Note = strp(note)
-		target, typ, tool := model.StatusReady, "plan.approved", "approve_plan"
-		p.Status = model.PlanApproved
-		br.PlanStatus = model.PlanApproved
-		if !approve {
-			target, typ, tool = model.StatusCancelled, "plan.rejected", "reject_plan"
-			p.Status = model.PlanRejected
-			br.PlanStatus = model.PlanRejected
-		}
-		moved := []string{}
-		for _, t := range p.Tasks {
-			if t.Status != model.StatusBacklog {
-				continue
-			}
-			moved = append(moved, t.ID)
-			t.Status, t.UpdatedAt = target, now
-			if !approve {
-				t.BlockedReason = strp("plan rejected")
-			}
-			if err := tx.UpdateTask(t); err != nil {
-				return err
-			}
-			w.task(t, false)
-		}
-		if err := tx.UpdatePlan(p); err != nil {
-			return err
-		}
-		if err := tx.UpdateBrief(br); err != nil {
-			return err
-		}
-		cp := *p
-		w.emit([]string{"plans", "brief:" + br.ID}, typ, &cp)
-		msg := fmt.Sprintf("Plan %s %s", id, p.Status)
-		if note != "" {
-			msg += ": " + note
-		}
-		if err := w.post(tx, model.ThreadBrief, br.ID, model.Owner, model.MsgSystem, msg); err != nil {
+		if err := b.settlePlan(tx, w, p, br, model.Owner, approve, note); err != nil {
 			return err
 		}
 		out = p
-		return w.audit(tx, model.Owner, tool, "", nil, map[string]any{"plan_id": id, "status": p.Status, "task_ids": moved}, note)
+		return nil
 	})
 	return out, err
+}
+
+func (b *Board) settlePlan(tx store.Tx, w *wctx, p *model.Plan, br *model.Brief, actor model.Actor, approve bool, note string) error {
+	if approve {
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "approve_plan", Actor: actor, Plan: p, Brief: br, Args: map[string]string{"note": note}}); err != nil {
+			return err
+		}
+	}
+	now := b.now()
+	p.DecidedAt = &now
+	p.Note = strp(note)
+	target, typ, tool := model.StatusReady, "plan.approved", "approve_plan"
+	p.Status = model.PlanApproved
+	br.PlanStatus = model.PlanApproved
+	if !approve {
+		target, typ, tool = model.StatusCancelled, "plan.rejected", "reject_plan"
+		p.Status = model.PlanRejected
+		br.PlanStatus = model.PlanRejected
+	}
+	moved := []string{}
+	for _, t := range p.Tasks {
+		if t.Status != model.StatusBacklog {
+			continue
+		}
+		moved = append(moved, t.ID)
+		t.Status, t.UpdatedAt = target, now
+		if !approve {
+			t.BlockedReason = strp("plan rejected")
+		}
+		if err := tx.UpdateTask(t); err != nil {
+			return err
+		}
+		w.task(t, false)
+	}
+	if err := tx.UpdatePlan(p); err != nil {
+		return err
+	}
+	if err := tx.UpdateBrief(br); err != nil {
+		return err
+	}
+	cp := *p
+	w.emit([]string{"plans", "brief:" + br.ID}, typ, &cp)
+	msg := fmt.Sprintf("Plan %s %s", p.ID, p.Status)
+	if note != "" {
+		msg += ": " + note
+	}
+	if err := w.post(tx, model.ThreadBrief, br.ID, actor, model.MsgSystem, msg); err != nil {
+		return err
+	}
+	return w.audit(tx, actor, tool, "", nil, map[string]any{"plan_id": p.ID, "status": p.Status, "task_ids": moved}, note)
 }

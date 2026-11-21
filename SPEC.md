@@ -67,7 +67,7 @@ backlog → ready → assigned → in_progress → submitted → in_review → a
 
 | From → To | Actor / trigger |
 |---|---|
-| backlog → ready | owner `approve_plan` (or leader `create_task` on an already-approved brief) |
+| backlog → ready | owner `approve_plan`, leader `propose_plan` on a brief with `auto_approve_plan`, or leader `create_task` on an already-approved brief |
 | ready → assigned | leader `assign` |
 | assigned → in_progress | worker/tester `claim_task` (deps `done`, lease granted) |
 | in_progress → assigned | lease expiry, `release_task`, `reassign`, `pause_all` |

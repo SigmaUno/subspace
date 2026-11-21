@@ -414,6 +414,7 @@ export interface Breaker {
 
 export interface Brief {
   allowed_providers: string[] | null;
+  auto_approve_plan: boolean;
   auto_done_on_merge: boolean;
   body: string;
   budget: BriefBudget;
@@ -444,6 +445,7 @@ export interface BriefComponentSpec {
 
 export interface BriefInput {
   allowed_providers?: string[] | null;
+  auto_approve_plan?: boolean;
   body: string;
   cross_review?: boolean | null;
   leader_id?: string;
@@ -461,6 +463,7 @@ export interface BriefLeader {
 
 export interface BriefPatch {
   allowed_providers?: string[] | null;
+  auto_approve_plan?: boolean | null;
   auto_done_on_merge?: boolean | null;
   cross_review?: boolean | null;
   leader_id?: string | null;

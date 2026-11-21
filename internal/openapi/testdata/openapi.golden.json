@@ -1678,6 +1678,9 @@
               "null"
             ]
           },
+          "auto_approve_plan": {
+            "type": "boolean"
+          },
           "auto_done_on_merge": {
             "type": "boolean"
           },
@@ -1733,6 +1736,7 @@
         },
         "required": [
           "allowed_providers",
+          "auto_approve_plan",
           "auto_done_on_merge",
           "body",
           "budget",
@@ -1811,6 +1815,9 @@
               "null"
             ]
           },
+          "auto_approve_plan": {
+            "type": "boolean"
+          },
           "body": {
             "type": "string"
           },
@@ -1888,6 +1895,12 @@
             },
             "type": [
               "array",
+              "null"
+            ]
+          },
+          "auto_approve_plan": {
+            "type": [
+              "boolean",
               "null"
             ]
           },

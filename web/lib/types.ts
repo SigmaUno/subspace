@@ -26,6 +26,7 @@ export interface Brief {
   cost_used: number;
   plan_status: string;
   playbook?: string;
+  auto_approve_plan?: boolean;
   hillclimb_jobs?: import("./swarm").HillclimbJob[];
 }
 

@@ -63,6 +63,7 @@ export interface Brief {
   allowed_providers: string[] | null;
   cross_review: boolean;
   auto_done_on_merge: boolean;
+  auto_approve_plan: boolean;
   cost_used: number;
   plan_status: string;
   leader_id: string | null;

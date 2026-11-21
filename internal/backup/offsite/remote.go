@@ -39,7 +39,10 @@ type Remote struct {
 	dest Destination
 	keys []seal.Key
 	desc string
+	now  func() time.Time
 }
+
+const maxClockSkew = time.Hour
 
 func Open(cfg Config, d Deps) (*Remote, error) {
 	if !cfg.Enabled() {
@@ -60,7 +63,10 @@ func Open(cfg Config, d Deps) (*Remote, error) {
 		}
 		keys = append(keys, old)
 	}
-	r := &Remote{keys: keys}
+	r := &Remote{keys: keys, now: d.Now}
+	if r.now == nil {
+		r.now = time.Now
+	}
 	switch cfg.Kind {
 	case KindFS:
 		r.dest, r.desc = fsDest{root: cfg.Path}, "directory "+cfg.Path
@@ -114,8 +120,9 @@ func (r *Remote) List(ctx context.Context) ([]Entry, error) {
 		return nil, err
 	}
 	var out []Entry
+	limit := r.now().Add(maxClockSkew)
 	for _, o := range objs {
-		if t, ok := ParseObjectName(o.Name); ok {
+		if t, ok := ParseObjectName(o.Name); ok && !t.After(limit) {
 			out = append(out, Entry{Name: o.Name, Created: t, Size: o.Size})
 		}
 	}

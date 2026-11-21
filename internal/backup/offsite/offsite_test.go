@@ -309,6 +309,36 @@ func TestRetentionKeepsLastDailyAndWeekly(t *testing.T) {
 	}
 }
 
+func TestFutureDatedObjectsDoNotPushOutRealBackups(t *testing.T) {
+	r := newFSRig(t, func(r *rig) { r.cfg.Retention = offsite.Policy{Last: 2, Daily: 2, Weekly: 1} })
+	for day := range 3 {
+		at := t0.AddDate(0, 0, day)
+		r.clk.Set(at)
+		r.local.add(t, at, payload(2000, int64(day)))
+		if _, err := r.svc.Sync(context.Background()); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for week := range 3 {
+		junk := filepath.Join(r.cfg.Path, offsite.ObjectName(time.Date(2099, 1, 1+7*week, 0, 0, 0, 0, time.UTC)))
+		if err := os.WriteFile(junk, []byte("junk"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := r.svc.Sync(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	got := strings.Join(r.objects(), " ")
+	for _, day := range []int{1, 2} {
+		if name := offsite.ObjectName(t0.AddDate(0, 0, day)); !strings.Contains(got, name) {
+			t.Fatalf("planted future objects pruned real backup %s: %s", name, got)
+		}
+	}
+	if _, name := r.restoreLatest(); name != offsite.ObjectName(t0.AddDate(0, 0, 2)) {
+		t.Fatalf("latest is %s", name)
+	}
+}
+
 func TestPolicyPrune(t *testing.T) {
 	at := func(d, h int) offsite.Entry {
 		c := t0.AddDate(0, 0, d).Add(time.Duration(h) * time.Hour)

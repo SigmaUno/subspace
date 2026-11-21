@@ -1,7 +1,6 @@
 package announce
 
 import (
-	"database/sql"
 	"errors"
 	"time"
 
@@ -34,24 +33,7 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "announcements")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("announce: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
-func insert(t store.Tx, q sqlTx, a *Announcement) error {
+func insert(t store.Tx, q store.SQL, a *Announcement) error {
 	id, err := t.NextID("AN")
 	if err != nil {
 		return err
@@ -68,7 +50,7 @@ func insert(t store.Tx, q sqlTx, a *Announcement) error {
 	return nil
 }
 
-func query(q sqlTx, where string, args ...any) ([]Announcement, error) {
+func query(q store.SQL, where string, args ...any) ([]Announcement, error) {
 	rows, err := q.Query(`SELECT `+cols+` FROM announcements `+where, args...)
 	if err != nil {
 		return nil, err
@@ -93,7 +75,7 @@ func query(q sqlTx, where string, args ...any) ([]Announcement, error) {
 	return out, rows.Err()
 }
 
-func remove(q sqlTx, id string) error {
+func remove(q store.SQL, id string) error {
 	res, err := q.Exec(`DELETE FROM announcements WHERE id=?`, id)
 	if err != nil {
 		return err

@@ -2,8 +2,6 @@ package agentout
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -30,25 +28,8 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "agent_output")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("agentout: store transaction does not expose SQL")
-
-func withSQL(fn func(sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(q)
-	}
-}
-
 func persist(ctx context.Context, st store.Store, batches []batch, keep int) error {
-	return st.Atomic(ctx, withSQL(func(q sqlTx) error {
+	return st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		for _, bt := range batches {
 			for _, l := range bt.lines {
 				task := ""
@@ -70,7 +51,7 @@ func persist(ctx context.Context, st store.Store, batches []batch, keep int) err
 
 func load(ctx context.Context, st store.Store) ([]Line, error) {
 	var out []Line
-	err := st.View(ctx, withSQL(func(q sqlTx) error {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT agent_id,seq,task_id,stream,text,ts FROM agent_output ORDER BY agent_id,seq`)
 		if err != nil {
 			return err

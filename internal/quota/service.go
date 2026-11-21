@@ -41,21 +41,6 @@ func init() {
 	postgres.RegisterSchema(schema, "agent_quotas", "agent_quota_days", "agent_quota_tasks")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("quota: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
 type Options struct {
 	Store store.Store
 	Pub   events.Publisher
@@ -76,7 +61,7 @@ func New(o Options) *Service {
 }
 
 func (s *Service) Gate(tx store.Tx, ev board.GateEvent) (*board.Notice, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -104,7 +89,7 @@ func (s *Service) Gate(tx store.Tx, ev board.GateEvent) (*board.Notice, error) {
 	return warn(tx, q, ev.AgentID, lim, ev.Now)
 }
 
-func admit(tx store.Tx, q sqlTx, ev board.GateEvent, lim Quota, day int64) error {
+func admit(tx store.Tx, q store.SQL, ev board.GateEvent, lim Quota, day int64) error {
 	if lim.Unlimited() {
 		return nil
 	}
@@ -132,7 +117,7 @@ func admit(tx store.Tx, q sqlTx, ev board.GateEvent, lim Quota, day int64) error
 
 type load struct{ held, queued int }
 
-func usageOf(tx store.Tx, q sqlTx, agent string, day int64) (Usage, load, error) {
+func usageOf(tx store.Tx, q store.SQL, agent string, day int64) (Usage, load, error) {
 	var u Usage
 	var l load
 	if err := scan(q, []any{&u.CostEUR}, `SELECT cost_eur FROM agent_quota_days WHERE agent_id=? AND day=?`, agent, day); err != nil {
@@ -158,7 +143,7 @@ func usageOf(tx store.Tx, q sqlTx, agent string, day int64) (Usage, load, error)
 	return u, l, nil
 }
 
-func scan(q sqlTx, dest []any, query string, args ...any) error {
+func scan(q store.SQL, dest []any, query string, args ...any) error {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return err
@@ -172,7 +157,7 @@ func scan(q sqlTx, dest []any, query string, args ...any) error {
 	return rows.Err()
 }
 
-func each(q sqlTx, fn func(*sql.Rows) error, query string, args ...any) error {
+func each(q store.SQL, fn func(*sql.Rows) error, query string, args ...any) error {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return err
@@ -186,14 +171,14 @@ func each(q sqlTx, fn func(*sql.Rows) error, query string, args ...any) error {
 	return rows.Err()
 }
 
-func loadQuota(q sqlTx, agent string) (Quota, error) {
+func loadQuota(q store.SQL, agent string) (Quota, error) {
 	var lim Quota
 	err := scan(q, []any{&lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks},
 		`SELECT max_cost_eur_per_day,max_tasks_per_day,max_concurrent_tasks FROM agent_quotas WHERE agent_id=?`, agent)
 	return lim, err
 }
 
-func prune(q sqlTx, agent string, day int64) error {
+func prune(q store.SQL, agent string, day int64) error {
 	old := day - retainDays*int64(24*time.Hour/time.Second)
 	for _, table := range []string{"agent_quota_days", "agent_quota_tasks"} {
 		if _, err := q.Exec(`DELETE FROM `+table+` WHERE agent_id=? AND day<?`, agent, old); err != nil {
@@ -203,7 +188,7 @@ func prune(q sqlTx, agent string, day int64) error {
 	return nil
 }
 
-func warn(tx store.Tx, q sqlTx, agent string, lim Quota, now time.Time) (*board.Notice, error) {
+func warn(tx store.Tx, q store.SQL, agent string, lim Quota, now time.Time) (*board.Notice, error) {
 	if lim.Unlimited() {
 		return nil, nil
 	}
@@ -251,7 +236,7 @@ func (s *Service) Set(ctx context.Context, id string, lim Quota) error {
 		if ag.Status == model.AgentRevoked {
 			return model.Conflict("agent %s is revoked", id)
 		}
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}
@@ -314,7 +299,7 @@ func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 		return sn.usage[id]
 	}
 	err := s.st.View(ctx, func(tx store.Tx) error {
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}

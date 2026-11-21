@@ -94,7 +94,7 @@ func prunedMarker(path string) string { return path + ".pruned" }
 
 func (s *Service) manifestRowExists(ctx context.Context, r row) (bool, error) {
 	var n int64
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		n, err = scalar(q, `SELECT COUNT(*) FROM task_transcripts WHERE id = ?`, r.int("id"))
 		return err

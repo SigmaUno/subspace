@@ -163,7 +163,7 @@ func (s *Service) validate(d *Document) error {
 
 func (s *Service) List(ctx context.Context) ([]*Policy, error) {
 	var out []*Policy
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = listPolicies(q)
 		return err
@@ -176,7 +176,7 @@ func (s *Service) List(ctx context.Context) ([]*Policy, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (*Policy, error) {
 	var out *Policy
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = getPolicy(q, id)
 		return err
@@ -190,7 +190,7 @@ func (s *Service) Get(ctx context.Context, id string) (*Policy, error) {
 
 func (s *Service) Versions(ctx context.Context, id string) ([]Version, error) {
 	var out []Version
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		if _, err := getPolicy(q, id); err != nil {
 			return err
 		}
@@ -207,7 +207,7 @@ func (s *Service) Create(ctx context.Context, d Document) (*Policy, error) {
 	}
 	now := s.now().UTC()
 	p := &Policy{Version: 1, Document: d, CreatedAt: now, UpdatedAt: now}
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		n, err := countPolicies(q)
 		if err != nil {
 			return err
@@ -236,7 +236,7 @@ func (s *Service) Replace(ctx context.Context, id string, d Document) (*Policy, 
 		return nil, err
 	}
 	var out *Policy
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		cur, err := getPolicy(q, id)
 		if err != nil {
 			return err
@@ -261,7 +261,7 @@ func (s *Service) Replace(ctx context.Context, id string, d Document) (*Policy, 
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		cur, err := getPolicy(q, id)
 		if err != nil {
 			return err
@@ -304,7 +304,7 @@ func (s *Service) Decisions(ctx context.Context, f DecisionFilter) ([]*Decision,
 	}
 	f.Limit = min(f.Limit, maxList)
 	var out []*Decision
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = listDecisions(q, f)
 		return err
@@ -329,7 +329,7 @@ func (s *Service) Holds(ctx context.Context, status string, limit int) ([]*Hold,
 	}
 	limit = min(limit, maxList)
 	var out []*Hold
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		if status == "" {
 			out, err = queryHolds(q, `ORDER BY seq DESC LIMIT ?`, limit)
@@ -358,7 +358,7 @@ func (s *Service) view(h *Hold) {
 
 func (s *Service) GetHold(ctx context.Context, id string) (*Hold, error) {
 	var out *Hold
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = getHold(q, id)
 		return err
@@ -433,7 +433,7 @@ func (s *Service) tell(ctx context.Context, h *Hold, body string) {
 
 func (s *Service) decide(ctx context.Context, id, status, tool, note string) (*Hold, error) {
 	var out *Hold
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		h, err := getHold(q, id)
 		if err != nil {
 			return err
@@ -464,7 +464,7 @@ func (s *Service) decide(ctx context.Context, id, status, tool, note string) (*H
 }
 
 func (s *Service) setResult(ctx context.Context, id, result string) error {
-	return s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		_, err := q.Exec(`UPDATE policy_holds SET result=? WHERE id=?`, clip(result, MaxMessage), id)
 		return err
 	}))
@@ -480,7 +480,7 @@ func clip(s string, n int) string {
 func (s *Service) Sweep(ctx context.Context) (int, error) {
 	now := s.now().UTC()
 	var expired []*Hold
-	err := s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		hs, err := queryHolds(q, `WHERE status=? AND expires_at<=? ORDER BY seq`, HoldPending, millis(now))
 		if err != nil {
 			return err

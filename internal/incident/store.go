@@ -4,7 +4,6 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -13,30 +12,6 @@ import (
 )
 
 const cols = `id, reason, actions, results, started_at, ended_at, actor`
-
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("incident: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
-func SupportsSQL(ctx context.Context, st store.Store) bool {
-	ok := false
-	_ = st.View(ctx, func(tx store.Tx) error {
-		_, ok = tx.(sqlTx)
-		return nil
-	})
-	return ok
-}
 
 func scan(rows *sql.Rows) ([]*Incident, error) {
 	defer func() { _ = rows.Close() }()
@@ -67,7 +42,7 @@ func scan(rows *sql.Rows) ([]*Incident, error) {
 }
 
 func query(tx store.Tx, where string, args ...any) ([]*Incident, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -98,7 +73,7 @@ func activeTx(tx store.Tx) (*Incident, error) {
 }
 
 func insertTx(tx store.Tx, in *Incident) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}
@@ -110,7 +85,7 @@ func insertTx(tx store.Tx, in *Incident) error {
 }
 
 func updateTx(tx store.Tx, in *Incident) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}

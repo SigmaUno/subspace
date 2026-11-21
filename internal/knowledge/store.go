@@ -1,9 +1,7 @@
 package knowledge
 
 import (
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"strings"
 	"time"
 
@@ -40,23 +38,8 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "knowledge")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("knowledge: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
 func insert(tx store.Tx, e *Entry) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}
@@ -65,7 +48,7 @@ func insert(tx store.Tx, e *Entry) error {
 }
 
 func update(tx store.Tx, e *Entry) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}
@@ -76,7 +59,7 @@ func update(tx store.Tx, e *Entry) error {
 }
 
 func remove(tx store.Tx, id string) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}
@@ -125,7 +108,7 @@ func placeholders(n int) string {
 }
 
 func query(tx store.Tx, clause string, a ...any) ([]*Entry, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return nil, err
 	}

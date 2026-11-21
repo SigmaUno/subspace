@@ -170,7 +170,7 @@ type SplitResult struct {
 
 func (s *Service) AcceptSplit(ctx context.Context, a model.Actor, id string) (*SplitResult, error) {
 	var r *Request
-	if err := s.view(ctx, func(_ store.Tx, q sqlTx) (err error) { r, err = get(q, id); return }); err != nil {
+	if err := s.view(ctx, func(_ store.Tx, q store.SQL) (err error) { r, err = get(q, id); return }); err != nil {
 		return nil, err
 	}
 	if ok, err := s.b.BriefVisible(ctx, a, r.BriefID); err != nil {
@@ -194,12 +194,12 @@ func (s *Service) AcceptSplit(ctx context.Context, a model.Actor, id string) (*S
 	if err := s.checkDeps(ctx, orig, r.ProposedTasks); err != nil {
 		return nil, err
 	}
-	if err := s.atomic(ctx, func(_ store.Tx, q sqlTx) error { return setStatus(q, id, StatusOpen, StatusAccepted) }); err != nil {
+	if err := s.atomic(ctx, func(_ store.Tx, q store.SQL) error { return setStatus(q, id, StatusOpen, StatusAccepted) }); err != nil {
 		return nil, err
 	}
 	res, err := s.apply(ctx, a, orig, r)
 	if err != nil {
-		reopenErr := s.atomic(ctx, func(_ store.Tx, q sqlTx) error { return setStatus(q, id, StatusAccepted, StatusOpen) })
+		reopenErr := s.atomic(ctx, func(_ store.Tx, q store.SQL) error { return setStatus(q, id, StatusAccepted, StatusOpen) })
 		if reopenErr != nil {
 			return nil, fmt.Errorf("%w (and reopening the proposal failed: %v)", err, reopenErr)
 		}
@@ -211,7 +211,7 @@ func (s *Service) AcceptSplit(ctx context.Context, a model.Actor, id string) (*S
 	}
 	r.Status, r.CreatedTasks = StatusAccepted, ids
 	res.Request = r
-	err = s.atomic(ctx, func(tx store.Tx, q sqlTx) error {
+	err = s.atomic(ctx, func(tx store.Tx, q store.SQL) error {
 		if _, err := q.Exec(`UPDATE help_requests SET created_tasks=? WHERE id=?`, marshal(ids), id); err != nil {
 			return err
 		}

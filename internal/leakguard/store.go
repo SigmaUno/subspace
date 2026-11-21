@@ -2,8 +2,6 @@ package leakguard
 
 import (
 	"context"
-	"database/sql"
-	"errors"
 	"fmt"
 	"time"
 
@@ -27,21 +25,6 @@ func init() {
 	postgres.RegisterSchema(schema, "token_leaks")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("leakguard: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
 type leak struct {
 	ID         string
 	Kind       string
@@ -52,7 +35,7 @@ type leak struct {
 }
 
 func (g *Guard) record(tx store.Tx, kind, subject string, src board.LeakSource) (string, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return "", err
 	}
@@ -68,7 +51,7 @@ func (g *Guard) record(tx store.Tx, kind, subject string, src board.LeakSource) 
 func (g *Guard) open(ctx context.Context) ([]leak, error) {
 	var out []leak
 	err := g.o.Store.View(ctx, func(tx store.Tx) error {
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}
@@ -95,7 +78,7 @@ func (g *Guard) get(ctx context.Context, id string) (*leak, bool, error) {
 	var out *leak
 	var resolved bool
 	err := g.o.Store.View(ctx, func(tx store.Tx) error {
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}
@@ -120,7 +103,7 @@ func (g *Guard) get(ctx context.Context, id string) (*leak, bool, error) {
 }
 
 func (g *Guard) resolve(tx store.Tx, id string) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}
@@ -136,7 +119,7 @@ func (g *Guard) resolve(tx store.Tx, id string) error {
 
 func (g *Guard) reopen(ctx context.Context, id string) {
 	err := g.o.Store.Atomic(ctx, func(tx store.Tx) error {
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}

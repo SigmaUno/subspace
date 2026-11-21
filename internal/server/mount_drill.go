@@ -35,7 +35,7 @@ func init() {
 }
 
 func mountDrill(d Deps) {
-	if !drill.SupportsSQL(d.Ctx, d.Store) {
+	if !store.SupportsSQL(d.Ctx, d.Store) {
 		d.Log.Error("restore drills disabled", "err", "store does not support SQL extensions")
 		return
 	}

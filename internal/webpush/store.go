@@ -3,7 +3,6 @@ package webpush
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/model"
@@ -34,23 +33,6 @@ const (
 func init() {
 	sqlite.RegisterSchema(schema)
 	postgres.RegisterSchema(pgSchema, "push_subscriptions")
-}
-
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("webpush: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
 }
 
 type auditFn func(created bool) *model.AuditEvent
@@ -109,7 +91,7 @@ func scan(rows *sql.Rows) (*Subscription, error) {
 	return &s, nil
 }
 
-func query(q sqlTx, where string, args ...any) ([]*Subscription, error) {
+func query(q store.SQL, where string, args ...any) ([]*Subscription, error) {
 	rows, err := q.Query(`SELECT `+cols+` FROM push_subscriptions `+where, args...)
 	if err != nil {
 		return nil, err
@@ -128,7 +110,7 @@ func query(q sqlTx, where string, args ...any) ([]*Subscription, error) {
 
 func (d db) list(ctx context.Context) ([]*Subscription, error) {
 	var out []*Subscription
-	err := d.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := d.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = query(q, `ORDER BY length(id), id`)
 		return err
@@ -138,7 +120,7 @@ func (d db) list(ctx context.Context) ([]*Subscription, error) {
 
 func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditFn) (bool, error) {
 	var created bool
-	err := d.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := d.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		cur, err := query(q, `WHERE endpoint = ?`, s.Endpoint)
 		if err != nil {
 			return err
@@ -173,7 +155,7 @@ func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditF
 }
 
 func (d db) delete(ctx context.Context, where string, arg string, audit func(*Subscription) *model.AuditEvent) error {
-	return d.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return d.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		cur, err := query(q, `WHERE `+where+` = ?`, arg)
 		if err != nil {
 			return err
@@ -189,7 +171,7 @@ func (d db) delete(ctx context.Context, where string, arg string, audit func(*Su
 }
 
 func (d db) result(ctx context.Context, id string, ok bool, at time.Time) error {
-	return d.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return d.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		if ok {
 			_, err = q.Exec(`UPDATE push_subscriptions SET failures = 0, last_success_at = ? WHERE id = ?`, at.UnixMilli(), id)

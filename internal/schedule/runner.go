@@ -75,7 +75,7 @@ func (r *Runner) Run(ctx context.Context) {
 }
 
 func (r *Runner) Recover(ctx context.Context) error {
-	return r.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return r.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		n, err := interrupt(q, r.now().UTC())
 		if n > 0 {
 			r.log.Warn("schedule runs interrupted by a restart", "runs", n)
@@ -86,7 +86,7 @@ func (r *Runner) Recover(ctx context.Context) error {
 
 func (r *Runner) Tick(ctx context.Context) error {
 	var all []*Schedule
-	if err := r.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	if err := r.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		all, err = list(q)
 		return err
@@ -145,7 +145,7 @@ func (r *Runner) handle(ctx context.Context, s *Schedule, now time.Time) error {
 }
 
 func (r *Runner) record(ctx context.Context, s *Schedule, at, now time.Time, missed int, reason string) error {
-	return r.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return r.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		_, err := claim(q, s, at, now, RunSkipped, missed, reason)
 		return err
 	}))
@@ -153,7 +153,7 @@ func (r *Runner) record(ctx context.Context, s *Schedule, at, now time.Time, mis
 
 func (r *Runner) execute(ctx context.Context, s *Schedule, at, now time.Time, missed int) error {
 	var claimed bool
-	err := r.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := r.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		claimed, err = claim(q, s, at, now, RunRunning, missed, "")
 		return err
@@ -168,7 +168,7 @@ func (r *Runner) execute(ctx context.Context, s *Schedule, at, now time.Time, mi
 		r.log.Warn("schedule run failed", "schedule", s.ID, "at", at, "err", runErr)
 	}
 	done := r.now().UTC()
-	return r.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return r.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if err := finish(q, s.ID, at, done, status, detail, briefID, taskIDs); err != nil {
 			return err
 		}
@@ -196,7 +196,7 @@ func (r *Runner) do(ctx context.Context, s *Schedule, at time.Time) (string, []s
 
 func (r *Runner) active(ctx context.Context, s *Schedule) (int, error) {
 	n := 0
-	err := r.st.View(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := r.st.View(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		past, err := queryRuns(q, `WHERE schedule_id=? AND status=? ORDER BY instant DESC LIMIT ?`, s.ID, RunCreated, activeScan)
 		if err != nil {
 			return err

@@ -11,6 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/callback"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
@@ -34,7 +35,7 @@ func init() {
 }
 
 func mountCallbacks(d Deps) {
-	if !callback.SupportsSQL(d.Ctx, d.Store) {
+	if !store.SupportsSQL(d.Ctx, d.Store) {
 		d.Log.Error("agent callbacks disabled", "err", "store does not support SQL extensions")
 		return
 	}

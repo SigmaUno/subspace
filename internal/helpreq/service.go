@@ -150,7 +150,7 @@ func (s *Service) SuggestSplit(ctx context.Context, a model.Actor, taskID string
 	}
 	r := &Request{Type: TypeSplit, Kind: "too_big", TaskID: t.ID, BriefID: t.BriefID, AgentID: a.ID, Role: a.Role, ProposedTasks: proposed}
 	r.Details = splitSummary(proposed)
-	err = s.atomic(ctx, func(tx store.Tx, q sqlTx) error {
+	err = s.atomic(ctx, func(tx store.Tx, q store.SQL) error {
 		old, err := query(q, `WHERE task_id=? AND type=? AND status=?`, t.ID, TypeSplit, StatusOpen)
 		if err != nil {
 			return err
@@ -194,7 +194,7 @@ func (s *Service) ListFor(ctx context.Context, a model.Actor, f Filter) ([]*Requ
 		limit = 1000
 	}
 	var out []*Request
-	err = s.view(ctx, func(tx store.Tx, q sqlTx) error {
+	err = s.view(ctx, func(tx store.Tx, q store.SQL) error {
 		where, args := `WHERE 1=1`, []any{}
 		if f.BriefID != "" {
 			where += ` AND brief_id=?`
@@ -261,7 +261,7 @@ func (s *Service) liveTask(ctx context.Context, a model.Actor, id string) (*mode
 }
 
 func (s *Service) record(ctx context.Context, a model.Actor, tool string, r *Request, after map[string]any) error {
-	return s.atomic(ctx, func(tx store.Tx, q sqlTx) error {
+	return s.atomic(ctx, func(tx store.Tx, q store.SQL) error {
 		r.Status, r.CreatedAt = StatusOpen, s.now().UTC()
 		if err := insert(tx, q, r); err != nil {
 			return err

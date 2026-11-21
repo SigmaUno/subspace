@@ -152,7 +152,7 @@ func (s *Service) Create(ctx context.Context, in Input) (*Schedule, error) {
 	if err := s.normalize(ctx, sc, true); err != nil {
 		return nil, err
 	}
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		n, err := count(q)
 		if err != nil {
 			return err
@@ -188,7 +188,7 @@ func (s *Service) Update(ctx context.Context, id string, p Patch) (*Schedule, er
 	if err := s.normalize(ctx, &next, retarget); err != nil {
 		return nil, err
 	}
-	err = s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err = s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if err := update(q, &next); err != nil {
 			return err
 		}
@@ -323,7 +323,7 @@ func checkVars(where string, vars map[string]string) error {
 
 func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
 	var out []*Schedule
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = list(q)
 		return err
@@ -339,7 +339,7 @@ func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
 
 func (s *Service) Get(ctx context.Context, id string) (*Schedule, error) {
 	var out *Schedule
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		out, err = get(q, id)
 		return err
@@ -352,7 +352,7 @@ func (s *Service) Get(ctx context.Context, id string) (*Schedule, error) {
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		cur, err := get(q, id)
 		if err != nil {
 			return err
@@ -369,7 +369,7 @@ func (s *Service) Runs(ctx context.Context, id string, limit int) ([]Run, error)
 		limit = runsLimit
 	}
 	var out []Run
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		if _, err := get(q, id); err != nil {
 			return err
 		}

@@ -4,12 +4,13 @@ import (
 	"path/filepath"
 
 	"github.com/SigmaUno/subspace/internal/incident"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 func init() { registerMount(mountIncident) }
 
 func mountIncident(d Deps) {
-	if !incident.SupportsSQL(d.Ctx, d.Store) {
+	if !store.SupportsSQL(d.Ctx, d.Store) {
 		d.Log.Error("incident mode disabled", "err", "store does not support SQL extensions")
 		return
 	}

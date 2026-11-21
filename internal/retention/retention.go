@@ -18,13 +18,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("retention: store transaction does not expose SQL")
-
 type Maintainer interface {
 	SetAutocheckpoint(ctx context.Context, pages int) error
 	Checkpoint(ctx context.Context, truncate bool) (int, error)
@@ -154,7 +147,7 @@ func (s *Service) Status(ctx context.Context) (*Status, error) {
 		return nil, err
 	}
 	var anchor model.AuditHead
-	err = s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) (e error) { anchor, e = auditAnchor(q); return }))
+	err = s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) (e error) { anchor, e = auditAnchor(q); return }))
 	if err != nil {
 		return nil, err
 	}
@@ -213,7 +206,7 @@ func (s *Service) archiveNext(ctx context.Context, k Kind, cutoff time.Time) (*S
 		seq    int64
 		anchor model.AuditHead
 	)
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		if seq, err = scalar(q, `SELECT COALESCE(MAX(seq), 0) + 1 FROM retention_segments WHERE kind = ?`, string(k)); err != nil {
 			return err
@@ -262,7 +255,7 @@ func (s *Service) archiveNext(ctx context.Context, k Kind, cutoff time.Time) (*S
 	if err := s.step("written"); err != nil {
 		return nil, err
 	}
-	err = s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err = s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if _, err := q.Exec(`INSERT INTO retention_segments(kind, seq, file, row_count, bytes, sha256, cutoff, first_id, last_id,
 			prev_hash, last_hash, status, created_at, updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			string(seg.Kind), seg.Seq, seg.File, seg.Rows, seg.Bytes, seg.SHA256, seg.Cutoff.UnixMilli(), seg.FirstID, seg.LastID,
@@ -310,7 +303,7 @@ func (s *Service) prune(ctx context.Context, seg Segment) error {
 	cutoff := seg.Cutoff.UnixMilli()
 	for i := 0; i < len(rows); i += s.pol.Batch {
 		chunk := rows[i:min(i+s.pol.Batch, len(rows))]
-		err := s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+		err := s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 			for _, r := range chunk {
 				args := make([]any, 0, len(sp.keys)+1)
 				for _, k := range sp.keys {
@@ -329,7 +322,7 @@ func (s *Service) prune(ctx context.Context, seg Segment) error {
 			return err
 		}
 	}
-	return s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		_, err := q.Exec(`UPDATE retention_segments SET status = ?, updated_at = ? WHERE id = ?`,
 			StatusArchived, s.now().UTC().UnixMilli(), seg.ID)
 		return err
@@ -373,7 +366,7 @@ func (s *Service) Restore(ctx context.Context, id int64) (*Segment, error) {
 	table := specs[seg.Kind].table
 	for i := 0; i < len(rows); i += s.pol.Batch {
 		chunk := rows[i:min(i+s.pol.Batch, len(rows))]
-		err := s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+		err := s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 			for _, r := range chunk {
 				cols := make([]string, 0, len(r))
 				for c := range r {
@@ -397,7 +390,7 @@ func (s *Service) Restore(ctx context.Context, id int64) (*Segment, error) {
 		}
 	}
 	now := s.now().UTC()
-	err = s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err = s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if _, err := q.Exec(`UPDATE retention_segments SET status = ?, updated_at = ? WHERE id = ?`, StatusRestored, now.UnixMilli(), seg.ID); err != nil {
 			return err
 		}
@@ -444,17 +437,7 @@ func (s *Service) maintain(ctx context.Context, rep *Report) error {
 	return nil
 }
 
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
-func scalar(q sqlTx, query string, args ...any) (int64, error) {
+func scalar(q store.SQL, query string, args ...any) (int64, error) {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return 0, err
@@ -470,7 +453,7 @@ func scalar(q sqlTx, query string, args ...any) (int64, error) {
 	return n, rows.Err()
 }
 
-func queryRows(q sqlTx, query string, args ...any) ([]row, error) {
+func queryRows(q store.SQL, query string, args ...any) ([]row, error) {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return nil, err
@@ -499,7 +482,7 @@ func queryRows(q sqlTx, query string, args ...any) ([]row, error) {
 	return out, rows.Err()
 }
 
-func auditAnchor(q sqlTx) (model.AuditHead, error) {
+func auditAnchor(q store.SQL) (model.AuditHead, error) {
 	rows, err := q.Query(`SELECT last_id, last_hash FROM retention_segments
 		WHERE kind = 'audit' AND status IN ('pending', 'archived') ORDER BY last_id DESC LIMIT 1`)
 	if err != nil {
@@ -519,7 +502,7 @@ const segmentCols = `id, kind, seq, file, row_count, bytes, sha256, cutoff, firs
 
 func listSegments(ctx context.Context, st store.Store) ([]Segment, error) {
 	out := []Segment{}
-	err := st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT ` + segmentCols + ` FROM retention_segments ORDER BY kind, seq`)
 		if err != nil {
 			return err

@@ -6,6 +6,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/gateway"
 	"github.com/SigmaUno/subspace/internal/netguard"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
@@ -27,7 +28,7 @@ func gatewayCommands(raw string) []string {
 }
 
 func mountGateways(d Deps) {
-	if !gateway.SupportsSQL(d.Ctx, d.Store) {
+	if !store.SupportsSQL(d.Ctx, d.Store) {
 		d.Log.Error("mcp gateways disabled", "err", "store does not support SQL extensions")
 		return
 	}

@@ -64,28 +64,11 @@ type Store interface {
 	Requeue(ctx context.Context, subID, id string, now time.Time, audit AuditFn) (*Delivery, error)
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("webhookout: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
 type SQLStore struct{ st store.Store }
 
 func NewSQLStore(st store.Store) *SQLStore { return &SQLStore{st: st} }
 
-func count(q sqlTx, query string, args ...any) (int, error) {
+func count(q store.SQL, query string, args ...any) (int, error) {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return 0, err
@@ -105,7 +88,7 @@ func (s *SQLStore) CreateSub(ctx context.Context, sub *Subscription, max int, au
 	if err != nil {
 		return err
 	}
-	return s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		n, err := count(q, `SELECT COUNT(*) FROM outbound_webhooks`)
 		if err != nil {
 			return err
@@ -148,7 +131,7 @@ func scanSub(rows *sql.Rows) (*Subscription, error) {
 
 func (s *SQLStore) subs(ctx context.Context, where string, args ...any) ([]*Subscription, error) {
 	var out []*Subscription
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+subCols+` FROM outbound_webhooks s `+where, args...)
 		if err != nil {
 			return err
@@ -182,7 +165,7 @@ func (s *SQLStore) GetSub(ctx context.Context, id string) (*Subscription, error)
 }
 
 func (s *SQLStore) DeleteSub(ctx context.Context, id string, audit AuditFn) error {
-	return s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		res, err := q.Exec(`DELETE FROM outbound_webhooks WHERE id = ?`, id)
 		if err != nil {
 			return err
@@ -198,7 +181,7 @@ func (s *SQLStore) DeleteSub(ctx context.Context, id string, audit AuditFn) erro
 }
 
 func (s *SQLStore) Enqueue(ctx context.Context, d *Delivery, build func(id string) string, maxPending int) error {
-	return s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		exists, err := count(q, `SELECT COUNT(*) FROM outbound_webhooks WHERE id = ?`, d.WebhookID)
 		if err != nil {
 			return err
@@ -266,7 +249,7 @@ func scanDelivery(rows *sql.Rows, extra ...any) (*Delivery, error) {
 
 func (s *SQLStore) Due(ctx context.Context, now time.Time, limit int) ([]*Due, error) {
 	var out []*Due
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+delCols+`, s.url, s.secret FROM outbound_webhook_deliveries d JOIN outbound_webhooks s ON s.id = d.webhook_id
 			WHERE d.state = 'pending' AND d.next_at <= ? ORDER BY d.next_at, length(d.id), d.id LIMIT ?`, now.UnixMilli(), limit)
 		if err != nil {
@@ -292,7 +275,7 @@ func (s *SQLStore) Complete(ctx context.Context, d *Delivery, keep int) error {
 	if d.LastStatus != nil {
 		status = *d.LastStatus
 	}
-	return s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		res, err := q.Exec(`UPDATE outbound_webhook_deliveries SET state = ?, attempts = ?, next_at = ?, last_status = ?, last_error = ?, updated_at = ?, delivered_at = ?
 			WHERE id = ? AND state = 'pending'`,
 			d.State, d.Attempts, nextMS(d.NextAttemptAt), status, d.LastError, d.UpdatedAt.UnixMilli(), msPtr(d.DeliveredAt), d.ID)
@@ -327,7 +310,7 @@ func (s *SQLStore) Deliveries(ctx context.Context, subID, state string, limit in
 	}
 	args = append(args, limit)
 	out := []*Delivery{}
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+delCols+` FROM outbound_webhook_deliveries d `+query+` ORDER BY length(d.id) DESC, d.id DESC LIMIT ?`, args...)
 		if err != nil {
 			return err
@@ -347,7 +330,7 @@ func (s *SQLStore) Deliveries(ctx context.Context, subID, state string, limit in
 
 func (s *SQLStore) Requeue(ctx context.Context, subID, id string, now time.Time, audit AuditFn) (*Delivery, error) {
 	var out *Delivery
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+delCols+` FROM outbound_webhook_deliveries d WHERE d.id = ? AND d.webhook_id = ?`, id, subID)
 		if err != nil {
 			return err

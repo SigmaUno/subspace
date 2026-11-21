@@ -3,7 +3,6 @@ package transcript
 import (
 	"context"
 	"database/sql"
-	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/model"
@@ -64,23 +63,6 @@ type Segment struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("transcript: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
 func scanSegments(rows *sql.Rows) ([]Segment, error) {
 	defer func() { _ = rows.Close() }()
 	var out []Segment
@@ -99,7 +81,7 @@ func scanSegments(rows *sql.Rows) ([]Segment, error) {
 	return out, rows.Err()
 }
 
-func scalar(q sqlTx, query string, args ...any) (int64, error) {
+func scalar(q store.SQL, query string, args ...any) (int64, error) {
 	rows, err := q.Query(query, args...)
 	if err != nil {
 		return 0, err
@@ -116,7 +98,7 @@ func scalar(q sqlTx, query string, args ...any) (int64, error) {
 
 func loadHead(ctx context.Context, st store.Store, task string) (int64, error) {
 	var n int64
-	err := st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) (e error) {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) (e error) {
 		n, e = scalar(q, `SELECT next_offset FROM task_transcript_heads WHERE task_id = ?`, task)
 		return
 	}))
@@ -124,7 +106,7 @@ func loadHead(ctx context.Context, st store.Store, task string) (int64, error) {
 }
 
 func insertSegment(ctx context.Context, st store.Store, seg *Segment) error {
-	return st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	return st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		if _, err := q.Exec(`INSERT INTO task_transcripts(`+insertCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`,
 			seg.TaskID, seg.BriefID, seg.FirstOffset, seg.LastOffset, seg.Lines, seg.RawBytes, seg.Bytes, seg.SHA256, seg.File,
 			seg.FirstTS.UnixMilli(), seg.LastTS.UnixMilli(), seg.CreatedAt.UnixMilli()); err != nil {
@@ -143,7 +125,7 @@ func insertSegment(ctx context.Context, st store.Store, seg *Segment) error {
 
 func taskSegments(ctx context.Context, st store.Store, task string, after int64) ([]Segment, error) {
 	var out []Segment
-	err := st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+segmentCols+` FROM task_transcripts WHERE task_id = ? AND last_offset > ? ORDER BY first_offset`, task, after)
 		if err != nil {
 			return err
@@ -156,7 +138,7 @@ func taskSegments(ctx context.Context, st store.Store, task string, after int64)
 
 func briefSegments(ctx context.Context, st store.Store, brief string) ([]Segment, error) {
 	var out []Segment
-	err := st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT `+segmentCols+` FROM task_transcripts WHERE brief_id = ? ORDER BY created_at, id`, brief)
 		if err != nil {
 			return err
@@ -168,7 +150,7 @@ func briefSegments(ctx context.Context, st store.Store, brief string) ([]Segment
 }
 
 func deleteSegments(ctx context.Context, st store.Store, segs []Segment, reason string, at time.Time) error {
-	return st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		for _, s := range segs {
 			if _, err := q.Exec(`DELETE FROM task_transcripts WHERE id = ?`, s.ID); err != nil {
 				return err
@@ -197,7 +179,7 @@ type Stats struct {
 
 func taskStats(ctx context.Context, st store.Store, task string) (Stats, error) {
 	var s Stats
-	err := st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		rows, err := q.Query(`SELECT COUNT(*), COALESCE(SUM(line_count), 0), COALESCE(SUM(bytes), 0), COALESCE(MIN(first_offset), 0),
 			COALESCE(MAX(last_offset), 0), COALESCE(MIN(first_ts), 0), COALESCE(MAX(last_ts), 0) FROM task_transcripts WHERE task_id = ?`, task)
 		if err != nil {

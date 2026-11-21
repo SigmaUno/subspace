@@ -93,7 +93,7 @@ func (s *Service) Publish(ctx context.Context, in Input) (Announcement, int, err
 		e := in.ExpiresAt.UTC()
 		a.ExpiresAt = &e
 	}
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if err := insert(t, q, &a); err != nil {
 			return err
 		}
@@ -118,7 +118,7 @@ func (s *Service) Publish(ctx context.Context, in Input) (Announcement, int, err
 
 func (s *Service) List(ctx context.Context, all bool) ([]Announcement, error) {
 	var out []Announcement
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		if all {
 			out, err = query(q, `ORDER BY created_at DESC, length(id) DESC, id DESC`)
@@ -131,7 +131,7 @@ func (s *Service) List(ctx context.Context, all bool) ([]Announcement, error) {
 }
 
 func (s *Service) Delete(ctx context.Context, id string) error {
-	return s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		if err := remove(q, id); err != nil {
 			return err
 		}
@@ -141,7 +141,7 @@ func (s *Service) Delete(ctx context.Context, id string) error {
 
 func (s *Service) For(ctx context.Context, agentID string) ([]Announcement, error) {
 	var rows []Announcement
-	err := s.st.View(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
+	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		var err error
 		rows, err = query(q, `WHERE expires_at=0 OR expires_at>? ORDER BY created_at DESC, length(id) DESC, id DESC LIMIT ?`,
 			s.now().UnixMilli(), scanLimit)

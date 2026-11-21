@@ -2,9 +2,7 @@ package drill
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -37,32 +35,8 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "restore_drills")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("drill: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
-func SupportsSQL(ctx context.Context, st store.Store) bool {
-	ok := false
-	_ = st.View(ctx, func(tx store.Tx) error {
-		_, ok = tx.(sqlTx)
-		return nil
-	})
-	return ok
-}
-
 func query(tx store.Tx, tail string, args ...any) ([]*Result, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +66,7 @@ func query(tx store.Tx, tail string, args ...any) ([]*Result, error) {
 }
 
 func insert(tx store.Tx, r *Result) error {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return err
 	}

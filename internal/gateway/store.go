@@ -2,9 +2,7 @@ package gateway
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"time"
 
@@ -32,30 +30,6 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "mcp_gateways")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("gateway: store transaction does not expose SQL")
-
-func sqlOf(tx store.Tx) (sqlTx, error) {
-	q, ok := tx.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
-func SupportsSQL(ctx context.Context, st store.Store) bool {
-	ok := false
-	_ = st.View(ctx, func(tx store.Tx) error {
-		_, ok = tx.(sqlTx)
-		return nil
-	})
-	return ok
-}
-
 type Store struct {
 	St       store.Store
 	Now      func() time.Time
@@ -70,7 +44,7 @@ func (s *Store) now() time.Time {
 }
 
 func query(tx store.Tx, where string, args ...any) ([]Gateway, error) {
-	q, err := sqlOf(tx)
+	q, err := store.SQLOf(tx)
 	if err != nil {
 		return nil, err
 	}
@@ -179,7 +153,7 @@ func (s *Store) Create(ctx context.Context, g Gateway) (Gateway, error) {
 		} else if len(gs) > 0 {
 			return model.Conflict("gateway %s already exists", g.Name)
 		}
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}
@@ -211,7 +185,7 @@ func (s *Store) Update(ctx context.Context, name string, g Gateway) (Gateway, er
 		if err != nil {
 			return err
 		}
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}
@@ -230,7 +204,7 @@ func (s *Store) Delete(ctx context.Context, name string) error {
 		if err != nil {
 			return err
 		}
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}

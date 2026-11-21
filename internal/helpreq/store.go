@@ -2,7 +2,6 @@ package helpreq
 
 import (
 	"context"
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -42,24 +41,7 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "help_requests")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("helpreq: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
-func insert(t store.Tx, q sqlTx, r *Request) error {
+func insert(t store.Tx, q store.SQL, r *Request) error {
 	id, err := t.NextID("HR")
 	if err != nil {
 		return err
@@ -77,7 +59,7 @@ func insert(t store.Tx, q sqlTx, r *Request) error {
 	return nil
 }
 
-func query(q sqlTx, where string, args ...any) ([]*Request, error) {
+func query(q store.SQL, where string, args ...any) ([]*Request, error) {
 	rows, err := q.Query(`SELECT `+cols+` FROM help_requests `+where, args...)
 	if err != nil {
 		return nil, err
@@ -107,7 +89,7 @@ func query(q sqlTx, where string, args ...any) ([]*Request, error) {
 	return out, rows.Err()
 }
 
-func get(q sqlTx, id string) (*Request, error) {
+func get(q store.SQL, id string) (*Request, error) {
 	rs, err := query(q, `WHERE id=?`, id)
 	if err != nil {
 		return nil, err
@@ -118,7 +100,7 @@ func get(q sqlTx, id string) (*Request, error) {
 	return rs[0], nil
 }
 
-func setStatus(q sqlTx, id, from, to string) error {
+func setStatus(q store.SQL, id, from, to string) error {
 	res, err := q.Exec(`UPDATE help_requests SET status=? WHERE id=? AND status=?`, to, id, from)
 	if err != nil {
 		return err
@@ -143,10 +125,10 @@ func nzStrings(s []string) []string {
 	return s
 }
 
-func (s *Service) atomic(ctx context.Context, fn func(store.Tx, sqlTx) error) error {
-	return s.st.Atomic(ctx, withSQL(fn))
+func (s *Service) atomic(ctx context.Context, fn func(store.Tx, store.SQL) error) error {
+	return s.st.Atomic(ctx, store.WithSQL(fn))
 }
 
-func (s *Service) view(ctx context.Context, fn func(store.Tx, sqlTx) error) error {
-	return s.st.View(ctx, withSQL(fn))
+func (s *Service) view(ctx context.Context, fn func(store.Tx, store.SQL) error) error {
+	return s.st.View(ctx, store.WithSQL(fn))
 }

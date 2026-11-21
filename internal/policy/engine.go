@@ -36,7 +36,7 @@ func (c *cache) current(t store.Tx) ([]*Compiled, error) {
 	if c.loaded && c.rev == rev {
 		return c.set, nil
 	}
-	q, err := sqlOf(t)
+	q, err := store.SQLOf(t)
 	if err != nil {
 		return nil, err
 	}
@@ -101,7 +101,7 @@ func (s *Service) Evaluate(tx store.Tx, breq *board.PolicyRequest) (*board.Polic
 		v.Deny = &model.Error{Code: board.CodePolicyDenied, Message: "denied by policy: " + res.Message, Details: denyDetails(res)}
 		return v, nil
 	case OutcomeHold:
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return nil, err
 		}
@@ -157,7 +157,7 @@ func (s *Service) Settle(ctx context.Context, _ *board.PolicyRequest, v *board.P
 		d.BriefID = req.Brief.ID
 	}
 	var hold *Hold
-	err := s.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
 		hold = nil
 		if v.Hold {
 			h, err := s.ensureHold(t, q, st)
@@ -181,7 +181,7 @@ func (s *Service) Settle(ctx context.Context, _ *board.PolicyRequest, v *board.P
 		Details: map[string]any{"hold_id": hold.ID, "expires_at": hold.ExpiresAt}}
 }
 
-func (s *Service) ensureHold(t store.Tx, q sqlTx, st *settleState) (*Hold, error) {
+func (s *Service) ensureHold(t store.Tx, q store.SQL, st *settleState) (*Hold, error) {
 	if st.holdID != "" {
 		h, err := getHold(q, st.holdID)
 		if err == nil && h.Status == HoldPending {

@@ -51,23 +51,6 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "schedules", "schedule_runs")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("schedule: store transaction does not expose SQL")
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, ok := t.(sqlTx)
-		if !ok {
-			return errNoSQL
-		}
-		return fn(t, q)
-	}
-}
-
 type specJSON struct {
 	Brief   *BriefSpec `json:"brief"`
 	BriefID string     `json:"brief_id"`
@@ -90,7 +73,7 @@ func flag(b bool) int {
 	return 0
 }
 
-func insert(t store.Tx, q sqlTx, s *Schedule) error {
+func insert(t store.Tx, q store.SQL, s *Schedule) error {
 	id, err := t.NextID("SC")
 	if err != nil {
 		return err
@@ -108,7 +91,7 @@ func insert(t store.Tx, q sqlTx, s *Schedule) error {
 	return nil
 }
 
-func update(q sqlTx, s *Schedule) error {
+func update(q store.SQL, s *Schedule) error {
 	spec, err := json.Marshal(specJSON{Brief: s.Brief, BriefID: s.BriefID, Tasks: s.Tasks})
 	if err != nil {
 		return err
@@ -128,7 +111,7 @@ func requireRow(res sql.Result, id string) error {
 	return nil
 }
 
-func remove(q sqlTx, id string) error {
+func remove(q store.SQL, id string) error {
 	if _, err := q.Exec(`DELETE FROM schedule_runs WHERE schedule_id=?`, id); err != nil {
 		return err
 	}
@@ -139,7 +122,7 @@ func remove(q sqlTx, id string) error {
 	return requireRow(res, id)
 }
 
-func count(q sqlTx) (int, error) {
+func count(q store.SQL) (int, error) {
 	rows, err := q.Query(`SELECT COUNT(*) FROM schedules`)
 	if err != nil {
 		return 0, err
@@ -152,7 +135,7 @@ func count(q sqlTx) (int, error) {
 	return n, errors.Join(err, rows.Err())
 }
 
-func query(q sqlTx, where string, args ...any) ([]*Schedule, error) {
+func query(q store.SQL, where string, args ...any) ([]*Schedule, error) {
 	rows, err := q.Query(`SELECT `+scheduleCols+` FROM schedules s `+where, args...)
 	if err != nil {
 		return nil, err
@@ -189,11 +172,11 @@ func query(q sqlTx, where string, args ...any) ([]*Schedule, error) {
 	return out, rows.Err()
 }
 
-func list(q sqlTx) ([]*Schedule, error) {
+func list(q store.SQL) ([]*Schedule, error) {
 	return query(q, `ORDER BY s.created_at, length(s.id), s.id`)
 }
 
-func get(q sqlTx, id string) (*Schedule, error) {
+func get(q store.SQL, id string) (*Schedule, error) {
 	out, err := query(q, `WHERE s.id=?`, id)
 	if err != nil {
 		return nil, err
@@ -204,7 +187,7 @@ func get(q sqlTx, id string) (*Schedule, error) {
 	return out[0], nil
 }
 
-func queryRuns(q sqlTx, where string, args ...any) ([]Run, error) {
+func queryRuns(q store.SQL, where string, args ...any) ([]Run, error) {
 	rows, err := q.Query(`SELECT `+runCols+` FROM schedule_runs `+where, args...)
 	if err != nil {
 		return nil, err
@@ -233,11 +216,11 @@ func queryRuns(q sqlTx, where string, args ...any) ([]Run, error) {
 	return out, rows.Err()
 }
 
-func runs(q sqlTx, id string, limit int) ([]Run, error) {
+func runs(q store.SQL, id string, limit int) ([]Run, error) {
 	return queryRuns(q, `WHERE schedule_id=? ORDER BY instant DESC LIMIT ?`, id, limit)
 }
 
-func claim(q sqlTx, s *Schedule, instant, now time.Time, status string, missed int, detail string) (bool, error) {
+func claim(q store.SQL, s *Schedule, instant, now time.Time, status string, missed int, detail string) (bool, error) {
 	var finished int64
 	if status != RunRunning {
 		finished = millis(now)
@@ -255,7 +238,7 @@ func claim(q sqlTx, s *Schedule, instant, now time.Time, status string, missed i
 	return n > 0, err
 }
 
-func finish(q sqlTx, id string, instant, now time.Time, status, detail, briefID string, taskIDs []string) error {
+func finish(q store.SQL, id string, instant, now time.Time, status, detail, briefID string, taskIDs []string) error {
 	ids, err := json.Marshal(append([]string{}, taskIDs...))
 	if err != nil {
 		return err
@@ -265,7 +248,7 @@ func finish(q sqlTx, id string, instant, now time.Time, status, detail, briefID 
 	return err
 }
 
-func interrupt(q sqlTx, now time.Time) (int64, error) {
+func interrupt(q store.SQL, now time.Time) (int64, error) {
 	res, err := q.Exec(`UPDATE schedule_runs SET status=?,detail=?,finished_at=? WHERE status=?`,
 		RunInterrupted, "the server stopped before the run finished", millis(now), RunRunning)
 	if err != nil {

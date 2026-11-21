@@ -1,7 +1,6 @@
 package policy
 
 import (
-	"database/sql"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -75,31 +74,6 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "policies", "policy_versions", "policy_holds", "policy_decisions")
 }
 
-type sqlTx interface {
-	Exec(q string, args ...any) (sql.Result, error)
-	Query(q string, args ...any) (*sql.Rows, error)
-}
-
-var errNoSQL = errors.New("policy: store transaction does not expose SQL")
-
-func sqlOf(t store.Tx) (sqlTx, error) {
-	q, ok := t.(sqlTx)
-	if !ok {
-		return nil, errNoSQL
-	}
-	return q, nil
-}
-
-func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
-	return func(t store.Tx) error {
-		q, err := sqlOf(t)
-		if err != nil {
-			return err
-		}
-		return fn(t, q)
-	}
-}
-
 func millis(t time.Time) int64 {
 	if t.IsZero() {
 		return 0
@@ -138,7 +112,7 @@ func bumpRev(t store.Tx) error {
 	return t.SetKV(revKey, strconv.FormatInt(n+1, 10))
 }
 
-func queryPolicies(q sqlTx, where string, args ...any) ([]*Policy, error) {
+func queryPolicies(q store.SQL, where string, args ...any) ([]*Policy, error) {
 	rows, err := q.Query(`SELECT `+policyCols+` FROM policies `+where, args...)
 	if err != nil {
 		return nil, err
@@ -165,11 +139,11 @@ func queryPolicies(q sqlTx, where string, args ...any) ([]*Policy, error) {
 	return out, rows.Err()
 }
 
-func listPolicies(q sqlTx) ([]*Policy, error) {
+func listPolicies(q store.SQL) ([]*Policy, error) {
 	return queryPolicies(q, `ORDER BY seq`)
 }
 
-func getPolicy(q sqlTx, id string) (*Policy, error) {
+func getPolicy(q store.SQL, id string) (*Policy, error) {
 	ps, err := queryPolicies(q, `WHERE id=?`, id)
 	if err != nil {
 		return nil, err
@@ -180,7 +154,7 @@ func getPolicy(q sqlTx, id string) (*Policy, error) {
 	return ps[0], nil
 }
 
-func countPolicies(q sqlTx) (int, error) {
+func countPolicies(q store.SQL) (int, error) {
 	rows, err := q.Query(`SELECT COUNT(*) FROM policies`)
 	if err != nil {
 		return 0, err
@@ -193,7 +167,7 @@ func countPolicies(q sqlTx) (int, error) {
 	return n, errors.Join(err, rows.Err())
 }
 
-func insertPolicy(t store.Tx, q sqlTx, p *Policy) error {
+func insertPolicy(t store.Tx, q store.SQL, p *Policy) error {
 	id, err := t.NextID("PO")
 	if err != nil {
 		return err
@@ -210,12 +184,12 @@ func insertPolicy(t store.Tx, q sqlTx, p *Policy) error {
 	return insertVersion(q, p, string(doc))
 }
 
-func insertVersion(q sqlTx, p *Policy, doc string) error {
+func insertVersion(q store.SQL, p *Policy, doc string) error {
 	_, err := q.Exec(`INSERT INTO policy_versions(policy_id,version,doc,created_at) VALUES(?,?,?,?)`, p.ID, p.Version, doc, millis(p.UpdatedAt))
 	return err
 }
 
-func updatePolicy(q sqlTx, p *Policy) error {
+func updatePolicy(q store.SQL, p *Policy) error {
 	doc, err := json.Marshal(p.Document)
 	if err != nil {
 		return err
@@ -231,7 +205,7 @@ func updatePolicy(q sqlTx, p *Policy) error {
 	return insertVersion(q, p, string(doc))
 }
 
-func deletePolicy(q sqlTx, id string) error {
+func deletePolicy(q store.SQL, id string) error {
 	if _, err := q.Exec(`DELETE FROM policy_versions WHERE policy_id=?`, id); err != nil {
 		return err
 	}
@@ -239,7 +213,7 @@ func deletePolicy(q sqlTx, id string) error {
 	return err
 }
 
-func listVersions(q sqlTx, id string) ([]Version, error) {
+func listVersions(q store.SQL, id string) ([]Version, error) {
 	rows, err := q.Query(`SELECT version,doc,created_at FROM policy_versions WHERE policy_id=? ORDER BY version DESC`, id)
 	if err != nil {
 		return nil, err
@@ -264,7 +238,7 @@ func listVersions(q sqlTx, id string) ([]Version, error) {
 	return out, rows.Err()
 }
 
-func queryHolds(q sqlTx, where string, args ...any) ([]*Hold, error) {
+func queryHolds(q store.SQL, where string, args ...any) ([]*Hold, error) {
 	rows, err := q.Query(`SELECT `+holdCols+` FROM policy_holds `+where, args...)
 	if err != nil {
 		return nil, err
@@ -293,7 +267,7 @@ func queryHolds(q sqlTx, where string, args ...any) ([]*Hold, error) {
 	return out, rows.Err()
 }
 
-func getHold(q sqlTx, id string) (*Hold, error) {
+func getHold(q store.SQL, id string) (*Hold, error) {
 	hs, err := queryHolds(q, `WHERE id=?`, id)
 	if err != nil {
 		return nil, err
@@ -304,7 +278,7 @@ func getHold(q sqlTx, id string) (*Hold, error) {
 	return hs[0], nil
 }
 
-func openHold(q sqlTx, key string) (*Hold, error) {
+func openHold(q store.SQL, key string) (*Hold, error) {
 	hs, err := queryHolds(q, `WHERE hold_key=? AND status IN (?,?) ORDER BY seq DESC LIMIT 1`, key, HoldPending, HoldApproved)
 	if err != nil || len(hs) == 0 {
 		return nil, err
@@ -312,7 +286,7 @@ func openHold(q sqlTx, key string) (*Hold, error) {
 	return hs[0], nil
 }
 
-func insertHold(t store.Tx, q sqlTx, h *Hold) error {
+func insertHold(t store.Tx, q store.SQL, h *Hold) error {
 	id, err := t.NextID("PH")
 	if err != nil {
 		return err
@@ -332,7 +306,7 @@ func insertHold(t store.Tx, q sqlTx, h *Hold) error {
 	return err
 }
 
-func setHold(q sqlTx, h *Hold) error {
+func setHold(q store.SQL, h *Hold) error {
 	_, err := q.Exec(`UPDATE policy_holds SET status=?,decided_at=?,note=?,result=? WHERE id=?`,
 		h.Status, millis(derefTime(h.DecidedAt)), h.Note, h.Result, h.ID)
 	return err
@@ -345,7 +319,7 @@ func derefTime(t *time.Time) time.Time {
 	return *t
 }
 
-func insertDecision(t store.Tx, q sqlTx, d *Decision) error {
+func insertDecision(t store.Tx, q store.SQL, d *Decision) error {
 	id, err := t.NextID("PD")
 	if err != nil {
 		return err
@@ -375,7 +349,7 @@ func insertDecision(t store.Tx, q sqlTx, d *Decision) error {
 	return err
 }
 
-func listDecisions(q sqlTx, f DecisionFilter) ([]*Decision, error) {
+func listDecisions(q store.SQL, f DecisionFilter) ([]*Decision, error) {
 	where, args := []string{}, []any{}
 	if f.Outcome != "" {
 		where, args = append(where, "outcome=?"), append(args, f.Outcome)

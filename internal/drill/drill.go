@@ -385,7 +385,7 @@ func (w *workspace) rowCounts(ctx context.Context) (string, error) {
 func countRows(ctx context.Context, st store.Store, table string) (int64, error) {
 	var n int64
 	err := st.View(ctx, func(tx store.Tx) error {
-		q, err := sqlOf(tx)
+		q, err := store.SQLOf(tx)
 		if err != nil {
 			return err
 		}

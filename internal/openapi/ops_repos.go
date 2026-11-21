@@ -13,6 +13,7 @@ type RepoInput struct {
 	MergeTestCommand  []string `json:"merge_test_command,omitempty"`
 	MergeWorkDir      string   `json:"merge_work_dir,omitempty"`
 	TokenEnv          string   `json:"token_env,omitempty"`
+	AgentTokenEnv     string   `json:"agent_token_env,omitempty"`
 	Enabled           *bool    `json:"enabled,omitempty"`
 }
 

@@ -38,8 +38,8 @@ func repoByName(name, method, suffix string) parser {
 }
 
 type repoFlags struct {
-	host, baseURL, branch, mergeTest, workDir, tokenEnv string
-	protect                                             listFlag
+	host, baseURL, branch, mergeTest, workDir, tokenEnv, agentTokenEnv string
+	protect                                                            listFlag
 }
 
 func (f *repoFlags) register(set *flag.FlagSet) {
@@ -50,6 +50,7 @@ func (f *repoFlags) register(set *flag.FlagSet) {
 	set.StringVar(&f.mergeTest, "merge-test", "", "merge queue test command, such as \"make test\"")
 	set.StringVar(&f.workDir, "merge-workdir", "", "absolute directory of the merge queue checkouts")
 	set.StringVar(&f.tokenEnv, "token-env", "", "name of the environment variable holding the host token")
+	set.StringVar(&f.agentTokenEnv, "agent-token-env", "", "name of the environment variable holding the push token handed to spawned agents")
 }
 
 func parseRepoAdd(args []string, _ io.Reader) (command, error) {
@@ -67,7 +68,7 @@ func parseRepoAdd(args []string, _ io.Reader) (command, error) {
 	return call(request{method: http.MethodPost, path: "repos", body: map[string]any{
 		"name": name, "host": f.host, "base_url": f.baseURL, "default_branch": f.branch,
 		"protected_branches": nonNil(f.protect), "merge_test_command": strings.Fields(f.mergeTest),
-		"merge_work_dir": f.workDir, "token_env": f.tokenEnv, "enabled": !*disabled,
+		"merge_work_dir": f.workDir, "token_env": f.tokenEnv, "agent_token_env": f.agentTokenEnv, "enabled": !*disabled,
 	}}), nil
 }
 
@@ -95,7 +96,7 @@ func parseRepoUpdate(args []string, _ io.Reader) (command, error) {
 			return fmt.Errorf("decode repository: %w", err)
 		}
 		body := map[string]any{}
-		for _, k := range []string{"name", "host", "base_url", "default_branch", "protected_branches", "merge_test_command", "merge_work_dir", "token_env", "enabled"} {
+		for _, k := range []string{"name", "host", "base_url", "default_branch", "protected_branches", "merge_test_command", "merge_work_dir", "token_env", "agent_token_env", "enabled"} {
 			body[k] = cur[k]
 		}
 		put := func(flagName, key string, v any) {
@@ -110,6 +111,7 @@ func parseRepoUpdate(args []string, _ io.Reader) (command, error) {
 		put("merge-test", "merge_test_command", strings.Fields(f.mergeTest))
 		put("merge-workdir", "merge_work_dir", f.workDir)
 		put("token-env", "token_env", f.tokenEnv)
+		put("agent-token-env", "agent_token_env", f.agentTokenEnv)
 		put("enabled", "enabled", *enabled)
 		out, err := c.do(ctx, request{method: http.MethodPut, path: "repos/" + name, body: body})
 		if err != nil {

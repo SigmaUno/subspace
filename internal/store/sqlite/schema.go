@@ -129,6 +129,9 @@ func BinarySchema() store.SchemaVersion {
 	}
 	units = append(units, auditHashDDL)
 	units = append(units, extraSchemas...)
+	for _, c := range extensionColumns {
+		units = append(units, c.ddl())
+	}
 	units = append(units, auditDeleteTrigger)
 	return store.SchemaOf(units...)
 }
@@ -196,6 +199,11 @@ func migrate(t *sql.Tx) error {
 	}
 	for _, ddl := range extraSchemas {
 		if _, err := t.Exec(ddl); err != nil {
+			return err
+		}
+	}
+	for _, c := range extensionColumns {
+		if err := addColumn(t, c); err != nil {
 			return err
 		}
 	}
@@ -267,4 +275,10 @@ var extraColumns []columnDef
 
 func RegisterColumn(table, column, def string) {
 	extraColumns = append(extraColumns, columnDef{table, column, def})
+}
+
+var extensionColumns []columnDef
+
+func RegisterExtensionColumn(table, column, def string) {
+	extensionColumns = append(extensionColumns, columnDef{table, column, def})
 }

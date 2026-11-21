@@ -528,7 +528,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/repos` | → `{"repos":[Repo]}` sorted by name. |
-| POST | `/api/v1/repos` | `{"name","host","base_url","default_branch","protected_branches":[],"merge_test_command":[],"merge_work_dir":"","token_env":"","enabled":true}` → Repo (201). 400 on invalid or unknown fields, 409 if the name exists (case-insensitive). |
+| POST | `/api/v1/repos` | `{"name","host","base_url","default_branch","protected_branches":[],"merge_test_command":[],"merge_work_dir":"","token_env":"","agent_token_env":"","enabled":true}` → Repo (201). 400 on invalid or unknown fields, 409 if the name exists (case-insensitive). |
 | GET | `/api/v1/repos/{owner}/{name}` | → Repo. 404 for an unknown repository. |
 | PUT | `/api/v1/repos/{owner}/{name}` | Same fields as create, replaces the repository → Repo. The name cannot change (400), 404 for an unknown repository. |
 | DELETE | `/api/v1/repos/{owner}/{name}` | → 204. 404 for an unknown repository. Existing tasks keep their `repo`. |
@@ -543,6 +543,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
  "merge_test_command":["make","test"],             // [] = the merge queue skips this repository
  "merge_work_dir":"/data/mergequeue",              // absolute path; "" = <db dir>/mergequeue
  "token_env":"GITHUB_TOKEN",                       // name of the environment variable holding the host token
+ "agent_token_env":"AGENT_GITHUB_TOKEN",           // name of the environment variable holding the bot token handed to spawned agents; "" = none
  "enabled":true,"created_at":"...","updated_at":"..."}
 
 // RepoHealth
@@ -553,6 +554,8 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
 ```
 
 `name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400, as is a `SUBSPACE_*` name unless it ends in `_GIT_TOKEN`, `_GITHUB_TOKEN` or `_FORGEJO_TOKEN` (server settings such as `SUBSPACE_OWNER_TOKEN` are never sent to a host), and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
+
+`agent_token_env` follows the same rules as `token_env` and must name a different variable: it holds a bot or fine-grained token limited to non-protected branches, never the server token. When `request_spawn` launches an agent for a brief with exactly one repository and that repository is enabled with `agent_token_env` set to a non-empty variable, the spawner request carries `SUBSPACE_GIT_TOKEN`, `SUBSPACE_GIT_URL`, `SUBSPACE_GIT_DEFAULT_BRANCH`, a `GIT_CONFIG_*` credential helper for the repository host that reads `SUBSPACE_GIT_TOKEN` (so plain `git push` works), and the host CLI login: `GH_TOKEN` (GitHub; `GH_HOST` and `GH_ENTERPRISE_TOKEN` for other hosts) or `GITEA_SERVER_URL` and `GITEA_SERVER_TOKEN` (Forgejo, used by `tea`). The values travel in the spawner's environment channel only (opencode: the env file on stdin, hc: process environment, docker: container environment), never in argv, and spawn errors, logs, audit events and API responses are scrubbed of them. Briefs with several repositories or none get no git credentials. The worker `get_instructions` FLOW tells the agent to push the task branch and open the PR against the default branch with `gh` or `tea`.
 
 `health` calls `GET /repos/{owner}/{name}` and `GET /repos/{owner}/{name}/branches/{default_branch}` on the host's API, with the token read from `token_env` in an `Authorization` header. `reachable` is false when the host does not answer; `token_hint` says whether a token is configured, accepted and able to write (from the host's `permissions`, plus the `X-OAuth-Scopes` of a GitHub classic token); `ok` needs a reachable host, no `error` and an existing default branch. Responses carry no token.
 

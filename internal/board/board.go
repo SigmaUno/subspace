@@ -67,6 +67,7 @@ type Board struct {
 	policy  Policy
 
 	repoCheck RepoCheck
+	repoCreds RepoCredentials
 	leak      LeakScanner
 
 	expiries map[string][]time.Time

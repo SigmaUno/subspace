@@ -81,10 +81,10 @@ func TestRegistryCRUD(t *testing.T) {
 	}
 	created := rest(t, e, 201, "POST", reposPath, repo("SigmaUno/subspace", map[string]any{
 		"host": "github", "base_url": "", "protected_branches": []string{"main", "release/*"},
-		"merge_test_command": []string{"make", "test"}, "merge_work_dir": "/data/mq/", "token_env": "GITHUB_TOKEN",
+		"merge_test_command": []string{"make", "test"}, "merge_work_dir": "/data/mq/", "token_env": "GITHUB_TOKEN", "agent_token_env": "SUBSPACE_AGENT_GITHUB_TOKEN",
 	}))
 	if created["base_url"] != "https://github.com" || created["default_branch"] != "main" || created["enabled"] != true ||
-		created["merge_work_dir"] != "/data/mq" || created["token_env"] != "GITHUB_TOKEN" {
+		created["merge_work_dir"] != "/data/mq" || created["token_env"] != "GITHUB_TOKEN" || created["agent_token_env"] != "SUBSPACE_AGENT_GITHUB_TOKEN" {
 		t.Fatalf("created = %v", created)
 	}
 	rest(t, e, 201, "POST", reposPath, repo("acme/api", map[string]any{"enabled": false}))
@@ -160,6 +160,9 @@ func TestRegistryValidation(t *testing.T) {
 		"owner token env":     repo("a/b", map[string]any{"token_env": "SUBSPACE_OWNER_TOKEN"}),
 		"action secret env":   repo("a/b", map[string]any{"token_env": "SUBSPACE_ACTION_SECRET"}),
 		"database env":        repo("a/b", map[string]any{"token_env": "SUBSPACE_DB"}),
+		"token as agent env":  repo("a/b", map[string]any{"agent_token_env": secret}),
+		"owner token agent":   repo("a/b", map[string]any{"agent_token_env": "SUBSPACE_OWNER_TOKEN"}),
+		"agent env is server": repo("a/b", map[string]any{"token_env": "FORGE_TOKEN", "agent_token_env": "FORGE_TOKEN"}),
 		"matches task branch": repo("a/b", map[string]any{"protected_branches": []string{"sub/*"}}),
 		"matches all":         repo("a/b", map[string]any{"protected_branches": []string{"**"}}),
 		"bad pattern":         repo("a/b", map[string]any{"protected_branches": []string{"a b"}}),

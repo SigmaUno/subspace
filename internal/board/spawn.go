@@ -288,7 +288,7 @@ func (b *Board) createSpawn(tx store.Tx, w *wctx, a model.Actor, br *model.Brief
 		return launch{}, err
 	}
 	w.spawn(sp)
-	return launch{sp, tok, ag}, nil
+	return launch{sp: sp, tok: tok, ag: ag, repo: soleRepo(br)}, nil
 }
 
 func (w *wctx) spawn(sp *model.Spawn) {
@@ -296,14 +296,26 @@ func (w *wctx) spawn(sp *model.Spawn) {
 	w.emit([]string{"agents", "brief:" + sp.BriefID}, "spawn.updated", &cp)
 }
 
+func soleRepo(br *model.Brief) string {
+	if len(br.Repos) == 1 {
+		return br.Repos[0]
+	}
+	return ""
+}
+
 func (b *Board) launch(ctx context.Context, l launch) *model.Spawn {
 	c := b.ConnectInfo(l.ag.ID, l.tok)
+	env, secret := b.agentCredentials(ctx, l.repo)
 	serr := b.o.Spawner.Spawn(ctx, spawner.Request{AgentID: l.ag.ID, Kind: l.ag.Kind, Model: l.ag.Model, Provider: l.ag.Provider,
-		JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok})
+		JoinLine: c.JoinLine, MCPURL: c.MCPURL, Token: l.tok, Env: env})
 	sp := *l.sp
 	ag := *l.ag
 	if serr != nil {
-		sp.Status, sp.Error = "failed", strp(serr.Error())
+		msg := serr.Error()
+		if secret != "" {
+			msg = strings.ReplaceAll(msg, secret, "[redacted]")
+		}
+		sp.Status, sp.Error = "failed", strp(msg)
 		ag.Status, ag.PauseReason = model.AgentRevoked, strp("spawn failed")
 	} else {
 		sp.Status = "spawned"
@@ -335,9 +347,10 @@ func (b *Board) launch(ctx context.Context, l launch) *model.Spawn {
 }
 
 type launch struct {
-	sp  *model.Spawn
-	tok string
-	ag  *model.Agent
+	sp   *model.Spawn
+	tok  string
+	ag   *model.Agent
+	repo string
 }
 
 func (b *Board) abandonSpawns(ctx context.Context, briefID string, ls []launch) {

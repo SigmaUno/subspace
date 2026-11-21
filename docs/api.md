@@ -16,6 +16,7 @@ the server changes, this file changes in the same PR.
 | `/mcp` | `Authorization: Bearer <agent token>` | One token per agent. The owner token is rejected here (403): owner actions are never reachable through MCP. |
 | `/healthz` | none | `{"status":"ok","version":"...","paused":false}` |
 | `POST /hooks/github`, `POST /hooks/forgejo` | HMAC signature (`X-Hub-Signature-256`; `X-Forgejo-Signature` / `X-Gitea-Signature`) | Mounted only when `SUBSPACE_WEBHOOK_SECRET_GITHUB` / `SUBSPACE_WEBHOOK_SECRET_FORGEJO` is set. Body ≤ 1 MiB, `*-Delivery` id required, replayed delivery ids → 202 without effect. |
+| `GET /a/{token}`, `POST /a/{token}` | signed one-time action token in the path | See Action links. Rate limited per client address. |
 
 Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashes are stored; the plaintext is returned exactly once (register / rotate). Comparison is constant-time.
 
@@ -394,6 +395,20 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
+
+When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
+
+### Action links
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/action-links` | `{"decision_id":"plan:P-1","action":"approve","option":0,"ttl":"30m"}` → `{"url":"https://.../a/<token>","expires_at":"..."}` (201). `action` is one of the decision's `actions` (see Decisions); `option` is the 0-based option index for `answer` and must be 0 otherwise; `ttl` from `1m` to `24h`, default `30m`. 404 for a decision that is not pending, 409 when the action is not available, the option does not exist or `SUBSPACE_PUBLIC_URL` is not https. |
+
+A token is `base64url(claims) "." base64url(HMAC-SHA256)`; the claims bind exactly one decision id, one action, the option, a random nonce and the expiry. The key is derived with HKDF-SHA256 from `SUBSPACE_ACTION_SECRET` (at least 24 bytes), or from the owner token when unset, so rotating either invalidates all links. Signatures are compared in constant time and tokens are never logged.
+
+- `GET /a/{token}` renders a confirmation page (decision title and summary, the action, the expiry) and never performs the action, so link previews and prefetchers are harmless. It sets a `Secure`, `HttpOnly`, `SameSite=Strict` cookie holding a per-render nonce that the form echoes together with its HMAC.
+- `POST /a/{token}` (form field `csrf`) checks the render nonce, records the token nonce as used, then runs the action through the same board methods as `POST /api/v1/decisions/{id}` as the owner; notes and reject reasons are `action-link`, `answer` answers with the option text, `skip` snoozes for 1h. If the action fails the nonce is released.
+- Responses are HTML with `Cache-Control: no-store` and `Referrer-Policy: no-referrer`: 200 confirmation or result, 403 missing or wrong render nonce, 404 malformed, tampered or expired token, 409 decision no longer pending (decided, snoozed or the action no longer allowed), 410 already used. Concurrent submits of the same link execute once.
+- `/a/` is rate limited per client address (`SUBSPACE_RATE_ACTIONLINK`, default `30/m:10`, `off` disables; the client address honours `SUBSPACE_TRUSTED_PROXIES`) and answers 429 `rate_limited` above it. Used nonces are kept in the `action_link_uses` table until their expiry.
 
 Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `prev_hash` is the previous event's hex hash (`""` for the first event) and `canonical` is the compact JSON `{"id","ts","agent_id","role","tool","task_id","before","after","note"}` in that order, with `ts` in Unix milliseconds, absent `task_id`/`note` as `""`, absent `before`/`after` as `null`, and object keys sorted.
 

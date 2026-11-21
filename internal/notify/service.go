@@ -36,6 +36,7 @@ type Config struct {
 	Clock     Clock
 	Jitter    func(n int64) int64
 	Log       *slog.Logger
+	Mint      Minter
 }
 
 type Stats struct {
@@ -140,6 +141,7 @@ func (s *Service) loop(ctx context.Context, sub events.Subscription) {
 			return cmp.Or(a.TS.Compare(b.TS), cmp.Compare(a.ID, b.ID))
 		})
 		for _, n := range batch {
+			n = withActions(n, s.cfg.Mint)
 			for _, l := range s.lanes {
 				l.enqueue(n)
 			}

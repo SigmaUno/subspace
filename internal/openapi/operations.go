@@ -5,8 +5,10 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/activity"
+	"github.com/SigmaUno/subspace/internal/agentout"
 	"github.com/SigmaUno/subspace/internal/agentstats"
 	"github.com/SigmaUno/subspace/internal/alerts"
+	"github.com/SigmaUno/subspace/internal/announce"
 	"github.com/SigmaUno/subspace/internal/artifacts"
 	"github.com/SigmaUno/subspace/internal/autopilot"
 	"github.com/SigmaUno/subspace/internal/backup"
@@ -34,10 +36,12 @@ import (
 	"github.com/SigmaUno/subspace/internal/quota"
 	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/report"
+	"github.com/SigmaUno/subspace/internal/retention"
 	"github.com/SigmaUno/subspace/internal/search"
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
 	"github.com/SigmaUno/subspace/internal/tokens"
+	"github.com/SigmaUno/subspace/internal/webhookout"
 )
 
 const (
@@ -118,6 +122,7 @@ var operations = []Op{
 	post("/api/v1/tasks/{id}/reopen", "Reopen a blocked, needs_owner or cancelled task", Reopen{}, model.Task{}),
 	post("/api/v1/tasks/bulk", "Apply one action to many tasks", BulkRequest{}, BulkResponse{}),
 	get("/api/v1/tasks/{id}/pr", "Latest pull request snapshot of a task", prsync.Status{}),
+	get("/api/v1/tasks/{id}/scope", "Scope report of the latest pull request snapshot of a task", prsync.ScopeStatus{}),
 	get("/api/v1/prs", "Pull request snapshots", list[prsync.Status]("prs")).Q("brief_id state limit:integer"),
 
 	get("/api/v1/agents", "List agents with their daily quota", list[Agent]("agents")).Q("role status"),
@@ -133,6 +138,8 @@ var operations = []Op{
 	put("/api/v1/agents/{id}/quota", "Replace the daily quota of an agent", quota.Quota{}, quota.Status{}),
 	post("/api/v1/agents/quota-bulk", "Apply one daily quota to many agents", QuotaBulk{}, QuotaBulkResponse{}),
 	get("/api/v1/agent-stats", "Performance statistics of every agent", list[agentstats.Stats]("agents")).Q("role"),
+	get("/api/v1/agents/{id}/output", "Buffered terminal output of an agent; without since the newest lines", agentout.Output{}).Q("since:integer limit:integer task_id"),
+	get("/api/v1/agent-output", "Newest output line of every active agent with buffered output", list[agentout.Latest]("agents")),
 
 	get("/api/v1/agent-profiles", "List agent profiles", list[profiles.Profile]("profiles")),
 	post("/api/v1/agent-profiles", "Create an agent profile", ProfileInput{}, profiles.Profile{}).S(created),
@@ -154,6 +161,13 @@ var operations = []Op{
 	get("/api/v1/breakers", "Provider circuit breakers", list[breaker.Status]("breakers")),
 	post("/api/v1/breakers/{provider}/reset", "Close the breakers of a provider", Free{}, list[breaker.Status]("breakers")),
 
+	post("/api/v1/webhooks-out", "Create an outbound webhook subscription; the secret is shown once", webhookout.CreateInput{}, webhookout.Created{}).S(created),
+	get("/api/v1/webhooks-out", "List outbound webhook subscriptions", list[webhookout.Subscription]("webhooks")),
+	get("/api/v1/webhooks-out/{id}", "Get an outbound webhook subscription", webhookout.Subscription{}),
+	del("/api/v1/webhooks-out/{id}", "Delete an outbound webhook subscription and its deliveries", nil).S(gone),
+	get("/api/v1/webhooks-out/{id}/deliveries", "Deliveries of an outbound webhook, newest first", list[webhookout.Delivery]("deliveries")).Q("state limit:integer"),
+	post("/api/v1/webhooks-out/{id}/deliveries/{delivery}/redeliver", "Queue a dead delivery again", Free{}, webhookout.Delivery{}),
+
 	get("/api/v1/audit", "Audit events", list[model.AuditEvent]("events")).Q("agent_id task_id tool since:integer limit:integer"),
 	get("/api/v1/audit/verify", "Verify the audit hash chain", model.AuditCheck{}),
 	get("/api/v1/audit/export", "Export the audit chain as newline-delimited JSON", "").Q("since:integer").As(mediaNDJSON),
@@ -162,6 +176,15 @@ var operations = []Op{
 	get("/api/v1/decisions/next", "Most urgent decision", obj("decision", &decisions.Decision{})),
 	post("/api/v1/decisions/{id}", "Act on a decision", DecisionAction{}, decisions.Outcome{}),
 	post("/api/v1/action-links", "Mint a one-time action link for a decision", ActionLinkRequest{}, obj("url", "", "expires_at", time.Time{})).S(created),
+
+	post("/api/v1/announcements", "Publish an announcement to every agent or the agents of a brief", announce.Input{}, obj("announcement", announce.Announcement{}, "delivered", 0)).S(created),
+	get("/api/v1/announcements", "List announcements, newest first", list[announce.Announcement]("announcements")).Q("status"),
+	del("/api/v1/announcements/{id}", "Delete an announcement", nil).S(gone),
+
+	get("/api/v1/retention", "Retention policy, archived segments and the last run", retention.Status{}),
+	post("/api/v1/retention/run", "Archive expired rows now", Free{}, retention.Report{}),
+	get("/api/v1/retention/verify", "Verify archived segments against their manifest and the audit chain", retention.Verification{}),
+	post("/api/v1/retention/segments/{id}/restore", "Restore the rows of an archived segment", Free{}, retention.Segment{}),
 
 	post("/api/v1/messages", "Send an owner message to an agent, brief or leader", chat.Message{}, chat.Conversation{}).S(created),
 	get("/api/v1/conversations", "List conversations", list[chat.Conversation]("conversations")),

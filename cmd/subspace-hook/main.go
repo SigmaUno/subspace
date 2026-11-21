@@ -150,7 +150,7 @@ func (h *hook) heartbeat(ctx context.Context, task string) error {
 
 func (h *hook) log(ctx context.Context, task, stream, text string) error {
 	if text == "" {
-		text = readPayload(ctx, h.stdin).logText()
+		text = readPayload(ctx, h.stdin, h.cfg.token).logText()
 	}
 	if text == "" {
 		return nil
@@ -172,7 +172,7 @@ func (h *hook) log(ctx context.Context, task, stream, text string) error {
 
 func (h *hook) status(ctx context.Context, task, status string, progress int, note string) error {
 	if note == "" {
-		note = readPayload(ctx, h.stdin).statusNote()
+		note = readPayload(ctx, h.stdin, h.cfg.token).statusNote()
 	}
 	if _, ok := h.lim.reserve("status"); !ok {
 		return nil
@@ -188,7 +188,7 @@ func (h *hook) status(ctx context.Context, task, status string, progress int, no
 	args := map[string]any{
 		"task_id": task,
 		"status":  status,
-		"note":    strings.ReplaceAll(clip(note, maxNote), h.cfg.token, redacted),
+		"note":    clip(strings.ReplaceAll(note, h.cfg.token, redacted), maxNote),
 	}
 	if progress >= 0 {
 		args["progress_pct"] = progress
@@ -198,7 +198,7 @@ func (h *hook) status(ctx context.Context, task, status string, progress int, no
 
 func (h *hook) note(ctx context.Context, task, text string) error {
 	if text == "" {
-		text = readPayload(ctx, h.stdin).noteText()
+		text = readPayload(ctx, h.stdin, h.cfg.token).noteText()
 	}
 	if text == "" {
 		return nil
@@ -206,7 +206,7 @@ func (h *hook) note(ctx context.Context, task, text string) error {
 	if _, ok := h.lim.reserve("note"); !ok {
 		return nil
 	}
-	_, err := h.client().AddNote(ctx, task, strings.ReplaceAll(clip(text, maxNote), h.cfg.token, redacted))
+	_, err := h.client().AddNote(ctx, task, clip(strings.ReplaceAll(text, h.cfg.token, redacted), maxNote))
 	return err
 }
 

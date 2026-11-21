@@ -132,7 +132,7 @@ func (o Op) Tag() string {
 		return "system"
 	}
 	switch seg {
-	case "healthz", "state", "pause-all", "resume-all", "charter", "backup", "backups", "limits", "metrics", "events", "openapi.json":
+	case "healthz", "readyz", "state", "pause-all", "resume-all", "charter", "backup", "backups", "limits", "metrics", "events", "openapi.json":
 		return "system"
 	case "a":
 		return "action-links"

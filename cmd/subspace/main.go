@@ -33,6 +33,15 @@ func dur(k, def string) time.Duration {
 	return d
 }
 
+func boolean(k string) bool {
+	v, err := strconv.ParseBool(env(k, "false"))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "invalid boolean in %s\n", k)
+		os.Exit(2)
+	}
+	return v
+}
+
 func ownerToken() (string, error) {
 	tok := os.Getenv("SUBSPACE_OWNER_TOKEN")
 	if f := os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"); f != "" {
@@ -93,6 +102,7 @@ func main() {
 		Lease: dur("SUBSPACE_LEASE", "15m"), PoisonExpiries: count("SUBSPACE_POISON_EXPIRIES", board.DefaultPoisonExpiries), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: count("SUBSPACE_BACKUP_KEEP", 14), DataDir: os.Getenv("SUBSPACE_DATA_DIR"),
 		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), ConfigFile: os.Getenv("SUBSPACE_CONFIG_FILE"), Log: log, LogPipe: pipe,
+		DrainDelay: dur("SUBSPACE_DRAIN_DELAY", "0s"), SchemaReadOnly: boolean("SUBSPACE_SCHEMA_READONLY"),
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

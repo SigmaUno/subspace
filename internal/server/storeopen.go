@@ -13,11 +13,11 @@ func isPostgres(db string) bool {
 	return strings.HasPrefix(db, "postgres://") || strings.HasPrefix(db, "postgresql://")
 }
 
-func openStore(db string) (store.Store, error) {
+func openStore(db string, o store.OpenOptions) (store.Store, error) {
 	if isPostgres(db) {
-		return postgres.Open(db)
+		return postgres.OpenWith(db, o)
 	}
-	return sqlite.Open(db)
+	return sqlite.OpenWith(db, o)
 }
 
 func backupVerifier(db string) func(context.Context, string) error {

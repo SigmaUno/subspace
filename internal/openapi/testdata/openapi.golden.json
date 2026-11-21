@@ -17674,6 +17674,25 @@
           "mcp"
         ]
       }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadyz",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Readiness: 200 while this instance takes traffic, 503 with an empty body while it migrates, drains or runs read-only",
+        "tags": [
+          "system"
+        ]
+      }
     }
   },
   "security": [

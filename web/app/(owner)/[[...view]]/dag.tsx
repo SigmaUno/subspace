@@ -6,68 +6,22 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardE
 import { label, optionalResource, useResource } from "../../../lib/client";
 import type { BriefReport } from "../../../lib/report-types";
 import { statuses, type Board, type Task } from "../../../lib/types";
-import { defaultOptions, layoutDag, type Layout, type Point } from "./dag-layout";
+import { defaultOptions, layoutDag, type Layout } from "../../../lib/dag-layout";
+import { criticalEdgeKeys, curve, detailAt, fitView, isHot, shorten, zoomAt, type Size, type View } from "../../../lib/dag-view";
 import { useLive } from "./live";
 import { PageShell } from "./shell";
 import { EmptyState, ResourceState } from "./states";
 
-interface View {
-  x: number;
-  y: number;
-  k: number;
-}
-
-interface Size {
-  w: number;
-  h: number;
-}
-
-const minZoom = 0.04;
-const maxZoom = 3;
 const dragThreshold = 4;
 const ringRadius = 12;
 const ringLength = 2 * Math.PI * ringRadius;
-
-const clampZoom = (k: number) => Math.min(maxZoom, Math.max(minZoom, k));
-
-function fitView(layout: Layout, size: Size): View {
-  const pad = 24;
-  const k = clampZoom(Math.min(1, (size.w - 2 * pad) / Math.max(layout.width, 1), (size.h - 2 * pad) / Math.max(layout.height, 1)));
-  return { k, x: (size.w - layout.width * k) / 2, y: (size.h - layout.height * k) / 2 };
-}
-
-function zoomAt(view: View, px: number, py: number, factor: number): View {
-  const k = clampZoom(view.k * factor);
-  const ratio = k / view.k;
-  return { k, x: px - (px - view.x) * ratio, y: py - (py - view.y) * ratio };
-}
-
-function curve(points: Point[]) {
-  let d = `M ${points[0].x} ${points[0].y}`;
-  for (let i = 1; i < points.length; i++) {
-    const from = points[i - 1];
-    const to = points[i];
-    const half = (to.x - from.x) / 2;
-    d += ` C ${from.x + half} ${from.y} ${to.x - half} ${to.y} ${to.x} ${to.y}`;
-  }
-  return d;
-}
-
-function detailAt(k: number) {
-  if (k < 0.35) return 0;
-  return k < 0.8 ? 1 : 2;
-}
-
-function shorten(text: string, limit: number) {
-  return text.length > limit ? `${text.slice(0, limit - 1)}…` : text;
-}
 
 const Scene = memo(function Scene({ layout, tasks, criticalNodes, criticalEdges, detail, dragged }: {
   layout: Layout; tasks: Map<string, Task>; criticalNodes: Set<string>; criticalEdges: Set<string>;
   detail: number; dragged: () => boolean;
 }) {
   const edges = layout.edges
-    .map((edge) => ({ edge, hot: criticalEdges.has(`${edge.from}>${edge.to}`) || criticalEdges.has(`${edge.to}>${edge.from}`) }))
+    .map((edge) => ({ edge, hot: isHot(criticalEdges, edge.from, edge.to) }))
     .sort((a, b) => Number(a.hot) - Number(b.hot));
   const middle = defaultOptions.nodeHeight / 2;
   return <>
@@ -216,7 +170,7 @@ export function DagPage({ id }: { id: string }) {
 
   const path = useMemo(() => report.data?.critical_path.task_ids ?? [], [report.data]);
   const criticalNodes = useMemo(() => new Set(path), [path]);
-  const criticalEdges = useMemo(() => new Set(path.slice(1).map((to, i) => `${path[i]}>${to}`)), [path]);
+  const criticalEdges = useMemo(() => criticalEdgeKeys(path), [path]);
   const present = statuses.filter(([status]) => tasks.some((task) => task.status === status));
 
   return <PageShell section="briefs">

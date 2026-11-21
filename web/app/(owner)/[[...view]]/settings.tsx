@@ -6,6 +6,7 @@ import type {
   About, AlertList, Backup, BackupList, BreakerList, NotifyStatus, RetentionStatus, SinkResult, TokenList, WebhookList,
 } from "../../../lib/settings-types";
 import type { Control } from "../../../lib/types";
+import { uptime } from "../../../lib/duration";
 import { AlertsPanel } from "./admin-alerts";
 import { BreakersPanel } from "./admin-breakers";
 import { RetentionPanel } from "./admin-retention";
@@ -25,15 +26,6 @@ import { RepositoriesView } from "./repos";
 import { SchedulesView } from "./schedules";
 import { EmptyState, PageHeading, ResourceState } from "./states";
 import { useToast } from "./ui";
-
-function formatDuration(seconds: number) {
-  const days = Math.floor(seconds / 86400);
-  const hours = Math.floor(seconds % 86400 / 3600);
-  const minutes = Math.floor(seconds % 3600 / 60);
-  if (days) return `${days}d ${hours}h ${minutes}m`;
-  if (hours) return `${hours}h ${minutes}m`;
-  return `${minutes}m ${Math.floor(seconds % 60)}s`;
-}
 
 function NotificationsPanel({ status }: { status: NotifyStatus }) {
   const [results, setResults] = useState<SinkResult[]>();
@@ -100,7 +92,7 @@ function BackupsPanel({ list, refresh }: { list: BackupList; refresh: () => void
 function AboutPanel({ version, about }: { version?: string; about?: About | null }) {
   const rows: [string, string][] = [
     ["Version", about?.version ?? version ?? "—"],
-    ["Uptime", about?.uptime_seconds === undefined ? "—" : formatDuration(about.uptime_seconds)],
+    ["Uptime", about?.uptime_seconds === undefined ? "—" : uptime(about.uptime_seconds)],
     ["Database size", about?.db_bytes === undefined ? "—" : formatSize(about.db_bytes)],
     ["Backend", about?.backend ?? "—"],
   ];

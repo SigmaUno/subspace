@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import { emptyQuery, filterTasks, formatQuery, haystack, parseQuery, type BoardQuery } from "./board-query.ts";
-import type { Task } from "../../../lib/types";
+import type { Task } from "./types";
 
 function task(fields: Partial<Task> & { id: string }): Task {
   return {

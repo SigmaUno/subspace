@@ -8,7 +8,7 @@ import type { PRStatus } from "../../../lib/pr-types";
 import type { Component } from "../../../lib/swarm";
 import { statuses, type Agent, type Board, type Brief, type Task, type TaskStatus, type Thread } from "../../../lib/types";
 import { BoardFilters, useBoardPrefs } from "./board-views";
-import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, parseQuery } from "./board-query";
+import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, parseQuery } from "../../../lib/board-query";
 import { ImportBrief } from "./brief-import";
 import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";

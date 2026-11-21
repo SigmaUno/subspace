@@ -102,6 +102,14 @@ func TestInboxMergeEnqueuesAndDeployFailureRaisesAnAlert(t *testing.T) {
 	}
 	close(gate.open)
 
+	thread := func() string {
+		_, msgs := e.rest("GET", "/api/v1/threads/task/"+id+"/messages", nil)
+		var b strings.Builder
+		for _, x := range msgs["messages"].([]any) {
+			b.WriteString(x.(map[string]any)["body"].(string) + "\n")
+		}
+		return b.String()
+	}
 	deadline := time.Now().Add(10 * time.Second)
 	var cand map[string]any
 	for {
@@ -109,23 +117,18 @@ func TestInboxMergeEnqueuesAndDeployFailureRaisesAnAlert(t *testing.T) {
 		if cs := list["candidates"].([]any); len(cs) == 1 {
 			cand = cs[0].(map[string]any)
 		}
-		if cand != nil && cand["deploy_state"] == "failed" && e.taskStatus(id) == "done" {
+		if cand != nil && cand["deploy_state"] == "failed" && e.taskStatus(id) == "done" && strings.Contains(thread(), "failed; the merge stays") {
 			break
 		}
 		if time.Now().After(deadline) {
-			t.Fatalf("queue did not settle: %v task %s", cand, e.taskStatus(id))
+			t.Fatalf("queue did not settle: %v task %s thread:\n%s", cand, e.taskStatus(id), thread())
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	if cand["state"] != "merged" || !strings.Contains(cand["deploy_log"].(string), "make deploy") {
 		t.Fatalf("candidate %v", cand)
 	}
-	_, msgs := e.rest("GET", "/api/v1/threads/task/"+id+"/messages", nil)
-	var thread strings.Builder
-	for _, x := range msgs["messages"].([]any) {
-		thread.WriteString(x.(map[string]any)["body"].(string) + "\n")
-	}
-	if s := thread.String(); !strings.Contains(s, "merged (fast-forward)") || !strings.Contains(s, "failed; the merge stays") || !strings.Contains(s, "FAIL: TestLogin") {
+	if s := thread(); !strings.Contains(s, "merged (fast-forward)") || !strings.Contains(s, "FAIL: TestLogin") {
 		t.Fatalf("thread:\n%s", s)
 	}
 	alert := e.decision("deploy:" + cand["id"].(string))

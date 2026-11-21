@@ -163,7 +163,7 @@ export function KnowledgePage() {
     </div>
     <ResourceState error={list.error} loading={!list.data} retry={list.refresh} rows={4} />
     {list.data && !entries.length && <EmptyState>{status === "pending" ? "Nothing waiting for approval." : "No entries match."}</EmptyState>}
-    {!!entries.length && <div className="table-wrap">
+    {!!entries.length && <div className="table-wrap" role="region" aria-label="Knowledge entries" tabIndex={0}>
       <table>
         <thead><tr><th>Entry</th><th>Kind</th><th>Brief</th><th>Author</th><th>Status</th><th>Tags</th></tr></thead>
         <tbody>{entries.map((entry) => (

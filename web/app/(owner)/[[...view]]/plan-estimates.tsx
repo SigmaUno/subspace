@@ -46,7 +46,7 @@ export function PlanEstimatesPanel({ plan, tasks }: { plan: Plan; tasks: Task[] 
     {data && !data.sufficient && <EmptyState>Not enough completed tasks to estimate yet ({data.history} so far).</EmptyState>}
     {data?.sufficient && <>
       {over > 0 && <p className="pill stale" role="status">{over} {over === 1 ? "task is" : "tasks are"} expected to exceed {over === 1 ? "its" : "their"} budget</p>}
-      <div className="table-wrap">
+      <div className="table-wrap" role="region" aria-label="Estimates" tabIndex={0}>
         <table>
           <thead><tr><th>Task</th><th>Expected time</th><th>Expected cost</th><th>Confidence</th><th>Budget</th></tr></thead>
           <tbody>{tasks.map((task) => {

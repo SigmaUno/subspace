@@ -26,7 +26,7 @@ export function ScopePanel({ taskID, revision }: { taskID: string; revision: num
       {current.checked_at && <> · checked <time dateTime={current.checked_at}>{new Date(current.checked_at).toLocaleString()}</time></>}
     </p>
     {!findings.length && <EmptyState>No scope findings.</EmptyState>}
-    {!!findings.length && <div className="table-wrap">
+    {!!findings.length && <div className="table-wrap" role="region" aria-label="Scope findings" tabIndex={0}>
       <table>
         <caption className="meta">Scope findings</caption>
         <thead><tr><th>Rule</th><th>Severity</th><th>Finding</th></tr></thead>

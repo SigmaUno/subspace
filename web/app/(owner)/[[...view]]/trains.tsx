@@ -57,7 +57,7 @@ function TrainDetail({ train }: { train: Train }) {
     </p>
     {bisect && <p role="status">{bisect}</p>}
     {!members.length && <EmptyState>No members.</EmptyState>}
-    {!!members.length && <div className="table-wrap">
+    {!!members.length && <div className="table-wrap" role="region" aria-label="Train members" tabIndex={0}>
       <table>
         <caption className="meta">Train members in merge order</caption>
         <thead><tr><th>Candidate</th><th>Task</th><th>PR</th><th>Branch</th><th>Commit</th><th>Result</th></tr></thead>
@@ -90,7 +90,7 @@ export function TrainsPanel({ repo, revision }: { repo: string; revision: number
     <h2 id="trains-heading">Trains</h2>
     <ResourceState error={list.error} loading={list.data === undefined} retry={list.refresh} rows={3} />
     {list.data && !trains.length && <EmptyState>No merge trains yet.</EmptyState>}
-    {!!trains.length && <div className="table-wrap">
+    {!!trains.length && <div className="table-wrap" role="region" aria-label="Trains" tabIndex={0}>
       <table>
         <thead><tr><th>Train</th><th>Repo</th><th>State</th><th>Members</th><th>Bisect</th><th>Updated</th></tr></thead>
         <tbody>{trains.map((train) => (

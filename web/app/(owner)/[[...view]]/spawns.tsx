@@ -60,7 +60,7 @@ export function SpawnsPanel({ revision }: { revision: number }) {
     </div>
     <ResourceState error={feed.error} loading={!feed.data} retry={feed.refresh} rows={3} />
     {feed.data && !spawns.length && <EmptyState>{all.length ? "No running spawns." : "No spawns yet."}</EmptyState>}
-    {!!spawns.length && <div className="table-wrap">
+    {!!spawns.length && <div className="table-wrap" role="region" aria-label="Spawns" tabIndex={0}>
       <table>
         <thead><tr>
           <th>Spawn</th><th>Agent</th><th>Lifecycle</th><th>Process</th><th>Age</th><th>Timers</th><th>Actions</th>

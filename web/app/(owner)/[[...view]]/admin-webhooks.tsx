@@ -39,7 +39,7 @@ function Deliveries({ webhook, onChange }: { webhook: WebhookOut; onChange: () =
       </select></label></div>
     <ResourceState error={list.error} loading={list.data === undefined} retry={list.refresh} rows={2} />
     {list.data && !deliveries.length && <EmptyState>No deliveries.</EmptyState>}
-    {!!deliveries.length && <div className="table-wrap">
+    {!!deliveries.length && <div className="table-wrap" role="region" aria-label="Webhook deliveries" tabIndex={0}>
       <table>
         <thead><tr><th>Delivery</th><th>Event</th><th>State</th><th>Attempts</th><th>Last result</th><th>Next attempt</th><th><span className="meta">Action</span></th></tr></thead>
         <tbody>{deliveries.map((delivery) => <tr key={delivery.id}>
@@ -110,7 +110,7 @@ export function WebhooksPanel({ list, refresh }: { list: WebhookList; refresh: (
         <div className="actions"><button type="button" onClick={() => setCreated(undefined)}>Dismiss secret</button></div>
       </div>}
       {!webhooks.length && <EmptyState>No outbound webhooks.</EmptyState>}
-      {!!webhooks.length && <div className="table-wrap">
+      {!!webhooks.length && <div className="table-wrap" role="region" aria-label="Webhooks" tabIndex={0}>
         <table>
           <thead><tr><th>Webhook</th><th>Events</th><th>Brief</th><th>Pending</th><th>Delivered</th><th>Dead</th><th><span className="meta">Actions</span></th></tr></thead>
           <tbody>{webhooks.map((webhook) => {

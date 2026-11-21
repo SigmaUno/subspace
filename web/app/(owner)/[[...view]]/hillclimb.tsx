@@ -96,7 +96,7 @@ function HillclimbView() {
     {showForm && <CreateJobForm created={(job) => { setShowForm(false); setSelected(job.id); jobs.refresh(); }} />}
     <ResourceState error={jobs.error} loading={!jobs.data} retry={jobs.refresh} rows={3} />
     {jobs.data && !jobs.data.jobs.length && <EmptyState>No hillclimb jobs yet.</EmptyState>}
-    {!!jobs.data?.jobs.length && <div className="table-wrap">
+    {!!jobs.data?.jobs.length && <div className="table-wrap" role="region" aria-label="Hillclimb jobs" tabIndex={0}>
       <table>
         <thead><tr><th>Job</th><th>Brief</th><th>Repo</th><th>Direction</th><th>Status</th><th>Best</th><th>Attempts</th></tr></thead>
         <tbody>{jobs.data.jobs.map((job) => (

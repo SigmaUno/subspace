@@ -113,6 +113,8 @@ export function CommandPalette() {
     if (event.key === "Escape") {
       event.preventDefault();
       setOpen(false);
+    } else if (event.key === "Tab") {
+      event.preventDefault();
     } else if (event.key === "ArrowDown" || event.key === "ArrowUp") {
       event.preventDefault();
       if (!items.length) return;

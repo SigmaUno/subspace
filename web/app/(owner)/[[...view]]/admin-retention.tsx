@@ -46,7 +46,7 @@ export function RetentionPanel({ status, refresh }: { status: RetentionStatus; r
     <section className="panel stack">
       <div className="heading"><h2>Data retention</h2><span className="meta">Archive directory {status.dir}</span></div>
       {!policy.length && <EmptyState>No retention policy reported.</EmptyState>}
-      {!!policy.length && <div className="table-wrap">
+      {!!policy.length && <div className="table-wrap" role="region" aria-label="Retention policy" tabIndex={0}>
         <table>
           <thead><tr><th>Policy</th><th>Value</th></tr></thead>
           <tbody>{policy.map(([key, setting]) => <tr key={key}>
@@ -77,7 +77,7 @@ export function RetentionPanel({ status, refresh }: { status: RetentionStatus; r
       <div className="heading"><h2>Segments</h2>
         {segments.length > shown && <span className="meta">Newest {shown} of {segments.length}</span>}</div>
       {!segments.length && <EmptyState>Nothing archived yet.</EmptyState>}
-      {!!segments.length && <div className="table-wrap">
+      {!!segments.length && <div className="table-wrap" role="region" aria-label="Archived segments" tabIndex={0}>
         <table>
           <thead><tr><th>Segment</th><th>Kind</th><th>Status</th><th>Rows</th><th>Size</th><th>Cutoff</th><th>Created</th><th><span className="meta">Action</span></th></tr></thead>
           <tbody>{segments.slice(0, shown).map((segment) => <tr key={segment.id}>

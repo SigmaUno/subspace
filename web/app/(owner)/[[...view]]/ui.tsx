@@ -7,6 +7,30 @@ type ToastKind = "success" | "error";
 type Toast = { id: number; kind: ToastKind; message: string };
 type Pending = ConfirmOptions & { resolve: (accepted: boolean) => void };
 
+const focusable = "a[href], button:not(:disabled), input:not(:disabled), select:not(:disabled), textarea:not(:disabled), [tabindex]:not([tabindex='-1'])";
+
+export function trapTab(event: KeyboardEvent, root: HTMLElement | null) {
+  if (event.key !== "Tab" || !root) return;
+  const modal = document.activeElement?.closest("[aria-modal=true]");
+  if (modal && modal !== root) return;
+  const controls = Array.from(root.querySelectorAll<HTMLElement>(focusable)).filter((control) => control.offsetParent !== null);
+  const first = controls[0];
+  const last = controls[controls.length - 1];
+  const active = document.activeElement;
+  if (!first || !last) {
+    event.preventDefault();
+  } else if (event.shiftKey && (active === first || active === root)) {
+    event.preventDefault();
+    last.focus();
+  } else if (!event.shiftKey && active === last) {
+    event.preventDefault();
+    first.focus();
+  } else if (!root.contains(active)) {
+    event.preventDefault();
+    first.focus();
+  }
+}
+
 type Ui = {
   confirm: (options: ConfirmOptions) => Promise<boolean>;
   toast: (message: string, kind?: ToastKind) => void;

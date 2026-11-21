@@ -69,7 +69,7 @@ function CostTable({ breakdown, by, briefID, drill }: { breakdown: CostBreakdown
   const groups = breakdown.groups ?? [];
   if (!groups.length) return <EmptyState>No costs recorded in this range.</EmptyState>;
   const total = breakdown.total.cost_eur;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Cost breakdown" tabIndex={0}>
     <table>
       <thead><tr><th>{dimensions.find((dimension) => dimension.id === by)!.name}</th><th>Cost</th><th>Share</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th>{by === "brief" && <th>Drill down</th>}</tr></thead>
       <tbody>{groups.map((group) => (

@@ -120,7 +120,7 @@ export function PushPanel() {
     </form>
     <ResourceState error={devices.error} loading={devices.data === undefined} retry={devices.refresh} rows={2} />
     {devices.data && !list.length && <EmptyState>No devices receive push notifications.</EmptyState>}
-    {!!list.length && <div className="table-wrap">
+    {!!list.length && <div className="table-wrap" role="region" aria-label="Push subscriptions" tabIndex={0}>
       <table>
         <thead><tr><th>Device</th><th>Service</th><th>Subscribed</th><th>Last delivery</th><th>Actions</th></tr></thead>
         <tbody>{list.map((device) => (

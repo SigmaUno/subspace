@@ -82,7 +82,7 @@ export function ProfilesPanel({ profiles, refresh, use }: {
     {editing === "" && <ProfileForm done={finish} cancel={() => setEditing(null)} />}
     {current && <ProfileForm key={current.name} profile={current} done={finish} cancel={() => setEditing(null)} />}
     {!profiles.length && <EmptyState>No profiles.</EmptyState>}
-    {!!profiles.length && <div className="table-wrap">
+    {!!profiles.length && <div className="table-wrap" role="region" aria-label="Profiles" tabIndex={0}>
       <table>
         <thead><tr><th>Profile</th><th>Role</th><th>Kind</th><th>Model / provider</th><th>Defaults</th><th>Actions</th></tr></thead>
         <tbody>{profiles.map((profile) => (

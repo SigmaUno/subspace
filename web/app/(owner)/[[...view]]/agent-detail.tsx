@@ -68,7 +68,7 @@ function AgentThread({ id, revision }: { id: string; revision: number }) {
 
 function TaskTable({ tasks, empty }: { tasks: Task[]; empty: string }) {
   if (!tasks.length) return <EmptyState>{empty}</EmptyState>;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Tasks" tabIndex={0}>
     <table>
       <thead><tr><th>Task</th><th>Status</th><th>Progress</th><th>Branch</th><th>Spent</th></tr></thead>
       <tbody>{tasks.map((task) => {

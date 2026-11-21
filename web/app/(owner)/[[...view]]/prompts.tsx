@@ -56,7 +56,7 @@ export function PromptsPage() {
     </div>
     <ResourceState error={all.error || list.error} loading={!list.data} retry={() => { all.refresh(); list.refresh(); }} rows={4} />
     {list.data && !list.data.prompts.length && <EmptyState>No prompts match this tag.</EmptyState>}
-    {!!list.data?.prompts.length && <div className="table-wrap">
+    {!!list.data?.prompts.length && <div className="table-wrap" role="region" aria-label="Prompts" tabIndex={0}>
       <table>
         <thead><tr><th>Prompt</th><th>Tags</th><th>Variables</th></tr></thead>
         <tbody>{list.data.prompts.map((prompt) => (

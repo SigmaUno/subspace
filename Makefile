@@ -1,7 +1,7 @@
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report release-dist release-dry clean
 .PHONY: all build test vet lint fmt gen-ts run loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
-.PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
+.PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
 GO ?= go
 BIN := bin
@@ -59,6 +59,10 @@ loadtest-short:
 # 1000 agents ramped in over 20s, 500 SSE subscribers; JSON report and pprof profiles under bin/.
 loadtest-1000:
 	$(GO) run ./cmd/loadtest -agents 1000 -duration 90s -ramp 20s -sse-subs 500 -out $(LOADTEST_OUT) -profile $(LOADTEST_PROFILE)
+
+# 3000 agents ramped in over 40s, 1000 SSE subscribers; JSON report and pprof profiles under bin/.
+loadtest-3000:
+	$(GO) run ./cmd/loadtest -agents 3000 -duration 120s -ramp 40s -sse-subs 1000 -out $(BIN)/loadtest-3000.json -profile $(BIN)/loadtest-3000-profile
 
 loadtest-scenarios: loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart
 

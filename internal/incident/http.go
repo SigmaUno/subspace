@@ -1,14 +1,10 @@
 package incident
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 
-	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/httpx"
 )
 
 const (
@@ -18,12 +14,12 @@ const (
 )
 
 type handler struct {
-	s   *Service
-	log *slog.Logger
+	s *Service
+	httpx.Responder
 }
 
 func Handler(s *Service, log *slog.Logger) http.Handler {
-	h := &handler{s: s, log: log}
+	h := &handler{s: s, Responder: httpx.Responder{Log: log, Name: "incident"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /incident", h.start)
 	mux.HandleFunc("GET /incident", h.list)
@@ -33,72 +29,34 @@ func Handler(s *Service, log *slog.Logger) http.Handler {
 
 func (h *handler) start(w http.ResponseWriter, r *http.Request) {
 	var req Request
-	if !h.decode(w, r, &req, false) {
+	if err := httpx.DecodeStrict(w, r, maxBody, &req); err != nil {
+		h.Fail(w, err)
 		return
 	}
 	out, err := h.s.Start(r.Context(), req)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
 	status := http.StatusOK
-	if out.Created {
+	if err == nil && out.Created {
 		status = http.StatusCreated
 	}
-	h.write(w, status, out)
+	h.Reply(w, status, out, err)
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) {
-	limit := defaultLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > maxLimit {
-			h.fail(w, model.BadRequest("limit must be an integer between 1 and %d", maxLimit))
-			return
-		}
-		limit = n
-	}
-	list, err := h.s.List(r.Context(), limit)
+	limit, err := httpx.BoundedInt(r.URL.Query().Get("limit"), "limit", defaultLimit, maxLimit)
 	if err != nil {
-		h.fail(w, err)
+		h.Fail(w, err)
 		return
 	}
-	h.write(w, http.StatusOK, map[string]any{"incidents": list})
+	list, err := h.s.List(r.Context(), limit)
+	h.Reply(w, http.StatusOK, map[string]any{"incidents": list}, err)
 }
 
 func (h *handler) end(w http.ResponseWriter, r *http.Request) {
 	var req EndRequest
-	if !h.decode(w, r, &req, true) {
+	if err := httpx.DecodeOptional(w, r, maxBody, &req); err != nil {
+		h.Fail(w, err)
 		return
 	}
 	out, err := h.s.End(r.Context(), r.PathValue("id"), req)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	h.write(w, http.StatusOK, out)
-}
-
-func (h *handler) decode(w http.ResponseWriter, r *http.Request, v any, optional bool) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(v); err != nil && (!optional || !errors.Is(err, io.EOF)) {
-		h.fail(w, model.BadRequest("invalid JSON body"))
-		return false
-	}
-	return true
-}
-
-func (h *handler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("incident", "err", err)
-	}
-	h.write(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func (h *handler) write(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	h.Reply(w, http.StatusOK, out, err)
 }

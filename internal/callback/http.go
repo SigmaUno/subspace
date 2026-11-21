@@ -11,6 +11,8 @@ import (
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/httpx"
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -28,16 +30,6 @@ type Registrar struct {
 	Activated  func()
 }
 
-type capture struct {
-	h    http.Header
-	code int
-	buf  bytes.Buffer
-}
-
-func (c *capture) Header() http.Header         { return c.h }
-func (c *capture) WriteHeader(code int)        { c.code = code }
-func (c *capture) Write(p []byte) (int, error) { return c.buf.Write(p) }
-
 func agentRoute(r *http.Request) (id string, rotate, ok bool) {
 	if r.Method != http.MethodPost {
 		return "", false, false
@@ -54,12 +46,6 @@ func agentRoute(r *http.Request) (id string, rotate, ok bool) {
 		return "", false, false
 	}
 	return id, true, true
-}
-
-func writeError(w http.ResponseWriter, status int, code, msg string) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": code, "message": msg}})
 }
 
 func (g *Registrar) Wrap(next http.Handler) http.Handler {
@@ -88,7 +74,7 @@ func (g *Registrar) Wrap(next http.Handler) http.Handler {
 		}
 		var url string
 		if json.Unmarshal(field, &url) != nil {
-			writeError(w, http.StatusBadRequest, "bad_request", "callback_url must be a string")
+			httpx.WriteError(w, model.BadRequest("callback_url must be a string"))
 			return
 		}
 		if url == "" && !rotate {
@@ -97,7 +83,7 @@ func (g *Registrar) Wrap(next http.Handler) http.Handler {
 		}
 		if url != "" {
 			if err := g.Policy.Validate(r.Context(), url); err != nil {
-				writeError(w, http.StatusBadRequest, "bad_request", err.Error())
+				httpx.WriteError(w, model.BadRequest("%s", err.Error()))
 				return
 			}
 		}
@@ -111,18 +97,12 @@ func (g *Registrar) isOwner(r *http.Request) bool {
 }
 
 func (g *Registrar) apply(w http.ResponseWriter, r *http.Request, next http.Handler, id, url string) {
-	c := &capture{h: http.Header{}, code: http.StatusOK}
-	next.ServeHTTP(c, r)
-	body := c.buf.Bytes()
-	if c.code >= 200 && c.code < 300 {
-		body = g.attach(r.Context(), body, id, url)
-	}
-	for k, v := range c.h {
-		w.Header()[k] = v
-	}
-	w.Header().Del("Content-Length")
-	w.WriteHeader(c.code)
-	_, _ = w.Write(body) //nolint:gosec // body is the handler's own JSON response
+	httpx.Rewrite(w, r, next, func(code int, body []byte) []byte {
+		if code >= 200 && code < 300 {
+			return g.attach(r.Context(), body, id, url)
+		}
+		return body
+	})
 }
 
 func (g *Registrar) attach(ctx context.Context, body []byte, id, url string) []byte {

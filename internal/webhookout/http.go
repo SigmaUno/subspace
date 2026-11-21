@@ -1,12 +1,10 @@
 package webhookout
 
 import (
-	"encoding/json"
 	"log/slog"
 	"net/http"
-	"strconv"
 
-	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/httpx"
 )
 
 type Created struct {
@@ -31,12 +29,14 @@ type handler struct {
 	log *slog.Logger
 }
 
+func (h *handler) fail(w http.ResponseWriter, err error) {
+	httpx.Fail(w, h.log, "webhooks-out", err)
+}
+
 func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 	var in CreateInput
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, 64<<10))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(&in); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	if err := httpx.DecodeStrict(w, r, 64<<10, &in); err != nil {
+		h.fail(w, err)
 		return
 	}
 	sub, err := h.s.Create(r.Context(), in)
@@ -44,7 +44,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusCreated, Created{Webhook: sub, Secret: sub.Secret})
+	httpx.WriteJSON(w, http.StatusCreated, Created{Webhook: sub, Secret: sub.Secret})
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) {
@@ -56,7 +56,7 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	if subs == nil {
 		subs = []*Subscription{}
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"webhooks": subs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"webhooks": subs})
 }
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
@@ -65,7 +65,7 @@ func (h *handler) get(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, sub)
+	httpx.WriteJSON(w, http.StatusOK, sub)
 }
 
 func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
@@ -78,21 +78,17 @@ func (h *handler) delete(w http.ResponseWriter, r *http.Request) {
 
 func (h *handler) deliveries(w http.ResponseWriter, r *http.Request) {
 	q := r.URL.Query()
-	limit := 100
-	if v := q.Get("limit"); v != "" {
-		n, err := strconv.Atoi(v)
-		if err != nil || n < 1 || n > 1000 {
-			h.fail(w, model.BadRequest("limit must be between 1 and 1000"))
-			return
-		}
-		limit = n
+	limit, err := httpx.BoundedInt(q.Get("limit"), "limit", 100, 1000)
+	if err != nil {
+		h.fail(w, err)
+		return
 	}
 	ds, err := h.s.Deliveries(r.Context(), r.PathValue("id"), q.Get("state"), limit)
 	if err != nil {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"deliveries": ds})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"deliveries": ds})
 }
 
 func (h *handler) redeliver(w http.ResponseWriter, r *http.Request) {
@@ -101,19 +97,5 @@ func (h *handler) redeliver(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, d)
-}
-
-func (h *handler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("webhooks-out", "err", err)
-	}
-	writeJSON(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpx.WriteJSON(w, http.StatusOK, d)
 }

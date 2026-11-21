@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -17,6 +18,22 @@ const maxRequest = 64 << 10
 type handler struct {
 	s   *Service
 	log *slog.Logger
+}
+
+func (h *handler) fail(w http.ResponseWriter, err error) {
+	if model.AsError(err).Code == "too_large" {
+		httpx.WriteErrorStatus(w, http.StatusRequestEntityTooLarge, err)
+		return
+	}
+	httpx.Fail(w, h.log, "knowledge", err)
+}
+
+func (h *handler) respond(w http.ResponseWriter, status int, v any, err error) {
+	if err != nil {
+		h.fail(w, err)
+		return
+	}
+	httpx.WriteJSON(w, status, v)
 }
 
 func (s *Service) Handler(log *slog.Logger) http.Handler {
@@ -47,14 +64,10 @@ func (h *handler) list(w http.ResponseWriter, r *http.Request) {
 	es, err := h.s.Search(r.Context(), model.Owner, Query{
 		Text: q.Get("q"), Kind: q.Get("kind"), BriefID: q.Get("brief_id"), Status: q.Get("status"), Limit: limit,
 	})
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
 	if es == nil {
 		es = []*Entry{}
 	}
-	h.write(w, http.StatusOK, map[string]any{"entries": es})
+	h.respond(w, http.StatusOK, map[string]any{"entries": es}, err)
 }
 
 func (h *handler) create(w http.ResponseWriter, r *http.Request) {
@@ -63,11 +76,7 @@ func (h *handler) create(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	e, err := h.s.Add(r.Context(), model.Owner, in)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	h.write(w, http.StatusCreated, e)
+	h.respond(w, http.StatusCreated, e, err)
 }
 
 func (h *handler) get(w http.ResponseWriter, r *http.Request) {
@@ -116,13 +125,7 @@ func (h *handler) supersede(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *handler) reply(w http.ResponseWriter) func(*Entry, error) {
-	return func(e *Entry, err error) {
-		if err != nil {
-			h.fail(w, err)
-			return
-		}
-		h.write(w, http.StatusOK, e)
-	}
+	return func(e *Entry, err error) { h.respond(w, http.StatusOK, e, err) }
 }
 
 func (h *handler) decode(w http.ResponseWriter, r *http.Request, v any) bool {
@@ -146,22 +149,4 @@ func (h *handler) decode(w http.ResponseWriter, r *http.Request, v any) bool {
 		return false
 	}
 	return true
-}
-
-func (h *handler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	status := e.HTTPStatus()
-	switch e.Code {
-	case "internal":
-		h.log.Error("knowledge", "err", err)
-	case "too_large":
-		status = http.StatusRequestEntityTooLarge
-	}
-	h.write(w, status, map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func (h *handler) write(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

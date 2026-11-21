@@ -1,14 +1,10 @@
 package drill
 
 import (
-	"encoding/json"
-	"errors"
-	"io"
 	"log/slog"
 	"net/http"
-	"strconv"
 
-	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/httpx"
 )
 
 const (
@@ -17,12 +13,12 @@ const (
 )
 
 type handler struct {
-	s   *Service
-	log *slog.Logger
+	s *Service
+	httpx.Responder
 }
 
 func Handler(s *Service, log *slog.Logger) http.Handler {
-	h := &handler{s: s, log: log}
+	h := &handler{s: s, Responder: httpx.Responder{Log: log, Name: "drill"}}
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /drills", h.list)
 	mux.HandleFunc("POST /drills", h.run)
@@ -30,49 +26,21 @@ func Handler(s *Service, log *slog.Logger) http.Handler {
 }
 
 func (h *handler) list(w http.ResponseWriter, r *http.Request) {
-	limit := defaultLimit
-	if raw := r.URL.Query().Get("limit"); raw != "" {
-		n, err := strconv.Atoi(raw)
-		if err != nil || n < 1 || n > maxListLimit {
-			h.fail(w, model.BadRequest("limit must be an integer between 1 and %d", maxListLimit))
-			return
-		}
-		limit = n
-	}
-	list, err := h.s.List(r.Context(), limit)
+	limit, err := httpx.BoundedInt(r.URL.Query().Get("limit"), "limit", defaultLimit, maxListLimit)
 	if err != nil {
-		h.fail(w, err)
+		h.Fail(w, err)
 		return
 	}
-	h.write(w, http.StatusOK, map[string]any{"drills": list})
+	list, err := h.s.List(r.Context(), limit)
+	h.Reply(w, http.StatusOK, map[string]any{"drills": list}, err)
 }
 
 func (h *handler) run(w http.ResponseWriter, r *http.Request) {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody))
-	dec.DisallowUnknownFields()
 	var req struct{}
-	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	if err := httpx.DecodeOptional(w, r, maxBody, &req); err != nil {
+		h.Fail(w, err)
 		return
 	}
 	res, err := h.s.RunOnce(r.Context(), TriggerManual)
-	if err != nil {
-		h.fail(w, err)
-		return
-	}
-	h.write(w, http.StatusCreated, res)
-}
-
-func (h *handler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("drill", "err", err)
-	}
-	h.write(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func (h *handler) write(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	h.Reply(w, http.StatusCreated, res, err)
 }

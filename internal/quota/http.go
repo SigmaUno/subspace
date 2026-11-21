@@ -1,12 +1,12 @@
 package quota
 
 import (
-	"bytes"
 	"encoding/json"
 	"net/http"
 	"slices"
 	"strings"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -41,40 +41,42 @@ func Handler(s *Service) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("PUT /agents/{id}/quota", func(w http.ResponseWriter, r *http.Request) {
 		var lim Quota
-		if !decode(w, r, &lim) {
+		if err := httpx.DecodeStrict(w, r, maxBody, &lim); err != nil {
+			httpx.WriteError(w, err)
 			return
 		}
 		id := r.PathValue("id")
 		if err := s.Set(r.Context(), id, lim); err != nil {
-			writeError(w, err)
+			httpx.WriteError(w, err)
 			return
 		}
 		sn, err := s.Snapshot(r.Context())
 		if err != nil {
-			writeError(w, err)
+			httpx.WriteError(w, err)
 			return
 		}
 		got, today := sn.Of(id)
-		writeJSON(w, http.StatusOK, Status{AgentID: id, Quota: got, Usage: today})
+		httpx.WriteJSON(w, http.StatusOK, Status{AgentID: id, Quota: got, Usage: today})
 	})
 	mux.HandleFunc("POST /agents/quota-bulk", func(w http.ResponseWriter, r *http.Request) {
 		var req bulkRequest
-		if !decode(w, r, &req) {
+		if err := httpx.DecodeStrict(w, r, maxBody, &req); err != nil {
+			httpx.WriteError(w, err)
 			return
 		}
 		switch {
 		case len(req.IDs) == 0 || len(req.IDs) > maxIDs:
-			writeError(w, model.BadRequest("ids must hold 1 to %d agent ids", maxIDs))
+			httpx.WriteError(w, model.BadRequest("ids must hold 1 to %d agent ids", maxIDs))
 			return
 		case slices.Contains(req.IDs, ""):
-			writeError(w, model.BadRequest("ids must not contain empty values"))
+			httpx.WriteError(w, model.BadRequest("ids must not contain empty values"))
 			return
 		case req.Quota == nil:
-			writeError(w, model.BadRequest("quota is required"))
+			httpx.WriteError(w, model.BadRequest("quota is required"))
 			return
 		}
 		if err := req.Quota.Validate(); err != nil {
-			writeError(w, err)
+			httpx.WriteError(w, err)
 			return
 		}
 		out := struct {
@@ -98,41 +100,10 @@ func Handler(s *Service) http.Handler {
 			}
 			out.Results = append(out.Results, res)
 		}
-		writeJSON(w, http.StatusOK, out)
+		httpx.WriteJSON(w, http.StatusOK, out)
 	})
 	return mux
 }
-
-func decode(w http.ResponseWriter, r *http.Request, into any) bool {
-	dec := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxBody))
-	dec.DisallowUnknownFields()
-	if err := dec.Decode(into); err != nil {
-		writeError(w, model.BadRequest("invalid body: %v", err))
-		return false
-	}
-	return true
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func writeError(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	writeJSON(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-type capture struct {
-	header http.Header
-	code   int
-	body   bytes.Buffer
-}
-
-func (c *capture) Header() http.Header         { return c.header }
-func (c *capture) WriteHeader(code int)        { c.code = code }
-func (c *capture) Write(p []byte) (int, error) { return c.body.Write(p) }
 
 func Enrich(s *Service, next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -140,22 +111,17 @@ func Enrich(s *Service, next http.Handler) http.Handler {
 			next.ServeHTTP(w, r)
 			return
 		}
-		c := &capture{header: http.Header{}, code: http.StatusOK}
-		next.ServeHTTP(c, r)
-		body := c.body.Bytes()
-		if c.code == http.StatusOK {
+		httpx.Rewrite(w, r, next, func(code int, body []byte) []byte {
+			if code != http.StatusOK {
+				return body
+			}
 			if sn, err := s.Snapshot(r.Context()); err == nil {
 				if out, ok := enrich(body, sn); ok {
-					body = out
+					return out
 				}
 			}
-		}
-		for k, v := range c.header {
-			w.Header()[k] = v
-		}
-		w.Header().Del("Content-Length")
-		w.WriteHeader(c.code)
-		_, _ = w.Write(body)
+			return body
+		})
 	})
 }
 

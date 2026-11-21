@@ -2,11 +2,11 @@ package leakguard
 
 import (
 	"context"
-	"encoding/json"
 	"net/http"
 
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/tokens"
@@ -90,21 +90,7 @@ func Handler(g *Guard) http.Handler {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /token-leaks/{id}/reissue", func(w http.ResponseWriter, r *http.Request) {
 		out, err := g.Reissue(r.Context(), r.PathValue("id"))
-		if err != nil {
-			e := model.AsError(err)
-			if e.Code == "internal" {
-				g.o.Log.Error("token leak reissue", "leak", r.PathValue("id"), "err", err)
-			}
-			writeJSON(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-			return
-		}
-		writeJSON(w, http.StatusOK, out)
+		httpx.Responder{Log: g.o.Log, Name: "token leak reissue"}.Reply(w, http.StatusOK, out, err)
 	})
 	return mux
-}
-
-func writeJSON(w http.ResponseWriter, code int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(code)
-	_ = json.NewEncoder(w).Encode(v)
 }

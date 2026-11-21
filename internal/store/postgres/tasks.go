@@ -9,11 +9,27 @@ const taskDefaultLimit = 1000
 
 const taskCols = `id, brief_id, plan_id, title, spec, acceptance, repo, branch, role, assignee, reviewer, depends_on,
   status, progress_pct, last_heartbeat_at, lease_expires_at, claimed_at, pr_url, max_minutes, max_cost_eur,
-  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, lease_expiries, priority, component_id`
+  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, lease_expiries, priority, component_id, paths`
+
+func init() {
+	RegisterSchema(`
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS paths JSONB NOT NULL DEFAULT '[]';
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS id_num BIGINT NOT NULL DEFAULT 0;
+UPDATE tasks t SET id_num = v.n FROM (SELECT id, substring(id from '^[^-]*-([0-9]{1,18})')::bigint AS n FROM tasks WHERE id_num = 0) v WHERE t.id = v.id AND v.n > 0;
+CREATE INDEX IF NOT EXISTS tasks_order ON tasks(priority DESC, id_num, id);`)
+}
+
+func pathsFromJSON(b []byte) (model.Paths, error) {
+	out, err := fromJSON(b)
+	if err != nil || len(out) == 0 {
+		return nil, err
+	}
+	return out, nil
+}
 
 const idNum = `COALESCE(substring(id from '^[^-]*-([0-9]{1,18})')::bigint, 0)`
 
-const taskOrder = ` ORDER BY priority DESC, ` + idNum + `, id`
+const taskOrder = ` ORDER BY priority DESC, id_num, id`
 
 func taskArgs(x *model.Task) ([]any, error) {
 	acc, err := toJSON(x.AcceptanceCriteria)
@@ -28,20 +44,24 @@ func taskArgs(x *model.Task) ([]any, error) {
 	if x.Tests != nil {
 		passed, failed, at = x.Tests.Passed, x.Tests.Failed, ms(x.Tests.ReportedAt)
 	}
+	paths, err := toJSON([]string(x.Paths))
+	if err != nil {
+		return nil, err
+	}
 	return []any{
 		x.ID, x.BriefID, x.PlanID, x.Title, x.Spec, acc, x.Repo, x.Branch, x.Role,
 		str(x.Assignee), str(x.Reviewer), deps,
 		x.Status, x.ProgressPct, msPtr(x.LastHeartbeatAt), msPtr(x.LeaseExpiresAt), msPtr(x.ClaimedAt),
 		str(x.PRURL), x.Budget.MaxMinutes, x.Budget.MaxCostEUR,
 		x.CostUsed, x.MinutesUsed, x.ReviewRounds, passed, failed, at,
-		str(x.BlockedReason), ms(x.CreatedAt), ms(x.UpdatedAt), x.LeaseExpiries, x.Priority, str(x.ComponentID),
+		str(x.BlockedReason), ms(x.CreatedAt), ms(x.UpdatedAt), x.LeaseExpiries, x.Priority, str(x.ComponentID), paths,
 	}, nil
 }
 
 func scanTask(r scanner) (*model.Task, error) {
 	var (
 		x                              model.Task
-		acc, deps                      []byte
+		acc, deps, paths               []byte
 		assignee, reviewer, pr, br, cm string
 		hb, lease, claimed, at, c, u   int64
 		passed, failed                 int
@@ -50,7 +70,7 @@ func scanTask(r scanner) (*model.Task, error) {
 		&assignee, &reviewer, &deps,
 		&x.Status, &x.ProgressPct, &hb, &lease, &claimed, &pr, &x.Budget.MaxMinutes, &x.Budget.MaxCostEUR,
 		&x.CostUsed, &x.MinutesUsed, &x.ReviewRounds, &passed, &failed, &at,
-		&br, &c, &u, &x.LeaseExpiries, &x.Priority, &cm)
+		&br, &c, &u, &x.LeaseExpiries, &x.Priority, &cm, &paths)
 	if err != nil {
 		return nil, err
 	}
@@ -58,6 +78,9 @@ func scanTask(r scanner) (*model.Task, error) {
 		return nil, err
 	}
 	if x.DependsOn, err = fromJSON(deps); err != nil {
+		return nil, err
+	}
+	if x.Paths, err = pathsFromJSON(paths); err != nil {
 		return nil, err
 	}
 	x.Assignee = strPtr(assignee)
@@ -81,8 +104,8 @@ func (t *tx) InsertTask(x *model.Task) error {
 	if err != nil {
 		return err
 	}
-	return t.exec(`INSERT INTO tasks(`+taskCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-  $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`, a...)
+	return t.exec(`INSERT INTO tasks(`+taskCols+`, id_num) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
+  $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32,$33,$34)`, append(a, store.IDNum(x.ID))...)
 }
 
 func (t *tx) GetTask(id string) (*model.Task, error) {
@@ -99,7 +122,7 @@ func (t *tx) UpdateTask(x *model.Task) error {
   role=$9, assignee=$10, reviewer=$11, depends_on=$12, status=$13, progress_pct=$14, last_heartbeat_at=$15,
   lease_expires_at=$16, claimed_at=$17, pr_url=$18, max_minutes=$19, max_cost_eur=$20, cost_used=$21,
   minutes_used=$22, review_rounds=$23, tests_passed=$24, tests_failed=$25, tests_at=$26, blocked_reason=$27,
-  created_at=$28, updated_at=$29, lease_expiries=$30, priority=$31, component_id=$32 WHERE id=$1`, a...)
+  created_at=$28, updated_at=$29, lease_expiries=$30, priority=$31, component_id=$32, paths=$33 WHERE id=$1`, a...)
 }
 
 func (t *tx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {
@@ -112,7 +135,12 @@ func (t *tx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {
 	if len(f.Status) > 0 {
 		a.where = append(a.where, "status = ANY("+a.add(f.Status)+")")
 	}
-	a.after(f.AfterID)
+	if f.AfterID != "" {
+		id := a.add(f.AfterID)
+		n := a.add(store.IDNum(f.AfterID))
+		pri := "(SELECT priority FROM tasks WHERE id = " + id + ")"
+		a.where = append(a.where, "(priority < "+pri+" OR (priority = "+pri+" AND (id_num > "+n+" OR (id_num = "+n+" AND id > "+id+"))))")
+	}
 	limit := f.Limit
 	if limit <= 0 {
 		limit = taskDefaultLimit

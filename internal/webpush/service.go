@@ -222,10 +222,9 @@ func (s *Service) Unsubscribe(ctx context.Context, in Remove) error {
 			arg = u.String()
 		}
 	}
-	_, err := s.db.delete(ctx, where, arg, func(sub *Subscription) *model.AuditEvent {
+	return s.db.delete(ctx, where, arg, func(sub *Subscription) *model.AuditEvent {
 		return s.audit(ctx, "delete_push_subscription", map[string]any{"id": sub.ID, "host": hostOf(sub.Endpoint), "name": sub.Name}, nil)
 	})
-	return err
 }
 
 func (s *Service) audit(ctx context.Context, tool string, before, after map[string]any) *model.AuditEvent {
@@ -237,7 +236,7 @@ func (s *Service) audit(ctx context.Context, tool string, before, after map[stri
 }
 
 func (s *Service) drop(ctx context.Context, sub *Subscription, reason string) {
-	_, err := s.db.delete(ctx, "id", sub.ID, func(sub *Subscription) *model.AuditEvent {
+	err := s.db.delete(ctx, "id", sub.ID, func(sub *Subscription) *model.AuditEvent {
 		note := reason
 		return &model.AuditEvent{TS: s.now(), AgentID: "system", Role: "system", Tool: "expire_push_subscription",
 			Before: map[string]any{"id": sub.ID, "host": hostOf(sub.Endpoint), "name": sub.Name}, Note: &note}

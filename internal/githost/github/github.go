@@ -8,7 +8,6 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -17,6 +16,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/githost"
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const defaultAPIURL = "https://api.github.com"
@@ -206,7 +206,7 @@ func (c *Client) getPull(ctx context.Context, ref PRRef, accept string) ([]byte,
 		return nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := netguard.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return nil, err
 	}
@@ -248,7 +248,7 @@ func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githos
 		return fmt.Errorf("github: post status: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	netguard.Drain(resp.Body, 4096)
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return fmt.Errorf("%w: %s@%s", ErrNotFound, repo, sha)

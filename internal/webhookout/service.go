@@ -7,11 +7,9 @@ import (
 	"encoding/base64"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"math/big"
 	"net/http"
-	"net/url"
 	"regexp"
 	"slices"
 	"strconv"
@@ -22,6 +20,8 @@ import (
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/netguard"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const (
@@ -249,11 +249,7 @@ func (s *Service) nextAttempt(created, now time.Time, attempts int) (time.Time, 
 	if !now.Before(deadline) {
 		return time.Time{}, false
 	}
-	d := MaxDelay
-	if attempts-1 < 20 {
-		d = min(BaseDelay<<(attempts-1), MaxDelay)
-	}
-	half := d / 2
+	half := retryq.Exp(BaseDelay, MaxDelay, attempts) / 2
 	at := now.Add(half + s.o.Jitter(half))
 	if at.After(deadline) {
 		at = deadline
@@ -305,18 +301,14 @@ func (s *Service) send(ctx context.Context, due *Due, now time.Time) (int, error
 	req.Header.Set("X-Subspace-Signature", Sign(due.Secret, ts, body))
 	resp, err := s.o.Client.Do(req)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		msg := err.Error()
+		msg := netguard.Scrub(err).Error()
 		if len(msg) > 200 {
 			msg = msg[:200]
 		}
 		return 0, errors.New(msg)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 64<<10))
+	netguard.Drain(resp.Body, 64<<10)
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
 		return resp.StatusCode, fmt.Errorf("receiver answered %d", resp.StatusCode)
 	}

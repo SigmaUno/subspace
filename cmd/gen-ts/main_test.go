@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/guardhint"
 )
 
 func TestGeneratedTypesUpToDate(t *testing.T) {
+	guardhint.Watch(t, guardhint.TSTypes)
 	want, err := generate(registry)
 	if err != nil {
 		t.Fatal(err)

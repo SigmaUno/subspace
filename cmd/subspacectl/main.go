@@ -181,6 +181,7 @@ Commands:
   logs [--level LEVEL] [--since ID] [--limit N]
   questions [--status open|answered] [--limit N]
   state
+  about
   me
   task-templates
   reload
@@ -307,6 +308,8 @@ func registry() map[string]entry {
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
 		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
 		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
+		"playbooks":    {parse: grouped("playbooks", playbookCommands), subs: names(playbookCommands)},
+		"ha":           {parse: grouped("ha", haCommands), subs: names(haCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
 		"autopilot":    {parse: grouped("autopilot", autopilotCommands), subs: names(autopilotCommands)},
 		"mergequeue":   {parse: grouped("mergequeue", mergequeueCommands), subs: names(mergequeueCommands)},
@@ -346,6 +349,7 @@ func registry() map[string]entry {
 		"logs":           {parse: parseLogs},
 		"questions":      {parse: listing("questions", "questions", 1000, "status")},
 		"state":          {parse: plain("state", request{method: http.MethodGet, path: "state"})},
+		"about":          {parse: plain("about", request{method: http.MethodGet, path: "about"})},
 		"me":             {parse: plain("me", request{method: http.MethodGet, path: "me"})},
 		"task-templates": {parse: plain("task-templates", request{method: http.MethodGet, path: "task-templates"})},
 	}

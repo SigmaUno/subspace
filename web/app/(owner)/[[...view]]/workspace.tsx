@@ -8,6 +8,7 @@ import { BotsView } from "./bots";
 import { BriefsView } from "./board";
 import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
+import { HelpRequestsView } from "./helprequests";
 import { Leaderboard } from "./leaderboard";
 import { ThreadPanel } from "./thread";
 import { TrendsView } from "./trends";
@@ -117,6 +118,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "bots" && <BotsView revision={revisions.agents} openThread={setThread} />}
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
+            {section === "help" && <HelpRequestsView revision={revisions.board} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
             {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}

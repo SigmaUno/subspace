@@ -11,12 +11,13 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 const (
@@ -40,10 +41,10 @@ func (c *chaosClock) now() time.Time {
 
 func (c *chaosClock) advance(d time.Duration) { c.skew.Add(int64(d)) }
 
-func startChaosNode(t *testing.T, db string, clock *chaosClock) *chaosNode {
+func startChaosNode(t *testing.T, db, dataDir string, clock *chaosClock) *chaosNode {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease, Now: clock.now,
+	s, err := New(ctx, Config{DBPath: db, DataDir: dataDir, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease, Now: clock.now,
 		FlushEvery: chaosSweep, SweepEvery: chaosSweep, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		cancel()
@@ -345,6 +346,9 @@ func leaseOf(t *testing.T, tk map[string]any) (time.Time, bool) {
 
 func integrityOK(t *testing.T, db string) {
 	t.Helper()
+	if testdb.Postgres() {
+		return
+	}
 	conn, err := sql.Open("sqlite", "file:"+db+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		t.Fatal(err)
@@ -511,14 +515,14 @@ func (w *chaosWorld) verify(label string) {
 }
 
 func TestChaosRestartUnderLoad(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "chaos.db")
+	db, dataDir := testdb.Path(t, "chaos.db"), testdb.DataDir(t)
 	rng := rand.New(rand.NewPCG(chaosSeed, 0))
 	t.Logf("seed %d", chaosSeed)
 	clock := &chaosClock{}
 	w := &chaosWorld{t: t, c: newChaosClient(), db: db, clock: clock, created: map[string]bool{}, acked: map[string]int{},
 		maxRR: map[string]float64{}, maxCost: map[string]float64{}}
 
-	node := startChaosNode(t, db, clock)
+	node := startChaosNode(t, db, dataDir, clock)
 	w.node = node
 	w.c.point(node)
 	defer func() { node.crash() }()
@@ -565,7 +569,7 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 		node.crash()
 		cancel()
 		wg.Wait()
-		node = startChaosNode(t, db, clock)
+		node = startChaosNode(t, db, dataDir, clock)
 		w.node = node
 		w.c.point(node)
 		w.verify(fmt.Sprint("round ", round))
@@ -607,13 +611,13 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 }
 
 func TestChaosBulkRegistrationCrash(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "bulk.db")
+	db, dataDir := testdb.Path(t, "bulk.db"), testdb.DataDir(t)
 	rng := rand.New(rand.NewPCG(chaosSeed, 1))
 	c := newChaosClient()
 	clock := &chaosClock{}
 	const count = 200
 	for i := range 5 {
-		node := startChaosNode(t, db, clock)
+		node := startChaosNode(t, db, dataDir, clock)
 		c.point(node)
 		prefix := fmt.Sprintf("bulk%d", i)
 		type result struct {
@@ -631,7 +635,7 @@ func TestChaosBulkRegistrationCrash(t *testing.T) {
 		node.crash()
 		r := <-res
 
-		node = startChaosNode(t, db, clock)
+		node = startChaosNode(t, db, dataDir, clock)
 		c.point(node)
 		_, list, err := c.do(context.Background(), ownerTok, "GET", "/api/v1/agents?limit=1000", nil)
 		if err != nil {

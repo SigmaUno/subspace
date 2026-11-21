@@ -10,6 +10,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type incidentFleet struct{ lead, w1, w2, rev string }
@@ -17,7 +18,7 @@ type incidentFleet struct{ lead, w1, w2, rev string }
 func incidentEnv(t *testing.T, dataDir string) *servertest.Env {
 	t.Helper()
 	return servertest.Start(t, server.Config{
-		PublicURL: "http://sub.test", DBPath: filepath.Join(t.TempDir(), "t.db"), DataDir: dataDir,
+		PublicURL: "http://sub.test", DBPath: testdb.Path(t, "t.db"), DataDir: dataDir,
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute,
 	})
 }

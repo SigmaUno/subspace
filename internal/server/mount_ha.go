@@ -1,6 +1,7 @@
 package server
 
 import (
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"net/http"
 
 	"github.com/SigmaUno/subspace/internal/ha"
@@ -14,7 +15,7 @@ func init() {
 			if b, ok := d.Hub.(*ha.Bridge); ok {
 				st.Events = b.Stats()
 			}
-			writeAPIJSON(w, http.StatusOK, st)
+			httpx.WriteJSON(w, http.StatusOK, st)
 		}))
 	})
 }

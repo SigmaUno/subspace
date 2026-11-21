@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -70,6 +71,26 @@ func (o *Owner) send(ctx context.Context, method, path string, in, out any) erro
 	return decodeInto(b, out, method+" "+path)
 }
 
+func call[T any](ctx context.Context, o *Owner, op, method, path string, in any) (*T, error) {
+	var out T
+	if err := o.Do(ctx, op, method, path, in, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
+func items[T any](ctx context.Context, o *Owner, op, method, path string, in any, key string) ([]T, error) {
+	var out map[string]json.RawMessage
+	if err := o.Do(ctx, op, method, path, in, &out); err != nil {
+		return nil, err
+	}
+	var v []T
+	if err := decodeInto(out[key], &v, op+" "+key); err != nil {
+		return nil, err
+	}
+	return v, nil
+}
+
 func query(path string, kv ...string) string {
 	v := url.Values{}
 	for i := 0; i+1 < len(kv); i += 2 {
@@ -99,11 +120,7 @@ func (o *Owner) Health(ctx context.Context) (*Health, error) {
 }
 
 func (o *Owner) State(ctx context.Context) (*board.StateInfo, error) {
-	var out board.StateInfo
-	if err := o.Do(ctx, "state", http.MethodGet, "/api/v1/state", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.StateInfo](ctx, o, "state", http.MethodGet, "/api/v1/state", nil)
 }
 
 func (o *Owner) PauseAll(ctx context.Context, reason string) error {
@@ -115,133 +132,65 @@ func (o *Owner) ResumeAll(ctx context.Context) error {
 }
 
 func (o *Owner) Charter(ctx context.Context) (*board.Charter, error) {
-	var out board.Charter
-	if err := o.Do(ctx, "get_charter", http.MethodGet, "/api/v1/charter", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.Charter](ctx, o, "get_charter", http.MethodGet, "/api/v1/charter", nil)
 }
 
 func (o *Owner) SetCharter(ctx context.Context, text string) (*board.Charter, error) {
-	var out board.Charter
-	if err := o.Do(ctx, "set_charter", http.MethodPut, "/api/v1/charter", map[string]string{"text": text}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.Charter](ctx, o, "set_charter", http.MethodPut, "/api/v1/charter", map[string]string{"text": text})
 }
 
 func (o *Owner) Backup(ctx context.Context) (*Backup, error) {
-	var out Backup
-	if err := o.Do(ctx, "backup", http.MethodPost, "/api/v1/backup", map[string]string{}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[Backup](ctx, o, "backup", http.MethodPost, "/api/v1/backup", map[string]string{})
 }
 
 func (o *Owner) CreateBrief(ctx context.Context, in board.BriefInput) (*model.Brief, error) {
-	var out model.Brief
-	if err := o.Do(ctx, "create_brief", http.MethodPost, "/api/v1/briefs", in, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Brief](ctx, o, "create_brief", http.MethodPost, "/api/v1/briefs", in)
 }
 
 func (o *Owner) ListBriefs(ctx context.Context, status string) ([]*model.Brief, error) {
-	var out struct {
-		Briefs []*model.Brief `json:"briefs"`
-	}
-	if err := o.Do(ctx, "list_briefs", http.MethodGet, query("/api/v1/briefs", "status", status), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Briefs, nil
+	return items[*model.Brief](ctx, o, "list_briefs", http.MethodGet, query("/api/v1/briefs", "status", status), nil, "briefs")
 }
 
 func (o *Owner) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
-	var out model.Brief
-	if err := o.Do(ctx, "get_brief", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Brief](ctx, o, "get_brief", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(id), nil)
 }
 
 func (o *Owner) UpdateBrief(ctx context.Context, id string, patch board.BriefPatch) (*model.Brief, error) {
-	var out model.Brief
-	if err := o.Do(ctx, "update_brief", http.MethodPatch, "/api/v1/briefs/"+url.PathEscape(id), patch, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Brief](ctx, o, "update_brief", http.MethodPatch, "/api/v1/briefs/"+url.PathEscape(id), patch)
 }
 
 func (o *Owner) Board(ctx context.Context, briefID string) (*board.BoardView, error) {
-	var out board.BoardView
-	if err := o.Do(ctx, "board", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(briefID)+"/board", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.BoardView](ctx, o, "board", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(briefID)+"/board", nil)
 }
 
 func (o *Owner) Architecture(ctx context.Context, briefID string) (*components.Graph, error) {
-	var out components.Graph
-	if err := o.Do(ctx, "architecture", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(briefID)+"/architecture", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[components.Graph](ctx, o, "architecture", http.MethodGet, "/api/v1/briefs/"+url.PathEscape(briefID)+"/architecture", nil)
 }
 
 func (o *Owner) SetComponents(ctx context.Context, briefID string, specs []components.Spec) ([]components.Component, error) {
-	var out struct {
-		Components []components.Component `json:"components"`
-	}
 	in := map[string]any{"components": specs}
-	if err := o.Do(ctx, "set_components", http.MethodPut, "/api/v1/briefs/"+url.PathEscape(briefID)+"/components", in, &out); err != nil {
-		return nil, err
-	}
-	return out.Components, nil
+	return items[components.Component](ctx, o, "set_components", http.MethodPut, "/api/v1/briefs/"+url.PathEscape(briefID)+"/components", in, "components")
 }
 
 func (o *Owner) ListPlans(ctx context.Context, briefID, status string) ([]*model.Plan, error) {
-	var out struct {
-		Plans []*model.Plan `json:"plans"`
-	}
-	if err := o.Do(ctx, "list_plans", http.MethodGet, query("/api/v1/plans", "brief_id", briefID, "status", status), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Plans, nil
+	return items[*model.Plan](ctx, o, "list_plans", http.MethodGet, query("/api/v1/plans", "brief_id", briefID, "status", status), nil, "plans")
 }
 
 func (o *Owner) GetPlan(ctx context.Context, id string) (*model.Plan, error) {
-	var out model.Plan
-	if err := o.Do(ctx, "get_plan", http.MethodGet, "/api/v1/plans/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Plan](ctx, o, "get_plan", http.MethodGet, "/api/v1/plans/"+url.PathEscape(id), nil)
 }
 
 func (o *Owner) ApprovePlan(ctx context.Context, id, note string) (*model.Plan, error) {
-	var out model.Plan
-	if err := o.Do(ctx, "approve_plan", http.MethodPost, "/api/v1/plans/"+url.PathEscape(id)+"/approve", map[string]string{"note": note}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Plan](ctx, o, "approve_plan", http.MethodPost, "/api/v1/plans/"+url.PathEscape(id)+"/approve", map[string]string{"note": note})
 }
 
 func (o *Owner) RejectPlan(ctx context.Context, id, reason string) (*model.Plan, error) {
-	var out model.Plan
-	if err := o.Do(ctx, "reject_plan", http.MethodPost, "/api/v1/plans/"+url.PathEscape(id)+"/reject", map[string]string{"reason": reason}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Plan](ctx, o, "reject_plan", http.MethodPost, "/api/v1/plans/"+url.PathEscape(id)+"/reject", map[string]string{"reason": reason})
 }
 
 func (o *Owner) ListTasks(ctx context.Context, q board.TaskQuery) ([]*model.Task, error) {
-	var out struct {
-		Tasks []*model.Task `json:"tasks"`
-	}
 	path := query("/api/v1/tasks", "brief_id", q.BriefID, "status", q.Status, "assignee", q.Assignee, "role", q.Role, "limit", itoa(int64(q.Limit)))
-	if err := o.Do(ctx, "list_tasks", http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Tasks, nil
+	return items[*model.Task](ctx, o, "list_tasks", http.MethodGet, path, nil, "tasks")
 }
 
 func (o *Owner) task(ctx context.Context, op, method, id, action string, in any) (*model.Task, error) {
@@ -249,11 +198,7 @@ func (o *Owner) task(ctx context.Context, op, method, id, action string, in any)
 	if action != "" {
 		path += "/" + action
 	}
-	var out model.Task
-	if err := o.Do(ctx, op, method, path, in, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Task](ctx, o, op, method, path, in)
 }
 
 func (o *Owner) GetTask(ctx context.Context, id string) (*model.Task, error) {
@@ -277,89 +222,43 @@ func (o *Owner) ReopenTask(ctx context.Context, id, status, note string) (*model
 }
 
 func (o *Owner) ListAgents(ctx context.Context, role, status string) ([]*model.Agent, error) {
-	var out struct {
-		Agents []*model.Agent `json:"agents"`
-	}
-	if err := o.Do(ctx, "list_agents", http.MethodGet, query("/api/v1/agents", "role", role, "status", status), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Agents, nil
+	return items[*model.Agent](ctx, o, "list_agents", http.MethodGet, query("/api/v1/agents", "role", role, "status", status), nil, "agents")
 }
 
 func (o *Owner) GetAgent(ctx context.Context, id string) (*model.Agent, error) {
-	var out model.Agent
-	if err := o.Do(ctx, "get_agent", http.MethodGet, "/api/v1/agents/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Agent](ctx, o, "get_agent", http.MethodGet, "/api/v1/agents/"+url.PathEscape(id), nil)
 }
 
 func (o *Owner) RegisterAgent(ctx context.Context, in board.AgentInput) (*board.Registered, error) {
-	var out board.Registered
-	if err := o.Do(ctx, "register_agent", http.MethodPost, "/api/v1/agents", in, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.Registered](ctx, o, "register_agent", http.MethodPost, "/api/v1/agents", in)
 }
 
 func (o *Owner) RegisterBulk(ctx context.Context, in board.BulkInput) ([]*board.Registered, error) {
-	var out struct {
-		Agents []*board.Registered `json:"agents"`
-	}
-	if err := o.Do(ctx, "register_bulk", http.MethodPost, "/api/v1/agents/bulk", in, &out); err != nil {
-		return nil, err
-	}
-	return out.Agents, nil
+	return items[*board.Registered](ctx, o, "register_bulk", http.MethodPost, "/api/v1/agents/bulk", in, "agents")
 }
 
 func (o *Owner) Connect(ctx context.Context, id string) (*board.Connect, error) {
-	var out board.Connect
-	if err := o.Do(ctx, "connect", http.MethodGet, "/api/v1/agents/"+url.PathEscape(id)+"/connect", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.Connect](ctx, o, "connect", http.MethodGet, "/api/v1/agents/"+url.PathEscape(id)+"/connect", nil)
 }
 
 func (o *Owner) RotateToken(ctx context.Context, id string) (*board.Registered, error) {
-	var out board.Registered
-	if err := o.Do(ctx, "rotate_token", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/rotate-token", map[string]string{}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.Registered](ctx, o, "rotate_token", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/rotate-token", map[string]string{})
 }
 
 func (o *Owner) RevokeAgent(ctx context.Context, id, reason string) (*model.Agent, error) {
-	var out model.Agent
-	if err := o.Do(ctx, "revoke_agent", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/revoke", map[string]string{"reason": reason}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Agent](ctx, o, "revoke_agent", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/revoke", map[string]string{"reason": reason})
 }
 
 func (o *Owner) ResumeAgent(ctx context.Context, id string) (*model.Agent, error) {
-	var out model.Agent
-	if err := o.Do(ctx, "resume_agent", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/resume", map[string]string{}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Agent](ctx, o, "resume_agent", http.MethodPost, "/api/v1/agents/"+url.PathEscape(id)+"/resume", map[string]string{})
 }
 
 func (o *Owner) ListQuestions(ctx context.Context, status string) ([]*model.Question, error) {
-	var out struct {
-		Questions []*model.Question `json:"questions"`
-	}
-	if err := o.Do(ctx, "list_questions", http.MethodGet, query("/api/v1/questions", "status", status), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Questions, nil
+	return items[*model.Question](ctx, o, "list_questions", http.MethodGet, query("/api/v1/questions", "status", status), nil, "questions")
 }
 
 func (o *Owner) AnswerQuestion(ctx context.Context, id, answer string) (*model.Question, error) {
-	var out model.Question
-	if err := o.Do(ctx, "answer_question", http.MethodPost, "/api/v1/questions/"+url.PathEscape(id)+"/answer", map[string]string{"answer": answer}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Question](ctx, o, "answer_question", http.MethodPost, "/api/v1/questions/"+url.PathEscape(id)+"/answer", map[string]string{"answer": answer})
 }
 
 func threadPath(kind, id string) string {
@@ -367,69 +266,33 @@ func threadPath(kind, id string) string {
 }
 
 func (o *Owner) ThreadMessages(ctx context.Context, kind, id string, since int64, limit int) ([]*model.Message, error) {
-	var out struct {
-		Messages []*model.Message `json:"messages"`
-	}
 	path := query(threadPath(kind, id), "since", itoa(since), "limit", itoa(int64(limit)))
-	if err := o.Do(ctx, "read_thread", http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Messages, nil
+	return items[*model.Message](ctx, o, "read_thread", http.MethodGet, path, nil, "messages")
 }
 
 func (o *Owner) PostThreadMessage(ctx context.Context, kind, id, body string) (*model.Message, error) {
-	var out model.Message
-	if err := o.Do(ctx, "post_thread_message", http.MethodPost, threadPath(kind, id), map[string]string{"body": body}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[model.Message](ctx, o, "post_thread_message", http.MethodPost, threadPath(kind, id), map[string]string{"body": body})
 }
 
 func (o *Owner) Capacity(ctx context.Context) (*board.CapacityView, error) {
-	var out board.CapacityView
-	if err := o.Do(ctx, "capacity", http.MethodGet, "/api/v1/capacity", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.CapacityView](ctx, o, "capacity", http.MethodGet, "/api/v1/capacity", nil)
 }
 
 func (o *Owner) SetCapacity(ctx context.Context, cfg capacity.Config) (*board.CapacityView, error) {
-	var out board.CapacityView
-	if err := o.Do(ctx, "set_capacity", http.MethodPut, "/api/v1/capacity", cfg, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[board.CapacityView](ctx, o, "set_capacity", http.MethodPut, "/api/v1/capacity", cfg)
 }
 
 func (o *Owner) ListSpawns(ctx context.Context, briefID string) ([]*model.Spawn, error) {
-	var out struct {
-		Spawns []*model.Spawn `json:"spawns"`
-	}
-	if err := o.Do(ctx, "list_spawns", http.MethodGet, query("/api/v1/spawns", "brief_id", briefID), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Spawns, nil
+	return items[*model.Spawn](ctx, o, "list_spawns", http.MethodGet, query("/api/v1/spawns", "brief_id", briefID), nil, "spawns")
 }
 
 func (o *Owner) Audit(ctx context.Context, f store.AuditFilter) ([]*model.AuditEvent, error) {
-	var out struct {
-		Events []*model.AuditEvent `json:"events"`
-	}
 	path := query("/api/v1/audit", "agent_id", f.AgentID, "task_id", f.TaskID, "tool", f.Tool, "since", itoa(f.SinceID), "limit", itoa(int64(f.Limit)))
-	if err := o.Do(ctx, "audit", http.MethodGet, path, nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Events, nil
+	return items[*model.AuditEvent](ctx, o, "audit", http.MethodGet, path, nil, "events")
 }
 
 func (o *Owner) Decisions(ctx context.Context, limit int) ([]*decisions.Decision, error) {
-	var out struct {
-		Decisions []*decisions.Decision `json:"decisions"`
-	}
-	if err := o.Do(ctx, "list_decisions", http.MethodGet, query("/api/v1/decisions", "limit", itoa(int64(limit))), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Decisions, nil
+	return items[*decisions.Decision](ctx, o, "list_decisions", http.MethodGet, query("/api/v1/decisions", "limit", itoa(int64(limit))), nil, "decisions")
 }
 
 func (o *Owner) NextDecision(ctx context.Context) (*decisions.Decision, error) {
@@ -449,55 +312,27 @@ type DecisionAction struct {
 }
 
 func (o *Owner) ActOnDecision(ctx context.Context, id string, a DecisionAction) (*decisions.Outcome, error) {
-	var out decisions.Outcome
-	if err := o.Do(ctx, "act_decision", http.MethodPost, "/api/v1/decisions/"+url.PathEscape(id), a, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[decisions.Outcome](ctx, o, "act_decision", http.MethodPost, "/api/v1/decisions/"+url.PathEscape(id), a)
 }
 
 func (o *Owner) SendMessage(ctx context.Context, to, body string) (*Conversation, error) {
-	var out Conversation
-	if err := o.Do(ctx, "send_message", http.MethodPost, "/api/v1/messages", chat.Message{To: to, Body: body}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[Conversation](ctx, o, "send_message", http.MethodPost, "/api/v1/messages", chat.Message{To: to, Body: body})
 }
 
 func (o *Owner) Conversations(ctx context.Context) ([]Conversation, error) {
-	var out struct {
-		Conversations []Conversation `json:"conversations"`
-	}
-	if err := o.Do(ctx, "list_conversations", http.MethodGet, "/api/v1/conversations", nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Conversations, nil
+	return items[Conversation](ctx, o, "list_conversations", http.MethodGet, "/api/v1/conversations", nil, "conversations")
 }
 
 func (o *Owner) GetConversation(ctx context.Context, id string) (*Conversation, error) {
-	var out Conversation
-	if err := o.Do(ctx, "get_conversation", http.MethodGet, "/api/v1/conversations/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[Conversation](ctx, o, "get_conversation", http.MethodGet, "/api/v1/conversations/"+url.PathEscape(id), nil)
 }
 
 func (o *Owner) Prompts(ctx context.Context, tag string) ([]prompts.Template, error) {
-	var out struct {
-		Prompts []prompts.Template `json:"prompts"`
-	}
-	if err := o.Do(ctx, "list_prompts", http.MethodGet, query("/api/v1/prompts", "tag", tag), nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Prompts, nil
+	return items[prompts.Template](ctx, o, "list_prompts", http.MethodGet, query("/api/v1/prompts", "tag", tag), nil, "prompts")
 }
 
 func (o *Owner) GetPrompt(ctx context.Context, id string) (*prompts.Template, error) {
-	var out prompts.Template
-	if err := o.Do(ctx, "get_prompt", http.MethodGet, "/api/v1/prompts/"+url.PathEscape(id), nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[prompts.Template](ctx, o, "get_prompt", http.MethodGet, "/api/v1/prompts/"+url.PathEscape(id), nil)
 }
 
 func (o *Owner) RenderPrompt(ctx context.Context, id string, vars map[string]string) (string, error) {
@@ -534,27 +369,13 @@ type HillclimbSeries struct {
 }
 
 func (o *Owner) HillclimbJobs(ctx context.Context) ([]*hillclimb.Job, error) {
-	var out struct {
-		Jobs []*hillclimb.Job `json:"jobs"`
-	}
-	if err := o.Do(ctx, "list_hillclimb_jobs", http.MethodGet, "/api/v1/hillclimb/jobs", nil, &out); err != nil {
-		return nil, err
-	}
-	return out.Jobs, nil
+	return items[*hillclimb.Job](ctx, o, "list_hillclimb_jobs", http.MethodGet, "/api/v1/hillclimb/jobs", nil, "jobs")
 }
 
 func (o *Owner) CreateHillclimbJob(ctx context.Context, in HillclimbJobInput) (*hillclimb.Job, error) {
-	var out hillclimb.Job
-	if err := o.Do(ctx, "create_hillclimb_job", http.MethodPost, "/api/v1/hillclimb/jobs", in, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[hillclimb.Job](ctx, o, "create_hillclimb_job", http.MethodPost, "/api/v1/hillclimb/jobs", in)
 }
 
 func (o *Owner) HillclimbSeries(ctx context.Context, id string) (*HillclimbSeries, error) {
-	var out HillclimbSeries
-	if err := o.Do(ctx, "hillclimb_series", http.MethodGet, "/api/v1/hillclimb/jobs/"+url.PathEscape(id)+"/series", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return call[HillclimbSeries](ctx, o, "hillclimb_series", http.MethodGet, "/api/v1/hillclimb/jobs/"+url.PathEscape(id)+"/series", nil)
 }

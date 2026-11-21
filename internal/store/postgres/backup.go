@@ -171,12 +171,12 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		if err != nil {
 			return err
 		}
-		for _, name := range identity {
-			if !slices.Contains(all, name) {
+		for _, c := range identity {
+			if !slices.Contains(all, c.table) {
 				continue
 			}
-			if err := t.exec(`SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT MAX(id) FROM `+name+`), 0) + 1, false)`,
-				name); err != nil {
+			if err := t.exec(`SELECT setval(pg_get_serial_sequence($1, $2), COALESCE((SELECT MAX(`+c.column+`) FROM `+c.table+`), 0) + 1, false)`,
+				c.table, c.column); err != nil {
 				return err
 			}
 		}
@@ -184,20 +184,22 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 	})
 }
 
-func identityTables(t *tx) ([]string, error) {
-	rows, err := t.q.QueryContext(t.ctx, `SELECT table_name FROM information_schema.columns
-  WHERE table_schema = current_schema() AND column_name = 'id' AND is_identity = 'YES' ORDER BY table_name`)
+type identityColumn struct{ table, column string }
+
+func identityTables(t *tx) ([]identityColumn, error) {
+	rows, err := t.q.QueryContext(t.ctx, `SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = current_schema() AND is_identity = 'YES' ORDER BY table_name`)
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = rows.Close() }()
-	var out []string
+	var out []identityColumn
 	for rows.Next() {
-		var name string
-		if err := rows.Scan(&name); err != nil {
+		var c identityColumn
+		if err := rows.Scan(&c.table, &c.column); err != nil {
 			return nil, err
 		}
-		out = append(out, name)
+		out = append(out, c)
 	}
 	return out, rows.Err()
 }

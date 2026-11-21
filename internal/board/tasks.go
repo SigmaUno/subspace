@@ -42,9 +42,9 @@ func (b *Board) endLease(w *wctx, t *model.Task) {
 	w.forget = append(w.forget, t.ID)
 }
 
-func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, to, note string) error {
+func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, note string) error {
 	b.endLease(w, t)
-	return b.statusChange(tx, w, actor, "lease_release", t, to, note)
+	return b.statusChange(tx, w, actor, "lease_release", t, model.StatusAssigned, note)
 }
 
 func (b *Board) block(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, reason string) error {
@@ -509,7 +509,7 @@ func (b *Board) ReleaseTask(ctx context.Context, a model.Actor, taskID, reason s
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s, not in_progress", t.Status)
 		}
-		if err := b.releaseLease(tx, w, a, t, model.StatusAssigned, "released: "+reason); err != nil {
+		if err := b.releaseLease(tx, w, a, t, "released: "+reason); err != nil {
 			return err
 		}
 		out = t
@@ -1029,7 +1029,7 @@ func (b *Board) Sweep(ctx context.Context) error {
 				return w.post(tx, model.ThreadTask, cur.ID, sys, model.MsgSystem,
 					fmt.Sprintf("Task blocked as a poison task after %d lease expiries; the owner must decide whether to reopen it.", cur.LeaseExpiries))
 			}
-			return b.releaseLease(tx, w, sys, cur, model.StatusAssigned, "lease expired")
+			return b.releaseLease(tx, w, sys, cur, "lease expired")
 		})
 		if err != nil {
 			return err

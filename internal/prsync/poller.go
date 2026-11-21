@@ -19,6 +19,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/githost"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const maxBackoffShift = 5
@@ -62,15 +63,6 @@ type Poller struct {
 	hostUntil map[string]time.Time
 }
 
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) Timer(d time.Duration) (<-chan time.Time, func() bool) {
-	t := time.NewTimer(d)
-	return t.C, t.Stop
-}
-
 func New(o Options) (*Poller, error) {
 	if o.Board == nil || o.Store == nil {
 		return nil, errors.New("prsync: board and store are required")
@@ -82,7 +74,7 @@ func New(o Options) (*Poller, error) {
 		o.Log = slog.Default()
 	}
 	if o.Clock == nil {
-		o.Clock = realClock{}
+		o.Clock = retryq.SystemClock{}
 	}
 	if o.Rand == nil {
 		o.Rand = rand.New(rand.NewPCG(rand.Uint64(), rand.Uint64())) //nolint:gosec // backoff jitter
@@ -282,8 +274,7 @@ func (p *Poller) failed(ctx context.Context, base Status, msg string, now time.T
 }
 
 func (p *Poller) delay(fails int) time.Duration {
-	d := p.cfg.Interval << min(fails-1, maxBackoffShift)
-	return d/2 + time.Duration(p.rnd.Int64N(int64(d/2)+1))
+	return retryq.HalfJitter(retryq.Exp(p.cfg.Interval, p.cfg.Interval<<maxBackoffShift, fails), p.rnd.Int64N)
 }
 
 func (p *Poller) save(ctx context.Context, prev Status, had bool, next Status, now time.Time, checked bool) error {

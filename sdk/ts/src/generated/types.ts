@@ -339,6 +339,12 @@ export interface BackupResult {
   path: string;
 }
 
+export interface Backups {
+  count: number;
+  latest_at: string | null;
+  latest_verified: boolean;
+}
+
 export interface BoardView {
   brief?: Brief | null;
   columns: Record<string, (Task | null)[] | null> | null;
@@ -989,6 +995,16 @@ export interface IncidentResult {
   error?: string;
   failures?: Failure[] | null;
   status: string;
+}
+
+export interface Info {
+  backend: string;
+  backups: Backups;
+  db_bytes: number | null;
+  started_at: string;
+  uptime_seconds: number;
+  version: string;
+  wal_bytes: number | null;
 }
 
 export interface Input {

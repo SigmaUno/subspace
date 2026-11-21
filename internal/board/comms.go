@@ -334,8 +334,16 @@ func (b *Board) ActiveAgentsOfBrief(ctx context.Context, briefID string) ([]stri
 			case model.StatusDone, model.StatusCancelled, model.StatusBacklog:
 				continue
 			}
-			if a := deref(t.Assignee); a != "" && !seen[a] {
-				seen[a] = true
+			a := deref(t.Assignee)
+			if a == "" || seen[a] {
+				continue
+			}
+			seen[a] = true
+			ag, err := tx.GetAgent(a)
+			if err != nil && !isErr(err, store.ErrNotFound) {
+				return err
+			}
+			if err == nil && ag.Status != model.AgentRevoked {
 				ids = append(ids, a)
 			}
 		}

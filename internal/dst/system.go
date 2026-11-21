@@ -9,6 +9,8 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/capacity"
+	"github.com/SigmaUno/subspace/internal/estimate"
+	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -70,6 +72,28 @@ const (
 	OpInstrRollback  Kind = "instructions_rollback"
 	OpSearch         Kind = "search"
 	OpHandoff        Kind = "set_brief_leader"
+	OpSetQuota       Kind = "set_agent_quota"
+	OpAnnounce       Kind = "publish_announcement"
+	OpUnannounce     Kind = "delete_announcement"
+	OpInstructions   Kind = "get_instructions"
+	OpGetTask        Kind = "get_task"
+	OpLeaderRead     Kind = "leader_read"
+	OpRequestHelp    Kind = "request_help"
+	OpSuggestSplit   Kind = "suggest_split"
+	OpAcceptSplit    Kind = "accept_split"
+	OpAddKnowledge   Kind = "add_knowledge"
+	OpModerate       Kind = "moderate_knowledge"
+	OpReadKnowledge  Kind = "read_knowledge"
+	OpEstimate       Kind = "estimate_forecast"
+	OpIncidentStart  Kind = "incident_start"
+	OpIncidentEnd    Kind = "incident_end"
+	OpResumeAgent    Kind = "resume_agent"
+	OpSchedule       Kind = "create_schedule"
+	OpScheduleTick   Kind = "schedule_tick"
+	OpRetention      Kind = "retention_run"
+	OpRestore        Kind = "retention_restore"
+	OpSetGates       Kind = "set_quality_gates"
+	OpOverride       Kind = "override_gates"
 )
 
 type Op struct {
@@ -128,6 +152,18 @@ func (o Op) String() string {
 		fmt.Fprintf(&b, " n=%d", o.N)
 	case OpSetCapacity:
 		fmt.Fprintf(&b, " global=%d limit=%d", o.N, o.Limit)
+	case OpSetQuota:
+		fmt.Fprintf(&b, " cost=%.2f tasks=%d concurrent=%d", o.Cost, o.N, o.Limit)
+	case OpAnnounce:
+		fmt.Fprintf(&b, " expires=%s text=%q", o.Dur, o.Text)
+	case OpSuggestSplit, OpScheduleTick, OpRestore, OpSetGates:
+		fmt.Fprintf(&b, " n=%d text=%q", o.N, o.Text)
+	case OpLeaderRead, OpReadKnowledge, OpAddKnowledge, OpIncidentStart, OpOverride:
+		fmt.Fprintf(&b, " text=%q", o.Text)
+	case OpModerate, OpIncidentEnd:
+		fmt.Fprintf(&b, " approve=%t", o.Approve)
+	case OpSchedule:
+		fmt.Fprintf(&b, " catch_up=%s max_active=%d", o.Text, o.N)
 	case OpBatch:
 		parts := make([]string, len(o.Sub))
 		for i, s := range o.Sub {
@@ -141,7 +177,9 @@ func (o Op) String() string {
 func (o Op) Mutating() bool {
 	switch o.Kind {
 	case OpAdvance, OpSweep, OpFlush, OpHeartbeat, OpRestart, OpBatch, OpSubscribe, OpUnsubscribe, OpDrain,
-		OpEnqueue, OpMergeTick, OpAutopilotTick, OpWebhook, OpWebhookRace, OpSearch:
+		OpEnqueue, OpMergeTick, OpAutopilotTick, OpWebhook, OpWebhookRace, OpSearch,
+		OpInstructions, OpGetTask, OpLeaderRead, OpReadKnowledge, OpEstimate, OpIncidentStart, OpIncidentEnd, OpResumeAgent,
+		OpScheduleTick, OpRetention, OpSetGates:
 		return false
 	}
 	return true
@@ -150,7 +188,8 @@ func (o Op) Mutating() bool {
 func (o Op) Authenticated() bool {
 	switch o.Kind {
 	case OpAssign, OpAssignReviewer, OpReassign, OpSpawn, OpPropose, OpClaim, OpHeartbeat, OpUpdate, OpBlock,
-		OpSubmit, OpRelease, OpReview, OpAskOwner, OpReportTests:
+		OpSubmit, OpRelease, OpReview, OpAskOwner, OpReportTests,
+		OpInstructions, OpGetTask, OpLeaderRead, OpRequestHelp, OpSuggestSplit, OpAcceptSplit, OpAddKnowledge, OpReadKnowledge:
 		return true
 	}
 	return false
@@ -176,13 +215,21 @@ func (o Op) bulkIDs() []string {
 }
 
 type Result struct {
-	Err     error
-	Lease   *time.Time
-	Paused  bool
-	Hits    []string
-	Actions int
-	Spawned int
-	Sub     []Result
+	Err       error
+	Lease     *time.Time
+	Paused    bool
+	Hits      []string
+	Actions   int
+	Spawned   int
+	Sub       []Result
+	ID        string
+	Status    string
+	Rotated   []string
+	Context   *board.TaskContext
+	Delivered map[string]int
+	Estimate  *estimate.Report
+	Forecast  *forecast.Forecast
+	Stable    bool
 }
 
 func (r Result) Code() string {
@@ -248,6 +295,7 @@ type State struct {
 	Tokens      map[string]int
 	Subs        []SubStat
 	Subscribers int
+	Faults      []*Violation
 	Server      *ServerState
 }
 

@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -13,7 +12,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 const mirrorToken = "forgejo-test-token"
@@ -184,7 +183,9 @@ func newMirrorEnv(t *testing.T, dbPath string) *env {
 
 func awaitMirrorLink(t *testing.T, e *env, taskID string) {
 	t.Helper()
-	st := e.srv.Store.(*sqlite.Store)
+	st := e.srv.Store.(interface {
+		MirrorLink(ctx context.Context, taskID string) (repo, url, digest string, ok bool, err error)
+	})
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		_, _, digest, ok, err := st.MirrorLink(context.Background(), taskID)
@@ -206,7 +207,7 @@ func TestMirrorFollowsTaskLifecycleAcrossRestart(t *testing.T) {
 	t.Setenv("SUBSPACE_MIRROR_FORGEJO_URL", f.srv.URL)
 	t.Setenv("SUBSPACE_MIRROR_FORGEJO_TOKEN", mirrorToken)
 	t.Setenv("SUBSPACE_MIRROR_FORGEJO_REPO_MAP", "o/r=o/r")
-	db := filepath.Join(t.TempDir(), "m.db")
+	db := testdb.Path(t, "m.db")
 
 	e := newMirrorEnv(t, db)
 	lead := e.register("lead", "leader", "claude-code")

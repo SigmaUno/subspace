@@ -74,8 +74,8 @@ func (c *Client) Must(ctx context.Context, method, path string, body any, want i
 
 var rpcID atomic.Int64
 
-func (c *Client) Tool(ctx context.Context, token, tool string, args any) (map[string]any, string, error) {
-	req := map[string]any{"jsonrpc": "2.0", "id": rpcID.Add(1), "method": "tools/call", "params": map[string]any{"name": tool, "arguments": args}}
+func (c *Client) Tool(ctx context.Context, token, name string, args any) (map[string]any, string, error) {
+	req := map[string]any{"jsonrpc": "2.0", "id": rpcID.Add(1), "method": "tools/call", "params": map[string]any{"name": name, "arguments": args}}
 	code, out, err := c.do(ctx, token, http.MethodPost, "/mcp", req)
 	if err != nil {
 		return nil, "", err
@@ -99,13 +99,13 @@ func (c *Client) Tool(ctx context.Context, token, tool string, args any) (map[st
 	return sc, "", nil
 }
 
-func (c *Client) MustTool(ctx context.Context, token, tool string, args any) (map[string]any, error) {
-	out, code, err := c.Tool(ctx, token, tool, args)
+func (c *Client) MustTool(ctx context.Context, token, name string, args any) (map[string]any, error) {
+	out, code, err := c.Tool(ctx, token, name, args)
 	if err != nil {
-		return nil, fmt.Errorf("%s: %w", tool, err)
+		return nil, fmt.Errorf("%s: %w", name, err)
 	}
 	if code != "" {
-		return nil, fmt.Errorf("%s failed: %s", tool, code)
+		return nil, fmt.Errorf("%s failed: %s", name, code)
 	}
 	return out, nil
 }

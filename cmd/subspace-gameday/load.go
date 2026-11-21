@@ -56,9 +56,9 @@ func (l *Load) loop(ctx context.Context, c *Client, a Agent, task string, every 
 	}
 }
 
-func (l *Load) call(ctx context.Context, c *Client, a Agent, tool string, args map[string]any, done *ack) bool {
+func (l *Load) call(ctx context.Context, c *Client, a Agent, name string, args map[string]any, done *ack) bool {
 	start := time.Now()
-	_, code, err := c.Tool(ctx, a.Token, tool, args)
+	_, code, err := c.Tool(ctx, a.Token, name, args)
 	if ctx.Err() != nil {
 		return false
 	}

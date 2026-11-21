@@ -16,6 +16,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testdb"
 	"github.com/SigmaUno/subspace/internal/usage"
 )
 
@@ -60,6 +61,24 @@ func (fl *fleet) verify(ctx context.Context, t *testing.T) {
 	fl.checkForge(t, v)
 	fl.checkQuestions(t, v)
 	fl.checkLeader(t)
+	fl.checkBackend(ctx, t)
+}
+
+func (fl *fleet) checkBackend(ctx context.Context, t *testing.T) {
+	t.Helper()
+	var about struct {
+		Backend string `json:"backend"`
+	}
+	if err := fl.owner.Do(ctx, "about", http.MethodGet, "/api/v1/about", nil, &about); err != nil {
+		t.Fatal(err)
+	}
+	want := "sqlite"
+	if testdb.Postgres() {
+		want = "postgres"
+	}
+	if about.Backend != want {
+		t.Errorf("backend %q, want %q", about.Backend, want)
+	}
 }
 
 func (fl *fleet) checkTasks(ctx context.Context, t *testing.T, v *view) {
@@ -231,12 +250,19 @@ func (fl *fleet) checkMerges(ctx context.Context, t *testing.T, v *view, events 
 	}
 	inTrain := map[string]bool{}
 	for _, tr := range trains.Trains {
-		if tr.State != "merged" {
+		interrupted := fl.ha != nil && tr.State == "aborted"
+		if tr.State != "merged" && !interrupted {
 			t.Errorf("train in state %s", tr.State)
 		}
 		for _, m := range tr.Members {
+			if interrupted && m.Result == "requeued" {
+				continue
+			}
 			if m.Result != "merged" || !code[m.TaskID] {
 				t.Errorf("train member %s result %s", m.TaskID, m.Result)
+			}
+			if inTrain[m.TaskID] {
+				t.Errorf("%s was merged by more than one train", m.TaskID)
 			}
 			inTrain[m.TaskID] = true
 		}
@@ -257,6 +283,14 @@ func (fl *fleet) checkMerges(ctx context.Context, t *testing.T, v *view, events 
 	slices.Sort(files)
 	if !slices.Equal(files, wantFiles) {
 		t.Errorf("main holds %v, want %v", files, wantFiles)
+	}
+	subjects, err := fl.git.subjects("main")
+	if err != nil {
+		t.Fatal(err)
+	}
+	slices.Sort(subjects)
+	if dup := slices.Compact(slices.Clone(subjects)); len(dup) != len(subjects) || len(subjects) != 1+2*len(code) {
+		t.Errorf("main history %q, want the initial commit and a commit and a merge per code task", subjects)
 	}
 }
 
@@ -417,10 +451,15 @@ func (fl *fleet) checkForge(t *testing.T, v *view) {
 		}
 	}
 	counts := map[string]int{}
+	seen := map[forgeStatus]bool{}
 	for _, s := range fl.forge.posted() {
 		if s.Context != "subspace/review" {
 			t.Errorf("status context %q", s.Context)
 		}
+		if fl.ha != nil && seen[s] {
+			continue
+		}
+		seen[s] = true
 		counts[s.State]++
 	}
 	if counts["failure"] != 1 || counts["error"] != 0 || counts["success"] != len(v.tasks) {

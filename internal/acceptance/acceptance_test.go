@@ -22,6 +22,7 @@ import (
 
 const (
 	runBudget     = 60 * time.Second
+	haRunBudget   = 90 * time.Second
 	workerCount   = 5
 	askTitle      = "Define the money type"
 	defectTitle   = "Expose the cart API"
@@ -108,7 +109,9 @@ type fleet struct {
 	git       *gitRepo
 	sink      *sink
 	bus       *bus
-	env       *servertest.Env
+	url       string
+	stop      func()
+	ha        *haState
 	owner     *client.Owner
 	world     *world
 	agents    *agentEnv
@@ -120,7 +123,7 @@ type fleet struct {
 	script    *ownerScript
 }
 
-func startServer(t *testing.T, f *forge, g *gitRepo, s *sink) *servertest.Env {
+func serverConfig(t *testing.T, f *forge, g *gitRepo, s *sink) server.Config {
 	t.Helper()
 	dir := t.TempDir()
 	mq := writeJSONFile(t, "mq.json", map[string]any{
@@ -139,8 +142,8 @@ func startServer(t *testing.T, f *forge, g *gitRepo, s *sink) *servertest.Env {
 	t.Setenv("SUBSPACE_PRSYNC_INTERVAL", "100ms")
 	t.Setenv("SUBSPACE_NOTIFY_WEBHOOK_URL", s.srv.URL)
 	t.Setenv("SUBSPACE_NOTIFY_ALLOW_PRIVATE", "true")
-	return servertest.Start(t, server.Config{PublicURL: "http://sub.test",
-		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute})
+	return server.Config{PublicURL: "http://sub.test",
+		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute}
 }
 
 func (fl *fleet) register(ctx context.Context, id, role, kind, mdl string) error {
@@ -153,9 +156,9 @@ func (fl *fleet) register(ctx context.Context, id, role, kind, mdl string) error
 }
 
 func (fl *fleet) setup(ctx context.Context, t *testing.T) error {
-	fl.owner = client.NewOwner(fl.env.TS.URL, servertest.OwnerToken)
+	fl.owner = client.NewOwner(fl.url, servertest.OwnerToken)
 	fl.world = newWorld(fl.owner, fl.bus)
-	fl.agents = &agentEnv{url: fl.env.TS.URL, world: fl.world, bus: fl.bus, forge: fl.forge, git: fl.git, ledger: &ledger{},
+	fl.agents = &agentEnv{url: fl.url, world: fl.world, bus: fl.bus, forge: fl.forge, git: fl.git, ledger: &ledger{},
 		sc: scenario{askTitle: askTitle, defectTitle: defectTitle, answer: ownerAnswer}}
 	fl.tokens = map[string]string{}
 	regs := []struct{ id, role, kind, mdl string }{
@@ -200,7 +203,7 @@ func (fl *fleet) startAgents(ctx context.Context, g *group) ([]*proc, error) {
 	g.run(ctx, "tester-1", tester.run)
 	var procs []*proc
 	for _, id := range []string{"reviewer-1", "reviewer-2"} {
-		p, err := startProc(ctx, fl.bins.reviewer, fl.tokens[id], "-url", fl.env.TS.URL, "-fake-model", "approve",
+		p, err := startProc(ctx, fl.bins.reviewer, fl.tokens[id], "-url", fl.url, "-fake-model", "approve",
 			"-githost", "forgejo", "-githost-url", fl.forge.url(), "-interval", "50ms")
 		if err != nil {
 			return nil, err
@@ -213,7 +216,7 @@ func (fl *fleet) startAgents(ctx context.Context, g *group) ([]*proc, error) {
 }
 
 func (fl *fleet) runLeader(ctx context.Context, t *testing.T) error {
-	p, err := startProc(ctx, fl.bins.leader, fl.tokens["leader-1"], "-url", fl.env.TS.URL, "-fake-model", leaderModelFile(t),
+	p, err := startProc(ctx, fl.bins.leader, fl.tokens["leader-1"], "-url", fl.url, "-fake-model", leaderModelFile(t),
 		"-brief", fl.brief.ID, "-once")
 	if err != nil {
 		return err
@@ -264,18 +267,35 @@ func scanLines(s string) []map[string]any {
 	return out
 }
 
-func TestAcceptanceSwarm(t *testing.T) {
+func TestAcceptanceSwarm(t *testing.T) { runSwarm(t, false) }
+
+func TestAcceptanceSwarmHA(t *testing.T) { runSwarm(t, true) }
+
+func runSwarm(t *testing.T, ha bool) {
+	if ha {
+		servertest.RequirePostgres(t)
+	}
 	bins := buildBinaries(t)
 	prev := runtime.GOMAXPROCS(2)
 	defer runtime.GOMAXPROCS(prev)
 	base := runtime.NumGoroutine()
 	started := time.Now()
+	budget := runBudget
+	if ha {
+		budget = haRunBudget
+	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), runBudget-5*time.Second)
+	ctx, cancel := context.WithTimeout(context.Background(), budget-5*time.Second)
 	defer cancel()
 	b := newBus()
 	fl := &fleet{bins: bins, bus: b, forge: newForge(b), git: newGitRepo(t), sink: newSink(b)}
-	fl.env = startServer(t, fl.forge, fl.git, fl.sink)
+	cfg := serverConfig(t, fl.forge, fl.git, fl.sink)
+	if ha {
+		fl.startCluster(t, cfg)
+	} else {
+		env := servertest.Start(t, cfg)
+		fl.url, fl.stop = env.TS.URL, env.Stop
+	}
 	runCtx, stopAgents := context.WithCancel(ctx)
 	g := newGroup(stopAgents)
 
@@ -283,6 +303,9 @@ func TestAcceptanceSwarm(t *testing.T) {
 	err := fl.setup(runCtx, t)
 	if err == nil {
 		procs, err = fl.startAgents(runCtx, g)
+	}
+	if err == nil && ha {
+		err = fl.startWatchers(runCtx, g)
 	}
 	if err == nil {
 		err = fl.runLeader(runCtx, t)
@@ -293,6 +316,9 @@ func TestAcceptanceSwarm(t *testing.T) {
 	if err == nil {
 		err = b.until(runCtx, fl.settled)
 	}
+	if err == nil && ha {
+		err = fl.ha.wait(runCtx)
+	}
 	stopAgents()
 	errs := g.wait()
 	for _, p := range procs {
@@ -302,12 +328,15 @@ func TestAcceptanceSwarm(t *testing.T) {
 		t.Errorf("scenario failed: %v %v\n%s", err, errs, fl.dump(procs))
 	} else {
 		fl.verify(ctx, t)
+		if ha {
+			fl.verifyHA(ctx, t)
+		}
 	}
-	fl.env.Stop()
+	fl.stop()
 	fl.forge.close()
 	fl.sink.close()
 	settle(t, base)
-	if d := time.Since(started); d > runBudget {
-		t.Errorf("took %s, budget %s", d, runBudget)
+	if d := time.Since(started); d > budget {
+		t.Errorf("took %s, budget %s", d, budget)
 	}
 }

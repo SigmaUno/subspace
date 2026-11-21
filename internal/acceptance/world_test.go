@@ -105,29 +105,19 @@ func (w *world) refresh(ctx context.Context) error {
 }
 
 func (w *world) run(ctx context.Context) error {
-	stream, err := w.owner.Events(ctx, "board", "questions", "plans")
-	if err != nil {
-		return err
-	}
 	kick := make(chan struct{}, 1)
+	watch := &sseWatch{owner: w.owner, topics: []string{"board", "questions", "plans"}}
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
-		defer func() { _ = stream.Close() }()
-		for {
-			if _, err := stream.Next(); err != nil {
-				return
-			}
+		watch.run(ctx, func() {
 			select {
 			case kick <- struct{}{}:
 			default:
 			}
-		}
+		})
 	}()
-	defer func() {
-		_ = stream.Close()
-		<-done
-	}()
+	defer func() { <-done }()
 	tick := time.NewTicker(time.Second)
 	defer tick.Stop()
 	for {

@@ -96,3 +96,11 @@ func (g *gitRepo) files(ref string) ([]string, error) {
 	}
 	return strings.Fields(out), nil
 }
+
+func (g *gitRepo) subjects(ref string) ([]string, error) {
+	out, err := g.git(g.remote, "log", "--format=%s", ref)
+	if err != nil {
+		return nil, err
+	}
+	return strings.Split(out, "\n"), nil
+}

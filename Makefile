@@ -3,7 +3,7 @@
 .PHONY: all build test test-full vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
-.PHONY: sync acceptance
+.PHONY: sync acceptance acceptance-pg acceptance-ha
 
 GO ?= go
 BIN := bin
@@ -35,7 +35,13 @@ lint:
 	golangci-lint run ./...
 
 acceptance:
-	GOMAXPROCS=2 $(GO) test -race -count=1 -timeout 180s -v -run TestAcceptanceSwarm ./internal/acceptance/
+	env -u SUBSPACE_TEST_PG_DSN -u SUBSPACE_TEST_DB GOMAXPROCS=2 $(GO) test -race -count=1 -timeout 180s -v -run 'TestAcceptanceSwarm$$' ./internal/acceptance/
+
+acceptance-pg:
+	./scripts/acceptance-pg.sh pg
+
+acceptance-ha:
+	./scripts/acceptance-pg.sh ha
 
 fmt:
 	gofmt -w .

@@ -140,8 +140,10 @@ var Tasks = [NumTasks]TaskSpec{
 	{Low: Budget{MaxMinutes: 20}, High: Budget{MaxMinutes: 60}},
 	{DependsOn: []int{0}},
 	{Low: Budget{MaxCost: 1}, High: Budget{MaxCost: 5}},
-	{Brief: BriefB},
+	{Brief: BriefB, Low: Budget{MaxMinutes: 120, MaxCost: 5}, High: Budget{MaxMinutes: 120, MaxCost: 5}},
 }
+
+const Playbook = "feature"
 
 type Block int8
 
@@ -364,6 +366,7 @@ const (
 	ResumeAll
 	ApprovePlan
 	ToggleCrossReview
+	DisablePlaybookReview
 	ToggleGates
 	CloseBrief
 	ReopenBrief
@@ -374,7 +377,7 @@ var kindNames = [...]string{"assign", "reassign", "claim", "release", "submit", 
 	"tests_passed", "tests_failed", "review_approve", "review_changes", "assign_reviewer", "mark_done", "cancel",
 	"reopen_ready", "reopen_assigned", "leader_block", "leader_ready", "leader_cancel", "toggle_budget", "promote_gated",
 	"heartbeat", "resume_agent", "tick", "pause_all", "resume_all", "approve_plan", "toggle_cross_review",
-	"toggle_gates", "close_brief", "reopen_brief", "announce"}
+	"disable_playbook_review", "toggle_gates", "close_brief", "reopen_brief", "announce"}
 
 func (k Kind) leader() bool {
 	switch k {
@@ -452,7 +455,7 @@ func Alphabet() []Action {
 	for _, w := range Workers {
 		out = append(out, Action{Kind: Heartbeat, Agent: w}, Action{Kind: ResumeAgent, Agent: w})
 	}
-	for _, k := range []Kind{Tick, PauseAll, ResumeAll, ApprovePlan, ToggleCrossReview, ToggleGates, CloseBrief, ReopenBrief, Announce} {
+	for _, k := range []Kind{Tick, PauseAll, ResumeAll, ApprovePlan, ToggleCrossReview, DisablePlaybookReview, ToggleGates, CloseBrief, ReopenBrief, Announce} {
 		out = append(out, Action{Kind: k})
 	}
 	return out
@@ -740,6 +743,8 @@ func (s *State) apply(a Action) string {
 		}
 	case ToggleCrossReview:
 		s.NoCrossReview = !s.NoCrossReview
+	case DisablePlaybookReview:
+		return codeConflict
 	case ToggleGates:
 		s.Gates = !s.Gates
 	case CloseBrief:

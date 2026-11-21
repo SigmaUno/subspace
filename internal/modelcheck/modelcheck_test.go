@@ -238,6 +238,10 @@ func TestDecisions(t *testing.T) {
 		{"promotion leaves a cross reviewed submission for the reviewer",
 			concat([]Action{approve, global(ToggleGates), by(Assign, 0, W1), by(Claim, 0, W1),
 				on(TestsPassed, 0), on(Submit, 0), on(PromoteGated, 0)}), 0, Submitted, ""},
+		{"playbook forces cross review on its brief",
+			[]Action{global(DisablePlaybookReview), by(Assign, 3, W1), by(Claim, 3, W1), on(Submit, 3)}, 3, Submitted, ""},
+		{"turning off cross review of a playbook brief conflicts",
+			[]Action{by(Assign, 3, W1), global(DisablePlaybookReview)}, 3, Assigned, codeConflict},
 		{"gates of one brief do not hold the other",
 			[]Action{global(ToggleGates), by(Assign, 3, W1), by(Claim, 3, W1), on(Submit, 3), on(ReviewApprove, 3)}, 3, Approved, ""},
 

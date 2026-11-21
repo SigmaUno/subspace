@@ -25,6 +25,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/idempotency"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/playbooks"
 	"github.com/SigmaUno/subspace/internal/quota"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/store/sqlite"
@@ -145,10 +146,15 @@ func (tp *Template) setup(ctx context.Context, sys *System) error {
 			}
 		}
 	}
+	if err := (&playbooks.Store{St: sys.st, Now: func() time.Time { return sys.now }}).Seed(ctx); err != nil {
+		return err
+	}
 	for bi, br := range []Brief{BriefA, BriefB} {
 		in := board.BriefInput{Title: fmt.Sprint("modelcheck ", bi), Repos: []string{repo}, LeaderID: br.Leader().String()}
 		if br == BriefA {
 			in.MaxCostEUR = BriefMaxCost
+		} else {
+			in.Playbook = Playbook
 		}
 		created, err := b.CreateBrief(ctx, in)
 		if err != nil {
@@ -294,6 +300,7 @@ func (s *System) reload(ctx context.Context) error {
 	s.quota = quota.New(quota.Options{Store: s.st, Now: clock})
 	b.SetGate(s.quota.Gate)
 	b.SetQualityGate(gates.NewService(b, s.st, nil, clock).Gate)
+	b.SetPlaybooks(playbooks.Lookup)
 	s.announce = announce.New(announce.Config{Store: s.st, Audience: audience{b}, Poster: b, Now: clock})
 	lookup := tokenLookup{s}
 	srv := mcp.NewServer(lookup, mcp.NewRegistry(b))
@@ -603,6 +610,9 @@ func (s *System) Do(ctx context.Context, from State, a Action) string {
 	case ToggleCrossReview:
 		cr := from.NoCrossReview
 		_, err = b.UpdateBrief(ctx, tp.briefs[BriefA], board.BriefPatch{CrossReview: &cr})
+	case DisablePlaybookReview:
+		off := false
+		_, err = b.UpdateBrief(ctx, tp.briefs[BriefB], board.BriefPatch{CrossReview: &off})
 	case ToggleGates:
 		q := model.QualityGates{Tests: !from.Gates}
 		_, err = b.UpdateBrief(ctx, tp.briefs[BriefA], board.BriefPatch{QualityGates: &q})

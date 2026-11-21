@@ -2,13 +2,18 @@ package alerts_test
 
 import (
 	"context"
+	"encoding/json"
+	"path/filepath"
 	"slices"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/alerts"
+	"github.com/SigmaUno/subspace/internal/backup/offsite"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 var t0 = time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)
@@ -56,6 +61,9 @@ func TestRules(t *testing.T) {
 		{"review has reviewer", alerts.Snapshot{Now: t0, Tasks: []*model.Task{{ID: "T-1", Status: model.StatusSubmitted, Reviewer: str("r"), UpdatedAt: t0.Add(-time.Hour)}}}, nil},
 		{"backups off", alerts.Snapshot{Now: t0, LastBackup: t0.Add(-1000 * time.Hour)}, nil},
 		{"backup old and failing", alerts.Snapshot{Now: t0, BackupsEnabled: true, BackupFailing: true, LastBackup: t0.Add(-49 * time.Hour)}, []string{"backup_failing", "backup_old"}},
+		{"offsite off", alerts.Snapshot{Now: t0, LastOffsite: t0.Add(-1000 * time.Hour)}, nil},
+		{"offsite fresh", alerts.Snapshot{Now: t0, OffsiteEnabled: true, LastOffsite: t0.Add(-47 * time.Hour)}, nil},
+		{"offsite stale", alerts.Snapshot{Now: t0, OffsiteEnabled: true, LastOffsite: t0.Add(-49 * time.Hour), OffsiteError: "upload: boom"}, []string{"offsite_stale"}},
 		{"disk low", alerts.Snapshot{Now: t0, DiskKnown: true, DiskFree: 1 << 20}, []string{"disk_low"}},
 		{"disk unknown", alerts.Snapshot{Now: t0}, nil},
 		{"db and wal large", alerts.Snapshot{Now: t0, DBBytes: 9 << 30, WALBytes: 600 << 20}, []string{"db_size", "wal_size"}},
@@ -163,5 +171,48 @@ func TestEngineDeduplicatesAndResolves(t *testing.T) {
 	}
 	if all := eng.List("", 0); len(all) != 2 || all[0].Status != alerts.StatusActive || all[1].Status != alerts.StatusResolved {
 		t.Fatalf("list = %+v", all)
+	}
+}
+
+func TestStoreSourceReadsOffsiteState(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "s.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	src := &alerts.StoreSource{Store: st, DBPath: filepath.Join(t.TempDir(), "s.db"), Offsite: true, Started: t0.Add(-72 * time.Hour)}
+
+	snap, err := src.Snapshot(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.OffsiteEnabled || !snap.LastOffsite.Equal(src.Started) {
+		t.Fatalf("without uploads the server start counts: %+v", snap)
+	}
+	if got := keys(alerts.Evaluate(snap, alerts.Defaults())); !slices.Equal(got, []string{"offsite_stale"}) {
+		t.Fatalf("got %v", got)
+	}
+
+	uploaded := t0.Add(-time.Hour)
+	state := offsite.State{
+		Records: map[string]offsite.Record{
+			"subspace-1.db": {Verified: true, UploadedAt: uploaded},
+			"subspace-2.db": {Verified: false, UploadedAt: t0},
+		},
+		LastError: "destination unreachable",
+	}
+	raw, _ := json.Marshal(state)
+	if err := st.Atomic(context.Background(), func(tx store.Tx) error { return tx.SetKV(offsite.StateKey, string(raw)) }); err != nil {
+		t.Fatal(err)
+	}
+	snap, err = src.Snapshot(context.Background(), t0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !snap.LastOffsite.Equal(uploaded) || snap.OffsiteError != "destination unreachable" {
+		t.Fatalf("unverified uploads must not count: %+v", snap)
+	}
+	if got := keys(alerts.Evaluate(snap, alerts.Defaults())); len(got) != 0 {
+		t.Fatalf("got %v", got)
 	}
 }

@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"flag"
@@ -12,6 +13,8 @@ import (
 	"strings"
 	"syscall"
 
+	"github.com/SigmaUno/subspace/internal/backup/offsite"
+
 	_ "modernc.org/sqlite"
 )
 
@@ -21,6 +24,8 @@ func runRestore(args []string, stdout io.Writer) error {
 	fs := flag.NewFlagSet("restore", flag.ContinueOnError)
 	dbPath := fs.String("db", env("SUBSPACE_DB", "/data/subspace.db"), "database path")
 	force := fs.Bool("force", false, "overwrite an existing database")
+	fromRemote := fs.Bool("from-remote", false, "download and decrypt a backup from the off-site destination configured in SUBSPACE_OFFSITE_*")
+	object := fs.String("name", "", "with --from-remote: remote object to restore (default: the newest)")
 	var pos []string
 	for {
 		if err := fs.Parse(args); err != nil {
@@ -32,14 +37,79 @@ func runRestore(args []string, stdout io.Writer) error {
 		pos = append(pos, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
-	if len(pos) != 1 {
-		return errors.New("usage: subspace restore <backup.db> [--db path] [--force]")
+	if *fromRemote {
+		if len(pos) != 0 {
+			return errors.New("usage: subspace restore --from-remote [--name object] [--db path] [--force]")
+		}
+		return runRestoreRemote(*object, *dbPath, *force, stdout)
+	}
+	if len(pos) != 1 || *object != "" {
+		return errors.New("usage: subspace restore <backup.db> [--db path] [--force] | subspace restore --from-remote [--name object] [--db path] [--force]")
 	}
 	if err := restore(pos[0], *dbPath, *force); err != nil {
 		return err
 	}
 	_, err := fmt.Fprintf(stdout, "restored %s to %s\n", pos[0], *dbPath)
 	return err
+}
+
+func runRestoreRemote(object, dbPath string, force bool, stdout io.Writer) error {
+	cfg, err := offsite.ConfigFromEnv(os.Getenv)
+	if err != nil {
+		return err
+	}
+	if !cfg.Enabled() {
+		return errors.New("off-site backups are not configured: set SUBSPACE_OFFSITE_KIND and the settings it needs")
+	}
+	remote, err := offsite.Open(cfg, offsite.Deps{Getenv: os.Getenv})
+	if err != nil {
+		return err
+	}
+	name, err := restoreRemote(context.Background(), remote, object, dbPath, force)
+	if err != nil {
+		return err
+	}
+	_, err = fmt.Fprintf(stdout, "restored %s from %s to %s\n", name, remote.Describe(), dbPath)
+	return err
+}
+
+func restoreRemote(ctx context.Context, remote *offsite.Remote, object, dbPath string, force bool) (name string, err error) {
+	if object == "" {
+		e, err := remote.Latest(ctx)
+		if err != nil {
+			return "", err
+		}
+		object = e.Name
+	}
+	dir := filepath.Dir(dbPath)
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		return "", err
+	}
+	tmp, err := os.CreateTemp(dir, ".restore-remote-*.db")
+	if err != nil {
+		return "", err
+	}
+	defer func() {
+		_ = tmp.Close()
+		err = errors.Join(err, removeIfExists(tmp.Name()))
+	}()
+	if _, err := remote.Download(ctx, object, tmp); err != nil {
+		return "", err
+	}
+	if err := tmp.Sync(); err != nil {
+		return "", err
+	}
+	if err := restore(tmp.Name(), dbPath, force); err != nil {
+		return "", err
+	}
+	return object, nil
+}
+
+func removeIfExists(path string) error {
+	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+		return err
+	}
+	return nil
 }
 
 func restore(backup, dbPath string, force bool) (err error) {

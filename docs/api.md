@@ -141,7 +141,7 @@ Briefs, plans, tasks, agents, questions, spawns, thread messages and audit event
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
-| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
+| GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds","remote":{"object","bytes","uploaded_at","verified","error"}}]}`, newest first. `verified` is the result of `integrity_check` on the file. `remote` is present once the backup was sent off-site (see Off-site backups). Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 | GET | `/api/v1/about` | → `{"version","started_at","uptime_seconds","backend":"sqlite","db_bytes":12345,"wal_bytes":0,"backups":{"count":3,"latest_at":"...","latest_verified":true}}`. `backend` is `sqlite` or `postgres`; `db_bytes` and `wal_bytes` are `null` with Postgres or when the file is missing; `latest_at` is `null` and `latest_verified` false without backups. |
 | GET | `/api/v1/drills?limit=` | → `{"drills":[Drill]}`, newest first; `limit` default 100, max 1000 (400 otherwise). See Restore drills. |
 | POST | `/api/v1/drills` | `{}` → Drill (201, also when the drill failed: read `status`). Runs a restore drill of the newest backup now. 409 `conflict` while another drill runs. |
@@ -169,7 +169,50 @@ The leader restores the newest backup into a temporary database in the data dir 
  "started_at":"...","finished_at":"..."}
 ```
 
+<<<<<<< HEAD
 A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing. Setting `SUBSPACE_DRILL_EVERY` to a positive duration with a Postgres `SUBSPACE_DB` refuses to start.
+=======
+With `SUBSPACE_DRILL_SOURCE=remote` (default `local`) the `restore` check downloads and decrypts the newest off-site backup instead of copying the local file, so the drill proves the remote copy and the key restore; with off-site backups configured and no local backup the drill also falls back to the remote copy. The drill's `backup` is then the remote object name and `backup_bytes` the decrypted size. A download that fails authentication fails the `restore` check. `remote` without `SUBSPACE_OFFSITE_KIND` disables scheduled drills.
+
+A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing.
+>>>>>>> origin/ws/server/o-offsite-backup
+
+### Off-site backups
+After a local backup is written and verified, the leader copies it to a second destination, encrypted on this machine. Nothing is sent unless `SUBSPACE_OFFSITE_KIND` is set; an invalid configuration stops the server at start. Needs `SUBSPACE_BACKUP_DIR` (the default on SQLite).
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_OFFSITE_KIND` | – | `fs` or `s3`; empty = off |
+| `SUBSPACE_OFFSITE_KEY_FILE` | – | required; file with the 32-byte key (raw or 64 hex characters), mode `0600` (group/other access is refused) |
+| `SUBSPACE_OFFSITE_KEY_ID` | first 4 bytes of the key's SHA-256, hex | id written into every backup header |
+| `SUBSPACE_OFFSITE_OLD_KEYS` | – | `<id>=<absolute path>,...` of retired keys, still used to decrypt older backups |
+| `SUBSPACE_OFFSITE_KEEP_LAST`, `_KEEP_DAILY`, `_KEEP_WEEKLY` | `7`, `7`, `4` | retention at the destination, not all zero |
+| `SUBSPACE_OFFSITE_INTERVAL` | `10m` | how often the leader checks for a backup that is not yet stored off-site |
+| `SUBSPACE_OFFSITE_PATH` | – | `fs`: absolute path of a mounted directory; it is never created, a missing mount is an error |
+| `SUBSPACE_OFFSITE_S3_ENDPOINT` | – | `s3`: `https://host[:port]` without path (`http` only with `_ALLOW_PRIVATE`) |
+| `SUBSPACE_OFFSITE_S3_REGION`, `_S3_BUCKET`, `_S3_PREFIX` | – | region, bucket and optional key prefix |
+| `SUBSPACE_OFFSITE_S3_VIRTUAL_HOST` | `false` | `bucket.host` addressing instead of path-style `/bucket/key` |
+| `SUBSPACE_OFFSITE_S3_ACCESS_KEY_ENV` / `_FILE` | – | **name** of an environment variable, or an absolute file path, holding the access key id (exactly one) |
+| `SUBSPACE_OFFSITE_S3_SECRET_KEY_ENV` / `_FILE` | – | same for the secret key |
+| `SUBSPACE_OFFSITE_S3_SESSION_TOKEN_ENV` / `_FILE` | – | optional session token |
+| `SUBSPACE_OFFSITE_S3_PART_SIZE` | `67108864` | multipart part size (at least 5 MiB); objects up to one part are sent in a single `PUT` |
+| `SUBSPACE_OFFSITE_S3_ALLOW_PRIVATE` | `false` | allow loopback and private-range endpoints (MinIO, Ceph); link-local and metadata addresses stay blocked |
+
+Credentials are never configuration values: only the names of environment variables or file paths are, and the values are read when the destination is opened. The S3 client is a standard-library SigV4 implementation (no SDK) and every connection goes through the same address guard as outbound webhooks: the resolved address must be public unless `_ALLOW_PRIVATE` is set, redirects are not followed. Requests are retried with exponential backoff on network errors, `408`, `429` and `5xx`. A failed multipart upload is aborted.
+
+Each backup becomes one object `subspace-<UTC timestamp>.db.enc` (below `SUBSPACE_OFFSITE_S3_PREFIX/` for S3). The format is chunked AES-256-GCM using the standard library: a header (magic, key id, chunk size, 32-byte random salt) is followed by 1 MiB chunks. The key of a file is derived from the configured key and its salt (HKDF-SHA256), the nonce is the chunk index, and the additional data of every chunk are the whole header, the chunk index and a final-chunk flag. A flipped bit, a removed, duplicated or reordered chunk, data cut off at a chunk boundary, data appended after the end and chunks spliced in from another file all fail decryption.
+
+After the upload the leader verifies it: the destination must report the uploaded size and the SHA-256 of the encrypted file (S3: the `x-amz-meta-sha256` set at upload; a single `PUT` is signed with that hash as `x-amz-content-sha256`, so the server rejects any other body, and multipart parts are hashed and signed one by one), and the first and the last 64 KiB read back must equal the local ones. Only then is the retention applied: the newest `KEEP_LAST` objects, the newest object of each of the last `KEEP_DAILY` UTC days and of the last `KEEP_WEEKLY` ISO weeks with objects are kept, the rest is deleted; the object just uploaded is never deleted. The outcome is stored in the key-value table (`backup.offsite`) and shown as `remote` on `GET /api/v1/backups`: `object`, encrypted `bytes`, `uploaded_at`, `verified`, and `error` (empty on success; a failed upload or verification is retried at the next interval).
+
+Alert `offsite_stale` (below) fires when no verified off-site copy is newer than `SUBSPACE_ALERTS_OFFSITE_MAX_AGE` (`48h`, `off` disables; the server start counts until the first upload) and carries the last error.
+
+Restore on a machine with the same `SUBSPACE_OFFSITE_*` settings and key (the key file is the only thing needed besides the destination):
+
+```
+subspace restore --from-remote [--name subspace-20261121T030000Z.db.enc] [--db /data/subspace.db] [--force]
+```
+
+It downloads the newest (or the named) object, decrypts and authenticates it into a temporary file next to the database, runs the usual checks of `subspace restore` on it (integrity check, required tables, server stopped, `--force` to overwrite) and removes the temporary file, also on failure.
 
 ### Configuration reload
 `SUBSPACE_CONFIG_FILE` names a JSON object whose keys are environment variable names. Its values overlay the process environment at start and on every reload: a value is a string, number or boolean, a list of those (joined with `,`, e.g. `["10.0.0.0/8","192.168.0.0/16"]` for a CIDR list), or `null` for an empty value. A reload runs on `SIGHUP` and on `POST /api/v1/reload` (owner scope). The file is at most 1 MiB.
@@ -1332,6 +1375,7 @@ Alerts are held in memory per server process. Every threshold is an env var; a d
 | `review_stuck` | `submitted` tasks without a reviewer waited longer than the limit | `SUBSPACE_ALERTS_REVIEW_AFTER` (`30m`) |
 | `backup_failing` | automatic backups are on (`SUBSPACE_BACKUP_INTERVAL` above 0) and the newest backup fails `integrity_check` | – |
 | `backup_old` | automatic backups are on and the newest backup (or the server start when there is none) is older than the limit | `SUBSPACE_ALERTS_BACKUP_MAX_AGE` (`48h`) |
+| `offsite_stale` | off-site backups are on and the newest verified off-site copy (or the server start when there is none) is older than the limit; the summary carries the last upload error | `SUBSPACE_ALERTS_OFFSITE_MAX_AGE` (`48h`) |
 | `disk_low` | free bytes on the data directory's filesystem are below the limit | `SUBSPACE_ALERTS_DISK_MIN_FREE_BYTES` (`1073741824`) |
 | `db_size` | the SQLite file is larger than the limit | `SUBSPACE_ALERTS_DB_MAX_BYTES` (`8589934592`) |
 | `wal_size` | the SQLite `-wal` file is larger than the limit | `SUBSPACE_ALERTS_WAL_MAX_BYTES` (`536870912`) |

@@ -1,0 +1,5 @@
+5 300 board # counters_monotonic: minutes_used went negative after the clock jumped back
+8 300 board # lease_honored_until_expiry: heartbeat after a backward clock jump shortened the lease
+614 400 server # review_rounds_to_owner: reopening a cancelled task kept 3 review rounds
+4 400 server # allowed_transition: accept_split audited the original's transition again after update_task had cancelled it
+11 400 server # announcement_reaches_audience_once: brief announcements and broadcasts reached revoked agents

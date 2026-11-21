@@ -4,18 +4,19 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/spawner"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type stopSpawner struct {
 	mu      sync.Mutex
 	spawned []string
 	stopped []string
+	status  map[string]spawner.Status
 }
 
 func (*stopSpawner) Name() string { return "test" }
@@ -34,10 +35,19 @@ func (s *stopSpawner) Stop(_ context.Context, id string) error {
 	return nil
 }
 
+func (s *stopSpawner) Status(_ context.Context, id string) (spawner.Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.status[id]; ok {
+		return st, nil
+	}
+	return spawner.StatusRunning, nil
+}
+
 func newBotsEnv(t *testing.T, sp spawner.Spawner) *env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: filepath.Join(t.TempDir(), "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
+	s, err := New(ctx, Config{DBPath: testdb.Path(t, "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute, Spawner: sp})
 	if err != nil {
 		t.Fatal(err)

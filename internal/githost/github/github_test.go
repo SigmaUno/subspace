@@ -5,10 +5,13 @@ import (
 	"crypto/hmac"
 	"crypto/sha256"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/githost"
 )
 
 func sign(secret string, body []byte) string {
@@ -149,5 +152,71 @@ func TestParseWebhook(t *testing.T) {
 	}
 	if _, err := c.ParseWebhook(h, []byte("{")); err == nil {
 		t.Error("expected decode error")
+	}
+}
+
+func TestPostStatus(t *testing.T) {
+	const sha = "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+	st := githost.CommitStatus{State: githost.StateFailure, Context: "subspace/review", Description: "changes", TargetURL: "https://s/tasks/T-1"}
+	tests := []struct {
+		name      string
+		status    int
+		header    map[string]string
+		sha       string
+		wantErr   error
+		retryable bool
+		anyErr    bool
+	}{
+		{name: "created", status: 201, sha: sha},
+		{name: "not found", status: 404, sha: sha, wantErr: ErrNotFound},
+		{name: "validation", status: 422, sha: sha, anyErr: true},
+		{name: "forbidden", status: 403, sha: sha, anyErr: true},
+		{name: "rate limited forbidden", status: 403, header: map[string]string{"X-RateLimit-Remaining": "0", "X-RateLimit-Reset": "1800000000"}, sha: sha, anyErr: true, retryable: true},
+		{name: "unavailable", status: 503, sha: sha, anyErr: true, retryable: true},
+		{name: "bad sha", sha: "zz", anyErr: true},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			var gotPath, gotAuth, gotMethod string
+			var gotBody githost.CommitStatus
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotAuth, gotMethod = r.URL.Path, r.Header.Get("Authorization"), r.Method
+				_ = json.NewDecoder(r.Body).Decode(&gotBody)
+				for k, v := range tc.header {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+			err := New(Config{APIURL: srv.URL, Token: "tok"}).PostStatus(context.Background(), "o/r", tc.sha, st)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("want %v got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if tc.anyErr {
+				var se *githost.StatusError
+				if err == nil {
+					t.Fatal("expected error")
+				}
+				if errors.As(err, &se) && se.Retryable() != tc.retryable {
+					t.Fatalf("retryable = %v", se.Retryable())
+				}
+				if tc.retryable && se == nil {
+					t.Fatalf("want StatusError, got %v", err)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			if gotMethod != "POST" || gotPath != "/repos/o/r/statuses/"+sha || gotAuth != "Bearer tok" {
+				t.Errorf("%s %q auth=%q", gotMethod, gotPath, gotAuth)
+			}
+			if gotBody != st {
+				t.Errorf("body %+v want %+v", gotBody, st)
+			}
+		})
 	}
 }

@@ -13,6 +13,10 @@ func isErr(err, target error) bool { return errors.Is(err, target) }
 
 var agentIDRe = regexp.MustCompile(`^[a-z0-9][a-z0-9_-]{0,62}$`)
 
+var providerRe = regexp.MustCompile(`^[a-z0-9][a-z0-9._-]{0,62}$`)
+
+var modelRe = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}$`)
+
 var slugRe = regexp.MustCompile(`[^a-z0-9]+`)
 
 func slug(s string) string {
@@ -60,6 +64,10 @@ type noopSpawner struct{}
 
 func (noopSpawner) Name() string                                 { return "noop" }
 func (noopSpawner) Spawn(context.Context, spawner.Request) error { return nil }
+func (noopSpawner) Stop(context.Context, string) error           { return spawner.ErrNotImplemented }
+func (noopSpawner) Status(context.Context, string) (spawner.Status, error) {
+	return spawner.StatusUnknown, nil
+}
 
 func jsonString(v any) string {
 	b, _ := json.Marshal(v)

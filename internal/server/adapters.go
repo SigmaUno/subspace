@@ -39,6 +39,10 @@ func (d decisionActions) Unblock(ctx context.Context, taskID, to, note string) (
 	return d.b.Reopen(ctx, taskID, to, note)
 }
 
+func (d decisionActions) RotateToken(ctx context.Context, agentID string, expiresIn time.Duration) (any, error) {
+	return d.b.RotateTokenFor(ctx, agentID, expiresIn)
+}
+
 func (decisionActions) Skip(context.Context, string, time.Time) error { return nil }
 
 type chatDirectory struct{ b *board.Board }
@@ -48,6 +52,14 @@ func (d chatDirectory) Agent(ctx context.Context, id string) (*model.Agent, erro
 }
 
 func (chatDirectory) ByComponent(context.Context, string) ([]string, error) { return nil, nil }
+
+func (d chatDirectory) ByRole(ctx context.Context, role string) ([]string, error) {
+	return liveAgents(ctx, d.b, role)
+}
+
+func (d chatDirectory) All(ctx context.Context) ([]string, error) {
+	return liveAgents(ctx, d.b, "")
+}
 
 func (d chatDirectory) ByBrief(ctx context.Context, id string) ([]string, error) {
 	return d.b.ActiveAgentsOfBrief(ctx, id)

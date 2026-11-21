@@ -6,7 +6,10 @@ import { money, useResource } from "../../../lib/client";
 import type {
   BriefBudget, ProviderStatus, UsageGroup, UsagePoint, UsageSeriesResponse, UsageSummary,
 } from "../../../lib/usage-types";
-import { Clock, Feedback } from "./components";
+import { Clock } from "./components";
+import { OrgBudget } from "./org-budget";
+import { EmptyState, ResourceState, Skeleton } from "./states";
+import { count, usd } from "./format";
 
 const groupings = [
   { id: "provider", name: "Provider" },
@@ -18,8 +21,6 @@ const groupings = [
 const dayMs = 86_400_000;
 const days = 14;
 
-const usd = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
-const count = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
 function span(now: number) {
   const to = (Math.floor(now / dayMs) + 1) * dayMs;
@@ -50,7 +51,7 @@ function DailyCost({ points }: { points: UsagePoint[] }) {
 }
 
 function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
-  if (!groups.length) return <p className="empty">No usage recorded in this period.</p>;
+  if (!groups.length) return <EmptyState>No usage recorded in this period.</EmptyState>;
   return <div className="table-wrap">
     <table>
       <thead><tr><th>{name}</th><th>Cost</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th><th>Rate limited</th></tr></thead>
@@ -70,7 +71,7 @@ function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
 }
 
 function BudgetBurn({ briefs }: { briefs: BriefBudget[] }) {
-  if (!briefs.length) return <p className="empty">No briefs.</p>;
+  if (!briefs.length) return <EmptyState>No briefs.</EmptyState>;
   return <div className="table-wrap">
     <table>
       <thead><tr><th>Brief</th><th>Status</th><th>Budget</th><th>Spent</th><th>Burn</th></tr></thead>
@@ -129,6 +130,7 @@ export function UsageView({ revision }: { revision: number }) {
   const series = useResource<UsageSeriesResponse>(range && `usage/series?${new URLSearchParams({ ...range, bucket: "day" })}`, revision);
   const providers = useResource<{ providers: ProviderStatus[] }>("usage/providers", revision);
   const current = summary.data?.group_by === by ? summary.data : undefined;
+  const retry = () => { summary.refresh(); series.refresh(); providers.refresh(); };
   const points = series.data?.series?.[0]?.points;
   const credits = summary.data?.credits;
 
@@ -139,11 +141,13 @@ export function UsageView({ revision }: { revision: number }) {
         {credits?.remaining_usd != null && <span className={`pill ${credits.remaining_usd <= 0 ? "revoked" : ""}`}>{usd.format(credits.remaining_usd)} credits left</span>}
       </div>}
     </div>
-    <Feedback error={summary.error || series.error || providers.error} loading={!summary.data || !providers.data} />
+    <ResourceState error={summary.error || series.error || providers.error} loading={!summary.data || !providers.data} retry={retry} rows={4} />
+
+    <OrgBudget revision={revision} />
 
     <section className="stack">
       <h2>Provider availability</h2>
-      {providers.data && !providers.data.providers?.length && <p className="empty">No providers seen yet.</p>}
+      {providers.data && !providers.data.providers?.length && <EmptyState>No providers seen yet.</EmptyState>}
       {!!providers.data?.providers?.length && <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(16rem, 1fr))", gap: ".8rem" }}>
         {providers.data.providers.map((provider) => <ProviderTile key={provider.provider} provider={provider} />)}
       </div>}
@@ -151,7 +155,7 @@ export function UsageView({ revision }: { revision: number }) {
 
     <section className="panel stack">
       <h2>Daily cost</h2>
-      {points?.length ? <DailyCost points={points} /> : series.data && <p className="empty">No usage recorded in this period.</p>}
+      {points?.length ? <DailyCost points={points} /> : series.data && <EmptyState>No usage recorded in this period.</EmptyState>}
     </section>
 
     <section className="stack">
@@ -160,7 +164,7 @@ export function UsageView({ revision }: { revision: number }) {
           {groupings.map((group) => <button key={group.id} aria-pressed={group.id === by} className={group.id === by ? "primary" : undefined} onClick={() => setBy(group.id)}>{group.name}</button>)}
         </div>
       </div>
-      {current ? <CostTable groups={current.groups ?? []} name={groupings.find((group) => group.id === by)!.name} /> : !summary.error && <p className="muted" role="status">Loading…</p>}
+      {current ? <CostTable groups={current.groups ?? []} name={groupings.find((group) => group.id === by)!.name} /> : !summary.error && <Skeleton rows={3} />}
     </section>
 
     <section className="stack">

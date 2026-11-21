@@ -25,9 +25,11 @@ type PR struct {
 	Repo       string // owner/name
 	Number     int64
 	Title      string
+	Body       string
 	State      string // open | closed
 	Merged     bool
 	HeadBranch string
+	HeadSHA    string
 	BaseBranch string
 	URL        string
 }
@@ -35,6 +37,7 @@ type PR struct {
 // Host is a git host client.
 type Host interface {
 	GetPR(ctx context.Context, repo string, number int64) (PR, error)
+	PostStatus(ctx context.Context, repo, sha string, status CommitStatus) error
 	ParsePRURL(prURL string) (repo string, number int64, err error)
 	VerifyWebhook(secret string, body []byte, signatureHeader string) bool
 	ValidateBranch(taskID, slug, branch string) error
@@ -98,20 +101,3 @@ func ValidateBranch(taskID, slug, branch string) error {
 	}
 	return nil
 }
-
-// PullRequestEvent is a parsed pull_request webhook.
-type PullRequestEvent struct {
-	Action     string // opened, closed, reopened, synchronized, ...
-	Repo       string
-	Number     int64
-	Title      string
-	State      string
-	Merged     bool
-	HeadBranch string
-	BaseBranch string
-	URL        string
-	Sender     string
-}
-
-// IsMerged reports whether the event means the PR was merged.
-func (e PullRequestEvent) IsMerged() bool { return e.Action == "closed" && e.Merged }

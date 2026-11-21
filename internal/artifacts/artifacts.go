@@ -243,6 +243,9 @@ func (s *Service) Get(ctx context.Context, actor model.Actor, id string) (*Artif
 		return nil, err
 	}
 	if err := s.authorize(ctx, actor, sc); err != nil {
+		if actor.Role == model.RoleLeader && model.AsError(err).Code == "forbidden" {
+			return nil, model.NotFound("%s not found", id)
+		}
 		return nil, err
 	}
 	return a, nil
@@ -272,6 +275,8 @@ func (s *Service) List(ctx context.Context, actor model.Actor, scope string, lim
 			return nil, err
 		}
 		scopes = []string{sc.String()}
+	case actor.Role == model.RoleLeader:
+		return s.listLeader(ctx, actor, limit)
 	case !s.unrestricted(actor):
 		var err error
 		if scopes, err = s.visibleScopes(ctx, actor); err != nil {
@@ -283,6 +288,34 @@ func (s *Service) List(ctx context.Context, actor model.Actor, scope string, lim
 		out = []*Artifact{}
 	}
 	return out, err
+}
+
+func (s *Service) listLeader(ctx context.Context, actor model.Actor, limit int) ([]*Artifact, error) {
+	all, err := s.cfg.Store.List(ctx, Filter{Limit: 1000})
+	if err != nil {
+		return nil, err
+	}
+	out := []*Artifact{}
+	seen := map[string]bool{}
+	for _, a := range all {
+		if len(out) >= limit {
+			break
+		}
+		if !strings.HasPrefix(a.Project, ScopeAgent+":") {
+			ok, known := seen[a.Project]
+			if !known {
+				if ok, err = s.leads(ctx, actor, a.Project); err != nil {
+					return nil, err
+				}
+				seen[a.Project] = ok
+			}
+			if !ok {
+				continue
+			}
+		}
+		out = append(out, a)
+	}
+	return out, nil
 }
 
 func (s *Service) Delete(ctx context.Context, actor model.Actor, id string) error {
@@ -355,12 +388,52 @@ func (s *Service) openBlob(a *Artifact) (*os.File, error) {
 }
 
 func (s *Service) unrestricted(actor model.Actor) bool {
-	return actor.Role == model.RoleOwner || actor.Role == model.RoleLeader
+	return actor.Role == model.RoleOwner
+}
+
+func (s *Service) leads(ctx context.Context, actor model.Actor, briefID string) (bool, error) {
+	br, err := s.cfg.Directory.Brief(ctx, briefID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	return br.LedBy(actor.ID), nil
+}
+
+func (s *Service) authorizeLeader(ctx context.Context, actor model.Actor, sc Scope) error {
+	denied := model.Forbidden("no access to %s", sc)
+	briefID := sc.ID
+	switch sc.Kind {
+	case ScopeAgent:
+		return nil
+	case ScopeTask:
+		t, err := s.cfg.Directory.Task(ctx, sc.ID)
+		if errors.Is(err, store.ErrNotFound) {
+			return denied
+		}
+		if err != nil {
+			return err
+		}
+		briefID = t.BriefID
+	}
+	ok, err := s.leads(ctx, actor, briefID)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return denied
+	}
+	return nil
 }
 
 func (s *Service) authorize(ctx context.Context, actor model.Actor, sc Scope) error {
 	if s.unrestricted(actor) {
 		return nil
+	}
+	if actor.Role == model.RoleLeader {
+		return s.authorizeLeader(ctx, actor, sc)
 	}
 	denied := model.Forbidden("no access to %s", sc)
 	if actor.ID == "" {

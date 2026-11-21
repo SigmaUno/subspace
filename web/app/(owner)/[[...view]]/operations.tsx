@@ -4,15 +4,19 @@ import Link from "next/link";
 import { useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
+import { agentActions, BulkBar, BulkToast, SelectAll, SelectBox, useBulk } from "./bulk";
 import { Feedback, Heartbeat } from "./components";
+import { CopyBlock } from "./copy";
 import { PlanEditor } from "./plan-edit";
+import { EmptyState, PageHeading, ResourceState } from "./states";
 import { VirtualList } from "./virtual";
+import { useToast } from "./ui";
 
 function RegistrationForm({ complete }: { complete: (items: Registration[]) => void }) {
   const [bulk, setBulk] = useState(false);
   const form = useSubmit();
   return (
-    <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+    <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
       const common = { role: value(fields, "role"), kind: value(fields, "kind"),
         model: value(fields, "model"), provider: value(fields, "provider") };
       const id = value(fields, "id");
@@ -49,25 +53,6 @@ function RegistrationForm({ complete }: { complete: (items: Registration[]) => v
   );
 }
 
-export function Secret({ label, value }: { label: string; value: string }) {
-  const [feedback, setFeedback] = useState("");
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(value);
-      setFeedback("Copied");
-    } catch {
-      setFeedback("Select and copy the text.");
-    }
-  }
-  return <div className="secret">
-    <div className="heading"><strong>{label}</strong>
-      <button type="button" onClick={copy} aria-label={`Copy ${label}`}>Copy</button>
-    </div>
-    <pre>{value}</pre>
-    {feedback && <span className="meta" role="status">{feedback}</span>}
-  </div>;
-}
-
 function RegistrationResults({ items, dismiss }: { items: Registration[]; dismiss: () => void }) {
   return <section className="panel stack">
     <div className="heading"><h2>Agent credentials</h2><button onClick={dismiss}>Dismiss credentials</button></div>
@@ -75,11 +60,11 @@ function RegistrationResults({ items, dismiss }: { items: Registration[]; dismis
     {items.map(({ agent, connect }, index) => (
       <details key={agent.id} open={index === 0}>
         <summary>{agent.id}</summary>
-        <Secret label="Agent token" value={connect.token} />
-        <Secret label="Join line" value={connect.join_line} />
-        <Secret label="Claude Code" value={connect.snippets.claude_code} />
-        <Secret label="Codex config.toml" value={connect.snippets.codex_toml} />
-        <Secret label="OpenCode / DeepSeek opencode.json" value={connect.snippets.opencode_json} />
+        <CopyBlock label="Agent token" text={connect.token} />
+        <CopyBlock label="Join line" text={connect.join_line} />
+        <CopyBlock label="Claude Code" text={connect.snippets.claude_code} />
+        <CopyBlock label="Codex config.toml" text={connect.snippets.codex_toml} />
+        <CopyBlock label="OpenCode / DeepSeek opencode.json" text={connect.snippets.opencode_json} />
       </details>
     ))}
   </section>;
@@ -89,18 +74,20 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
   const agents = useResource<{ agents: Agent[] }>("agents?limit=1000", revision);
   const [showForm, setShowForm] = useState(false);
   const [registered, setRegistered] = useState<Registration[] | null>(null);
+  const bulk = useBulk();
   return <>
     <div className="heading"><h1>Agents</h1>
-      <button className="primary" disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
+      <button className="primary" data-write disabled={!!registered} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Register agents"}</button></div>
     {showForm && <RegistrationForm complete={(items) => { setRegistered(items); setShowForm(false); agents.refresh(); }} />}
     {registered && <RegistrationResults items={registered} dismiss={() => setRegistered(null)} />}
-    <Feedback error={agents.error} loading={!agents.data} />
-    {agents.data && !agents.data.agents?.length && <p className="empty">No agents registered.</p>}
+    <ResourceState error={agents.error} loading={!agents.data} retry={agents.refresh} rows={5} />
+    {agents.data && !agents.data.agents?.length && <EmptyState>No agents registered.</EmptyState>}
     {!!agents.data?.agents?.length && <div className="table-wrap">
       <div className="registry-table">
-        <div className="registry-row registry-head"><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
+        <div className="registry-row selectable registry-head"><SelectAll ids={agents.data.agents.map((agent) => agent.id)} bulk={bulk} name="agents" /><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
-          <article className="registry-row">
+          <article className="registry-row selectable">
+            <SelectBox id={agent.id} bulk={bulk} name={agent.id} />
             <div><Link href={`/agents/${encodeURIComponent(agent.id)}`}>{agent.id}</Link>
               <div><button className="text-button meta" onClick={() => openThread({ kind: "agent", id: agent.id })}>Thread</button></div></div>
             <div>{agent.role}</div><div>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></div>
@@ -111,6 +98,8 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
         )} />
       </div>
     </div>}
+    <BulkBar kind="agents" bulk={bulk} actions={agentActions} />
+    <BulkToast bulk={bulk} />
   </>;
 }
 
@@ -123,8 +112,19 @@ function PlanCard({ plan, decided, changed, openThread }: { plan: Plan; decided:
       <div className="actions"><span className="pill">{count} tasks</span><button onClick={() => openThread({ kind: "brief", id: plan.brief_id })}>Brief thread</button></div>
     </div>
     {plan.note && <p className="preserve">{plan.note}</p>}
+    {!!plan.warnings?.length && <section className="stack" aria-label={`Lint findings of ${plan.id}`}>
+      <h3>Lint findings</h3>
+      <ul className="stack">
+        {plan.warnings.map((finding, index) => <li key={index}>
+          <span className={`pill ${finding.severity === "error" ? "revoked" : "paused"}`}>{finding.severity}</span>{" "}
+          <strong>{finding.rule.replace(/^playbook_/, "playbook · ")}</strong>
+          {finding.task && <span className="meta"> · {finding.task}</span>}
+          <div className="meta">{finding.message}</div>
+        </li>)}
+      </ul>
+    </section>}
     <PlanEditor plan={plan} changed={changed} />
-    <form className="stack" onSubmit={(event) => {
+    <form className="stack" data-write onSubmit={(event) => {
       const button = (event.nativeEvent as SubmitEvent).submitter;
       const reject = button instanceof HTMLButtonElement && button.value === "reject";
       void form.submit(event, async (fields) => {
@@ -149,8 +149,8 @@ export function PlansView({ revision, openThread }: { revision: number; openThre
   const items = plans.data?.plans?.filter((plan) => !decided.includes(plan.id)) ?? [];
   return <>
     <div className="heading"><h1>Plan approvals</h1></div>
-    <Feedback error={plans.error} loading={!plans.data} />
-    {plans.data && !items.length && <p className="empty">No plans awaiting approval.</p>}
+    <ResourceState error={plans.error} loading={!plans.data} retry={plans.refresh} />
+    {plans.data && !items.length && <EmptyState>No plans awaiting approval.</EmptyState>}
     {items.map((plan) => <PlanCard key={plan.id} plan={plan} openThread={openThread} changed={plans.refresh} decided={(id) => {
       setDecided((current) => [...current, id]);
       plans.refresh();
@@ -171,7 +171,7 @@ function QuestionCard({ question, answered, openThread }: { question: Question; 
     {!!question.options?.length && <div className="actions">
       {question.options.map((option, index) => <button key={index} onClick={() => setAnswer(option)}>{option}</button>)}
     </div>}
-    <form className="stack" onSubmit={(event) => form.submit(event, async (fields) => {
+    <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
       const text = value(fields, "answer");
       if (!text) throw new Error("Enter an answer.");
       await api<Question>(`questions/${encodeURIComponent(question.id)}/answer`, "POST", { answer: text });
@@ -190,8 +190,8 @@ export function QuestionsView({ revision, openThread }: { revision: number; open
   const items = questions.data?.questions?.filter((question) => !answered.includes(question.id)) ?? [];
   return <>
     <div className="heading"><h1>Questions inbox</h1></div>
-    <Feedback error={questions.error} loading={!questions.data} />
-    {questions.data && !items.length && <p className="empty">No open questions.</p>}
+    <ResourceState error={questions.error} loading={!questions.data} retry={questions.refresh} />
+    {questions.data && !items.length && <EmptyState>No open questions.</EmptyState>}
     {items.map((question) => <QuestionCard key={question.id} question={question} openThread={openThread} answered={(id) => {
       setAnswered((current) => [...current, id]);
       questions.refresh();
@@ -212,11 +212,11 @@ function capacityProblem(draft: Draft): string | undefined {
   }
 }
 
-export function CapacityView({ revision }: { revision: number }) {
+export function CapacityView({ revision, embedded }: { revision: number; embedded?: boolean }) {
   const capacity = useResource<Capacity>("capacity", revision);
   const [draft, setDraft] = useState<Draft>();
-  const [saved, setSaved] = useState(false);
   const form = useSubmit();
+  const toast = useToast();
   const current = capacity.data;
   const settings: Draft | undefined = draft ?? (current && {
     global_max_agents: current.global_max_agents,
@@ -225,13 +225,12 @@ export function CapacityView({ revision }: { revision: number }) {
 
   function update(next: Draft) {
     setDraft(next);
-    setSaved(false);
   }
 
   return <>
-    <div className="heading"><h1>Capacity settings</h1>{current && <span className="pill">{current.agents_in_use} agents in use</span>}</div>
-    <Feedback error={capacity.error} loading={!current} />
-    {settings && <form className="panel stack" onSubmit={(event) => form.submit(event, async () => {
+    <PageHeading title="Capacity settings" embedded={embedded}>{current && <span className="pill">{current.agents_in_use} agents in use</span>}</PageHeading>
+    <ResourceState error={capacity.error} loading={!current} retry={capacity.refresh} rows={4} />
+    {settings && <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async () => {
       const problem = capacityProblem(settings);
       if (problem) throw new Error(problem);
       const response = await api<Capacity>("capacity", "PUT", {
@@ -243,7 +242,7 @@ export function CapacityView({ revision }: { revision: number }) {
       capacity.setData(response);
       capacity.refresh();
       setDraft(undefined);
-      setSaved(true);
+      toast("Saved the capacity settings.");
     })}>
       <fieldset className="stack" disabled={form.busy}>
         <label className="limit-global">Global maximum agents
@@ -251,7 +250,7 @@ export function CapacityView({ revision }: { revision: number }) {
             onChange={(event) => update({ ...settings, global_max_agents: event.target.valueAsNumber })} />
         </label>
         <h2>Provider and model limits</h2>
-        {!settings.limits.length && <p className="muted">No provider or model limits configured.</p>}
+        {!settings.limits.length && <EmptyState>No provider or model limits configured.</EmptyState>}
         {settings.limits.map((limit, index) => {
           const usage = current?.limits?.find((row) => row.provider === limit.provider && row.model === limit.model);
           function edit(changes: Partial<LimitInput>) {
@@ -273,7 +272,6 @@ export function CapacityView({ revision }: { revision: number }) {
         </div>
       </fieldset>
       <Feedback error={form.error} />
-      {saved && <span className="meta" role="status">Capacity settings saved.</span>}
     </form>}
   </>;
 }

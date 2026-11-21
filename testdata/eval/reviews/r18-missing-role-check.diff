@@ -1,0 +1,42 @@
+diff --git a/internal/mcp/tool_priority.go b/internal/mcp/tool_priority.go
+new file mode 100644
+--- /dev/null
++++ b/internal/mcp/tool_priority.go
+@@ -0,0 +1,37 @@
++package mcp
++
++import (
++	"context"
++	"encoding/json"
++
++	"github.com/SigmaUno/subspace/internal/model"
++)
++
++func init() {
++	registerTool(toolDef{
++		Name:  "set_task_priority",
++		Roles: []string{model.RoleLeader},
++		Call:  (*Handler).setTaskPriority,
++	})
++}
++
++type setPriorityArgs struct {
++	TaskID   string `json:"task_id"`
++	Priority int    `json:"priority"`
++}
++
++func (h *Handler) setTaskPriority(ctx context.Context, caller *model.Agent, raw json.RawMessage) (any, error) {
++	var a setPriorityArgs
++	if err := strictDecode(raw, &a); err != nil {
++		return nil, err
++	}
++	if a.Priority < 0 || a.Priority > 100 {
++		return nil, model.BadRequest("priority must be 0..100")
++	}
++	t, err := h.board.SetPriority(ctx, a.TaskID, a.Priority)
++	if err != nil {
++		return nil, err
++	}
++	h.audit(ctx, caller, "set_task_priority", t.ID, nil, map[string]any{"priority": a.Priority})
++	return t, nil
++}

@@ -1,6 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useState, type FormEvent } from "react";
+import { commaList, label, safeURL } from "./text";
+
+export { commaList, label, safeURL };
 
 export class ApiError extends Error {
   constructor(readonly status: number, message: string) {
@@ -71,6 +74,46 @@ export function useResource<T>(path: string | null, revision: number, load = loa
   return { data, error, refresh, setData };
 }
 
+type PageBody = { next_cursor?: string | null } & Record<string, unknown>;
+
+export function usePagedResource<T>(path: string, key: string, revision: number, pageSize = 100) {
+  const page = `${path}${path.includes("?") ? "&" : "?"}limit=${pageSize}`;
+  const first = useResource<PageBody>(page, revision);
+  const [more, setMore] = useState<{ base?: PageBody; items: T[]; next: string | null }>({ items: [], next: null });
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const head = (first.data?.[key] as T[] | null | undefined) ?? [];
+  const extended = more.base !== undefined && more.base === first.data;
+  const items = extended ? [...head, ...more.items] : head;
+  const next = extended ? more.next : first.data?.next_cursor ?? null;
+
+  const loadMore = useCallback(async () => {
+    const base = first.data;
+    if (!base || !next || loading) return;
+    setLoading(true);
+    try {
+      const result = await api<PageBody>(`${page}&cursor=${encodeURIComponent(next)}`);
+      const added = (result[key] as T[] | null | undefined) ?? [];
+      setMore((previous) => ({
+        base,
+        items: previous.base === base ? [...previous.items, ...added] : added,
+        next: result.next_cursor ?? null,
+      }));
+      setError("");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Request failed.");
+    } finally {
+      setLoading(false);
+    }
+  }, [first.data, next, loading, page, key]);
+
+  return {
+    items, loaded: first.data !== undefined, error: first.error || error, loading,
+    hasMore: next !== null, loadMore, refresh: first.refresh,
+  };
+}
+
 export function useSubmit() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
@@ -96,19 +139,5 @@ export function value(form: FormData, key: string): string {
   return String(form.get(key) ?? "").trim();
 }
 
-export function commaList(input: string) {
-  return input.split(/[,\n]/).map((entry) => entry.trim()).filter(Boolean);
-}
-
 const euro = new Intl.NumberFormat("en", { style: "currency", currency: "EUR" });
 export const money = (amount: number) => euro.format(amount);
-export const label = (status: string) => status.replaceAll("_", " ");
-
-export function safeURL(input?: string | null): string | undefined {
-  if (!input) return undefined;
-  try {
-    const url = new URL(input);
-    if (url.protocol === "https:" || url.protocol === "http:") return url.href;
-  } catch {
-  }
-}

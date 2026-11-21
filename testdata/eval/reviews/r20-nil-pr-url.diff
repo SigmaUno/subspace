@@ -1,0 +1,13 @@
+diff --git a/internal/report/markdown.go b/internal/report/markdown.go
+--- a/internal/report/markdown.go
++++ b/internal/report/markdown.go
+@@ -58,7 +58,9 @@ func writeTasks(b *strings.Builder, r *Report, tasks map[string]*model.Task) {
+ 	b.WriteString("| Task | Status | Assignee | Cost |\n|---|---|---|---|\n")
+ 	for _, row := range r.Tasks {
+-		fmt.Fprintf(b, "| %s %s | %s | %s | %.2f |\n", row.ID, escape(row.Title), row.Status, row.Assignee, row.CostEUR)
++		t := tasks[row.ID]
++		title := fmt.Sprintf("[%s](%s)", escape(row.Title), *t.PRURL)
++		fmt.Fprintf(b, "| %s %s | %s | %s | %.2f |\n", row.ID, title, row.Status, row.Assignee, row.CostEUR)
+ 	}
+ 	b.WriteString("\n")
+ }

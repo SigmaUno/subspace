@@ -3,7 +3,9 @@
 import { useRef, useState, type DragEvent } from "react";
 import { api, useResource } from "../../../lib/client";
 import type { Artifact, ArtifactList, ScopeKind, ScopeOptions } from "../../../lib/files-types";
-import { Feedback } from "./components";
+import { formatSize } from "./format";
+import { EmptyState, ResourceState } from "./states";
+import { useAction, useConfirm } from "./ui";
 
 const kinds: { id: ScopeKind; name: string; resource: keyof ScopeOptions; prefix: string }[] = [
   { id: "agent", name: "Agent", resource: "agents", prefix: "agent" },
@@ -12,18 +14,6 @@ const kinds: { id: ScopeKind; name: string; resource: keyof ScopeOptions; prefix
 ];
 
 type Transfer = { key: number; name: string; percent: number; error: string; done: boolean };
-
-const units = ["B", "KB", "MB", "GB"];
-
-function formatSize(bytes: number) {
-  let size = bytes;
-  let unit = 0;
-  while (size >= 1024 && unit < units.length - 1) {
-    size /= 1024;
-    unit++;
-  }
-  return `${unit ? size.toFixed(1) : size} ${units[unit]}`;
-}
 
 function send(scope: string, file: File, progress: (percent: number) => void) {
   return new Promise<void>((resolve, reject) => {
@@ -56,8 +46,8 @@ function ScopeFiles({ scope }: { scope: string }) {
   const files = useResource<ArtifactList>(`artifacts?${new URLSearchParams({ scope, limit: "1000" })}`, 0);
   const [transfers, setTransfers] = useState<Transfer[]>([]);
   const [dragging, setDragging] = useState(false);
-  const [error, setError] = useState("");
-  const [removing, setRemoving] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
   const counter = useRef(0);
   const input = useRef<HTMLInputElement>(null);
 
@@ -87,17 +77,8 @@ function ScopeFiles({ scope }: { scope: string }) {
   }
 
   async function remove(artifact: Artifact) {
-    if (!window.confirm(`Delete ${artifact.name}?`)) return;
-    setRemoving(artifact.id);
-    setError("");
-    try {
-      await api<void>(`artifacts/${encodeURIComponent(artifact.id)}`, "DELETE");
-      files.refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Delete failed.");
-    } finally {
-      setRemoving("");
-    }
+    const accepted = await confirm({ title: `Delete ${artifact.name}?`, message: "The file is removed for good.", confirm: "Delete" });
+    if (accepted && await action.run(artifact.id, () => api<void>(`artifacts/${encodeURIComponent(artifact.id)}`, "DELETE"), `Deleted ${artifact.name}.`)) files.refresh();
   }
 
   return <>
@@ -106,7 +87,7 @@ function ScopeFiles({ scope }: { scope: string }) {
       onDragLeave={() => setDragging(false)}
       onDrop={drop}>
       <p>Drop files here to upload to {scope}</p>
-      <div className="actions">
+      <div className="actions" data-write>
         <button type="button" onClick={() => input.current?.click()}>Choose files</button>
         <input ref={input} type="file" multiple hidden aria-label="Files to upload"
           onChange={(event) => { void upload(event.target.files); event.target.value = ""; }} />
@@ -120,8 +101,8 @@ function ScopeFiles({ scope }: { scope: string }) {
           : <><progress max={100} value={item.percent} aria-label={`Uploading ${item.name}`} /><span>{item.percent}%</span></>}
       </li>)}
     </ul>}
-    <Feedback error={error || files.error} loading={!files.data} />
-    {files.data && !files.data.artifacts.length && <p className="empty">No files in this scope.</p>}
+    <ResourceState error={files.error} loading={!files.data} retry={files.refresh} rows={4} />
+    {files.data && !files.data.artifacts.length && <EmptyState>No files in this scope.</EmptyState>}
     {!!files.data?.artifacts.length && <div className="table-wrap">
       <table>
         <thead><tr><th>Name</th><th>Type</th><th>Size</th><th>Uploaded</th><th>Actions</th></tr></thead>
@@ -133,7 +114,7 @@ function ScopeFiles({ scope }: { scope: string }) {
             <td><time dateTime={artifact.created_at}>{new Date(artifact.created_at).toLocaleString([], { dateStyle: "short", timeStyle: "short" })}</time></td>
             <td><div className="actions">
               <a href={`/api/v1/artifacts/${encodeURIComponent(artifact.id)}`} download={artifact.name}>Download</a>
-              <button type="button" className="danger" disabled={removing === artifact.id} onClick={() => remove(artifact)}>Delete</button>
+              <button type="button" className="danger" data-write disabled={action.busy === artifact.id} onClick={() => remove(artifact)}>Delete</button>
             </div></td>
           </tr>)}
         </tbody>
@@ -166,8 +147,8 @@ export function FilesView() {
         </label>
       </div>
     </div>
-    <Feedback error={options.error} loading={!list} />
-    {list && !items.length && <p className="empty">No {kind.resource} yet.</p>}
+    <ResourceState error={options.error} loading={!list} retry={options.refresh} rows={2} />
+    {list && !items.length && <EmptyState>No {kind.resource} yet.</EmptyState>}
     {id && <ScopeFiles key={`${kind.prefix}:${id}`} scope={`${kind.prefix}:${id}`} />}
   </>;
 }

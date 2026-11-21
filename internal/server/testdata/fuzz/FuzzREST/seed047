@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(1)
+uint8(27)
+uint8(1)
+uint8(0)
+string("reviewer-1")
+string("")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("{\"reason\":\"r\"}")

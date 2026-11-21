@@ -2,15 +2,20 @@ package client_test
 
 import (
 	"context"
+	"encoding/json"
 	"net/http/httptest"
 	"slices"
 	"strings"
 	"testing"
 
+	"github.com/SigmaUno/subspace/internal/agentout"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/client"
+	"github.com/SigmaUno/subspace/internal/helpreq"
+	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/usage"
 )
 
@@ -119,6 +124,22 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("question %+v", q)
 	}
 	_ = must(e.owner.AnswerQuestion(ctx, q.ID, "sqlite"))
+	k := must(tm.worker.AddKnowledge(ctx, knowledge.Input{Kind: "decision", Title: "use sqlite", Body: "owner answered", Tags: []string{"db"}}))
+	if k.Status != knowledge.StatusPending || k.BriefID != br.ID || k.Author != "wally" {
+		t.Fatalf("knowledge %+v", k)
+	}
+	if ks := must(tm.leader.SearchKnowledge(ctx, "sqlite", "decision", br.ID, 5)); len(ks) != 1 || ks[0].ID != k.ID {
+		t.Fatalf("search knowledge %+v", ks)
+	}
+	if g := must(tm.leader.GetKnowledge(ctx, k.ID)); g.Title != "use sqlite" {
+		t.Fatalf("get knowledge %+v", g)
+	}
+	if p := must(tm.leader.PinKnowledge(ctx, k.ID, true)); !p.Pinned {
+		t.Fatalf("pin knowledge %+v", p)
+	}
+	if sk := must(tm.leader.SupersedeKnowledge(ctx, k.ID, "")); sk.Status != knowledge.StatusSuperseded {
+		t.Fatalf("supersede knowledge %+v", sk)
+	}
 	posted := must(tm.worker.PostMessage(ctx, "task:"+impl, "hello thread"))
 	if posted.ThreadID != impl {
 		t.Fatalf("posted %+v", posted)
@@ -142,6 +163,18 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("released %+v", rel)
 	}
 	_ = must(tm.worker.ClaimTask(ctx, impl))
+	if h := must(tm.worker.RequestHelp(ctx, impl, "unclear_spec", "which db?")); h.Type != helpreq.TypeHelp || h.Status != helpreq.StatusOpen {
+		t.Fatalf("help %+v", h)
+	}
+	if b := must(tm.worker.ReportBlocker(ctx, impl, "waiting for access", helpreq.NeedsLeader)); b.Needs != helpreq.NeedsLeader {
+		t.Fatalf("blocker %+v", b)
+	}
+	if bt := must(tm.leader.GetTask(ctx, impl)); bt.Status != model.StatusBlocked {
+		t.Fatalf("blocked task %+v", bt)
+	}
+	unblock := model.StatusReady
+	_ = must(tm.leader.UpdateTask(ctx, impl, board.TaskPatch{Status: &unblock}))
+	_ = must(tm.worker.ClaimTask(ctx, impl))
 	sub := must(tm.worker.Submit(ctx, board.SubmitInput{TaskID: impl, PRURL: "https://example.invalid/pr/1", Summary: "done"}))
 	if sub.Status != model.StatusSubmitted || sub.PRURL == nil {
 		t.Fatalf("submitted %+v", sub)
@@ -154,6 +187,29 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 	}
 	_ = must(tm.tester.Submit(ctx, board.SubmitInput{TaskID: tests, Summary: "tested"}))
 
+	big := must(tm.leader.CreateTask(ctx, taskInput(br.ID, "big")))
+	_ = must(tm.leader.Assign(ctx, big.ID, "wally", ""))
+	split := must(tm.worker.SuggestSplit(ctx, big.ID, []helpreq.Proposed{
+		{Ref: "a", Title: "big part a", Spec: "first half"},
+		{Ref: "b", Title: "big part b", Spec: "second half", DependsOn: []string{"a"}},
+	}))
+	if open := must(tm.leader.ListHelpRequests(ctx, helpreq.Filter{TaskID: big.ID})); len(open) != 1 || open[0].ID != split.ID {
+		t.Fatalf("open requests %+v", open)
+	}
+	accepted := must(tm.leader.AcceptSplit(ctx, split.ID))
+	if len(accepted.Tasks) != 2 || accepted.Original.Status != model.StatusCancelled || accepted.Request.Status != helpreq.StatusAccepted {
+		t.Fatalf("accepted %+v", accepted)
+	}
+	_ = must(tm.tester.RequestHelp(ctx, tests, "dependency_issue", "needs fixtures"))
+	seq := int64(1)
+	logged := must(tm.tester.LogOutput(ctx, agentout.Input{TaskID: tests, Stream: "stdout", Text: "ok  \x1b[32mPASS\x1b[0m\n", Seq: &seq}))
+	if !logged.OK || logged.Lines != 1 || logged.Duplicate {
+		t.Fatalf("log_output %+v", logged)
+	}
+	if again := must(tm.tester.LogOutput(ctx, agentout.Input{Stream: "stdout", Text: "retry", Seq: &seq})); !again.Duplicate || again.Seq != logged.Seq {
+		t.Fatalf("log_output retry %+v", again)
+	}
+
 	reviews := must(tm.reviewer.ListReviews(ctx))
 	if !slices.ContainsFunc(reviews, func(x *model.Task) bool { return x.ID == impl }) {
 		t.Fatalf("reviews %+v", reviews)
@@ -162,6 +218,8 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 	if rv.Status != model.StatusApproved {
 		t.Fatalf("review %+v", rv)
 	}
+	_ = must(tm.reviewer.RequestHelp(ctx, impl, "conflicting_requirements", "spec and tests disagree"))
+	_ = must(tm.reviewer.SuggestSplit(ctx, impl, []helpreq.Proposed{{Title: "x", Spec: "x"}, {Title: "y", Spec: "y"}}))
 	if d := must(e.owner.MarkDone(ctx, impl, "merged")); d.Status != model.StatusDone {
 		t.Fatalf("done %+v", d)
 	}
@@ -187,6 +245,18 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("empty usage report: %v", err)
 	}
 
+	for _, call := range []func() (json.RawMessage, error){
+		func() (json.RawMessage, error) { return tm.leader.GetForecast(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.GetReport(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.Search(ctx, "impl", "task", 5) },
+		func() (json.RawMessage, error) { return tm.leader.AgentStats(ctx, "wally") },
+		func() (json.RawMessage, error) { return tm.leader.ListDecisions(ctx) },
+		func() (json.RawMessage, error) { return tm.leader.ListSpawns(ctx, br.ID) },
+		func() (json.RawMessage, error) { return tm.leader.GetComponents(ctx, br.ID) },
+	} {
+		_ = must(call())
+	}
+
 	_, _ = uc.ListArtifacts(ctx, "", 1)
 	_, _ = uc.GetArtifact(ctx, "A-1")
 	_, _ = uc.PutArtifact(ctx, "agent:me", "a.txt", "text/plain", []byte("x"))
@@ -198,8 +268,10 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 			}
 		}
 	}
-	if !e.seen.has("report_usage") {
-		t.Error("report_usage not exercised")
+	for _, op := range []string{"report_usage", "log_output"} {
+		if !e.seen.has(op) {
+			t.Errorf("%s not exercised", op)
+		}
 	}
 }
 
@@ -223,9 +295,13 @@ func TestListToolsMatchesRoles(t *testing.T) {
 			}
 		}
 		var want []string
-		for _, tl := range mcp.DefaultRegistry().List(role) {
+		reg := mcp.DefaultRegistry()
+		mcp.RegisterTaskTemplates(reg, nil, prompts.New(""))
+		for _, tl := range reg.List(role) {
 			want = append(want, tl.Name)
 		}
+		want = append(want, "log_output", "report_provider_error", "report_usage")
+		slices.Sort(want)
 		if !slices.Equal(names, want) {
 			t.Errorf("%s tools = %v, want %v", role, names, want)
 		}

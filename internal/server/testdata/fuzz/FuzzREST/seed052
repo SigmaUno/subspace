@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(1)
+uint8(31)
+uint8(1)
+uint8(0)
+string("brief")
+string("B-1")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("{\"body\":\"hi\"}")

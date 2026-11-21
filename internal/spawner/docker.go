@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const (
@@ -147,6 +149,20 @@ func (d Docker) Stop(ctx context.Context, agentID string) error {
 	return nil
 }
 
+func (d Docker) Status(ctx context.Context, agentID string) (Status, error) {
+	if d.client == nil {
+		return StatusUnknown, ErrNotImplemented
+	}
+	list, err := d.list(ctx, LabelAgent+"="+agentID)
+	if err != nil {
+		return StatusUnknown, err
+	}
+	if len(list) == 0 {
+		return StatusExited, nil
+	}
+	return StatusRunning, nil
+}
+
 func (d Docker) List(ctx context.Context) ([]Container, error) {
 	if d.client == nil {
 		return nil, ErrNotImplemented
@@ -206,7 +222,7 @@ func (d Docker) do(ctx context.Context, token, method, path string, in, out any)
 		return errors.New(redact(err.Error(), token))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxEngineReply))
+	data, err := netguard.ReadBody(resp.Body, maxEngineReply)
 	if err != nil {
 		return errors.New(redact(err.Error(), token))
 	}

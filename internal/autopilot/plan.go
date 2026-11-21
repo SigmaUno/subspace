@@ -1,9 +1,12 @@
 package autopilot
 
 import (
+	"slices"
 	"sort"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/breaker"
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -19,6 +22,7 @@ type SpawnConfig struct {
 	Kind     string `json:"worker_kind"`
 	Model    string `json:"model"`
 	Provider string `json:"provider,omitempty"`
+	Profile  string `json:"profile,omitempty"`
 }
 
 type Snapshot struct {
@@ -29,6 +33,9 @@ type Snapshot struct {
 	Agents   []*model.Agent
 	Capacity board.CapacityView
 	Spawn    map[string]SpawnConfig
+	Scores   map[string]float64
+	Breaker  func(provider, model string) breaker.State
+	Conflict conflict.Mode
 }
 
 type Action struct {
@@ -82,6 +89,15 @@ func Plan(s Snapshot) []Action {
 		}
 	}
 
+	rooms := newRooms(s)
+	avoid := s.Conflict != conflict.Off
+	var held []*model.Task
+	for _, t := range tasks {
+		if t.Assignee != nil && slices.Contains(conflict.Held, t.Status) {
+			held = append(held, t)
+		}
+	}
+
 	var acts []Action
 	need := map[needKey]int{}
 	for _, t := range tasks {
@@ -89,15 +105,34 @@ func Plan(s Snapshot) []Action {
 		if br == nil || t.Status != model.StatusReady {
 			continue
 		}
-		a := pick(s.Agents, load, func(a *model.Agent) bool {
-			return a.Role == t.Role && allowed(br, a.Provider)
-		})
-		if a == nil {
-			need[needKey{br.ID, t.Role}]++
+		eligible := func(a *model.Agent) bool {
+			return a.Role == t.Role && allowed(br, a.Provider) && rooms.free(a.Provider, a.Model) > 0
+		}
+		owner, ok := overlapOwner(t, held, avoid)
+		if !ok {
 			continue
 		}
+		var a *model.Agent
+		if owner != "" {
+			a = agents[owner]
+			if a == nil || a.Status != model.AgentActive || !eligible(a) || load[a.ID] > 0 {
+				continue
+			}
+		} else {
+			a = pick(s.Agents, load, s.Scores, eligible)
+			if a == nil {
+				need[needKey{br.ID, t.Role}]++
+				continue
+			}
+		}
+		rooms.take(a.Provider, a.Model, 1)
 		load[a.ID]++
 		acts = append(acts, Action{Kind: ActAssign, BriefID: br.ID, TaskID: t.ID, AgentID: a.ID})
+		if avoid && len(t.Paths) > 0 {
+			cp := *t
+			cp.Assignee, cp.Status = &a.ID, model.StatusAssigned
+			held = append(held, &cp)
+		}
 	}
 
 	for _, t := range tasks {
@@ -109,12 +144,14 @@ func Plan(s Snapshot) []Action {
 		if t.Assignee != nil && agents[*t.Assignee] != nil {
 			worker = agents[*t.Assignee].Provider
 		}
-		a := pick(s.Agents, revLoad, func(a *model.Agent) bool {
-			return a.Role == model.RoleReviewer && allowed(br, a.Provider) && (worker == "" || a.Provider != worker)
+		a := pick(s.Agents, revLoad, s.Scores, func(a *model.Agent) bool {
+			return a.Role == model.RoleReviewer && allowed(br, a.Provider) && (worker == "" || a.Provider != worker) &&
+				rooms.free(a.Provider, a.Model) > 0
 		})
 		if a == nil {
 			continue
 		}
+		rooms.take(a.Provider, a.Model, 1)
 		revLoad[a.ID]++
 		acts = append(acts, Action{Kind: ActReview, BriefID: br.ID, TaskID: t.ID, AgentID: a.ID})
 	}
@@ -144,7 +181,7 @@ func Plan(s Snapshot) []Action {
 		if !allowed(br, prov) {
 			continue
 		}
-		n := min(need[k], maxSpawnBatch, c.free(prov, cfg.Model))
+		n := min(need[k], maxSpawnBatch, c.free(prov, cfg.Model), rooms.free(prov, cfg.Model))
 		if br.Budget.MaxParallelAgent > 0 {
 			r, ok := room[br.ID]
 			if !ok {
@@ -157,23 +194,48 @@ func Plan(s Snapshot) []Action {
 			continue
 		}
 		c.take(prov, cfg.Model, n)
+		rooms.take(prov, cfg.Model, n)
 		acts = append(acts, Action{Kind: ActSpawn, BriefID: br.ID, Spawn: &board.SpawnInput{
 			BriefID: br.ID, Kind: cfg.Kind, Model: cfg.Model, N: n, Role: k.role, Provider: prov}})
 	}
 	return acts
 }
 
-func pick(agents []*model.Agent, load map[string]int, ok func(*model.Agent) bool) *model.Agent {
+func overlapOwner(t *model.Task, held []*model.Task, avoid bool) (string, bool) {
+	if !avoid {
+		return "", true
+	}
+	owner := ""
+	for _, h := range conflict.Conflicts(t, "", held) {
+		if owner != "" && owner != *h.Assignee {
+			return "", false
+		}
+		owner = *h.Assignee
+	}
+	return owner, true
+}
+
+func pick(agents []*model.Agent, load map[string]int, scores map[string]float64, ok func(*model.Agent) bool) *model.Agent {
 	var best *model.Agent
 	for _, a := range agents {
 		if a.Status != model.AgentActive || !ok(a) {
 			continue
 		}
-		if best == nil || load[a.ID] < load[best.ID] || (load[a.ID] == load[best.ID] && idLess(a.ID, best.ID)) {
+		if best == nil || better(a, best, load, scores) {
 			best = a
 		}
 	}
 	return best
+}
+
+func better(a, b *model.Agent, load map[string]int, scores map[string]float64) bool {
+	if load[a.ID] != load[b.ID] {
+		return load[a.ID] < load[b.ID]
+	}
+	if scores[a.ID] != scores[b.ID] {
+		return scores[a.ID] > scores[b.ID]
+	}
+	return idLess(a.ID, b.ID)
 }
 
 func allowed(b *model.Brief, provider string) bool {
@@ -234,4 +296,48 @@ func (c *capRoom) free(provider, mdl string) int {
 func (c *capRoom) take(provider, mdl string, n int) {
 	c.taken[[2]string{provider, mdl}] += n
 	c.total += n
+}
+
+const unlimited = 1 << 30
+
+type rooms struct {
+	state    func(provider, model string) breaker.State
+	inflight map[[2]string]int
+	left     map[[2]string]int
+}
+
+func newRooms(s Snapshot) *rooms {
+	r := &rooms{state: s.Breaker, inflight: map[[2]string]int{}, left: map[[2]string]int{}}
+	for _, a := range s.Agents {
+		if a.AssignedCount > 0 {
+			r.inflight[[2]string{a.Provider, a.Model}]++
+		}
+	}
+	return r
+}
+
+func (r *rooms) free(provider, mdl string) int {
+	if r.state == nil {
+		return unlimited
+	}
+	k := [2]string{provider, mdl}
+	if n, ok := r.left[k]; ok {
+		return n
+	}
+	n := unlimited
+	switch r.state(provider, mdl) {
+	case breaker.Open:
+		n = 0
+	case breaker.HalfOpen:
+		n = max(1-r.inflight[k], 0)
+	}
+	r.left[k] = n
+	return n
+}
+
+func (r *rooms) take(provider, mdl string, n int) {
+	if r.free(provider, mdl) == unlimited {
+		return
+	}
+	r.left[[2]string{provider, mdl}] -= n
 }

@@ -1,0 +1,18 @@
+{
+  "id": "r14-unbounded-body",
+  "title": "Accept Forgejo webhook deliveries",
+  "spec": "Add the Forgejo webhook handler. Bodies above 1 MiB are rejected with 413, the HMAC signature in X-Forgejo-Signature is verified in constant time before parsing.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "bodies above 1 MiB are rejected with 413 without reading them fully",
+    "the signature is verified with hmac.Equal before the body is parsed",
+    "an HTTP test covers a valid, an invalid and an oversized delivery"
+  ],
+  "tests": {"passed": 26, "failed": 0},
+  "pr_title": "Forgejo webhooks",
+  "pr_body": "Handler plus tests for valid and invalid signatures.",
+  "defects": [
+    {"file": "internal/webhook/forgejo.go", "match": "body, err := io.ReadAll(r.Body)", "kind": "unbounded_read", "note": "the body is read without http.MaxBytesReader or io.LimitReader and the 413 check happens after the full read", "criterion": 0},
+    {"file": "internal/webhook/forgejo_test.go", "match": "func TestForgejoInvalidSignature", "kind": "missing_test_case", "note": "no test sends an oversized delivery", "criterion": 2}
+  ]
+}

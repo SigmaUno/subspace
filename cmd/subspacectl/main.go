@@ -1,7 +1,6 @@
 package main
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -15,169 +14,347 @@ import (
 	"regexp"
 	"strconv"
 	"strings"
-	"time"
 )
 
-const usage = `Usage: subspacectl COMMAND [OPTIONS]
+const usage = `Usage: subspacectl [GLOBAL OPTIONS] COMMAND [OPTIONS]
 
-Set SUBSPACE_OWNER_TOKEN and optionally SUBSPACE_URL (default http://localhost:8080).
-Successful commands write the server's JSON response to stdout.
+Credentials: --token-file FILE, SUBSPACE_OWNER_TOKEN_FILE, SUBSPACE_OWNER_TOKEN or
+--token TOKEN, in that order of preference for files over values. The server URL
+comes from --url or SUBSPACE_URL (default http://localhost:8080).
+
+Global options:
+  --json         compact JSON on stdout; errors as JSON on stderr; text results as {"text":...}
+  --url URL      Subspace base URL
+  --token-file F read the owner token from a file
+  --token TOKEN  owner token (visible in the process list; prefer a file)
+
+Output is the server's JSON response, indented. Text responses (markdown, NDJSON)
+are written as-is unless --json is set.
+Exit codes: 0 ok, 1 failure, 2 usage or bad request, 3 credentials rejected or missing,
+4 not found, 5 conflict, 6 server unreachable.
 
 Commands:
   create-brief --title TITLE (--body TEXT | --body-file FILE)
                [--repos a/b,c/d] [--allowed-providers openai,deepseek]
                [--max-cost-eur 50] [--max-parallel-agents 10]
   briefs [--status open|closed] [--limit 1000]
+  briefs import (--file FILE | --file -) [--dry-run]
+  briefs templates [TEMPLATE_ID [--var name=value ...]]
   board BRIEF_ID
+  decisions list [--limit N]
+  decisions next
+  decisions act DECISION_ID --action ACTION [--answer T] [--note T] [--reason T]
+                [--status ready|assigned] [--snooze 1h]
+  chat send --to agent:ID|brief:ID|leader (--body TEXT | --body-file FILE)
+  chat list
+  chat show CONVERSATION_ID
+  search QUERY [--kind task|message|agent|brief] [--limit N]
+  report BRIEF_ID [--format json|md]
+  forecast BRIEF_ID
+  plans list [--brief ID] [--status STATUS]
+  plans show PLAN_ID
+  plans approve PLAN_ID [--note TEXT]
+  plans reject PLAN_ID --reason TEXT
+  plans add-task PLAN_ID --title T (--spec TEXT | --spec-file FILE) --repo R
+                 [--role worker|tester] [--criterion TEXT ...] [--depends-on T-1,T-2]
+                 [--max-minutes N --max-cost-eur N]
+  plans drop-task PLAN_ID TASK_ID
+  plans edit-task TASK_ID [--title T] [--spec TEXT | --spec-file FILE] [--repo R]
+                  [--role ROLE] [--criterion TEXT ...] [--depends-on T-1,T-2]
+                  [--max-minutes N --max-cost-eur N]
   approve-plan PLAN_ID [--note TEXT]
   reject-plan PLAN_ID --reason TEXT
   answer QUESTION_ID --answer TEXT
+  tasks list [--brief ID] [--status S] [--assignee A] [--role R] [--limit N]
+  tasks show TASK_ID
+  tasks pr|scope|gates TASK_ID
+  tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all
-  register-agent AGENT_ID --role ROLE --kind KIND --model MODEL [--provider NAME]
-  register-agents --prefix PREFIX --count N --role ROLE --kind KIND --model MODEL
+  register-agent AGENT_ID (--profile NAME | --role ROLE --kind KIND --model MODEL)
+                 [--provider NAME]
+  register-agents --prefix PREFIX --count N (--profile NAME | --role ROLE --kind KIND --model MODEL)
                   [--provider NAME]
   revoke-agent AGENT_ID [--reason TEXT]
   agents [--role ROLE] [--status STATUS] [--limit 1000]
+  agents stats
+  agents show AGENT_ID
+  agents rotate-token AGENT_ID [--expires-in 720h]
+  agents performance [AGENT_ID] [--role ROLE]
+  agents bulk-action pause|resume|revoke|kill AGENT_ID... [--reason TEXT]
+  agents register [AGENT_ID | --prefix PREFIX [--count N]] [--profile NAME] [--role ROLE]
+                  [--kind KIND] [--model MODEL] [--provider NAME]
+  profiles list
+  profiles create NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
+                  [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
+  profiles show NAME
+  profiles update NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
+                  [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
+  profiles delete NAME
+  repos list
+  repos show OWNER/NAME
+  repos health OWNER/NAME
+  repos remove OWNER/NAME
+  repos add OWNER/NAME --host github|forgejo [--base-url URL] [--default-branch BRANCH]
+            [--protect PATTERN ...] [--merge-test "make test"] [--merge-workdir DIR]
+            [--token-env VAR] [--disabled]
+  repos update OWNER/NAME [--host H] [--base-url URL] [--default-branch BRANCH] [--protect PATTERN ...]
+               [--merge-test CMD] [--merge-workdir DIR] [--token-env VAR] [--enabled=false]
+  spawns list [--brief ID]
+  spawns stop SPAWN_ID [--reason TEXT]
+  autopilot status
+  autopilot enable BRIEF_ID
+  autopilot disable BRIEF_ID
+  mergequeue list [--repo R]
+  mergequeue show CANDIDATE_ID
+  mergequeue trains [--repo R] [--limit N]
+  mergequeue train TRAIN_ID
+  mergequeue enqueue TASK_ID [--pr N] [--base BRANCH]
+  backups list
+  backups create
+  audit list [--agent A] [--task T] [--tool TOOL] [--since ID] [--limit N]
+  audit verify
+  audit export [--since ID] [--out FILE]
+  artifacts list [--scope SCOPE] [--limit N]
+  artifacts upload --scope agent:ID|task:ID|project:ID --file FILE [--name N] [--content-type T]
+  artifacts download ARTIFACT_ID --out FILE
+  artifacts delete ARTIFACT_ID
+  instructions get [--scope global|project:ID --kind rules|style|templates | --project ID]
+  instructions set --kind KIND (--text TEXT | --text-file FILE) [--scope global] [--message M]
+  prompts list [--tag TAG]
+  prompts show PROMPT_ID
+  prompts render PROMPT_ID [--var name=value ...]
+  limits [--provider P] [--model M]
   capacity get
   capacity set --file FILE
+  spend-limits get
+  spend-limits set --daily-eur N --weekly-eur N          (0 = off)
+  quotas show AGENT_ID
+  quotas set AGENT_ID --max-cost-eur-per-day N --max-tasks-per-day N --max-concurrent-tasks N
+  quotas bulk AGENT_ID... --max-cost-eur-per-day N --max-tasks-per-day N --max-concurrent-tasks N
+  schedules list
+  schedules show|enable|disable|delete SCHEDULE_ID
+  schedules create --file FILE
+  schedules edit SCHEDULE_ID --file FILE
+  schedules runs SCHEDULE_ID [--limit N]
+  schedules preview --cron EXPR [--timezone TZ] [--count N]
+  incident list [--limit N]
+  incident start --reason TEXT --actions pause_all,revoke_agents,rotate_leader_tokens,snapshot,notify
+                 [--revoke-role ROLE] [--revoke-provider NAME]
+  incident end INCIDENT_ID [--resume-agents] [--note TEXT]
+  drills list [--limit N]
+  drills run
+  costs [--group-by DIM] [--split-by DIM] [--since TIME] [--until TIME] [--brief ID]
+  estimates brief BRIEF_ID
+  estimates plan PLAN_ID
+  knowledge list [--brief ID] [--kind K] [--status S] [--q TEXT] [--limit N]
+  knowledge show|delete|approve ENTRY_ID
+  knowledge add --brief ID --kind K --title T (--body TEXT | --body-file FILE)
+                [--tags a,b] [--supersedes ENTRY_ID]
+  knowledge edit ENTRY_ID [--kind K] [--title T] [--body TEXT | --body-file FILE] [--tags a,b]
+  knowledge pin ENTRY_ID [--off]
+  knowledge supersede ENTRY_ID [--by ENTRY_ID]
+  announcements list [--status active|all]
+  announcements publish (--text TEXT | --text-file FILE) [--expires-at TIME] [--brief ID]
+  announcements delete ANNOUNCEMENT_ID
+  retention status|run|verify
+  retention restore SEGMENT_ID
+  alerts [--status active|resolved] [--limit N]
+  webhooks-out list
+  webhooks-out show|delete HOOK_ID
+  webhooks-out create --target-url URL --events a.b,c.* [--brief ID]
+  webhooks-out deliveries HOOK_ID [--state pending|delivered|dead] [--limit N]
+  webhooks-out redeliver HOOK_ID DELIVERY_ID
+  breakers list
+  breakers reset PROVIDER
+  tokens list
+  tokens create --name NAME --scope viewer|owner [--expires-at TIME]
+  tokens revoke TOKEN_ID
+  insights [AGENT_ID | --severity warning|high]
+  replay show BRIEF_ID [--at AUDIT_ID|TIME]
+  replay timeline BRIEF_ID
+  replay diff BRIEF_ID [--from AUDIT_ID|TIME] [--to AUDIT_ID|TIME]
+  output tail (AGENT_ID... | --all) [--follow|-f] [--lines N] [--task TASK_ID]
+  output latest
+  charter get
+  charter set (--text TEXT | --text-file FILE)
+  notify status|test
+  digest [--window 24h]
+  logs [--level LEVEL] [--since ID] [--limit N]
+  questions [--status open|answered] [--limit N]
+  state
+  about
+  me
+  task-templates
+  reload
+  openapi [--out FILE]
+  doctor
   join-snippet AGENT_ID
+  completion bash|zsh|fish
 
-Use "-" for stdin with --body-file or --file. Registration results contain
-one-time credentials. join-snippet returns configuration with token placeholders.
+doctor runs the server's local diagnostics against this machine's environment and
+needs no credentials; it exits 1 when it finds errors. incident start, incident end, drills run and
+retention verify print the result and exit 1 when an action failed. output tail --follow
+streams until interrupted.
+
+Use "-" for stdin with --body-file, --text-file, --spec-file or --file, and for
+--out to write raw data to stdout. Registration results contain one-time
+credentials. join-snippet returns configuration with token placeholders.
 `
 
-type request struct {
-	method string
-	path   string
-	query  url.Values
-	body   any
+type command func(ctx context.Context, c *conn, p *printer) error
+
+type parser func(args []string, stdin io.Reader) (command, error)
+
+type entry struct {
+	parse parser
+	subs  []string
+	local bool
 }
 
 func main() {
+	os.Exit(execute())
+}
+
+func execute() int {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt)
 	defer stop()
 	if err := run(ctx, os.Args[1:], os.Getenv, os.Stdin, os.Stdout); err != nil {
-		fmt.Fprintln(os.Stderr, "subspacectl:", err)
-		os.Exit(1)
+		fmt.Fprintln(os.Stderr, render(err))
+		return exitCode(err)
 	}
+	return 0
 }
 
 func run(ctx context.Context, args []string, getenv func(string) string, stdin io.Reader, stdout io.Writer) error {
+	opts, args, err := globals(args)
+	if err != nil {
+		return finish(failf(exitUsage, "%s", err), opts.json)
+	}
 	if len(args) == 0 || args[0] == "help" || args[0] == "--help" || args[0] == "-h" {
 		_, err := io.WriteString(stdout, usage)
 		return err
 	}
-	req, err := parse(args, stdin)
+	cmd, err := parse(args, stdin)
 	if errors.Is(err, flag.ErrHelp) {
 		_, err := io.WriteString(stdout, usage)
 		return err
 	}
 	if err != nil {
-		return err
+		return finish(failf(exitUsage, "%s", err), opts.json)
 	}
-	token := strings.TrimSpace(getenv("SUBSPACE_OWNER_TOKEN"))
-	if token == "" {
-		return errors.New("set SUBSPACE_OWNER_TOKEN before making API calls")
+	var c *conn
+	if !registry()[args[0]].local {
+		if c, err = connect(opts, getenv); err != nil {
+			return finish(err, opts.json)
+		}
 	}
-	base := strings.TrimSpace(getenv("SUBSPACE_URL"))
-	if base == "" {
-		base = "http://localhost:8080"
-	}
-	return send(ctx, base, token, req, stdout)
+	return finish(cmd(ctx, c, &printer{w: stdout, json: opts.json}), opts.json)
 }
 
-func send(ctx context.Context, base, token string, req request, out io.Writer) error {
-	const maxResponse = 32 << 20
-	endpoint, err := url.Parse(base)
-	if err != nil || endpoint.Hostname() == "" || (endpoint.Scheme != "http" && endpoint.Scheme != "https") ||
-		endpoint.User != nil || endpoint.RawQuery != "" || endpoint.Fragment != "" || endpoint.Opaque != "" {
-		return errors.New("SUBSPACE_URL must be an HTTP(S) base URL without credentials, query or fragment")
+func parse(args []string, stdin io.Reader) (command, error) {
+	e, ok := registry()[args[0]]
+	if !ok {
+		return nil, fmt.Errorf("unknown command %q (see --help)", args[0])
 	}
-	endpoint = endpoint.JoinPath("api/v1", req.path)
-	endpoint.RawQuery = req.query.Encode()
-	var data []byte
-	if req.body != nil {
-		data, err = json.Marshal(req.body)
+	return e.parse(args[1:], stdin)
+}
+
+func single(req request, err error) (command, error) {
+	if err != nil {
+		return nil, err
+	}
+	return call(req), nil
+}
+
+func byID(name, path string) parser {
+	return func(args []string, _ io.Reader) (command, error) {
+		id, err := parseID(name, args)
 		if err != nil {
-			return fmt.Errorf("encode request: %w", err)
+			return nil, err
 		}
+		return call(request{method: http.MethodGet, path: fmt.Sprintf(path, id)}), nil
 	}
-	httpReq, err := http.NewRequestWithContext(ctx, req.method, endpoint.String(), bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	httpReq.Header.Set("Authorization", "Bearer "+token)
-	httpReq.Header.Set("Accept", "application/json")
-	if req.body != nil {
-		httpReq.Header.Set("Content-Type", "application/json")
-	}
-	client := http.Client{
-		Timeout: 60 * time.Second,
-		CheckRedirect: func(*http.Request, []*http.Request) error {
-			return http.ErrUseLastResponse
-		},
-	}
-	resp, err := client.Do(httpReq)
-	if err != nil {
-		return fmt.Errorf("contact Subspace: %w", err)
-	}
-	defer func() { _ = resp.Body.Close() }()
-	payload, err := io.ReadAll(io.LimitReader(resp.Body, maxResponse+1))
-	if err != nil {
-		return fmt.Errorf("read Subspace response: %w", err)
-	}
-	if len(payload) > maxResponse {
-		return errors.New("response exceeds 32 MiB")
-	}
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		var failure struct {
-			Error struct {
-				Code    string `json:"code"`
-				Message string `json:"message"`
-			} `json:"error"`
-		}
-		if json.Unmarshal(payload, &failure) == nil && failure.Error.Message != "" {
-			if failure.Error.Code != "" {
-				return fmt.Errorf("HTTP %d (%s): %s", resp.StatusCode, failure.Error.Code, failure.Error.Message)
-			}
-			return fmt.Errorf("HTTP %d: %s", resp.StatusCode, failure.Error.Message)
-		}
-		return fmt.Errorf("unexpected Subspace response: HTTP %d", resp.StatusCode)
-	}
-	if len(bytes.TrimSpace(payload)) == 0 {
-		return nil
-	}
-	var formatted bytes.Buffer
-	if err := json.Indent(&formatted, bytes.TrimSpace(payload), "", "  "); err != nil {
-		return fmt.Errorf("invalid JSON in Subspace response: %w", err)
-	}
-	formatted.WriteByte('\n')
-	_, err = formatted.WriteTo(out)
-	return err
 }
 
-func parse(args []string, stdin io.Reader) (request, error) {
-	command, args := args[0], args[1:]
-	switch command {
-	case "create-brief":
-		return parseBrief(args, stdin)
-	case "briefs", "agents":
-		return parseList(command, args)
-	case "board", "join-snippet":
-		id, err := parseID(command, args)
-		if command == "board" {
-			return request{method: http.MethodGet, path: "briefs/" + id + "/board"}, err
-		}
-		return request{method: http.MethodGet, path: "agents/" + id + "/connect"}, err
-	case "approve-plan", "reject-plan", "answer", "pause-all", "revoke-agent", "resume-all":
-		return parseAction(command, args)
-	case "register-agent", "register-agents":
-		return parseRegistration(command, args)
-	case "capacity":
-		return parseCapacity(args, stdin)
-	default:
-		return request{}, fmt.Errorf("unknown command %q (see --help)", command)
+func action(name string) parser {
+	return func(args []string, _ io.Reader) (command, error) {
+		return single(parseAction(name, args))
+	}
+}
+
+func registry() map[string]entry {
+	return map[string]entry{
+		"create-brief": {parse: func(args []string, stdin io.Reader) (command, error) { return single(parseBrief(args, stdin)) }},
+		"briefs":       {parse: parseBriefs, subs: []string{"import", "templates"}},
+		"board":        {parse: byID("board", "briefs/%s/board")},
+		"decisions":    {parse: grouped("decisions", decisionCommands), subs: names(decisionCommands)},
+		"chat":         {parse: grouped("chat", chatCommands), subs: names(chatCommands)},
+		"search":       {parse: parseSearch},
+		"report":       {parse: parseReport},
+		"forecast":     {parse: byID("forecast", "briefs/%s/forecast")},
+		"plans":        {parse: grouped("plans", planCommands), subs: names(planCommands)},
+		"approve-plan": {parse: action("approve-plan")},
+		"reject-plan":  {parse: action("reject-plan")},
+		"answer":       {parse: action("answer")},
+		"tasks":        {parse: grouped("tasks", taskCommands), subs: names(taskCommands)},
+		"pause-all":    {parse: action("pause-all")},
+		"resume-all":   {parse: action("resume-all")},
+		"register-agent": {parse: func(args []string, _ io.Reader) (command, error) {
+			return single(parseRegistration("register-agent", args))
+		}},
+		"register-agents": {parse: func(args []string, _ io.Reader) (command, error) {
+			return single(parseRegistration("register-agents", args))
+		}},
+		"revoke-agent": {parse: action("revoke-agent")},
+		"agents":       {parse: parseAgents, subs: names(agentCommands)},
+		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
+		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
+		"playbooks":    {parse: grouped("playbooks", playbookCommands), subs: names(playbookCommands)},
+		"ha":           {parse: grouped("ha", haCommands), subs: names(haCommands)},
+		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
+		"autopilot":    {parse: grouped("autopilot", autopilotCommands), subs: names(autopilotCommands)},
+		"mergequeue":   {parse: grouped("mergequeue", mergequeueCommands), subs: names(mergequeueCommands)},
+		"backups":      {parse: grouped("backups", backupCommands), subs: names(backupCommands)},
+		"audit":        {parse: grouped("audit", auditCommands), subs: names(auditCommands)},
+		"artifacts":    {parse: grouped("artifacts", artifactCommands), subs: names(artifactCommands)},
+		"instructions": {parse: grouped("instructions", instructionCommands), subs: names(instructionCommands)},
+		"prompts":      {parse: grouped("prompts", promptCommands), subs: names(promptCommands)},
+		"limits":       {parse: parseLimits},
+		"capacity": {parse: func(args []string, stdin io.Reader) (command, error) {
+			return single(parseCapacity(args, stdin))
+		}, subs: []string{"get", "set"}},
+		"join-snippet":   {parse: byID("join-snippet", "agents/%s/connect")},
+		"completion":     {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}, local: true},
+		"schedules":      {parse: grouped("schedules", scheduleCommands), subs: names(scheduleCommands)},
+		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
+		"drills":         {parse: grouped("drills", drillCommands), subs: names(drillCommands)},
+		"costs":          {parse: parseCosts},
+		"estimates":      {parse: grouped("estimates", estimateCommands), subs: names(estimateCommands)},
+		"knowledge":      {parse: grouped("knowledge", knowledgeCommands), subs: names(knowledgeCommands)},
+		"announcements":  {parse: grouped("announcements", announcementCommands), subs: names(announcementCommands)},
+		"quotas":         {parse: grouped("quotas", quotaCommands), subs: names(quotaCommands)},
+		"retention":      {parse: grouped("retention", retentionCommands), subs: names(retentionCommands)},
+		"alerts":         {parse: listing("alerts", "alerts", 1000, "status")},
+		"webhooks-out":   {parse: grouped("webhooks-out", webhookCommands), subs: names(webhookCommands)},
+		"breakers":       {parse: grouped("breakers", breakerCommands), subs: names(breakerCommands)},
+		"spend-limits":   {parse: grouped("spend-limits", spendLimitCommands), subs: names(spendLimitCommands)},
+		"tokens":         {parse: grouped("tokens", tokenCommands), subs: names(tokenCommands)},
+		"insights":       {parse: parseInsights},
+		"replay":         {parse: grouped("replay", replayCommands), subs: names(replayCommands)},
+		"reload":         {parse: plain("reload", request{method: http.MethodPost, path: "reload", body: struct{}{}})},
+		"doctor":         {parse: parseDoctor, local: true},
+		"openapi":        {parse: parseOpenAPI},
+		"output":         {parse: grouped("output", outputCommands), subs: names(outputCommands)},
+		"charter":        {parse: grouped("charter", charterCommands), subs: names(charterCommands)},
+		"notify":         {parse: grouped("notify", notifyCommands), subs: names(notifyCommands)},
+		"digest":         {parse: parseDigest},
+		"logs":           {parse: parseLogs},
+		"questions":      {parse: listing("questions", "questions", 1000, "status")},
+		"state":          {parse: plain("state", request{method: http.MethodGet, path: "state"})},
+		"about":          {parse: plain("about", request{method: http.MethodGet, path: "about"})},
+		"me":             {parse: plain("me", request{method: http.MethodGet, path: "me"})},
+		"task-templates": {parse: plain("task-templates", request{method: http.MethodGet, path: "task-templates"})},
 	}
 }
 
@@ -201,7 +378,10 @@ func parseFlags(set *flag.FlagSet, args []string, minArgs, maxArgs int) error {
 		}
 		options = append(options, arg)
 		name, _, hasValue := strings.Cut(strings.TrimLeft(arg, "-"), "=")
-		if !hasValue && set.Lookup(name) != nil {
+		if f := set.Lookup(name); f != nil && !hasValue {
+			if b, ok := f.Value.(interface{ IsBoolFlag() bool }); ok && b.IsBoolFlag() {
+				continue
+			}
 			if i+1 == len(args) || args[i+1] == "--" {
 				return fmt.Errorf("%s: %s requires a value", set.Name(), arg)
 			}
@@ -361,33 +541,47 @@ func parseRegistration(command string, args []string) (request, error) {
 	kind := set.String("kind", "", "runtime kind")
 	model := set.String("model", "", "model name")
 	provider := set.String("provider", "", "override the provider for the kind")
-	bulk := command == "register-agents"
+	profile := set.String("profile", "", "agent profile supplying the fields left out")
 	var id, prefix string
 	var count int
-	if bulk {
+	if command != "register-agent" {
 		set.StringVar(&prefix, "prefix", "", "agent ID prefix")
 		set.IntVar(&count, "count", 0, "number of agents to register")
-	} else {
+	}
+	if command != "register-agents" {
 		set.StringVar(&id, "id", "", "agent ID (alternative to positional argument)")
 	}
 	maxArgs := 1
-	if bulk {
+	if command == "register-agents" {
 		maxArgs = 0
 	}
 	if err := parseFlags(set, args, 0, maxArgs); err != nil {
 		return request{}, err
 	}
-	if strings.TrimSpace(*role) == "" || strings.TrimSpace(*kind) == "" || strings.TrimSpace(*model) == "" {
-		return request{}, fmt.Errorf("%s requires --role, --kind and --model", command)
+	if *profile == "" && (strings.TrimSpace(*role) == "" || strings.TrimSpace(*kind) == "" || strings.TrimSpace(*model) == "") {
+		return request{}, fmt.Errorf("%s requires --role, --kind and --model, or --profile", command)
 	}
 	body := map[string]any{"role": *role, "kind": *kind, "model": *model, "provider": *provider}
+	if *profile != "" {
+		name, err := identifier(*profile)
+		if err != nil {
+			return request{}, err
+		}
+		body["profile"] = name
+	}
 	path := "agents"
-	if bulk {
-		if _, err := identifier(prefix); err != nil || count < 1 || count > 1000 {
-			return request{}, errors.New("register-agents requires a valid --prefix and --count in 1..1000")
+	if command == "register-agents" || prefix != "" {
+		if set.NArg() != 0 || id != "" {
+			return request{}, errors.New("specify either an agent ID or --prefix")
+		}
+		if _, err := identifier(prefix); err != nil || count > 1000 || count < 0 || (count == 0 && *profile == "") {
+			return request{}, errors.New("bulk registration requires a valid --prefix and --count in 1..1000 (--count may be left out with --profile)")
 		}
 		path = "agents/bulk"
-		body["prefix"], body["count"] = prefix, count
+		body["prefix"] = prefix
+		if count > 0 {
+			body["count"] = count
+		}
 	} else {
 		if id != "" && set.NArg() != 0 {
 			return request{}, errors.New("specify the agent ID once")

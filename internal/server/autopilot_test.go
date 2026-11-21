@@ -3,10 +3,11 @@ package server
 import (
 	"context"
 	"net/http/httptest"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func waitFor(t *testing.T, what string, ok func() bool) {
@@ -31,7 +32,7 @@ func TestAutopilotOffByDefault(t *testing.T) {
 func TestAutopilotAssignsAndPersistsFlagsAcrossRestart(t *testing.T) {
 	t.Setenv("SUBSPACE_AUTOPILOT", "on")
 	t.Setenv("SUBSPACE_AUTOPILOT_INTERVAL", "20ms")
-	db := filepath.Join(t.TempDir(), "t.db")
+	db := testdb.Path(t, "t.db")
 
 	start := func() (*env, context.CancelFunc) {
 		ctx, cancel := context.WithCancel(context.Background())

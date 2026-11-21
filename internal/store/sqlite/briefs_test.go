@@ -143,18 +143,18 @@ func TestListBriefs(t *testing.T) {
 		return out
 	}
 	_ = s.View(ctx, func(tx store.Tx) error {
-		all, err := tx.ListBriefs("")
+		all, err := tx.ListBriefs(store.BriefFilter{})
 		if err != nil {
 			t.Fatal(err)
 		}
 		if got := ids(all); !reflect.DeepEqual(got, []string{"B-2", "B-3", "B-1"}) {
 			t.Errorf("all order: %v", got)
 		}
-		open, _ := tx.ListBriefs("open")
+		open, _ := tx.ListBriefs(store.BriefFilter{Status: "open"})
 		if got := ids(open); !reflect.DeepEqual(got, []string{"B-2", "B-1"}) {
 			t.Errorf("open: %v", got)
 		}
-		none, err := tx.ListBriefs("nope")
+		none, err := tx.ListBriefs(store.BriefFilter{Status: "nope"})
 		if err != nil || len(none) != 0 {
 			t.Errorf("nope: %v %v", none, err)
 		}

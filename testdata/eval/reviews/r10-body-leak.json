@@ -1,0 +1,17 @@
+{
+  "id": "r10-body-leak",
+  "title": "Fetch PR check runs from GitHub",
+  "spec": "Add a client method that fetches check runs for a commit. Close every response body, limit reads to 1 MiB and return an error for non-200 responses.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "every response body is closed, including on error paths",
+    "non-200 responses return an error that includes the status code",
+    "response reads are limited to 1 MiB"
+  ],
+  "tests": {"passed": 9, "failed": 0},
+  "pr_title": "GitHub check runs",
+  "pr_body": "Adds CheckRuns.",
+  "defects": [
+    {"file": "internal/prsync/checks.go", "match": "return nil, fmt.Errorf(\"check runs: HTTP %d\"", "kind": "resource_leak", "note": "the body is not closed on the non-200 path; defer Close is only set after the status check", "criterion": 0}
+  ]
+}

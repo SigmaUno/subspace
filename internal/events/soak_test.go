@@ -7,19 +7,24 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
+)
+
+var (
+	soakPublishers   = 50
+	soakPerPublisher = testmode.Size(800, 4000)
+	soakSubscribers  = testmode.Size(600, 1000)
+	soakSlow         = 20
+	soakChurn        = testmode.Size(60, 100)
 )
 
 const (
-	soakPublishers   = 50
-	soakPerPublisher = 4000
-	soakSubscribers  = 1000
-	soakSlow         = 20
-	soakChurn        = 100
-	soakTasks        = 48
-	soakBriefs       = 8
-	soakBoardBit     = soakTasks + soakBriefs
-	soakControlBit   = soakBoardBit + 1
-	soakAllMask      = ^uint64(0)
+	soakTasks      = 48
+	soakBriefs     = 8
+	soakBoardBit   = soakTasks + soakBriefs
+	soakControlBit = soakBoardBit + 1
+	soakAllMask    = ^uint64(0)
 )
 
 type soakPayload struct {

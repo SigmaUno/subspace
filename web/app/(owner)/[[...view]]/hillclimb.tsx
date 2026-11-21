@@ -5,10 +5,12 @@ import { useState } from "react";
 import { api, label, useResource, useSubmit, value } from "../../../lib/client";
 import type { HillclimbJob, HillclimbPoint, HillclimbSeries } from "../../../lib/hillclimb-types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
+import { PageShell } from "./shell";
 
 function CreateJobForm({ created }: { created: (job: HillclimbJob) => void }) {
   const form = useSubmit();
-  return <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     const target = value(fields, "target");
     const job = await api<HillclimbJob>("hillclimb/jobs", "POST", {
       brief_id: value(fields, "brief_id"),
@@ -45,7 +47,7 @@ const formatValue = (amount: number) => Number(amount.toPrecision(4)).toString()
 
 function LossChart({ job, points }: { job: HillclimbJob; points: HillclimbPoint[] }) {
   const plotted = points.filter((point): point is HillclimbPoint & { value: number } => point.value !== null);
-  if (!plotted.length) return <p className="empty">No successful measurements yet.</p>;
+  if (!plotted.length) return <EmptyState>No successful measurements yet.</EmptyState>;
 
   const scale = plotted.map((point) => point.value);
   if (job.target !== null) scale.push(job.target);
@@ -90,10 +92,10 @@ function HillclimbView() {
 
   return <>
     <div className="heading"><h1>Hillclimb</h1>
-      <button className="primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "New job"}</button></div>
+      <button className="primary" data-write onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "New job"}</button></div>
     {showForm && <CreateJobForm created={(job) => { setShowForm(false); setSelected(job.id); jobs.refresh(); }} />}
-    <Feedback error={jobs.error} loading={!jobs.data} />
-    {jobs.data && !jobs.data.jobs.length && <p className="empty">No hillclimb jobs yet.</p>}
+    <ResourceState error={jobs.error} loading={!jobs.data} retry={jobs.refresh} rows={3} />
+    {jobs.data && !jobs.data.jobs.length && <EmptyState>No hillclimb jobs yet.</EmptyState>}
     {!!jobs.data?.jobs.length && <div className="table-wrap">
       <table>
         <thead><tr><th>Job</th><th>Brief</th><th>Repo</th><th>Direction</th><th>Status</th><th>Best</th><th>Attempts</th></tr></thead>
@@ -113,20 +115,14 @@ function HillclimbView() {
     {active && <section className="panel stack">
       <div className="heading"><h2>{active} loss curve</h2>
         {current && <span className="meta">{current.job.metric_cmd} · since best {current.job.since_best}</span>}</div>
-      <Feedback error={series.error} loading={!current} />
+      <ResourceState error={series.error} loading={!current} retry={series.refresh} rows={4} />
       {current && <LossChart job={current.job} points={current.points} />}
     </section>}
   </>;
 }
 
 export function HillclimbPage() {
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace"><Link href="/briefs">Briefs</Link></nav>
-    </header>
-    <main className="workspace">
-      <HillclimbView />
-    </main>
-  </>;
+  return <PageShell section="hillclimb">
+    <HillclimbView />
+  </PageShell>;
 }

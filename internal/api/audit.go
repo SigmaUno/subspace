@@ -5,6 +5,7 @@ import (
 	"math"
 	"net/http"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -19,7 +20,7 @@ type exportChain struct {
 
 func (a *API) exportAudit(w http.ResponseWriter, r *http.Request) {
 	ctx := r.Context()
-	since := qint64(r, "since")
+	since := httpx.Int64(r, "since")
 	if since < 0 {
 		a.fail(w, model.BadRequest("since must be >= 0"))
 		return

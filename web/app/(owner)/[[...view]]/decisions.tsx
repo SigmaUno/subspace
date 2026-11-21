@@ -1,11 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
-import { api, optionalResource, safeURL, useResource, useSubmit, value } from "../../../lib/client";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
+import { api, optionalResource, useResource, useSubmit, value } from "../../../lib/client";
+import { decisionThread, diffURL, orderDecisions, pickDecision } from "../../../lib/decision-queue";
 import type { Decision } from "../../../lib/swarm";
 import type { Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+import { DecisionGates } from "./gates";
+import { EmptyState, ResourceState, Skeleton } from "./states";
 
 export type DecisionFeed = { decisions: Decision[]; count?: number };
 
@@ -23,6 +26,7 @@ function DecisionCard({ item, acting, next, openThread }: {
   openThread: (thread: Thread) => void;
 }) {
   const { busy, error, submit } = useSubmit();
+  const formID = useId();
   const form = useRef<HTMLFormElement>(null);
   const response = useRef<HTMLTextAreaElement>(null);
   const rejectButton = useRef<HTMLButtonElement>(null);
@@ -32,12 +36,9 @@ function DecisionCard({ item, acting, next, openThread }: {
   const unblock = item.kind === "unblock";
   const primary = question ? "Answer" : unblock ? "Unblock" : "Approve";
   const allowReject = !question && !unblock;
-  const pullRequest = safeURL(item.pr_url);
-  const pr = pullRequest ? new URL(pullRequest) : null;
-  if (pr && /\/pulls?\/\d+\/?$/.test(pr.pathname)) pr.pathname = pr.pathname.replace(/\/$/, "") + "/files";
-  const thread = useMemo<Thread | null>(() => item.task_id ? { kind: "task", id: item.task_id }
-    : item.agent_id ? { kind: "agent", id: item.agent_id }
-    : item.brief_id ? { kind: "brief", id: item.brief_id } : null, [item.task_id, item.agent_id, item.brief_id]);
+  const pr = diffURL(item.pr_url);
+  const thread = useMemo(() => decisionThread({ task_id: item.task_id, agent_id: item.agent_id, brief_id: item.brief_id }),
+    [item.task_id, item.agent_id, item.brief_id]);
 
   useEffect(() => { heading.current?.focus({ preventScroll: true }); }, []);
 
@@ -84,24 +85,25 @@ function DecisionCard({ item, acting, next, openThread }: {
     <div className="meta">{labels[item.kind] ?? item.kind}{item.brief_id && ` · ${item.brief_id}`}{item.task_id && ` · ${item.task_id}`}</div>
     <h3 tabIndex={-1} ref={heading}>{item.title}</h3>
     {item.body && <p className="preserve">{item.body}</p>}
+    {item.task_id && ["merge", "merge-ready"].includes(String(item.kind)) && <DecisionGates taskID={item.task_id} />}
     <div className="actions">
       {thread && <button type="button" onClick={() => openThread(thread)}>Open thread <kbd>T</kbd></button>}
       {pr && <a href={pr.href} target="_blank" rel="noreferrer">PR diff</a>}
     </div>
     {!!item.options?.length && <div className="actions">{item.options.map((option) =>
       <button type="button" key={option} onClick={() => { setText(option); response.current?.focus(); }}>{option}</button>)}</div>}
-    <form className="stack" ref={form} onSubmit={decide}>
+    <form id={formID} className="stack" data-write ref={form} onSubmit={decide}>
       <label>{question ? "Answer" : allowReject ? "Note or rejection reason" : "Note"}
         <textarea name="response" rows={2} ref={response} value={text}
           onChange={(event) => setText(event.target.value)} required={question} />
       </label>
       <Feedback error={error} />
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
-        {allowReject && <button type="submit" className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
-        <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>
-      </div>
     </form>
+    <div className="actions decision-bar" data-write>
+      <button type="submit" form={formID} className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
+      {allowReject && <button type="submit" form={formID} className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
+      <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>
+    </div>
   </article>;
 }
 
@@ -118,24 +120,21 @@ export function DecisionInbox({ feed, count, revision, refresh, close, openThrea
   const [skipped, setSkipped] = useState<string[]>([]);
   const [resolved, setResolved] = useState<string[]>([]);
   const [selected, setSelected] = useState<string>();
-  const queue = (feed?.decisions ?? [])
-    .filter((item) => !resolved.includes(item.id))
-    .sort((a, b) => (b.impact ?? 0) - (a.impact ?? 0) || a.created_at.localeCompare(b.created_at));
+  const queue = orderDecisions(feed?.decisions ?? [], resolved);
   const serverNext = next.data?.decision;
   const eligible = queue.filter((item) => !skipped.includes(item.id));
-  const item = eligible.find((item) => item.id === selected) ??
-    (serverNext && !resolved.includes(serverNext.id) && !skipped.includes(serverNext.id) ? serverNext : eligible[0]);
+  const item = pickDecision(eligible, selected, serverNext, resolved, skipped);
   if (item?.id !== selected) setSelected(item?.id);
 
   return <aside className="panel stack decision-panel" aria-label="Decision inbox">
     <div className="heading"><h2>Decision inbox <span className="pill">{count}</span></h2><button onClick={close}>Close</button></div>
-    <Feedback error={error || next.error} />
+    <ResourceState error={error || next.error} retry={() => { refresh(); next.refresh(); }} rows={3} />
     {item && <DecisionCard key={item.id} item={item} openThread={openThread}
       next={(id) => setSkipped((items) => [...items, id])}
       acting={(id) => { setResolved((items) => [...items, id]); refresh(); next.refresh(); }} />}
-    {!item && feed === undefined && !error && <Feedback loading />}
+    {!item && feed === undefined && !error && <Skeleton rows={3} />}
     {!item && feed === null && <div className="actions"><Link href="/plans">Plan approvals</Link><Link href="/questions">Questions</Link></div>}
-    {!item && feed && <p className="empty">{skipped.length ? "No unskipped decisions." : "No pending decisions."}</p>}
+    {!item && feed && <EmptyState>{skipped.length ? "No unskipped decisions." : "No pending decisions."}</EmptyState>}
     {skipped.length > 0 && <div><button type="button" onClick={() => setSkipped([])}>Review skipped</button></div>}
   </aside>;
 }

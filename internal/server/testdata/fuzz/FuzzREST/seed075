@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(0)
+uint8(48)
+uint8(1)
+uint8(0)
+string("")
+string("")
+string("")
+string("scope=task:T-1&limit=1")
+string("")
+bool(false)
+[]byte("")

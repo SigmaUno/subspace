@@ -1,0 +1,18 @@
+{
+  "id": "p11-backup-verify",
+  "title": "Verify backups by restoring them",
+  "body": "integrity_check passes on files that cannot be opened by the current schema version.\n\n- After each backup, restore it into a temporary directory, open it with the store and run a fixed set of read queries (count briefs, tasks, messages).\n- A failing restore marks the backup `verified:false`, raises an owner decision of kind `backup` and keeps the previous good backup out of retention pruning.\n- GET /api/v1/backups shows `restored_at` and `restore_error`.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; internal/backup runs VACUUM INTO and retention, internal/decisions builds the owner inbox"}
+  ],
+  "max_cost_eur": 30,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 4,
+  "requirements": [
+    {"id": "restore", "title": "Restore each backup into a temporary directory and run read queries", "keywords": ["restore", "temporary|temp"], "checks": ["test", "quer|count"]},
+    {"id": "decision", "title": "Raise a backup decision and protect the last good backup from pruning", "keywords": ["decision", "prun|retention"], "checks": ["verified|pruned|prune"], "after": ["restore"]},
+    {"id": "api", "title": "Expose restored_at and restore_error in GET /api/v1/backups", "keywords": ["restored_at", "restore_error"], "checks": ["docs/api.md|contract|api.md"], "after": ["restore"]}
+  ]
+}

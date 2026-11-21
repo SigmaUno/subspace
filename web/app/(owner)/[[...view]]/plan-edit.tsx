@@ -4,6 +4,8 @@ import { useState } from "react";
 import { api, money, useSubmit, value } from "../../../lib/client";
 import type { Plan, Task } from "../../../lib/types";
 import { Feedback } from "./components";
+import { PlanEstimatesPanel } from "./plan-estimates";
+import { EmptyState } from "./states";
 
 const liveTasks = (plan: Plan) => plan.tasks?.filter((task) => task.status !== "cancelled") ?? [];
 
@@ -70,7 +72,7 @@ function PlanTask({ task, plan, changed }: { task: Task; plan: Plan; changed: ()
     <p className="preserve">{task.spec}</p>
     {!!task.acceptance_criteria?.length && <ul>{task.acceptance_criteria.map((criterion, index) => <li key={index}>{criterion}</li>)}</ul>}
     {!!task.depends_on?.length && <p className="meta">Depends on {task.depends_on.join(", ")}</p>}
-    <form className="stack" onSubmit={(event) => remove.submit(event, async () => {
+    <form className="stack" data-write onSubmit={(event) => remove.submit(event, async () => {
       await api<Plan>(`plans/${encodeURIComponent(plan.id)}/tasks/${encodeURIComponent(task.id)}`, "DELETE");
       changed();
     })}>
@@ -87,8 +89,8 @@ function AddTask({ plan, changed }: { plan: Plan; changed: () => void }) {
   const [open, setOpen] = useState(false);
   const form = useSubmit();
   const tasks = liveTasks(plan);
-  if (!open) return <div><button onClick={() => setOpen(true)}>Add task</button></div>;
-  return <form className="stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  if (!open) return <div data-write><button onClick={() => setOpen(true)}>Add task</button></div>;
+  return <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     await api<Plan>(`plans/${encodeURIComponent(plan.id)}/tasks`, "POST", taskBody(fields));
     setOpen(false);
     changed();
@@ -123,7 +125,7 @@ function DependencyPreview({ tasks }: { tasks: Task[] }) {
   const titles = new Map(tasks.map((task) => [task.id, task.title]));
   return <section className="stack" aria-label="Dependency preview">
     <h3>Dependency preview</h3>
-    {!tasks.length && <p className="empty">The plan has no tasks.</p>}
+    {!tasks.length && <EmptyState>The plan has no tasks.</EmptyState>}
     <ol className="plan-tasks">
       {order.map((wave, index) => <li key={index}>
         <strong>{index === 0 ? "Start immediately" : `After wave ${index}`}</strong>
@@ -144,6 +146,7 @@ export function PlanEditor({ plan, changed }: { plan: Plan; changed: () => void 
       {tasks.map((task) => <li key={task.id}><PlanTask task={task} plan={plan} changed={changed} /></li>)}
     </ol>
     <AddTask plan={plan} changed={changed} />
+    <PlanEstimatesPanel plan={plan} tasks={tasks} />
     <DependencyPreview tasks={tasks} />
   </>;
 }

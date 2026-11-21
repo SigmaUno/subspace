@@ -1,10 +1,16 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"strings"
 	"testing"
+	"time"
+
+	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 func (e *env) restRaw(method, path, body string) (int, map[string]any) {
@@ -79,16 +85,21 @@ func TestMCPDecodeDoesNotLeakTypeInfo(t *testing.T) {
 
 func TestRESTListLimitClamped(t *testing.T) {
 	e := newEnv(t)
-	lead := e.register("rex", "leader", "other")
 	_, br := e.rest("POST", "/api/v1/briefs", map[string]any{"title": "B", "repos": []string{"o/r"}})
 	bid := br["id"].(string)
 
-	tasks := make([]any, 500)
-	for i := range tasks {
-		tasks[i] = map[string]any{"title": "t", "spec": "s", "repo": "o/r"}
-	}
-	for i := 0; i < 3; i++ {
-		e.must(lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": tasks})
+	err := e.srv.Store.Atomic(context.Background(), func(tx store.Tx) error {
+		for i := 1; i <= 1100; i++ {
+			at := time.Now().UTC()
+			if err := tx.InsertTask(&model.Task{ID: fmt.Sprintf("T-%d", i), BriefID: bid, PlanID: "P-1", Title: "t", Spec: "s", Repo: "o/r",
+				Role: model.RoleWorker, Status: model.StatusReady, AcceptanceCriteria: []string{}, DependsOn: []string{}, CreatedAt: at, UpdatedAt: at}); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
 
 	code, out := e.rest("GET", "/api/v1/tasks?limit=99999999", nil)

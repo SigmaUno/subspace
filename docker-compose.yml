@@ -1,3 +1,9 @@
+x-hardened: &hardened
+  restart: unless-stopped
+  read_only: true
+  cap_drop: [ALL]
+  security_opt: ["no-new-privileges:true"]
+
 services:
   server:
     container_name: subspace-server
@@ -5,6 +11,17 @@ services:
       context: .
       target: server
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     ports:
       - "127.0.0.1:8180:8080"
     networks:
@@ -47,8 +64,21 @@ services:
     build:
       context: web
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /app/.next/cache:rw,noexec,nosuid,uid=1000,gid=1000,size=128m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     environment:
       SUBSPACE_API_URL: "${SUBSPACE_API_URL:-http://subspace-api:8080}"
 
@@ -56,11 +86,25 @@ services:
     profiles: [standalone]
     networks:
       - proxy
-    image: caddy:2-alpine
+    image: caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
     restart: unless-stopped
+    read_only: true
+    cap_drop: [ALL]
+    cap_add: [NET_BIND_SERVICE]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
     depends_on:
-      - server
-      - web
+      server:
+        condition: service_healthy
+      web:
+        condition: service_healthy
     environment:
       SUBSPACE_DOMAIN: "${SUBSPACE_DOMAIN:-:80}"
     ports:
@@ -78,8 +122,23 @@ services:
       context: .
       target: backup
     restart: unless-stopped
+    user: "65532:65532"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: ["no-new-privileges:true"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'find /data/backups -maxdepth 1 -name "daily-*.db" -mmin -$$(( ${SUBSPACE_BACKUP_EVERY_SECONDS:-86400} / 30 + 60 )) | grep -q .'
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 5m
     depends_on:
-      - server
+      server:
+        condition: service_healthy
     environment:
       SUBSPACE_DB: "${SUBSPACE_DB:-/data/db/subspace.db}"
       SUBSPACE_BACKUP_DIR: /data/backups
@@ -89,9 +148,189 @@ services:
       - "${SUBSPACE_DATA:-/data/subspace}/db:/data/db"
       - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
 
+  ha-postgres:
+    <<: *hardened
+    profiles: [ha]
+    image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+    user: "70:70"
+    networks:
+      - ha-backend
+    command: ["postgres", "-c", "max_connections=200"]
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /var/run/postgresql:rw,noexec,nosuid,uid=70,gid=70,mode=0755,size=8m
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -q -h 127.0.0.1 -U subspace -d subspace"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+    secrets:
+      - subspace_pg_password
+    environment:
+      POSTGRES_USER: subspace
+      POSTGRES_DB: subspace
+      POSTGRES_PASSWORD_FILE: /run/secrets/subspace_pg_password
+      PGDATA: /var/lib/postgresql/data/pgdata
+    volumes:
+      - "${SUBSPACE_DATA:-/data/subspace}/pg:/var/lib/postgresql/data"
+
+  ha-server-a: &ha-server
+    <<: *hardened
+    profiles: [ha]
+    hostname: ha-server-a
+    build:
+      context: .
+      target: server
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test: ["CMD", "/usr/local/bin/probe", "http://127.0.0.1:8080/healthz"]
+      interval: 5s
+      timeout: 3s
+      retries: 3
+      start_period: 15s
+    networks:
+      - ha-backend
+      - ha-edge
+    depends_on:
+      ha-postgres:
+        condition: service_healthy
+    secrets:
+      - subspace_owner_token
+      - subspace_pgpass
+    environment:
+      SUBSPACE_ADDR: ":8080"
+      SUBSPACE_DB: "postgres://subspace@ha-postgres:5432/subspace?sslmode=disable&passfile=/run/secrets/subspace_pgpass"
+      SUBSPACE_DATA_DIR: /data/shared
+      SUBSPACE_OWNER_TOKEN_FILE: /run/secrets/subspace_owner_token
+      SUBSPACE_PUBLIC_URL: "${SUBSPACE_PUBLIC_URL:-https://subspace.sigmauno.com}"
+      SUBSPACE_CAPACITY_FILE: "${SUBSPACE_CAPACITY_FILE:-}"
+      SUBSPACE_LEASE: "${SUBSPACE_LEASE:-15m}"
+      SUBSPACE_SPAWNER: "${SUBSPACE_SPAWNER:-noop}"
+      SUBSPACE_HC_BIN: "${SUBSPACE_HC_BIN:-}"
+      SUBSPACE_HC_HOST: "${SUBSPACE_HC_HOST:-}"
+      SUBSPACE_HC_COMMAND: "${SUBSPACE_HC_COMMAND:-}"
+      SUBSPACE_BACKUP_DIR: /data/backups
+      SUBSPACE_BACKUP_INTERVAL: "0"
+      SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
+      SUBSPACE_LOG_LEVEL: "${SUBSPACE_LOG_LEVEL:-info}"
+    volumes:
+      - "${SUBSPACE_DATA:-/data/subspace}/shared:/data/shared"
+      - "${SUBSPACE_DATA:-/data/subspace}/backups:/data/backups"
+      - "${SUBSPACE_DATA:-/data/subspace}/config:/data/config:ro"
+
+  ha-server-b:
+    <<: *ha-server
+    hostname: ha-server-b
+
+  ha-web:
+    <<: *hardened
+    profiles: [ha]
+    build:
+      context: web
+    networks:
+      - ha-backend
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+      - /app/.next/cache:rw,noexec,nosuid,uid=1000,gid=1000,size=128m
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login',{signal:AbortSignal.timeout(3000)}).then(r=>process.exit(r.status<500?0:1),()=>process.exit(1))"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 20s
+    depends_on:
+      ha-server-a:
+        condition: service_healthy
+      ha-server-b:
+        condition: service_healthy
+    environment:
+      SUBSPACE_API_URL: "http://ha-caddy:8081"
+
+  ha-caddy:
+    <<: *hardened
+    profiles: [ha]
+    image: caddy:2-alpine@sha256:003a97808e781aa9f7e75cc2f43d34d461099031faf5e20faefb9f61126836f0
+    user: "65532:65532"
+    networks:
+      - ha-edge
+      - ha-backend
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=16m
+    healthcheck:
+      test: ["CMD", "wget", "-q", "-O", "/dev/null", "http://127.0.0.1:2019/config/"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
+      start_period: 15s
+    depends_on:
+      ha-server-a:
+        condition: service_healthy
+      ha-server-b:
+        condition: service_healthy
+      ha-web:
+        condition: service_healthy
+    environment:
+      SUBSPACE_DOMAIN: "${SUBSPACE_DOMAIN:-:80}"
+    ports:
+      - "${SUBSPACE_HA_BIND:-0.0.0.0}:${SUBSPACE_HA_HTTP_PORT:-80}:80"
+      - "${SUBSPACE_HA_BIND:-0.0.0.0}:${SUBSPACE_HA_HTTPS_PORT:-443}:443"
+      - "${SUBSPACE_HA_BIND:-0.0.0.0}:${SUBSPACE_HA_HTTPS_PORT:-443}:443/udp"
+    volumes:
+      - ./deploy/ha/Caddyfile:/etc/caddy/Caddyfile:ro
+      - "${SUBSPACE_DATA:-/data/subspace}/caddy/data:/data"
+      - "${SUBSPACE_DATA:-/data/subspace}/caddy/config:/config"
+
+  ha-backup:
+    <<: *hardened
+    profiles: [ha]
+    image: postgres:17-alpine@sha256:526f86d93c6ea08fd3f1fe5605650cacc781b2c6013169a0ad8f42c7d3d84f32
+    user: "65532:65532"
+    entrypoint: ["/bin/sh", "/usr/local/bin/subspace-pg-backup"]
+    networks:
+      - ha-backend
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    healthcheck:
+      test:
+        - CMD-SHELL
+        - 'find /data/backups -maxdepth 1 -name "pg-daily-*.dump" -mmin -$$(( ${SUBSPACE_BACKUP_EVERY_SECONDS:-86400} / 30 + 60 )) | grep -q .'
+      interval: 5m
+      timeout: 10s
+      retries: 3
+      start_period: 5m
+    depends_on:
+      ha-postgres:
+        condition: service_healthy
+    secrets:
+      - subspace_pgpass
+    environment:
+      PGHOST: ha-postgres
+      PGUSER: subspace
+      PGDATABASE: subspace
+      PGPASSFILE: /run/secrets/subspace_pgpass
+      SUBSPACE_BACKUP_DIR: /data/backups
+      SUBSPACE_BACKUP_KEEP: "${SUBSPACE_BACKUP_KEEP:-14}"
+      SUBSPACE_BACKUP_EVERY_SECONDS: "${SUBSPACE_BACKUP_EVERY_SECONDS:-86400}"
+    volumes:
+      - ./deploy/pg-backup.sh:/usr/local/bin/subspace-pg-backup:ro
+      - "${SUBSPACE_DATA:-/data/subspace}/backups/pg:/data/backups"
+
 networks:
   internal:
     internal: true
   proxy:
     external: true
     name: "${SUBSPACE_PROXY_NETWORK:-proxy}"
+  ha-backend:
+    internal: true
+  ha-edge: {}
+
+secrets:
+  subspace_owner_token:
+    file: "${SUBSPACE_DATA:-/data/subspace}/secrets/owner_token"
+  subspace_pgpass:
+    file: "${SUBSPACE_DATA:-/data/subspace}/secrets/pgpass"
+  subspace_pg_password:
+    file: "${SUBSPACE_DATA:-/data/subspace}/secrets/pg_password"

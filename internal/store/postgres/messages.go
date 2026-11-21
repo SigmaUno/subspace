@@ -2,6 +2,7 @@ package postgres
 
 import (
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
@@ -90,8 +91,9 @@ func (t *tx) UpdateQuestion(q *model.Question) error {
   answer=$8, answered_at=$9, created_at=$10 WHERE id=$1`, a...)
 }
 
-func (t *tx) ListQuestions(status string) ([]*model.Question, error) {
+func (t *tx) ListQuestions(f store.QuestionFilter) ([]*model.Question, error) {
 	var a args
-	a.eq("status", status)
-	return list(t, scanQuestion, `SELECT `+questionCols+` FROM questions`+a.clause()+` ORDER BY created_at, id`, a.vals...)
+	a.eq("status", f.Status)
+	a.afterCreated("questions", f.AfterID)
+	return list(t, scanQuestion, `SELECT `+questionCols+` FROM questions`+a.clause()+` ORDER BY created_at, id`+a.limit(f.Limit), a.vals...)
 }

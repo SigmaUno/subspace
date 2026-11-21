@@ -2,10 +2,14 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func TestAgentTextIsRedactedBeforePersisting(t *testing.T) {
@@ -92,7 +96,21 @@ func TestAgentTextIsRedactedBeforePersisting(t *testing.T) {
 		t.Fatalf("control brief: %d %v", code, out)
 	}
 	var raw []byte
+	if testdb.Postgres() {
+		dump := filepath.Join(t.TempDir(), "dump")
+		if err := e.srv.Store.Backup(context.Background(), dump); err != nil {
+			t.Fatal(err)
+		}
+		b, err := os.ReadFile(dump)
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw = b
+	}
 	for _, suffix := range []string{"", "-wal"} {
+		if testdb.Postgres() {
+			break
+		}
 		b, err := os.ReadFile(e.srv.cfg.DBPath + suffix)
 		if err != nil && !os.IsNotExist(err) {
 			t.Fatal(err)

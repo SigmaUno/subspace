@@ -9,7 +9,7 @@ type kindRule struct {
 
 var kindRules = []kindRule{
 	{"private_key", regexp.MustCompile(`-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----[\s\S]*?(?:-----END [A-Z0-9 ]*PRIVATE KEY-----|$)`)},
-	{"token", regexp.MustCompile(`\bssp_[A-Za-z0-9_-]{16,}`)},
+	{"token", regexp.MustCompile(`\bss[pu]_[A-Za-z0-9_-]{16,}`)},
 	{"provider_key", regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{20,}|github_pat_[A-Za-z0-9_]{20,}|sk-(?:ant-|proj-)?[A-Za-z0-9_-]{20,}|AKIA[0-9A-Z]{16}|xox[abprs]-[A-Za-z0-9-]{10,}|AIza[0-9A-Za-z_-]{35})`)},
 	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{2,}\.eyJ[A-Za-z0-9_-]{2,}\.[A-Za-z0-9_-]{2,}`)},
 }
@@ -38,15 +38,4 @@ func Redact(s string) string {
 		return m[:loc[3]] + marker("password")
 	})
 	return s
-}
-
-func redactAll(xs []string) []string {
-	if xs == nil {
-		return nil
-	}
-	out := make([]string, len(xs))
-	for i, x := range xs {
-		out[i] = Redact(x)
-	}
-	return out
 }

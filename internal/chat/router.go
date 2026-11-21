@@ -17,7 +17,13 @@ const (
 	targetComponent = "component"
 	targetBrief     = "brief"
 	targetLeader    = "leader"
+	targetRole      = "role"
+	targetAll       = "all"
+
+	MaxRecipients = 500
 )
+
+var roles = []string{model.RoleLeader, model.RoleWorker, model.RoleTester, model.RoleReviewer}
 
 type Message struct {
 	To   string `json:"to"`
@@ -33,6 +39,8 @@ type Directory interface {
 	Agent(ctx context.Context, id string) (*model.Agent, error)
 	ByComponent(ctx context.Context, id string) ([]string, error)
 	ByBrief(ctx context.Context, id string) ([]string, error)
+	ByRole(ctx context.Context, role string) ([]string, error)
+	All(ctx context.Context) ([]string, error)
 	Leader(ctx context.Context) (string, error)
 }
 
@@ -151,8 +159,15 @@ func (r *Router) resolve(ctx context.Context, to string) ([]string, error) {
 		if leader != "" {
 			ids = []string{leader}
 		}
+	case kind == targetAll && id == "":
+		ids, err = r.dir.All(ctx)
 	case id == "":
 		return nil, model.BadRequest("invalid recipient %q", to)
+	case kind == targetRole:
+		if !slices.Contains(roles, id) {
+			return nil, model.BadRequest("invalid role %q", id)
+		}
+		ids, err = r.dir.ByRole(ctx, id)
 	case kind == targetAgent:
 		var a *model.Agent
 		a, err = r.dir.Agent(ctx, id)
@@ -179,6 +194,9 @@ func (r *Router) resolve(ctx context.Context, to string) ([]string, error) {
 	ids = slices.Compact(ids)
 	if len(ids) == 0 {
 		return nil, model.NotFound("no agents for %s", to)
+	}
+	if len(ids) > MaxRecipients {
+		return nil, model.BadRequest("%s has %d recipients, at most %d", to, len(ids), MaxRecipients)
 	}
 	return ids, nil
 }

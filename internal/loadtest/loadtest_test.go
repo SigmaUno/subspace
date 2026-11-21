@@ -196,3 +196,25 @@ func TestInProcess(t *testing.T) {
 		t.Fatalf("errors %v", rep.ErrorSamples)
 	}
 }
+
+func TestSSETrackRestartResyncIsNotADuplicate(t *testing.T) {
+	f := &sseFleet{}
+	last, hello := int64(0), int64(0)
+	feed := func(name, id string) { f.track(client.Event{Name: name, ID: id}, &last, &hello) }
+
+	for _, id := range []string{"1", "2", "3", "4"} {
+		feed("task.updated", id)
+	}
+	feed("hello", "0")
+	feed("resync", "0")
+	feed("task.updated", "1")
+	feed("task.updated", "2")
+	if f.duplicates.Load() != 0 || f.overlap.Load() != 0 || f.resyncs.Load() != 1 || last != 2 {
+		t.Fatalf("duplicates %d overlap %d resyncs %d last %d", f.duplicates.Load(), f.overlap.Load(), f.resyncs.Load(), last)
+	}
+
+	feed("task.updated", "2")
+	if f.duplicates.Load() != 1 {
+		t.Fatalf("a repeated event must still count, got %d duplicates", f.duplicates.Load())
+	}
+}

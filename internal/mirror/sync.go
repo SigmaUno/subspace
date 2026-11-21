@@ -13,18 +13,10 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
 	"github.com/SigmaUno/subspace/internal/redact"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const rateKey = "mirror"
-
-type realClock struct{}
-
-func (realClock) Now() time.Time { return time.Now() }
-
-func (realClock) Timer(d time.Duration) (<-chan time.Time, func() bool) {
-	t := time.NewTimer(d)
-	return t.C, t.Stop
-}
 
 type Link struct {
 	Repo   string
@@ -64,7 +56,7 @@ type Syncer struct {
 
 func NewSyncer(cfg SyncConfig) *Syncer {
 	if cfg.Clock == nil {
-		cfg.Clock = realClock{}
+		cfg.Clock = retryq.SystemClock{}
 	}
 	if cfg.RatePerMin <= 0 {
 		cfg.RatePerMin = 60
@@ -103,7 +95,10 @@ func (s *Syncer) Start(ctx context.Context, hub events.Hub) {
 			select {
 			case <-ctx.Done():
 				return
-			case ev := <-sub.C():
+			case ev, ok := <-sub.C():
+				if !ok {
+					return
+				}
 				if ev.Type == "task.created" || ev.Type == "task.updated" {
 					s.Enqueue(ev.Data)
 				}
@@ -212,11 +207,7 @@ func (s *Syncer) sync(ctx context.Context, t *model.Task) {
 			s.cfg.Log.Warn("mirror upsert failed", "task", t.ID, "attempts", attempt, "err", redact.String(err.Error()))
 			return
 		}
-		timer, stop := s.cfg.Clock.Timer(s.backoff(attempt))
-		select {
-		case <-timer:
-		case <-ctx.Done():
-			stop()
+		if retryq.Sleep(ctx, s.cfg.Clock, retryq.Exp(s.cfg.BaseDelay, s.cfg.MaxDelay, attempt)) != nil {
 			return
 		}
 		if s.superseded(t.ID) {
@@ -226,14 +217,6 @@ func (s *Syncer) sync(ctx context.Context, t *model.Task) {
 	if err := s.cfg.Links.Put(ctx, t.ID, Link{Repo: t.Repo, URL: issueURL, Digest: digest}); err != nil {
 		s.cfg.Log.Warn("mirror link save failed", "task", t.ID, "err", redact.String(err.Error()))
 	}
-}
-
-func (s *Syncer) backoff(attempt int) time.Duration {
-	d := s.cfg.MaxDelay
-	if attempt < 32 && s.cfg.BaseDelay<<(attempt-1) < d {
-		d = s.cfg.BaseDelay << (attempt - 1)
-	}
-	return d
 }
 
 func (s *Syncer) view(ctx context.Context, t *model.Task) TaskView {

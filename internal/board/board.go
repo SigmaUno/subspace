@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
@@ -38,6 +39,7 @@ type Options struct {
 
 	FlushEvery time.Duration
 	SweepEvery time.Duration
+	Shared     bool
 }
 
 type hotTask struct {
@@ -50,18 +52,30 @@ type Board struct {
 	o   Options
 	log *slog.Logger
 
-	mu     sync.Mutex
-	seen   map[string]time.Time
-	tasks  map[string]hotTask
-	dirtyA map[string]struct{}
-	dirtyT map[string]struct{}
-	capCfg capacity.Config
+	mu      sync.Mutex
+	seen    map[string]time.Time
+	tasks   map[string]hotTask
+	dirtyA  map[string]struct{}
+	dirtyT  map[string]struct{}
+	capCfg  capacity.Config
+	capGate capacity.Gate
+	gate    Gate
+	capDB   bool
+	quality QualityGate
+	rules   PlaybookRules
+
+	repoCheck RepoCheck
+	leak      LeakScanner
 
 	expiries map[string][]time.Time
 
+	pauseOp  sync.Mutex
+	capOp    sync.Mutex
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string
+
+	cc conflictConfig
 }
 
 func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
@@ -99,30 +113,54 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity,
 		expiries: map[string][]time.Time{}}
 	err := st.View(ctx, func(tx store.Tx) error {
-		if v, ok, err := tx.GetKV("paused"); err != nil {
+		if err := b.loadPaused(tx); err != nil {
 			return err
-		} else if ok && v != "" {
-			b.paused, b.pauseWhy = true, v
 		}
-		if v, ok, err := tx.GetKV("capacity"); err != nil {
-			return err
-		} else if ok {
-			var c capacity.Config
-			if json.Unmarshal([]byte(v), &c) == nil {
-				b.capCfg = c
-			}
-		}
-		return nil
+		return b.loadCapacity(tx)
 	})
 	return b, err
+}
+
+func (b *Board) loadPaused(tx store.Tx) error {
+	v, ok, err := tx.GetKV("paused")
+	if err != nil {
+		return err
+	}
+	b.pausedMu.Lock()
+	b.paused, b.pauseWhy = ok && v != "", v
+	b.pausedMu.Unlock()
+	return nil
+}
+
+func (b *Board) loadCapacity(tx store.Tx) error {
+	v, ok, err := tx.GetKV("capacity")
+	if err != nil || !ok {
+		return err
+	}
+	var c capacity.Config
+	if json.Unmarshal([]byte(v), &c) == nil {
+		b.mu.Lock()
+		b.capCfg = c
+		b.capDB = true
+		b.mu.Unlock()
+	}
+	return nil
+}
+
+func (b *Board) resync(ctx context.Context, load func(store.Tx) error) {
+	if err := b.read(context.WithoutCancel(ctx), load); err != nil {
+		b.log.Error("resync after failed write", "err", err)
+	}
 }
 
 func (b *Board) now() time.Time { return b.o.Now() }
 
 type wctx struct {
 	b      *Board
+	ctx    context.Context
 	events []pending
 	inval  []string
+	forget []string
 }
 
 type pending struct {
@@ -168,6 +206,9 @@ func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body s
 
 func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, after map[string]any, note string) error {
 	e := &model.AuditEvent{TS: w.b.now(), AgentID: a.ID, Role: a.Role, Tool: tool, Before: before, After: after}
+	if a.Role == model.RoleOwner {
+		note = auth.AuditNote(w.ctx, note)
+	}
 	if taskID != "" {
 		e.TaskID = &taskID
 	}
@@ -178,14 +219,18 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 }
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
-	w := &wctx{b: b}
-	if err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval = nil, nil; return fn(tx, w) }); err != nil {
-		return mapStoreErr(err)
-	}
-	for _, id := range w.inval {
-		if b.o.Invalidate != nil {
+	w := &wctx{b: b, ctx: ctx}
+	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget = nil, nil, nil; return fn(tx, w) })
+	if b.o.Invalidate != nil {
+		for _, id := range w.inval {
 			b.o.Invalidate(id)
 		}
+	}
+	if err != nil {
+		return mapStoreErr(err)
+	}
+	for _, id := range w.forget {
+		b.forget(id)
 	}
 	if b.o.Hub != nil {
 		for _, e := range w.events {
@@ -218,7 +263,7 @@ func (b *Board) overlay(t *model.Task) *model.Task {
 	b.mu.Lock()
 	h, ok := b.tasks[t.ID]
 	b.mu.Unlock()
-	if !ok {
+	if !ok || h.assignee != deref(t.Assignee) {
 		return t
 	}
 	cp := *t
@@ -339,8 +384,25 @@ func (b *Board) Flush(ctx context.Context) {
 	})
 	if err != nil {
 		b.log.Error("flush heartbeats", "err", err)
+		b.mu.Lock()
+		for id := range seen {
+			b.dirtyA[id] = struct{}{}
+		}
+		for _, row := range rows {
+			if _, ok := b.tasks[row.TaskID]; ok {
+				b.dirtyT[row.TaskID] = struct{}{}
+			}
+		}
+		b.mu.Unlock()
 		return
 	}
+	b.mu.Lock()
+	for id, ms := range seen {
+		if _, dirty := b.dirtyA[id]; !dirty && b.seen[id].UnixMilli() == ms {
+			delete(b.seen, id)
+		}
+	}
+	b.mu.Unlock()
 	if b.o.Hub == nil {
 		return
 	}

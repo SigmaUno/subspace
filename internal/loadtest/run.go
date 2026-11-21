@@ -12,6 +12,7 @@ import (
 	"hash/fnv"
 	"io"
 	"log/slog"
+	"net/http"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -37,6 +38,10 @@ type Config struct {
 	Reviewers     int           // 0 = auto (1 per 25 workers)
 	Think         time.Duration // pause between an agent's calls
 	Drain         time.Duration // grace period for reviews/done after Duration
+	Scenario      string
+	Briefs        int
+	Tasks         int
+	Messages      int
 	Log           *slog.Logger
 }
 
@@ -57,13 +62,14 @@ func (c *Config) Defaults() {
 	if c.Log == nil {
 		c.Log = slog.New(slog.NewTextHandler(io.Discard, nil))
 	}
+	c.scenarioDefaults()
 }
 
 // Validate checks the configuration.
 func (c *Config) Validate() error {
 	switch {
-	case c.Agents < 1 || c.Agents > 1000:
-		return errors.New("agents must be 1..1000")
+	case c.Agents < 1 || c.Agents > maxAgents:
+		return fmt.Errorf("agents must be 1..%d", maxAgents)
 	case c.Duration <= 0:
 		return errors.New("duration must be > 0")
 	case c.Ramp < 0 || c.Ramp > c.Duration:
@@ -77,7 +83,7 @@ func (c *Config) Validate() error {
 	case c.Reviewers > 1000:
 		return errors.New("reviewers must be <= 1000")
 	}
-	return nil
+	return c.validateScenario()
 }
 
 // TaskCounts counts task lifecycle steps completed by the simulation.
@@ -91,25 +97,31 @@ type TaskCounts struct {
 
 // Report is the result of a run.
 type Report struct {
-	Target       string     `json:"target"`
-	Agents       int        `json:"agents"`
-	Reviewers    int        `json:"reviewers"`
-	Elapsed      float64    `json:"elapsed_s"`
-	Requests     int64      `json:"requests"`
-	Errors       int64      `json:"errors"`
-	ErrorRate    float64    `json:"error_rate"`
-	MaxErrorRate float64    `json:"max_error_rate"`
-	Throughput   float64    `json:"throughput_rps"`
-	Overall      OpReport   `json:"overall"`
-	Ops          []OpReport `json:"ops"`
-	Tasks        TaskCounts `json:"tasks"`
-	SSE          SSEReport  `json:"sse"`
-	Heap         HeapReport `json:"heap"`
-	ErrorSamples []string   `json:"error_samples,omitempty"`
+	Scenario     string      `json:"scenario,omitempty"`
+	Invariants   []Invariant `json:"invariants,omitempty"`
+	Target       string      `json:"target"`
+	Agents       int         `json:"agents"`
+	Reviewers    int         `json:"reviewers"`
+	Elapsed      float64     `json:"elapsed_s"`
+	Requests     int64       `json:"requests"`
+	Errors       int64       `json:"errors"`
+	ErrorRate    float64     `json:"error_rate"`
+	MaxErrorRate float64     `json:"max_error_rate"`
+	Throughput   float64     `json:"throughput_rps"`
+	Overall      OpReport    `json:"overall"`
+	Ops          []OpReport  `json:"ops"`
+	Tasks        TaskCounts  `json:"tasks"`
+	SSE          SSEReport   `json:"sse"`
+	Heap         HeapReport  `json:"heap"`
+	CPUSeconds   float64     `json:"cpu_s"`
+	CPUPerReqMs  float64     `json:"cpu_per_req_ms"`
+	ErrorSamples []string    `json:"error_samples,omitempty"`
 }
 
 // Breached reports whether the error rate exceeds the configured maximum (or nothing was measured).
-func (r *Report) Breached() bool { return r.Requests == 0 || r.ErrorRate > r.MaxErrorRate }
+func (r *Report) Breached() bool {
+	return r.Requests == 0 || r.ErrorRate > r.MaxErrorRate || r.InvariantsFailed() > 0
+}
 
 // WriteText prints a human-readable report.
 func (r *Report) WriteText(w io.Writer) {
@@ -128,11 +140,21 @@ func (r *Report) WriteText(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "\nSSE: %d/%d connected, %d connect errors, %d stream errors, %d events, %d lagged (%d dropped), lag p50 %.2f ms p95 %.2f ms p99 %.2f ms max %.2f ms\n",
 		s.Connected, s.Subscribers, s.ConnectErrors, s.StreamErrors, s.Events, s.LaggedEvents, s.Dropped, s.LagP50ms, s.LagP95ms, s.LagP99ms, s.LagMaxms)
 	_, _ = fmt.Fprintf(w, "heap (live, process): after ramp %.1f MB, end %.1f MB, max %.1f MB\n", r.Heap.StartMB, r.Heap.EndMB, r.Heap.MaxMB)
+	_, _ = fmt.Fprintf(w, "cpu (process, workload): %.1f s, %.3f ms per request\n", r.CPUSeconds, r.CPUPerReqMs)
+	if r.SSE.Reconnects > 0 {
+		_, _ = fmt.Fprintf(w, "SSE reconnects: %d, resyncs %d, events at or below the hello seq %d, duplicates %d\n", r.SSE.Reconnects, r.SSE.Resyncs, r.SSE.Overlap, r.SSE.Duplicates)
+	}
 	for _, e := range r.ErrorSamples {
 		_, _ = fmt.Fprintf(w, "error sample: %s\n", e)
 	}
+	if len(r.Invariants) > 0 {
+		_, _ = fmt.Fprintf(w, "\nscenario %s invariants:\n", r.Scenario)
+		for _, inv := range r.Invariants {
+			_, _ = fmt.Fprintf(w, "  %s\n", inv)
+		}
+	}
 	if r.Breached() {
-		_, _ = fmt.Fprintln(w, "RESULT: FAIL (error rate above maximum or no requests)")
+		_, _ = fmt.Fprintln(w, "RESULT: FAIL (error rate above maximum, failed invariant or no requests)")
 	} else {
 		_, _ = fmt.Fprintln(w, "RESULT: OK")
 	}
@@ -149,6 +171,7 @@ type runner struct {
 	cfg    Config
 	rec    *Recorder
 	owner  *client.Owner
+	verify *client.Owner
 	mcpURL string
 	runID  string
 	brief  string
@@ -156,11 +179,21 @@ type runner struct {
 	tasks  TaskCounts
 	seq    atomic.Int64
 	start  time.Time
+	obs    client.Option
+	base   string
+	hc     *http.Client
+	proc   *InProcess
+	soft   client.Option
+	retry  *retrier
+
+	cpuWork  time.Duration
+	workReqs int64
 }
 
 const (
 	repo        = "loadtest/sandbox"
 	maxPlanSize = 500
+	maxAgents   = 3000
 	leaderConc  = 16
 	ownerConc   = 8
 )
@@ -172,12 +205,14 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		return nil, err
 	}
 	target := cfg.URL
+	var proc *InProcess
 	if cfg.URL == "" {
 		p, err := StartInProcess(ctx, nil)
 		if err != nil {
 			return nil, err
 		}
 		defer p.Stop()
+		proc = p
 		cfg.URL, cfg.OwnerToken, target = p.URL, p.OwnerToken, "in-process "+p.URL
 	}
 	base := strings.TrimRight(cfg.URL, "/")
@@ -187,44 +222,34 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	}
 	rid := make([]byte, 3)
 	_, _ = rand.Read(rid)
-	r := &runner{cfg: cfg, rec: NewRecorder(), mcpURL: base + "/mcp", runID: "lt" + hex.EncodeToString(rid), start: time.Now()}
-	obs := client.WithObserver(r.rec.Observe)
-	r.owner = client.NewOwner(base, cfg.OwnerToken, client.WithHTTPClient(hc), obs)
+	r := &runner{cfg: cfg, rec: NewRecorder(), mcpURL: base + "/mcp", runID: "lt" + hex.EncodeToString(rid), start: time.Now(),
+		base: base, hc: hc, proc: proc}
+	r.obs = client.WithObserver(func(op string, d time.Duration, err error) { r.record(op, d, err, false) })
+	r.soft = client.WithObserver(func(op string, d time.Duration, err error) { r.record(op, d, err, true) })
+	r.owner = client.NewOwner(base, cfg.OwnerToken, client.WithHTTPClient(hc), r.obs)
+	r.verify = client.NewOwner(base, cfg.OwnerToken, client.WithHTTPClient(hc))
 
-	leader, workers, reviewers, err := r.setupAgents(ctx)
+	heapCtx, heapCancel := context.WithCancel(ctx)
+	defer heapCancel()
+	heap := sampleHeap(heapCtx, time.Now().Add(cfg.Ramp))
+
+	var sse SSEReport
+	var invs []Invariant
+	var err error
+	if run := scenarios[cfg.Scenario]; run != nil {
+		invs, sse, err = run(ctx, r)
+	} else {
+		sse, err = r.steady(ctx)
+	}
 	if err != nil {
 		return nil, err
 	}
-	mk := func(a agentCreds) *client.MCP {
-		return client.NewMCP(r.mcpURL, a.token, client.WithHTTPClient(hc), obs, client.WithClientName("subspace-loadtest"))
-	}
-	r.leader = mk(leader)
-
-	sseCtx, sseCancel := context.WithCancel(ctx)
-	defer sseCancel()
-	fleet := newSSEFleet(base, cfg.OwnerToken, cfg.SSESubs)
-	if cfg.SSESubs > 0 {
-		fleet.Start(sseCtx, 15*time.Second)
-	}
-
-	if err := r.setupBoard(ctx, workers); err != nil {
-		sseCancel()
-		fleet.Wait()
-		return nil, err
-	}
-
-	heap := sampleHeap(sseCtx, time.Now().Add(cfg.Ramp))
-	r.workload(ctx, workers, reviewers, mk)
-
-	time.Sleep(200 * time.Millisecond) // let the last events reach subscribers
-	sseCancel()
-	fleet.Wait()
 
 	elapsed := time.Since(r.start)
 	overall, ops, samples := r.rec.Snapshot()
-	rep := &Report{Target: target, Agents: cfg.Agents, Reviewers: cfg.Reviewers, Elapsed: elapsed.Seconds(),
-		Requests: overall.Count, Errors: overall.Errors, MaxErrorRate: cfg.MaxErrorRate, Overall: overall, Ops: ops,
-		SSE: fleet.Report(), Heap: heap(), ErrorSamples: samples}
+	rep := &Report{Scenario: cfg.Scenario, Invariants: invs, Target: target, Agents: cfg.Agents, Reviewers: cfg.Reviewers,
+		Elapsed: elapsed.Seconds(), Requests: overall.Count, Errors: overall.Errors, MaxErrorRate: cfg.MaxErrorRate,
+		Overall: overall, Ops: ops, SSE: sse, Heap: heap(), ErrorSamples: samples}
 	rep.Tasks = TaskCounts{Created: atomic.LoadInt64(&r.tasks.Created), Claimed: atomic.LoadInt64(&r.tasks.Claimed),
 		Submitted: atomic.LoadInt64(&r.tasks.Submitted), Approved: atomic.LoadInt64(&r.tasks.Approved), Done: atomic.LoadInt64(&r.tasks.Done)}
 	if rep.Requests > 0 {
@@ -233,27 +258,89 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	if elapsed > 0 {
 		rep.Throughput = float64(rep.Requests) / elapsed.Seconds()
 	}
+	if r.cpuWork > 0 && r.workReqs > 0 {
+		rep.CPUSeconds = r.cpuWork.Seconds()
+		rep.CPUPerReqMs = float64(r.cpuWork.Microseconds()) / 1000 / float64(r.workReqs)
+	}
 	// SSE failures count against the error budget as well.
 	sseErr := rep.SSE.ConnectErrors + rep.SSE.StreamErrors
 	if sseErr > 0 {
 		rep.Errors += sseErr
-		rep.Requests += int64(cfg.SSESubs)
+		rep.Requests += int64(rep.SSE.Subscribers)
 		rep.ErrorRate = float64(rep.Errors) / float64(rep.Requests)
 	}
 	return rep, nil
 }
 
-// setupAgents creates the brief and registers 1 leader, N workers and the reviewers via the owner API.
-func (r *runner) setupAgents(ctx context.Context) (leader agentCreds, workers, reviewers []agentCreds, err error) {
+func (r *runner) record(op string, d time.Duration, err error, soft bool) {
+	if soft && rejected(err) || errors.Is(err, context.Canceled) || r.retry.suppress(err) {
+		err = nil
+	}
+	r.rec.Observe(op, d, err)
+}
+
+func (r *runner) mk(a agentCreds) *client.MCP {
+	return client.NewMCP(r.mcpURL, a.token, client.WithHTTPClient(r.hc), r.obs, client.WithClientName("subspace-loadtest"))
+}
+
+func (r *runner) mkSoft(a agentCreds) *client.MCP {
+	return client.NewMCP(r.mcpURL, a.token, client.WithHTTPClient(r.hc), r.soft, client.WithClientName("subspace-loadtest"))
+}
+
+func (r *runner) steady(ctx context.Context) (SSEReport, error) {
+	if err := r.newBrief(ctx); err != nil {
+		return SSEReport{}, err
+	}
+	leader, workers, reviewers, err := r.setupAgents(ctx)
+	if err != nil {
+		return SSEReport{}, err
+	}
+	r.leader = r.mk(leader)
+
+	sseCtx, sseCancel := context.WithCancel(ctx)
+	defer sseCancel()
+	var churn time.Duration
+	if r.cfg.Scenario == ScenarioReconnectStorm {
+		churn = stormChurn
+	}
+	fleet := newSSEFleet(r.base, r.cfg.OwnerToken, r.cfg.SSESubs, churn)
+	if r.cfg.SSESubs > 0 {
+		fleet.Start(sseCtx, 15*time.Second)
+	}
+
+	if err := r.setupBoard(ctx, workers); err != nil {
+		sseCancel()
+		fleet.Wait()
+		return SSEReport{}, err
+	}
+
+	r.workload(ctx, workers, reviewers)
+
+	time.Sleep(200 * time.Millisecond) // let the last events reach subscribers
+	sseCancel()
+	fleet.Wait()
+	return fleet.Report(), nil
+}
+
+func (r *runner) newBrief(ctx context.Context) error {
+	id, err := r.createBrief(ctx, "Load test "+r.runID)
+	r.brief = id
+	return err
+}
+
+func (r *runner) createBrief(ctx context.Context, title string) (string, error) {
 	br, err := r.owner.CreateBrief(ctx, board.BriefInput{
-		Title: "Load test " + r.runID, Body: "Synthetic brief created by cmd/loadtest.", Repos: []string{repo},
+		Title: title, Body: "Synthetic brief created by cmd/loadtest.", Repos: []string{repo},
 		MaxParallel: r.cfg.Agents, AllowedProviders: []string{},
 	})
 	if err != nil {
-		return leader, nil, nil, fmt.Errorf("create brief: %w", err)
+		return "", fmt.Errorf("create brief: %w", err)
 	}
-	r.brief = br.ID
+	return br.ID, nil
+}
 
+// setupAgents registers 1 leader, N workers and the reviewers via the owner API.
+func (r *runner) setupAgents(ctx context.Context) (leader agentCreds, workers, reviewers []agentCreds, err error) {
 	l, err := r.owner.RegisterAgent(ctx, board.AgentInput{
 		ID: r.runID + "-leader", Role: model.RoleLeader, Kind: model.KindOther, Model: "loadtest", Provider: "loadtest",
 	})
@@ -272,19 +359,25 @@ func (r *runner) setupAgents(ctx context.Context) (leader agentCreds, workers, r
 }
 
 func (r *runner) bulk(ctx context.Context, prefix, role, kind string, n int) ([]agentCreds, error) {
-	out, err := r.owner.RegisterBulk(ctx, board.BulkInput{Prefix: prefix, Count: n, Role: role, Kind: kind, Model: "loadtest"})
-	if err != nil {
-		return nil, fmt.Errorf("register %ss: %w", role, err)
-	}
-	if len(out) != n {
-		return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out), n)
-	}
-	cs := make([]agentCreds, n)
-	for i, a := range out {
-		if a.Connect.Token == "" {
-			return nil, fmt.Errorf("register %ss: agent %s has no token", role, a.Agent.ID)
+	cs := make([]agentCreds, 0, n)
+	for chunk := 0; len(cs) < n; chunk++ {
+		p, k := prefix, min(n-len(cs), board.MaxBulk)
+		if chunk > 0 {
+			p = fmt.Sprintf("%s%d", prefix, chunk)
 		}
-		cs[i] = agentCreds{a.Agent.ID, a.Connect.Token}
+		out, err := r.owner.RegisterBulk(ctx, board.BulkInput{Prefix: p, Count: k, Role: role, Kind: kind, Model: "loadtest"})
+		if err != nil {
+			return nil, fmt.Errorf("register %ss: %w", role, err)
+		}
+		if len(out) != k {
+			return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out), k)
+		}
+		for _, a := range out {
+			if a.Connect.Token == "" {
+				return nil, fmt.Errorf("register %ss: agent %s has no token", role, a.Agent.ID)
+			}
+			cs = append(cs, agentCreds{a.Agent.ID, a.Connect.Token})
+		}
 	}
 	return cs, nil
 }
@@ -394,39 +487,22 @@ func shard(id string, n int) int {
 
 // workload runs workers, the leader's refill pool, reviewers and the owner until Duration has passed,
 // then drains outstanding reviews and done marks.
-func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, mk func(agentCreds) *client.MCP) {
+func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds) {
 	begin := time.Now()
 	deadline := begin.Add(r.cfg.Duration)
 	hard, cancel := context.WithDeadline(ctx, deadline.Add(r.cfg.Drain))
 	defer cancel()
 
+	cpu0, reqs0 := processCPU(), r.rec.Count()
 	refill := make(chan refillReq)
-	reviewQ := make([]chan string, len(reviewers))
-	for i := range reviewQ {
-		reviewQ[i] = make(chan string, 4096)
-	}
-	doneQ := make(chan string, 4096)
+	p := r.startPipeline(hard, reviewers)
 
-	var leaderWG, workerWG, reviewerWG, ownerWG sync.WaitGroup
+	var leaderWG, workerWG sync.WaitGroup
 	for g := 0; g < leaderConc; g++ {
 		leaderWG.Add(1)
 		go func() {
 			defer leaderWG.Done()
 			r.leaderLoop(hard, refill)
-		}()
-	}
-	for g := 0; g < ownerConc; g++ {
-		ownerWG.Add(1)
-		go func() {
-			defer ownerWG.Done()
-			r.ownerLoop(hard, doneQ)
-		}()
-	}
-	for i, rv := range reviewers {
-		reviewerWG.Add(1)
-		go func() {
-			defer reviewerWG.Done()
-			r.reviewerLoop(hard, mk(rv), reviewQ[i], doneQ)
 		}()
 	}
 	for i, w := range workers {
@@ -439,22 +515,65 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds, 
 			case <-hard.Done():
 				return
 			}
-			r.workerLoop(hard, deadline, w.id, mk(w), refill, reviewQ)
+			r.workerLoop(hard, deadline, w.id, r.mk(w), refill, p)
 		}()
 	}
 	workerWG.Wait()
 	close(refill)
 	leaderWG.Wait()
-	for _, q := range reviewQ {
-		close(q)
-	}
-	reviewerWG.Wait()
-	close(doneQ)
-	ownerWG.Wait()
+	p.stop()
+	r.cpuWork = processCPU() - cpu0
+	r.workReqs = r.rec.Count() - reqs0
 }
 
-func (r *runner) workerLoop(ctx context.Context, deadline time.Time, agent string, c *client.MCP, refill chan<- refillReq, reviewQ []chan string) {
-	if err := c.Initialize(ctx); err != nil {
+type pipeline struct {
+	reviewQ   []chan string
+	doneQ     chan string
+	reviewers sync.WaitGroup
+	owners    sync.WaitGroup
+}
+
+func (r *runner) startPipeline(ctx context.Context, reviewers []agentCreds) *pipeline {
+	p := &pipeline{doneQ: make(chan string, 4096)}
+	for g := 0; g < ownerConc; g++ {
+		p.owners.Add(1)
+		go func() {
+			defer p.owners.Done()
+			r.ownerLoop(ctx, p.doneQ)
+		}()
+	}
+	for _, rv := range reviewers {
+		q := make(chan string, 4096)
+		p.reviewQ = append(p.reviewQ, q)
+		p.reviewers.Add(1)
+		go func() {
+			defer p.reviewers.Done()
+			r.reviewerLoop(ctx, r.mk(rv), q, p.doneQ)
+		}()
+	}
+	return p
+}
+
+func (p *pipeline) submit(ctx context.Context, id string) bool {
+	select {
+	case p.reviewQ[shard(id, len(p.reviewQ))] <- id:
+		return true
+	case <-ctx.Done():
+		return false
+	}
+}
+
+func (p *pipeline) stop() {
+	for _, q := range p.reviewQ {
+		close(q)
+	}
+	p.reviewers.Wait()
+	close(p.doneQ)
+	p.owners.Wait()
+}
+
+func (r *runner) workerLoop(ctx context.Context, deadline time.Time, agent string, c *client.MCP, refill chan<- refillReq, p *pipeline) {
+	if err := r.do(ctx, func() error { return c.Initialize(ctx) }, nil); err != nil {
 		return
 	}
 	if _, err := c.GetInstructions(ctx); err != nil {
@@ -482,12 +601,8 @@ func (r *runner) workerLoop(ctx context.Context, deadline time.Time, agent strin
 			if !time.Now().Before(deadline) || ctx.Err() != nil {
 				return
 			}
-			if r.work(ctx, c, t.ID) {
-				select {
-				case reviewQ[shard(t.ID, len(reviewQ))] <- t.ID:
-				case <-ctx.Done():
-					return
-				}
+			if r.work(ctx, c, t.ID) && !p.submit(ctx, t.ID) {
+				return
 			}
 		}
 	}
@@ -495,10 +610,19 @@ func (r *runner) workerLoop(ctx context.Context, deadline time.Time, agent strin
 
 // work runs claim → heartbeat ×m → update_status → submit; it reports whether the task was submitted.
 func (r *runner) work(ctx context.Context, c *client.MCP, id string) bool {
-	if _, err := c.ClaimTask(ctx, id); err != nil {
+	return r.claim(ctx, c, id) && r.complete(ctx, c, id)
+}
+
+func (r *runner) claim(ctx context.Context, c *client.MCP, id string) bool {
+	err := r.do(ctx, func() error { _, err := c.ClaimTask(ctx, id); return err }, r.moved(ctx, id, model.StatusAssigned, model.StatusChangesRequested))
+	if err != nil {
 		return false
 	}
 	atomic.AddInt64(&r.tasks.Claimed, 1)
+	return true
+}
+
+func (r *runner) complete(ctx context.Context, c *client.MCP, id string) bool {
 	for j := 0; j < r.cfg.Heartbeats; j++ {
 		r.think(ctx)
 		_, _ = c.Heartbeat(ctx, id)
@@ -508,8 +632,11 @@ func (r *runner) work(ctx context.Context, c *client.MCP, id string) bool {
 	_, _ = c.UpdateStatus(ctx, board.StatusInput{TaskID: id, Status: model.StatusInProgress, ProgressPct: &pct,
 		Note: "load test progress", CostEUR: &cost})
 	r.think(ctx)
-	_, err := c.Submit(ctx, board.SubmitInput{TaskID: id, PRURL: "https://example.invalid/loadtest/pull/" + strings.TrimPrefix(id, "T-"),
-		Summary: "synthetic change"})
+	err := r.do(ctx, func() error {
+		_, err := c.Submit(ctx, board.SubmitInput{TaskID: id, PRURL: "https://example.invalid/loadtest/pull/" + strings.TrimPrefix(id, "T-"),
+			Summary: "synthetic change"})
+		return err
+	}, r.moved(ctx, id, model.StatusInProgress))
 	if err != nil {
 		return false
 	}
@@ -552,7 +679,9 @@ func (r *runner) reviewerLoop(ctx context.Context, c *client.MCP, q <-chan strin
 			if initErr != nil || ctx.Err() != nil {
 				continue
 			}
-			if _, err := c.Review(ctx, id, "approve", "LGTM (load test)"); err != nil {
+			err := r.do(ctx, func() error { _, err := c.Review(ctx, id, "approve", "LGTM (load test)"); return err },
+				r.moved(ctx, id, model.StatusSubmitted, model.StatusInReview))
+			if err != nil {
 				continue
 			}
 			atomic.AddInt64(&r.tasks.Approved, 1)
@@ -573,7 +702,12 @@ func (r *runner) ownerLoop(ctx context.Context, doneQ <-chan string) {
 		if ctx.Err() != nil {
 			continue
 		}
-		if _, err := r.owner.MarkDone(ctx, id, "merged (load test)"); err == nil {
+		err := r.do(ctx, func() error { _, err := r.owner.MarkDone(ctx, id, "merged (load test)"); return err },
+			func() bool {
+				t, err := r.owner.GetTask(ctx, id)
+				return err == nil && t.Status == model.StatusDone
+			})
+		if err == nil {
 			atomic.AddInt64(&r.tasks.Done, 1)
 		}
 	}

@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(2)
+uint8(32)
+uint8(1)
+uint8(0)
+string("")
+string("")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("{\"global_max_agents\":-1,\"limits\":[{\"provider\":\"\",\"model\":\"\",\"max_concurrency\":-3}]}")

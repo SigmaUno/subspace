@@ -44,9 +44,12 @@ func (c *Candidate) finished() bool {
 }
 
 type RepoConfig struct {
-	Remote string
-	Verify []string
-	Auto   bool
+	Remote   string
+	Verify   []string
+	Auto     bool
+	MaxTrain int
+	Required []string
+	WorkDir  string
 }
 
 type Runner interface {
@@ -73,6 +76,9 @@ type Config struct {
 	Notifier Notifier
 	Gate     Gate
 	Tasks    Tasks
+	Trains   TrainStore
+	Deps     Deps
+	Checks   Checks
 	Logger   *slog.Logger
 	Now      func() time.Time
 }
@@ -90,6 +96,16 @@ func New(cfg Config) (*Queue, error) {
 	for name, rc := range cfg.Repos {
 		if rc.Remote == "" || len(rc.Verify) == 0 {
 			return nil, fmt.Errorf("mergequeue: repo %q needs Remote and Verify", name)
+		}
+		if rc.MaxTrain < 0 {
+			return nil, fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
+		}
+		if rc.MaxTrain > 0 && cfg.Trains == nil {
+			ts, ok := cfg.Store.(TrainStore)
+			if !ok {
+				return nil, fmt.Errorf("mergequeue: repo %q uses merge trains but no TrainStore is configured", name)
+			}
+			cfg.Trains = ts
 		}
 	}
 	if cfg.Runner == nil {
@@ -172,6 +188,14 @@ func (q *Queue) Process(ctx context.Context, repo string) (*Candidate, error) {
 		return nil, nil
 	}
 	defer q.release(repo)
+	if rc.MaxTrain > 0 {
+		t, err := q.processTrain(ctx, repo, rc)
+		if t == nil || len(t.Members) == 0 {
+			return nil, err
+		}
+		c, gerr := q.cfg.Store.Get(context.WithoutCancel(ctx), t.Members[0].CandidateID)
+		return c, errors.Join(err, gerr)
+	}
 	c, err := q.next(ctx, repo)
 	if err != nil || c == nil {
 		return nil, err
@@ -226,7 +250,7 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 		return err
 	}
 	var log strings.Builder
-	dir := filepath.Join(q.cfg.WorkDir, dirName(repo))
+	dir := q.repoDir(repo, rc)
 	headSHA, sha, err := q.prepare(ctx, dir, rc, c, &log)
 	if err == nil {
 		err = q.verify(ctx, dir, rc, &log)
@@ -260,18 +284,23 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 	)
 }
 
-func (q *Queue) prepare(ctx context.Context, dir string, rc RepoConfig, c *Candidate, log *strings.Builder) (headSHA, sha string, err error) {
+func (q *Queue) ensureRepo(ctx context.Context, dir string, rc RepoConfig, log *strings.Builder) error {
 	if _, err := os.Stat(filepath.Join(dir, ".git")); err != nil {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
-			return "", "", err
+			return err
 		}
 		if _, err := q.git(ctx, dir, log, "init", "-q"); err != nil {
-			return "", "", err
+			return err
 		}
-		if _, err := q.git(ctx, dir, log, "remote", "add", "origin", rc.Remote); err != nil {
-			return "", "", err
-		}
-	} else if _, err := q.git(ctx, dir, log, "remote", "set-url", "origin", rc.Remote); err != nil {
+		_, err := q.git(ctx, dir, log, "remote", "add", "origin", rc.Remote)
+		return err
+	}
+	_, err := q.git(ctx, dir, log, "remote", "set-url", "origin", rc.Remote)
+	return err
+}
+
+func (q *Queue) prepare(ctx context.Context, dir string, rc RepoConfig, c *Candidate, log *strings.Builder) (headSHA, sha string, err error) {
+	if err := q.ensureRepo(ctx, dir, rc, log); err != nil {
 		return "", "", err
 	}
 	base, head := "refs/remotes/origin/"+c.Base, "refs/remotes/origin/"+c.Head
@@ -350,6 +379,13 @@ func redactCredentials(s string) string {
 	return urlUserinfo.ReplaceAllString(s, "${1}[redacted]@")
 }
 
+func (q *Queue) repoDir(repo string, rc RepoConfig) string {
+	if rc.WorkDir != "" {
+		return filepath.Join(rc.WorkDir, dirName(repo))
+	}
+	return filepath.Join(q.cfg.WorkDir, dirName(repo))
+}
+
 func dirName(repo string) string {
 	return unsafeDirChars.ReplaceAllString(repo, "_")
 }
@@ -359,6 +395,11 @@ func validBranch(b string) bool {
 		strings.HasSuffix(b, ".") || strings.HasSuffix(b, ".lock") ||
 		strings.Contains(b, "..") || strings.Contains(b, "//") || strings.Contains(b, "@{") {
 		return false
+	}
+	for _, part := range strings.Split(b, "/") {
+		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
 	}
 	for _, r := range b {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(`~^:?*[\`, r) {

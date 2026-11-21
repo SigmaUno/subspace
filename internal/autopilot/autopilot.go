@@ -3,10 +3,13 @@ package autopilot
 import (
 	"context"
 	"log/slog"
+	"slices"
 	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/breaker"
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -25,7 +28,10 @@ type Options struct {
 	Actor        model.Actor
 	DefaultSpawn SpawnConfig
 	Spawn        map[string]SpawnConfig
+	Profiles     func(ctx context.Context, name string) (SpawnConfig, error)
 	History      int
+	Scores       func(ctx context.Context) (map[string]float64, error)
+	Breaker      func(provider, model string) breaker.State
 	Now          func() time.Time
 	Log          *slog.Logger
 }
@@ -50,13 +56,14 @@ type Service struct {
 
 	mu       sync.Mutex
 	enabled  map[string]bool
+	spawn    map[string]SpawnConfig
 	running  bool
 	lastTick *time.Time
 	lastErr  string
 	results  []Result
 }
 
-var expected = map[string]bool{"capacity": true, "paused": true, "budget_exceeded": true, "conflict": true}
+var expected = map[string]bool{"capacity": true, "paused": true, "budget_exceeded": true, "quota_exceeded": true, "conflict": true}
 
 func New(b Board, o Options) *Service {
 	if o.Actor.ID == "" {
@@ -71,7 +78,7 @@ func New(b Board, o Options) *Service {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Service{b: b, o: o, enabled: map[string]bool{}}
+	return &Service{b: b, o: o, enabled: map[string]bool{}, spawn: map[string]SpawnConfig{}}
 }
 
 func (s *Service) SetEnabled(briefID string, on bool) {
@@ -100,15 +107,68 @@ func (s *Service) enabledCopy() map[string]bool {
 	return out
 }
 
-func (s *Service) spawnConfig(briefID string) SpawnConfig {
+func (s *Service) SetSpawn(briefID string, c SpawnConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c == (SpawnConfig{}) {
+		delete(s.spawn, briefID)
+	} else {
+		s.spawn[briefID] = c
+	}
+}
+
+func (s *Service) Spawn(briefID string) SpawnConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.spawn[briefID]
+}
+
+func (s *Service) ResolveProfile(ctx context.Context, c SpawnConfig) (SpawnConfig, error) {
+	if c.Profile == "" || s.o.Profiles == nil {
+		return c, nil
+	}
+	p, err := s.o.Profiles(ctx, c.Profile)
+	if err != nil {
+		return c, err
+	}
+	sameKind := c.Kind == "" || c.Kind == p.Kind
+	if c.Kind == "" {
+		c.Kind = p.Kind
+	}
+	if c.Model == "" {
+		c.Model = p.Model
+	}
+	if c.Provider == "" && sameKind {
+		c.Provider = p.Provider
+	}
+	return c, nil
+}
+
+func (s *Service) baseSpawn(briefID string) SpawnConfig {
+	if c := s.Spawn(briefID); c != (SpawnConfig{}) {
+		return c
+	}
 	if c, ok := s.o.Spawn[briefID]; ok {
 		return c
 	}
 	return s.o.DefaultSpawn
 }
 
+func (s *Service) spawnConfig(ctx context.Context, briefID string) SpawnConfig {
+	c := s.baseSpawn(briefID)
+	resolved, err := s.ResolveProfile(ctx, c)
+	if err != nil {
+		s.o.Log.Warn("autopilot spawn profile unavailable", "brief", briefID, "profile", c.Profile, "err", err)
+		return SpawnConfig{}
+	}
+	return resolved
+}
+
 func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
-	snap := Snapshot{Enabled: s.enabledCopy(), Spawn: map[string]SpawnConfig{}}
+	snap := Snapshot{Enabled: s.enabledCopy(), Spawn: map[string]SpawnConfig{}, Conflict: conflict.Warn}
+	if c, ok := s.b.(interface{ ConflictMode() conflict.Mode }); ok {
+		snap.Conflict = c.ConflictMode()
+	}
 	if snap.Paused, _ = s.b.Paused(); snap.Paused || len(snap.Enabled) == 0 {
 		return snap, nil
 	}
@@ -116,8 +176,11 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 	if snap.Briefs, err = s.b.ListBriefs(ctx, "open"); err != nil {
 		return snap, err
 	}
+	if s.o.Actor.Role == model.RoleLeader {
+		snap.Briefs = slices.DeleteFunc(snap.Briefs, func(b *model.Brief) bool { return !b.LedBy(s.o.Actor.ID) })
+	}
 	for _, b := range snap.Briefs {
-		snap.Spawn[b.ID] = s.spawnConfig(b.ID)
+		snap.Spawn[b.ID] = s.spawnConfig(ctx, b.ID)
 	}
 	statuses := model.StatusReady + "," + model.StatusAssigned + "," + model.StatusInProgress + "," +
 		model.StatusSubmitted + "," + model.StatusInReview
@@ -132,6 +195,12 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 		return snap, err
 	}
 	snap.Capacity = *c
+	if s.o.Scores != nil {
+		if snap.Scores, err = s.o.Scores(ctx); err != nil {
+			s.o.Log.Warn("autopilot agent scores unavailable", "err", err)
+		}
+	}
+	snap.Breaker = s.o.Breaker
 	return snap, nil
 }
 

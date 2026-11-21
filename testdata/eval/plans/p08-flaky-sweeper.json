@@ -1,0 +1,17 @@
+{
+  "id": "p08-flaky-sweeper",
+  "title": "Fix the flaky lease sweeper test",
+  "body": "TestLeaseSweeperReturnsExpiredTasks fails about once in 50 CI runs. It sleeps for 6 seconds and relies on the real clock, and the sweeper reads lease expiry from the in-memory heartbeat map without holding the shard lock.\n\n- Fix the data race in the sweeper (go test -race must stay clean with -count=200).\n- Rewrite the test on an injected clock so it no longer sleeps.\n\nDo not change lease semantics.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; the sweeper lives in internal/board, heartbeats in internal/board/heartbeat.go"}
+  ],
+  "max_cost_eur": 12,
+  "max_parallel_agents": 2,
+  "cross_review": true,
+  "min_tasks": 1,
+  "max_tasks": 3,
+  "requirements": [
+    {"id": "race", "title": "Fix the data race in the lease sweeper", "keywords": ["race", "sweeper"], "checks": ["-race", "-count"]},
+    {"id": "clock", "title": "Rewrite the sweeper test on an injected clock", "keywords": ["clock", "sleep"], "checks": ["sleep|clock"]}
+  ]
+}

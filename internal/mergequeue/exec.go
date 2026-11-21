@@ -2,10 +2,12 @@ package mergequeue
 
 import (
 	"context"
+	"errors"
 	"os"
 	"os/exec"
 	"slices"
 	"strings"
+	"time"
 )
 
 type ExecRunner struct {
@@ -20,7 +22,11 @@ func (r ExecRunner) Run(ctx context.Context, dir, name string, args ...string) (
 	out := tailBuffer{max: maxLog}
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+	cmd.WaitDelay = time.Second
 	err := cmd.Run()
+	if errors.Is(err, exec.ErrWaitDelay) {
+		err = nil
+	}
 	return string(out.buf), err
 }
 

@@ -11,6 +11,7 @@ type Snapshot struct {
 	Tasks  []*model.Task
 	Agents map[string]string
 	Audit  []*model.AuditEvent
+	PRs    map[string]PR
 	Now    time.Time
 }
 
@@ -97,4 +98,5 @@ type Report struct {
 	Throughput     Throughput     `json:"throughput"`
 	CriticalPath   CriticalPath   `json:"critical_path"`
 	Outliers       []Outlier      `json:"outliers"`
+	Efficiency     Efficiency     `json:"efficiency"`
 }

@@ -165,7 +165,9 @@ Returned by `GET /api/v1/agents/{id}/connect` and on register/rotate; shown in t
 | `SUBSPACE_BACKUP_DIR` | `<db dir>/backups` | `VACUUM INTO` backups |
 | `SUBSPACE_BACKUP_INTERVAL` | `24h` (`0` = off) | automatic backup period |
 | `SUBSPACE_BACKUP_KEEP` | `14` | backups retained |
-| `SUBSPACE_LOG_LEVEL` | `info` | slog level |
+| `SUBSPACE_LOG_LEVEL` | `info` | slog level (`debug`, `info`, `warn`, `error`); runtime control via `/api/v1/log-level` |
+| `SUBSPACE_LOG_FORMAT` | `text` | `text` or `json` |
+| `SUBSPACE_LOG_SAMPLE` | `0.1` | share of 2xx health/heartbeat/log-poll requests that are access-logged |
 
 Bootstrap: with an empty DB (no agents, no briefs) nothing breaks — `/healthz`, REST and the UI work, `/mcp` simply rejects all tokens. Owner creates the first brief and registers agents.
 

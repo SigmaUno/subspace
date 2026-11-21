@@ -5,6 +5,7 @@ import (
 	"flag"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
 	"sync"
 
@@ -20,8 +21,13 @@ func run() int {
 	steps := flag.Int("steps", 500, "steps per seed")
 	start := flag.Int64("start", 1, "first seed")
 	parallel := flag.Int("parallel", runtime.GOMAXPROCS(0), "seeds run concurrently")
-	shrink := flag.Int("shrink", 400, "max replays when minimizing a failing trace (0 = off)")
+	shrink := flag.Int("shrink", 400, "max replays when minimizing a failing step log (0 = off)")
 	regressions := flag.String("regressions", "testdata/dst/regressions.txt", "file failing seeds are appended to (empty = off)")
+	mode := flag.String("mode", dst.ModeBoard, "system under test: board or server (full wired server)")
+	logDir := flag.String("log", "", "directory minimal failing step logs are written to (empty = off)")
+	minimize := flag.String("minimize", "", "step log to minimize, replayed with seed -start")
+	serial := flag.Bool("serial", false, "disable concurrent batches")
+	leaders := flag.Bool("leaders", false, "run two leaders with brief handoffs")
 	flag.Parse()
 	if *seeds < 1 || *steps < 1 || *parallel < 1 {
 		fmt.Fprintln(os.Stderr, "seeds, steps and parallel must be >= 1")
@@ -29,7 +35,20 @@ func run() int {
 	}
 
 	ctx := context.Background()
-	r := &dst.Runner{Factory: dst.NewBoardSystem}
+	var r *dst.Runner
+	switch *mode {
+	case dst.ModeBoard:
+		r = &dst.Runner{Factory: dst.NewBoardSystem}
+	case dst.ModeServer:
+		r = dst.ServerRunner("")
+	default:
+		fmt.Fprintf(os.Stderr, "unknown mode %q\n", *mode)
+		return 2
+	}
+	r.Serial, r.Leaders = *serial, *leaders
+	if *minimize != "" {
+		return minimizeLog(ctx, r, *minimize, *start, *shrink)
+	}
 	outs := make([]*dst.Outcome, *seeds)
 	errs := make([]error, *seeds)
 	next := make(chan int)
@@ -39,7 +58,7 @@ func run() int {
 			for i := range next {
 				o, err := r.Run(ctx, *start+int64(i), *steps)
 				if err == nil && o.Failed() && *shrink > 0 {
-					o, err = r.Shrink(ctx, o, *shrink)
+					o, err = r.Minimize(ctx, o, *shrink)
 				}
 				outs[i], errs[i] = o, err
 			}
@@ -62,19 +81,76 @@ func run() int {
 			continue
 		}
 		failed++
-		fmt.Printf("FAIL seed=%d invariant=%s\nreplay: go run ./cmd/subspace-dst -seeds 1 -start %d -steps %d\nminimal trace (%d steps):\n",
-			seed, o.Violation.Invariant, seed, *steps, len(o.Steps))
+		fmt.Printf("FAIL seed=%d invariant=%s\nreplay: go run ./cmd/subspace-dst -mode %s -seeds 1 -start %d -steps %d\nminimal trace (%d steps):\n",
+			seed, o.Violation.Invariant, *mode, seed, *steps, len(o.Steps))
 		o.WriteTrace(os.Stdout)
+		if *logDir != "" {
+			path := filepath.Join(*logDir, fmt.Sprintf("seed-%d.jsonl", seed))
+			if err := writeLog(path, o); err != nil {
+				fmt.Fprintf(os.Stderr, "log: %v\n", err)
+				return 2
+			}
+			fmt.Printf("step log: %s\nminimize: go run ./cmd/subspace-dst -mode %s -start %d -minimize %s\n", path, *mode, seed, path)
+		}
 		if *regressions != "" {
-			if err := dst.AppendRegression(*regressions, dst.Regression{Seed: seed, Steps: *steps}, o.Violation.Invariant); err != nil {
+			if err := dst.AppendRegression(*regressions, dst.Regression{Seed: seed, Steps: *steps, Mode: *mode}, o.Violation.Invariant); err != nil {
 				fmt.Fprintf(os.Stderr, "regressions: %v\n", err)
 				return 2
 			}
 		}
 	}
-	fmt.Printf("%d seeds [%d..%d], %d steps each: %d failed\n", *seeds, *start, *start+int64(*seeds)-1, *steps, failed)
+	fmt.Printf("%s: %d seeds [%d..%d], %d steps each: %d failed\n", *mode, *seeds, *start, *start+int64(*seeds)-1, *steps, failed)
 	if failed > 0 {
 		return 1
 	}
 	return 0
+}
+
+func writeLog(path string, o *dst.Outcome) error {
+	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
+		return err
+	}
+	f, err := os.Create(filepath.Clean(path))
+	if err != nil {
+		return err
+	}
+	if err := dst.WriteLog(f, o); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
+func minimizeLog(ctx context.Context, r *dst.Runner, path string, seed int64, budget int) int {
+	f, err := os.Open(filepath.Clean(path))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	ops, err := dst.ReadLog(f)
+	_ = f.Close()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	o, err := r.Replay(ctx, seed, ops)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	if !o.Failed() {
+		fmt.Printf("step log %s (%d steps, seed %d) does not fail\n", path, len(ops), seed)
+		return 0
+	}
+	if o, err = r.Minimize(ctx, o, budget); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	o.WriteTrace(os.Stdout)
+	if err := writeLog(path+".min", o); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+		return 2
+	}
+	fmt.Printf("minimal step log (%d of %d steps): %s.min\n", len(o.Steps), len(ops), path)
+	return 1
 }

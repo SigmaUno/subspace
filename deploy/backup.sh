@@ -16,6 +16,7 @@ if ! positive_integer "$keep" || ! positive_integer "$interval"; then
     exit 1
 fi
 umask 077
+chmod 700 "$dest" 2>/dev/null || true
 
 snapshot() (
     day=$(date -u +%Y%m%d) || exit 1

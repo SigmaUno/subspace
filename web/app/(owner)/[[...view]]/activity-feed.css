@@ -1,0 +1,12 @@
+.activity-feed { display: grid; gap: .4rem; max-height: 26rem; overflow-y: auto; }
+.feed-row { display: grid; grid-template-columns: 1.5rem minmax(0, 1fr) auto; align-items: start; gap: .65rem; padding: .5rem .75rem; border: 1px solid var(--border-subtle); border-radius: var(--radius); background: var(--panel); font-size: .875rem; }
+.feed-row:hover { border-color: var(--border); background: var(--panel-muted); }
+.feed-row p { margin: 0; overflow-wrap: anywhere; }
+.feed-row .meta { display: flex; flex-wrap: wrap; gap: .25rem .75rem; }
+.feed-icon { text-align: center; color: var(--muted); }
+.feed-row[data-severity=success] .feed-icon { color: var(--s-done-fg); }
+.feed-row[data-severity=warning] .feed-icon { color: var(--s-changes_requested-fg); }
+.feed-row[data-severity=error] .feed-icon { color: var(--s-blocked-fg); }
+.pill[data-severity=success] { background: var(--s-done-bg); color: var(--s-done-fg); border-color: transparent; }
+.pill[data-severity=warning] { background: var(--s-changes_requested-bg); color: var(--s-changes_requested-fg); border-color: transparent; }
+.pill[data-severity=error] { background: var(--s-blocked-bg); color: var(--s-blocked-fg); border-color: transparent; }

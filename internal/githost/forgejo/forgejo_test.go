@@ -2,6 +2,7 @@ package forgejo
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"net/http"
 	"net/http/httptest"
@@ -99,43 +100,73 @@ func TestHostDelegation(t *testing.T) {
 	}
 }
 
-func TestParsePullRequestEvent(t *testing.T) {
-	merged := `{"action":"closed","number":8,"pull_request":{"number":8,"title":"Add","state":"closed","merged":true,"html_url":"https://f/o/r/pulls/8","head":{"ref":"sub/t-8-add"},"base":{"ref":"main"}},"repository":{"full_name":"o/r"},"sender":{"login":"owner"}}`
-	opened := `{"action":"opened","pull_request":{"number":9,"state":"open","head":{"ref":"h"},"base":{"ref":"main"}},"repository":{"full_name":"o/r"}}`
+func TestPostStatus(t *testing.T) {
+	const sha = "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
+	st := githost.CommitStatus{State: githost.StateSuccess, Context: "subspace/review", Description: "ok", TargetURL: "https://s/tasks/T-1"}
 	tests := []struct {
-		name, event, body string
-		want              githost.PullRequestEvent
-		merged            bool
-		wantErr           bool
+		name      string
+		status    int
+		header    map[string]string
+		sha       string
+		repo      string
+		state     string
+		wantErr   error
+		retryable bool
+		anyErr    bool
 	}{
-		{"merged", "pull_request", merged, githost.PullRequestEvent{Action: "closed", Repo: "o/r", Number: 8, Title: "Add", State: "closed", Merged: true, HeadBranch: "sub/t-8-add", BaseBranch: "main", URL: "https://f/o/r/pulls/8", Sender: "owner"}, true, false},
-		{"opened number fallback", "pull_request", opened, githost.PullRequestEvent{Action: "opened", Repo: "o/r", Number: 9, State: "open", HeadBranch: "h", BaseBranch: "main"}, false, false},
-		{"other event", "push", merged, githost.PullRequestEvent{}, false, true},
-		{"bad json", "pull_request", `{`, githost.PullRequestEvent{}, false, true},
-		{"missing pr", "pull_request", `{"action":"closed","repository":{"full_name":"o/r"}}`, githost.PullRequestEvent{}, false, true},
-		{"missing repo", "pull_request", `{"action":"closed","pull_request":{"number":1}}`, githost.PullRequestEvent{}, false, true},
+		{name: "created", status: 201, sha: sha, repo: "o/r", state: "success"},
+		{name: "not found", status: 404, sha: sha, repo: "o/r", state: "success", wantErr: githost.ErrNotFound},
+		{name: "validation", status: 422, sha: sha, repo: "o/r", state: "success", anyErr: true},
+		{name: "server error", status: 502, sha: sha, repo: "o/r", state: "success", anyErr: true, retryable: true},
+		{name: "throttled", status: 429, header: map[string]string{"Retry-After": "7"}, sha: sha, repo: "o/r", state: "success", anyErr: true, retryable: true},
+		{name: "bad sha", sha: "../x", repo: "o/r", state: "success", anyErr: true},
+		{name: "bad state", sha: sha, repo: "o/r", state: "done", anyErr: true},
+		{name: "bad repo", sha: sha, repo: "nope", state: "success", anyErr: true},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			ev, err := ParsePullRequestEvent(tc.event, []byte(tc.body))
-			if tc.wantErr {
+			var gotPath, gotAuth, gotMethod string
+			var gotBody githost.CommitStatus
+			srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				gotPath, gotAuth, gotMethod = r.URL.Path, r.Header.Get("Authorization"), r.Method
+				_ = json.NewDecoder(r.Body).Decode(&gotBody)
+				for k, v := range tc.header {
+					w.Header().Set(k, v)
+				}
+				w.WriteHeader(tc.status)
+			}))
+			defer srv.Close()
+			s := st
+			s.State = tc.state
+			err := New(srv.URL, "tok", srv.Client()).PostStatus(context.Background(), tc.repo, tc.sha, s)
+			if tc.wantErr != nil {
+				if !errors.Is(err, tc.wantErr) {
+					t.Fatalf("want %v got %v", tc.wantErr, err)
+				}
+				return
+			}
+			if tc.anyErr {
+				var se *githost.StatusError
 				if err == nil {
 					t.Fatal("expected error")
+				}
+				if errors.As(err, &se) && se.Retryable() != tc.retryable {
+					t.Fatalf("retryable = %v", se.Retryable())
+				}
+				if tc.retryable && se == nil {
+					t.Fatalf("want StatusError, got %v", err)
 				}
 				return
 			}
 			if err != nil {
 				t.Fatal(err)
 			}
-			if ev != tc.want {
-				t.Fatalf("got %+v want %+v", ev, tc.want)
+			if gotMethod != "POST" || gotPath != "/api/v1/repos/o/r/statuses/"+sha || gotAuth != "token tok" {
+				t.Errorf("%s %q auth=%q", gotMethod, gotPath, gotAuth)
 			}
-			if ev.IsMerged() != tc.merged {
-				t.Errorf("IsMerged = %v", ev.IsMerged())
+			if gotBody != s {
+				t.Errorf("body %+v want %+v", gotBody, s)
 			}
 		})
-	}
-	if _, err := ParsePullRequestEvent("push", nil); !errors.Is(err, ErrNotPullRequest) {
-		t.Errorf("want ErrNotPullRequest, got %v", err)
 	}
 }

@@ -1,0 +1,19 @@
+.dag-toolbar { align-items: center; }
+.dag { display: block; width: 100%; height: min(72vh, 48rem); touch-action: none; cursor: grab; user-select: none; background-color: var(--panel-muted); background-image: radial-gradient(var(--border) 1px, transparent 1px); background-size: 16px 16px; border: 1px solid var(--border); border-radius: var(--radius-lg); }
+.dag:active { cursor: grabbing; }
+.dag:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
+.dag a { cursor: pointer; text-decoration: none; -webkit-user-drag: none; }
+.dag-edge { fill: none; stroke: var(--border-strong); stroke-width: 1.5px; }
+.dag-edge.hot { stroke: var(--warn); stroke-width: 3px; }
+.dag-edge.reversed { stroke-dasharray: 5 4; }
+.dag-tip { fill: var(--border-strong); }
+.dag-tip-hot { fill: var(--warn); }
+.dag-box { fill: var(--s-bg); stroke: var(--s-fg); stroke-width: 1.25px; }
+.dag-node.hot .dag-box { stroke: var(--warn); stroke-width: 3px; }
+.dag a:hover .dag-box { stroke-width: 2.5px; }
+.dag a:focus-visible .dag-box { stroke: var(--action); stroke-width: 3px; }
+.dag-ring-track { fill: none; stroke: var(--panel); stroke-width: 4px; opacity: .85; }
+.dag-ring { fill: none; stroke: var(--s-fg); stroke-width: 4px; }
+.dag-id { fill: var(--s-fg); font-size: 12px; font-weight: 650; }
+.dag-title { fill: var(--text); font-size: 11px; }
+.dag-meta { fill: var(--muted); font-size: 10px; }

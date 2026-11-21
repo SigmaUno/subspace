@@ -10,6 +10,7 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 )
 
 const testToken = "ssp_supersecrettoken"
@@ -30,9 +31,9 @@ type call struct {
 }
 
 func fakeRunner(c *call, err error) Runner {
-	return func(ctx context.Context, name string, args ...string) error {
+	return func(ctx context.Context, name string, args ...string) ([]byte, error) {
 		*c = call{name: name, args: args, env: EnvFromContext(ctx)}
-		return err
+		return nil, err
 	}
 }
 
@@ -272,5 +273,19 @@ func TestExecRunnerRedactsTokenAcrossTruncation(t *testing.T) {
 	}
 	if strings.Contains(err.Error(), testToken[:7]) {
 		t.Fatalf("token prefix leaked: %v", err)
+	}
+}
+
+func TestExecRunnerReturnsWhenBackgroundChildKeepsOutputOpen(t *testing.T) {
+	bin := filepath.Join(t.TempDir(), "fakehc")
+	if err := os.WriteFile(bin, []byte("#!/bin/sh\nsleep 10 &\nexit 0\n"), 0o700); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	start := time.Now()
+	if err := (&HC{Bin: bin}).Spawn(context.Background(), testRequest()); err != nil {
+		t.Fatal(err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("spawn blocked %v on a detached child", d)
 	}
 }

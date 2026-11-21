@@ -51,11 +51,16 @@ func (s *Service) ReportUsage(ctx context.Context, c *mcp.Call) (any, error) {
 	var a reportArgs
 	if len(c.Args) > 0 {
 		if err := json.Unmarshal(c.Args, &a); err != nil {
-			return nil, model.BadRequest("invalid arguments: %v", err)
+			return nil, model.BadRequest("invalid arguments")
 		}
 	}
 	if a.Model == "" {
 		return nil, model.BadRequest("model is required")
+	}
+	if s.Allow != nil && (a.TaskID != "" || a.BriefID != "") {
+		if err := s.Allow(ctx, c.Actor, a.TaskID, a.BriefID); err != nil {
+			return nil, err
+		}
 	}
 	r := Record{
 		AgentID: c.Actor.ID, TaskID: a.TaskID, BriefID: a.BriefID, Provider: a.Provider, Model: a.Model,

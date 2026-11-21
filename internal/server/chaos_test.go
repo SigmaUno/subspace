@@ -11,12 +11,14 @@ import (
 	"math/rand/v2"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testdb"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 const (
@@ -32,10 +34,18 @@ type chaosNode struct {
 	done   chan struct{}
 }
 
-func startChaosNode(t *testing.T, db string) *chaosNode {
+type chaosClock struct{ skew atomic.Int64 }
+
+func (c *chaosClock) now() time.Time {
+	return time.Now().UTC().Add(time.Duration(c.skew.Load()))
+}
+
+func (c *chaosClock) advance(d time.Duration) { c.skew.Add(int64(d)) }
+
+func startChaosNode(t *testing.T, db, dataDir string, clock *chaosClock) *chaosNode {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease,
+	s, err := New(ctx, Config{DBPath: db, DataDir: dataDir, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease, Now: clock.now,
 		FlushEvery: chaosSweep, SweepEvery: chaosSweep, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		cancel()
@@ -129,6 +139,8 @@ type chaosWorld struct {
 	t       *testing.T
 	c       *chaosClient
 	db      string
+	clock   *chaosClock
+	node    *chaosNode
 	brief   string
 	agents  []*chaosAgent
 	workers []string
@@ -288,6 +300,16 @@ func (w *chaosWorld) load(ctx context.Context) *sync.WaitGroup {
 	return &wg
 }
 
+func (w *chaosWorld) done() int {
+	n := 0
+	for _, tk := range w.tasks() {
+		if tk["status"] == "done" {
+			n++
+		}
+	}
+	return n
+}
+
 func (w *chaosWorld) tasks() []map[string]any {
 	var out []map[string]any
 	for _, x := range w.owner("GET", "/api/v1/tasks?limit=1000", nil)["tasks"].([]any) {
@@ -325,6 +347,9 @@ func leaseOf(t *testing.T, tk map[string]any) (time.Time, bool) {
 
 func integrityOK(t *testing.T, db string) {
 	t.Helper()
+	if testdb.Postgres() {
+		return
+	}
 	conn, err := sql.Open("sqlite", "file:"+db+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		t.Fatal(err)
@@ -373,6 +398,13 @@ func (w *chaosWorld) replay(label string) (map[string]string, map[string]int, in
 	return state, seen, creates
 }
 
+func (w *chaosWorld) sweep() {
+	w.t.Helper()
+	if err := w.node.srv.Board.Sweep(context.Background()); err != nil {
+		w.t.Fatalf("sweep: %v", err)
+	}
+}
+
 func (w *chaosWorld) verify(label string) {
 	t := w.t
 	t.Helper()
@@ -388,9 +420,9 @@ func (w *chaosWorld) verify(label string) {
 		}
 	}
 
-	t0 := time.Now()
+	t0 := w.clock.now()
 	before := w.tasks()
-	time.Sleep(6 * chaosSweep)
+	w.sweep()
 	ts := w.tasks()
 	byID := map[string]map[string]any{}
 	for _, tk := range ts {
@@ -484,13 +516,15 @@ func (w *chaosWorld) verify(label string) {
 }
 
 func TestChaosRestartUnderLoad(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "chaos.db")
+	db, dataDir := testdb.Path(t, "chaos.db"), testdb.DataDir(t)
 	rng := rand.New(rand.NewPCG(chaosSeed, 0))
 	t.Logf("seed %d", chaosSeed)
-	w := &chaosWorld{t: t, c: newChaosClient(), db: db, created: map[string]bool{}, acked: map[string]int{},
+	clock := &chaosClock{}
+	w := &chaosWorld{t: t, c: newChaosClient(), db: db, clock: clock, created: map[string]bool{}, acked: map[string]int{},
 		maxRR: map[string]float64{}, maxCost: map[string]float64{}}
 
-	node := startChaosNode(t, db)
+	node := startChaosNode(t, db, dataDir, clock)
+	w.node = node
 	w.c.point(node)
 	defer func() { node.crash() }()
 
@@ -529,31 +563,48 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 	}
 	w.verify("setup")
 
-	for round := range 24 {
+	for round := range testmode.Size(8, 24) {
 		ctx, cancel := context.WithCancel(context.Background())
 		wg := w.load(ctx)
 		time.Sleep(time.Duration(80+rng.IntN(250)) * time.Millisecond)
 		node.crash()
 		cancel()
 		wg.Wait()
-		node = startChaosNode(t, db)
+		node = startChaosNode(t, db, dataDir, clock)
+		w.node = node
 		w.c.point(node)
 		w.verify(fmt.Sprint("round ", round))
 	}
 
-	time.Sleep(chaosLease + 6*chaosSweep)
-	for _, tk := range w.tasks() {
-		if tk["status"] == "in_progress" {
-			t.Fatalf("%s still in_progress after every lease expired: %v", tk["id"], tk["lease_expires_at"])
+	ctx, cancel := context.WithCancel(context.Background())
+	wg := w.load(ctx)
+	for deadline := time.Now().Add(60 * time.Second); w.done() == 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	wg.Wait()
+
+	var stuck map[string]any
+	for attempt := 0; attempt < 8; attempt++ {
+		clock.advance(chaosLease + chaosSweep)
+		w.sweep()
+		stuck = nil
+		for _, tk := range w.tasks() {
+			if tk["status"] == "in_progress" {
+				stuck = tk
+				break
+			}
 		}
+		if stuck == nil {
+			break
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	if stuck != nil {
+		t.Fatalf("%s still in_progress after every lease expired: %v", stuck["id"], stuck["lease_expires_at"])
 	}
 	w.verify("final")
-	done := 0
-	for _, tk := range w.tasks() {
-		if tk["status"] == "done" {
-			done++
-		}
-	}
+	done := w.done()
 	if done == 0 {
 		t.Fatal("workload made no progress: no task reached done")
 	}
@@ -561,12 +612,13 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 }
 
 func TestChaosBulkRegistrationCrash(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "bulk.db")
+	db, dataDir := testdb.Path(t, "bulk.db"), testdb.DataDir(t)
 	rng := rand.New(rand.NewPCG(chaosSeed, 1))
 	c := newChaosClient()
+	clock := &chaosClock{}
 	const count = 200
-	for i := range 5 {
-		node := startChaosNode(t, db)
+	for i := range testmode.Size(3, 5) {
+		node := startChaosNode(t, db, dataDir, clock)
 		c.point(node)
 		prefix := fmt.Sprintf("bulk%d", i)
 		type result struct {
@@ -584,7 +636,7 @@ func TestChaosBulkRegistrationCrash(t *testing.T) {
 		node.crash()
 		r := <-res
 
-		node = startChaosNode(t, db)
+		node = startChaosNode(t, db, dataDir, clock)
 		c.point(node)
 		_, list, err := c.do(context.Background(), ownerTok, "GET", "/api/v1/agents?limit=1000", nil)
 		if err != nil {

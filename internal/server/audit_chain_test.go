@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
-	"path/filepath"
 	"testing"
 	"time"
 
@@ -14,6 +13,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type exportLine struct {
@@ -96,7 +96,7 @@ func relink(t *testing.T, prev string, events []model.AuditEvent) string {
 }
 
 func TestAuditVerifyAndExport(t *testing.T) {
-	dbPath := filepath.Join(t.TempDir(), "t.db")
+	dbPath := testdb.Path(t, "t.db")
 	e := servertest.Start(t, server.Config{DBPath: dbPath, PublicURL: "http://sub.test",
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute})
 	for i := 0; i < 12; i++ {
@@ -134,6 +134,29 @@ func TestAuditVerifyAndExport(t *testing.T) {
 		t.Fatalf("export past head: %+v %d", hd.Chain, len(none))
 	}
 
+	tamperAudit(t, dbPath)
+	code, chk = e.REST("GET", "/api/v1/audit/verify", nil)
+	if code != 200 || chk["ok"] != false || chk["broken_id"] != float64(5) || chk["events"] != float64(4) {
+		t.Fatalf("tampered verify: %d %v", code, chk)
+	}
+}
+
+func tamperAudit(t *testing.T, dbPath string) {
+	t.Helper()
+	if testdb.Postgres() {
+		raw, err := sql.Open("pgx", dbPath)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer func() { _ = raw.Close() }()
+		if _, err := raw.Exec(`UPDATE audit SET agent_id = 'someone-else' WHERE id = 5`); err == nil {
+			t.Fatal("append-only trigger missing")
+		}
+		if _, err := raw.Exec(`ALTER TABLE audit DISABLE TRIGGER audit_no_update; UPDATE audit SET agent_id = 'someone-else' WHERE id = 5`); err != nil {
+			t.Fatal(err)
+		}
+		return
+	}
 	raw, err := sql.Open("sqlite", "file:"+dbPath+"?_pragma=busy_timeout(10000)")
 	if err != nil {
 		t.Fatal(err)
@@ -144,9 +167,5 @@ func TestAuditVerifyAndExport(t *testing.T) {
 	}
 	if _, err := raw.Exec(`DROP TRIGGER audit_no_update; UPDATE audit SET agent_id = 'someone-else' WHERE id = 5`); err != nil {
 		t.Fatal(err)
-	}
-	code, chk = e.REST("GET", "/api/v1/audit/verify", nil)
-	if code != 200 || chk["ok"] != false || chk["broken_id"] != float64(5) || chk["events"] != float64(4) {
-		t.Fatalf("tampered verify: %d %v", code, chk)
 	}
 }

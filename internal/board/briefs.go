@@ -42,11 +42,11 @@ func (b *Board) State(ctx context.Context) (*StateInfo, error) {
 		if err != nil {
 			return err
 		}
-		qs, err := tx.ListQuestions("open")
+		qs, err := tx.ListQuestions(store.QuestionFilter{Status: "open"})
 		if err != nil {
 			return err
 		}
-		ps, err := tx.ListPlans("", model.PlanProposed)
+		ps, err := tx.ListPlans(store.PlanFilter{Status: model.PlanProposed})
 		if err != nil {
 			return err
 		}
@@ -60,6 +60,8 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 	if reason == "" {
 		reason = "paused by owner"
 	}
+	b.pauseOp.Lock()
+	defer b.pauseOp.Unlock()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := tx.SetKV("paused", reason); err != nil {
 			return err
@@ -69,7 +71,7 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 			return err
 		}
 		for _, t := range ts {
-			if err := b.releaseLease(tx, w, model.Owner, t, model.StatusAssigned, "pause_all: lease revoked"); err != nil {
+			if err := b.releaseLease(tx, w, model.Owner, t, "pause_all: lease revoked"); err != nil {
 				return err
 			}
 		}
@@ -77,6 +79,7 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 		return w.audit(tx, model.Owner, "pause_all", "", nil, map[string]any{"paused": true}, reason)
 	})
 	if err != nil {
+		b.resync(ctx, b.loadPaused)
 		return err
 	}
 	b.pausedMu.Lock()
@@ -86,6 +89,8 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 }
 
 func (b *Board) ResumeAll(ctx context.Context) error {
+	b.pauseOp.Lock()
+	defer b.pauseOp.Unlock()
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := tx.SetKV("paused", ""); err != nil {
 			return err
@@ -94,6 +99,7 @@ func (b *Board) ResumeAll(ctx context.Context) error {
 		return w.audit(tx, model.Owner, "resume_all", "", nil, map[string]any{"paused": false}, "")
 	})
 	if err != nil {
+		b.resync(ctx, b.loadPaused)
 		return err
 	}
 	b.pausedMu.Lock()
@@ -152,13 +158,16 @@ func (b *Board) ListBackups(ctx context.Context) ([]backup.Info, error) {
 }
 
 type BriefInput struct {
-	Title            string   `json:"title"`
-	Body             string   `json:"body"`
-	Repos            []string `json:"repos"`
-	MaxCostEUR       float64  `json:"max_cost_eur"`
-	MaxParallel      int      `json:"max_parallel_agents"`
-	AllowedProviders []string `json:"allowed_providers"`
-	CrossReview      *bool    `json:"cross_review"`
+	Title            string              `json:"title"`
+	Body             string              `json:"body"`
+	Repos            []string            `json:"repos"`
+	MaxCostEUR       float64             `json:"max_cost_eur"`
+	MaxParallel      int                 `json:"max_parallel_agents"`
+	AllowedProviders []string            `json:"allowed_providers"`
+	CrossReview      *bool               `json:"cross_review"`
+	LeaderID         string              `json:"leader_id,omitempty"`
+	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
+	Playbook         string              `json:"playbook,omitempty"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -171,61 +180,74 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 	if in.MaxParallel == 0 {
 		in.MaxParallel = 10
 	}
+	var gates model.QualityGates
+	if in.QualityGates != nil {
+		if err := checkQualityGates(*in.QualityGates); err != nil {
+			return nil, err
+		}
+		gates = *in.QualityGates
+	}
 	var out *model.Brief
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		leader, err := checkLeader(tx, in.LeaderID)
+		if err != nil {
+			return err
+		}
+		for _, repo := range in.Repos {
+			if err := b.checkRegistry(tx, repo, ""); err != nil {
+				return err
+			}
+		}
+		rules, err := b.briefRules(tx, in.Playbook)
+		if err != nil {
+			return err
+		}
+		crossReview := in.CrossReview == nil || *in.CrossReview
+		maxCost := in.MaxCostEUR
+		if rules != nil {
+			if rules.CrossReview && !crossReview {
+				return model.BadRequest("playbook %s requires cross_review", in.Playbook)
+			}
+			maxCost = rules.ScaleCost(maxCost)
+		}
 		id, err := tx.NextID("B")
 		if err != nil {
 			return err
 		}
-		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none",
-			Budget:           model.BriefBudget{MaxCostEUR: in.MaxCostEUR, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, CreatedAt: b.now()}
+		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
+			Budget:           model.BriefBudget{MaxCostEUR: maxCost, MaxParallelAgent: in.MaxParallel},
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
 		out = br
-		return w.audit(tx, model.Owner, "create_brief", "", nil, map[string]any{"brief_id": id}, in.Title)
+		after := map[string]any{"brief_id": id}
+		if in.Playbook != "" {
+			after["playbook"] = in.Playbook
+		}
+		return w.audit(tx, model.Owner, "create_brief", "", nil, after, in.Title)
 	})
 	return out, err
 }
 
 func (b *Board) ListBriefs(ctx context.Context, status string) ([]*model.Brief, error) {
-	var out []*model.Brief
-	err := b.read(ctx, func(tx store.Tx) error {
-		bs, err := tx.ListBriefs(status)
-		if err != nil {
-			return err
-		}
-		for _, br := range bs {
-			if br.CostUsed, err = tx.BriefCost(br.ID); err != nil {
-				return err
-			}
-		}
-		out = bs
-		return nil
-	})
-	return nz(out), err
+	p, err := b.ListBriefsPage(ctx, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
-	var out *model.Brief
-	err := b.read(ctx, func(tx store.Tx) (e error) {
-		if out, e = tx.GetBrief(id); e != nil {
-			return
-		}
-		out.CostUsed, e = tx.BriefCost(id)
-		return
-	})
-	return out, err
+	return b.BriefFor(ctx, model.Owner, id)
 }
 
 type BriefPatch struct {
-	MaxCostEUR       *float64  `json:"max_cost_eur"`
-	MaxParallel      *int      `json:"max_parallel_agents"`
-	AllowedProviders *[]string `json:"allowed_providers"`
-	CrossReview      *bool     `json:"cross_review"`
-	AutoDoneOnMerge  *bool     `json:"auto_done_on_merge"`
-	Status           *string   `json:"status"`
+	MaxCostEUR       *float64            `json:"max_cost_eur"`
+	MaxParallel      *int                `json:"max_parallel_agents"`
+	AllowedProviders *[]string           `json:"allowed_providers"`
+	CrossReview      *bool               `json:"cross_review"`
+	AutoDoneOnMerge  *bool               `json:"auto_done_on_merge"`
+	Status           *string             `json:"status"`
+	LeaderID         *string             `json:"leader_id,omitempty"`
+	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
 }
 
 func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*model.Brief, error) {
@@ -235,6 +257,7 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		if err != nil {
 			return err
 		}
+		var transition func(store.Tx, *wctx, *model.Brief) error
 		if p.MaxCostEUR != nil {
 			if *p.MaxCostEUR < 0 {
 				return model.BadRequest("max_cost_eur must be >= 0")
@@ -251,25 +274,61 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 			br.AllowedProviders = nz(*p.AllowedProviders)
 		}
 		if p.CrossReview != nil {
+			if !*p.CrossReview {
+				rules, err := b.rulesFor(tx, br.Playbook)
+				if err != nil {
+					return err
+				}
+				if rules != nil && rules.CrossReview {
+					return model.Conflict("playbook %s requires cross_review", br.Playbook)
+				}
+			}
 			br.CrossReview = *p.CrossReview
 		}
 		if p.AutoDoneOnMerge != nil {
 			br.AutoDoneOnMerge = *p.AutoDoneOnMerge
 		}
+		if p.QualityGates != nil {
+			if err := checkQualityGates(*p.QualityGates); err != nil {
+				return err
+			}
+			br.QualityGates = *p.QualityGates
+		}
 		if p.Status != nil {
 			if *p.Status != "open" && *p.Status != "closed" {
 				return model.BadRequest("status must be open or closed")
 			}
+			prev := br.Status
 			br.Status = *p.Status
+			if prev != br.Status {
+				transition = b.closeBrief
+				if br.Status == "open" {
+					transition = b.reopenBrief
+				}
+			}
 		}
 		if err := tx.UpdateBrief(br); err != nil {
 			return err
+		}
+		if transition != nil {
+			if err := transition(tx, w, br); err != nil {
+				return err
+			}
+		}
+		if p.LeaderID != nil {
+			if err := b.handoff(tx, w, br, *p.LeaderID); err != nil {
+				return err
+			}
 		}
 		if br.CostUsed, err = tx.BriefCost(id); err != nil {
 			return err
 		}
 		out = br
-		return w.audit(tx, model.Owner, "set_budget", "", nil, map[string]any{"brief_id": id}, "")
+		after := map[string]any{"brief_id": id}
+		if p.QualityGates != nil {
+			after["quality_gates"] = br.QualityGates
+		}
+		return w.audit(tx, model.Owner, "set_budget", "", nil, after, "")
 	})
 	return out, err
 }
@@ -280,31 +339,7 @@ type BoardView struct {
 }
 
 func (b *Board) Board(ctx context.Context, briefID string) (*BoardView, error) {
-	v := &BoardView{Columns: map[string][]*model.Task{}}
-	for _, s := range model.AllStatuses {
-		v.Columns[s] = []*model.Task{}
-	}
-	err := b.read(ctx, func(tx store.Tx) error {
-		if briefID != "" {
-			br, err := tx.GetBrief(briefID)
-			if err != nil {
-				return err
-			}
-			if br.CostUsed, err = tx.BriefCost(briefID); err != nil {
-				return err
-			}
-			v.Brief = br
-		}
-		ts, err := tx.ListTasks(store.TaskFilter{BriefID: briefID, Limit: 100000})
-		if err != nil {
-			return err
-		}
-		for _, t := range ts {
-			v.Columns[t.Status] = append(v.Columns[t.Status], b.overlay(t))
-		}
-		return nil
-	})
-	return v, err
+	return b.BoardFor(ctx, model.Owner, briefID)
 }
 
 type TaskInput struct {
@@ -319,6 +354,7 @@ type TaskInput struct {
 	Budget             model.Budget `json:"budget"`
 	Priority           int          `json:"priority"`
 	ComponentID        string       `json:"component_id"`
+	Paths              []string     `json:"paths"`
 }
 
 type PlanInput struct {
@@ -349,6 +385,10 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 	if in.Budget.MaxMinutes < 0 || in.Budget.MaxCostEUR < 0 {
 		return nil, model.BadRequest("budget must be >= 0")
 	}
+	paths, err := b.taskPaths(br.ID, in)
+	if err != nil {
+		return nil, err
+	}
 	id, err := tx.NextID("T")
 	if err != nil {
 		return nil, err
@@ -362,10 +402,14 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 		}
 		deps = append(deps, d)
 	}
+	branch := "sub/" + strings.ToLower(id) + "-" + slug(in.Title)
+	if err := b.checkRegistry(tx, in.Repo, branch); err != nil {
+		return nil, err
+	}
 	now := b.now()
 	return &model.Task{ID: id, BriefID: br.ID, PlanID: planID, Title: in.Title, Spec: in.Spec,
-		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: "sub/" + strings.ToLower(id) + "-" + slug(in.Title),
-		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID),
+		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: branch,
+		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID), Paths: paths,
 		CreatedAt: now, UpdatedAt: now}, nil
 }
 
@@ -373,8 +417,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 	if len(in.Tasks) == 0 || len(in.Tasks) > maxPlanTasks {
 		return nil, model.BadRequest("a plan needs 1..%d tasks", maxPlanTasks)
 	}
+	tasks := make([]TaskInput, len(in.Tasks))
+	for i, t := range in.Tasks {
+		tasks[i] = b.scrubTask(ctx, a, t)
+	}
+	in.Tasks = tasks
 	var out *model.Plan
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {
 			return err
@@ -382,20 +431,32 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if br.Status != "open" {
 			return model.Conflict("brief %s is closed", br.ID)
 		}
-		errs, warns := planlint.Split(planlint.Lint(*br, lintTasks(in.Tasks)))
-		if len(errs) > 0 {
-			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
-		}
-		old, err := tx.ListPlans(br.ID, model.PlanProposed)
+		rules, err := b.rulesFor(tx, br.Playbook)
 		if err != nil {
 			return err
 		}
+		in.Tasks = withDefaultBudgets(rules, in.Tasks)
+		errs, warns := planlint.Split(planlint.LintPlaybook(*br, lintTasks(in.Tasks), rules))
+		if len(errs) > 0 {
+			if rules != nil {
+				return model.BadRequest("plan rejected by lint (playbook %s): %s", br.Playbook, planlint.Format(errs))
+			}
+			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
+		}
+		old, err := tx.ListPlans(store.PlanFilter{BriefID: br.ID, Status: model.PlanProposed})
+		if err != nil {
+			return err
+		}
+		superseded := []string{}
 		for _, p := range old {
 			ts, err := tx.ListTasks(store.TaskFilter{PlanID: p.ID, Limit: 100000})
 			if err != nil {
 				return err
 			}
 			for _, t := range ts {
+				if t.Status != model.StatusCancelled {
+					superseded = append(superseded, t.ID)
+				}
 				t.Status, t.UpdatedAt = model.StatusCancelled, b.now()
 				if err := tx.UpdateTask(t); err != nil {
 					return err
@@ -419,7 +480,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 
 		var tasks []*model.Task
 		for _, ti := range in.Tasks {
-			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID}, pid, model.StatusBacklog, nil)
+			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID, Paths: ti.Paths}, pid, model.StatusBacklog, nil)
 			if err != nil {
 				return err
 			}
@@ -441,11 +502,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				tasks[i].DependsOn = append(tasks[i].DependsOn, d)
 			}
 		}
-		for _, t := range tasks {
+		ids := make([]string, len(tasks))
+		for i, t := range tasks {
 			if err := tx.InsertTask(t); err != nil {
 				return err
 			}
 			w.task(t, true)
+			ids[i] = t.ID
 		}
 		p.Tasks = tasks
 		br.PlanStatus = model.PlanProposed
@@ -458,7 +521,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err := w.post(tx, model.ThreadBrief, br.ID, a, model.MsgSystem, fmt.Sprintf("Plan %s proposed with %d tasks", pid, len(tasks))); err != nil {
 			return err
 		}
-		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks)}, in.Note)
+		return w.audit(tx, a, "propose_plan", "", nil, map[string]any{"plan_id": pid, "tasks": len(tasks), "task_ids": ids, "superseded": superseded}, in.Note)
 	})
 	return out, err
 }
@@ -487,21 +550,8 @@ func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
 }
 
 func (b *Board) ListPlans(ctx context.Context, briefID, status string) ([]*model.Plan, error) {
-	var out []*model.Plan
-	err := b.read(ctx, func(tx store.Tx) error {
-		ps, err := tx.ListPlans(briefID, status)
-		if err != nil {
-			return err
-		}
-		for _, p := range ps {
-			if p, err = b.loadPlan(tx, p.ID); err != nil {
-				return err
-			}
-			out = append(out, p)
-		}
-		return nil
-	})
-	return nz(out), err
+	p, err := b.ListPlansPage(ctx, briefID, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) GetPlan(ctx context.Context, id string) (*model.Plan, error) {
@@ -543,10 +593,12 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 			p.Status = model.PlanRejected
 			br.PlanStatus = model.PlanRejected
 		}
+		moved := []string{}
 		for _, t := range p.Tasks {
 			if t.Status != model.StatusBacklog {
 				continue
 			}
+			moved = append(moved, t.ID)
 			t.Status, t.UpdatedAt = target, now
 			if !approve {
 				t.BlockedReason = strp("plan rejected")
@@ -572,7 +624,7 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 			return err
 		}
 		out = p
-		return w.audit(tx, model.Owner, tool, "", nil, map[string]any{"plan_id": id, "status": p.Status}, note)
+		return w.audit(tx, model.Owner, tool, "", nil, map[string]any{"plan_id": id, "status": p.Status, "task_ids": moved}, note)
 	})
 	return out, err
 }

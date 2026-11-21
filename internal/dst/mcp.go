@@ -7,10 +7,11 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"log/slog"
+	"maps"
 	"math/rand"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -30,8 +31,10 @@ type MCPOptions struct {
 
 type MCPSystem struct {
 	*BoardSystem
+	o       MCPOptions
 	faults  *faultTransport
 	clients map[string]*client.MCP
+	extend  func(*mcp.Registry)
 }
 
 type tokenLookup struct{ b *board.Board }
@@ -42,81 +45,174 @@ func (l tokenLookup) LookupToken(tok string) (*model.Agent, error) {
 
 func NewMCPSystem(o MCPOptions) Factory {
 	return func(dir string, clock *Clock, lease time.Duration) (System, error) {
-		s, err := NewBoardSystem(dir, clock, lease)
+		s, err := newBoardSystem(dir, clock, lease, nil)
 		if err != nil {
 			return nil, err
 		}
-		bs := s.(*BoardSystem)
-		lookup := tokenLookup{bs.b}
-		srv := mcp.NewServer(lookup, mcp.NewRegistry(bs.b))
-		srv.Now = clock.Now
-		var h http.Handler = srv
-		if !o.NoIdempotency {
-			h = idempotency.Wrap(h, idempotency.Options{Store: bs.st, Agents: lookup, Now: clock.Now,
-				Log: slog.New(slog.NewTextHandler(io.Discard, nil))})
-		}
-		ft := &faultTransport{h: h, r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
-		return &MCPSystem{BoardSystem: bs, faults: ft, clients: map[string]*client.MCP{}}, nil
+		return newMCP(s, o, nil), nil
 	}
 }
 
-func (s *MCPSystem) client(id string) *client.MCP {
-	if c, ok := s.clients[id]; ok {
+func newMCP(s *BoardSystem, o MCPOptions, extend func(*mcp.Registry)) *MCPSystem {
+	ft := &faultTransport{r: rand.New(rand.NewSource(o.FaultSeed)), drop: o.DropPct, dup: o.DupPct} //nolint:gosec // deterministic simulation
+	m := &MCPSystem{BoardSystem: s, o: o, faults: ft, clients: map[string]*client.MCP{}, extend: extend}
+	m.wire()
+	return m
+}
+
+func (s *MCPSystem) wire() {
+	lookup := tokenLookup{s.b}
+	reg := mcp.NewRegistry(s.b)
+	if s.extend != nil {
+		s.extend(reg)
+	}
+	srv := mcp.NewServer(lookup, reg)
+	srv.Now = s.clock.Now
+	var h http.Handler = srv
+	if !s.o.NoIdempotency {
+		h = idempotency.Wrap(h, idempotency.Options{Store: s.st, Agents: lookup, Now: s.clock.Now, Log: discard})
+	}
+	s.faults.h = s.checkHints(h)
+}
+
+func (s *MCPSystem) checkHints(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		r.Body = io.NopCloser(bytes.NewReader(body))
+		rec := httptest.NewRecorder()
+		next.ServeHTTP(rec, r)
+		s.inspectHint(body, rec.Body.Bytes())
+		maps.Copy(w.Header(), rec.Header())
+		w.WriteHeader(rec.Code)
+		_, _ = w.Write(rec.Body.Bytes())
+	})
+}
+
+func (s *MCPSystem) inspectHint(req, resp []byte) {
+	var in struct {
+		Method string `json:"method"`
+		Params struct {
+			Name string `json:"name"`
+		} `json:"params"`
+	}
+	if json.Unmarshal(req, &in) != nil || in.Method != "tools/call" {
+		return
+	}
+	var out struct {
+		Result struct {
+			IsError bool `json:"isError"`
+			Content []struct {
+				Text string `json:"text"`
+			} `json:"content"`
+			Structured struct {
+				Error struct {
+					Code    string `json:"code"`
+					Message string `json:"message"`
+					Hint    string `json:"hint"`
+				} `json:"error"`
+			} `json:"structuredContent"`
+		} `json:"result"`
+	}
+	if json.Unmarshal(resp, &out) != nil || !out.Result.IsError {
+		return
+	}
+	e := out.Result.Structured.Error
+	want := mcp.Hint(e.Code, in.Params.Name)
+	var text struct {
+		Error struct {
+			Hint string `json:"hint"`
+		} `json:"error"`
+	}
+	if len(out.Result.Content) > 0 {
+		_ = json.Unmarshal([]byte(out.Result.Content[0].Text), &text)
+	}
+	switch {
+	case e.Hint != want:
+		s.fault(InvHint, "%s error %s carries hint %q, want %q", in.Params.Name, e.Code, e.Hint, want)
+	case text.Error.Hint != want:
+		s.fault(InvHint, "%s error %s: hint missing from the text content", in.Params.Name, e.Code)
+	case want != "" && e.Message != "" && strings.Contains(e.Hint, e.Message):
+		s.fault(InvHint, "%s error %s: hint echoes the message %q", in.Params.Name, e.Code, e.Message)
+	}
+}
+
+func (s *MCPSystem) client(op Op) *client.MCP {
+	s.mu.Lock()
+	tok := ""
+	if toks := s.tokens[op.Actor]; op.Token >= 0 && op.Token < len(toks) {
+		tok = toks[op.Token]
+	}
+	s.mu.Unlock()
+	key := op.Actor + "/" + tok
+	if c, ok := s.clients[key]; ok {
 		return c
 	}
-	n := 0
-	c := client.NewMCP("http://dst/mcp", s.tokens[id],
+	prefix, n := fmt.Sprintf("%s-%d", op.Actor, len(s.clients)), 0
+	c := client.NewMCP("http://dst/mcp", tok,
 		client.WithHTTPClient(&http.Client{Transport: s.faults}),
 		client.WithSleep(func(context.Context, time.Duration) error { return nil }),
-		client.WithIdempotencyKeys(func() string { n++; return fmt.Sprintf("%s-%d", id, n) }))
-	s.clients[id] = c
+		client.WithIdempotencyKeys(func() string { n++; return fmt.Sprintf("%s-%d", prefix, n) }))
+	s.clients[key] = c
 	return c
 }
 
 func (s *MCPSystem) Do(ctx context.Context, op Op) Result {
+	s.touch(op)
 	var err error
 	switch op.Kind {
+	case OpRestart:
+		res := s.BoardSystem.Do(ctx, op)
+		s.wire()
+		return res
 	case OpAssign:
-		_, err = s.client(op.Actor).Assign(ctx, op.Task, op.Target, "assignee")
+		_, err = s.client(op).Assign(ctx, op.Task, op.Target, "assignee")
 	case OpAssignReviewer:
-		_, err = s.client(op.Actor).Assign(ctx, op.Task, op.Target, "reviewer")
+		_, err = s.client(op).Assign(ctx, op.Task, op.Target, "reviewer")
 	case OpReassign:
-		_, err = s.client(op.Actor).Reassign(ctx, op.Task, op.Target, "dst")
+		_, err = s.client(op).Reassign(ctx, op.Task, op.Target, "dst")
 	case OpClaim:
 		var t *model.Task
-		if t, err = s.client(op.Actor).ClaimTask(ctx, op.Task); err == nil {
+		if t, err = s.client(op).ClaimTask(ctx, op.Task); err == nil {
 			return Result{Lease: t.LeaseExpiresAt}
 		}
 	case OpHeartbeat:
 		var hb *board.HeartbeatResult
-		if hb, err = s.client(op.Actor).Heartbeat(ctx, op.Task); err == nil {
+		if hb, err = s.client(op).Heartbeat(ctx, op.Task); err == nil {
 			return Result{Lease: hb.LeaseExpiresAt, Paused: hb.Paused}
 		}
 	case OpUpdate:
 		pct, cost := op.Pct, op.Cost
-		_, err = s.client(op.Actor).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusInProgress, ProgressPct: &pct, CostEUR: &cost, Note: "progress"})
+		_, err = s.client(op).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusInProgress, ProgressPct: &pct, CostEUR: &cost, Note: "progress"})
 	case OpBlock:
-		_, err = s.client(op.Actor).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
+		_, err = s.client(op).UpdateStatus(ctx, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
 	case OpSubmit:
-		_, err = s.client(op.Actor).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: "https://git.example/pr/" + op.Task, Summary: "done"})
+		_, err = s.client(op).Submit(ctx, board.SubmitInput{TaskID: op.Task, PRURL: prURL(op.Task), Summary: "done"})
 	case OpRelease:
-		_, err = s.client(op.Actor).ReleaseTask(ctx, op.Task, "dst")
+		_, err = s.client(op).ReleaseTask(ctx, op.Task, "dst")
 	case OpReview:
 		verdict, comments := "changes_requested", "fix it"
 		if op.Approve {
 			verdict, comments = "approve", "lgtm"
 		}
-		_, err = s.client(op.Actor).Review(ctx, op.Task, verdict, comments)
+		_, err = s.client(op).Review(ctx, op.Task, verdict, comments)
 	case OpAskOwner:
-		_, err = s.client(op.Actor).AskOwner(ctx, op.Task, "which way?", "a", "b")
+		_, err = s.client(op).AskOwner(ctx, op.Task, "which way?", "a", "b")
 	default:
 		return s.BoardSystem.Do(ctx, op)
 	}
+	return Result{Err: toolErr(err)}
+}
+
+func toolErr(err error) error {
 	var ce *client.Error
 	if errors.As(err, &ce) && ce.Code != "" {
-		err = &model.Error{Code: ce.Code, Message: ce.Message}
+		return &model.Error{Code: ce.Code, Message: ce.Message}
 	}
-	return Result{Err: err}
+	return err
 }
 
 var errDropped = errors.New("dst: response dropped")

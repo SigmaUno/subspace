@@ -2,7 +2,6 @@ package metrics
 
 import (
 	"bytes"
-	"context"
 	"crypto/rand"
 	"encoding/binary"
 	"encoding/hex"
@@ -24,17 +23,6 @@ const (
 	eventsPath   = "/api/v1/events"
 	laggedPrefix = "event: lagged\n"
 )
-
-type idKey struct{}
-
-func RequestID(ctx context.Context) string {
-	id, _ := ctx.Value(idKey{}).(string)
-	return id
-}
-
-func WithRequestID(ctx context.Context, id string) context.Context {
-	return context.WithValue(ctx, idKey{}, id)
-}
 
 type Options struct {
 	Log  *slog.Logger
@@ -73,6 +61,8 @@ func validID(id string) bool {
 	return true
 }
 
+func ValidRequestID(id string) bool { return validID(id) }
+
 func (s *Set) Middleware(next http.Handler, o Options) http.Handler {
 	gen := newIDGen()
 	log := o.Log
@@ -87,7 +77,7 @@ func (s *Set) Middleware(next http.Handler, o Options) http.Handler {
 			r.Header.Set(HeaderRequestID, id)
 		}
 		w.Header().Set(HeaderRequestID, id)
-		req := r.WithContext(WithRequestID(r.Context(), id))
+		req := r
 		rec := &recorder{ResponseWriter: w, status: http.StatusOK}
 		if req.URL.Path == eventsPath {
 			rec.dropped = s.SSEDropped.With()

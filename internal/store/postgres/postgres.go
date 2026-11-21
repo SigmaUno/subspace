@@ -8,6 +8,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/jackc/pgx/v5/pgconn"
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -20,7 +21,22 @@ const (
 	connIdleTime = 5 * time.Minute
 	lockSpace    = 0x53554253
 	lockMigrate  = 1
+
+	maxRetries             = 6
+	retryBase              = 10 * time.Millisecond
+	pgSerializationFailure = "40001"
+	pgDeadlockDetected     = "40P01"
 )
+
+var (
+	extraSchemas []string
+	extraTables  []string
+)
+
+func RegisterSchema(ddl string, tables ...string) {
+	extraSchemas = append(extraSchemas, ddl)
+	extraTables = append(extraTables, tables...)
+}
 
 type wreq struct {
 	ctx  context.Context
@@ -81,6 +97,11 @@ func migrate(db *sql.DB) error {
 	if _, err := t.ExecContext(ctx, schema); err != nil {
 		return err
 	}
+	for _, ddl := range extraSchemas {
+		if _, err := t.ExecContext(ctx, ddl); err != nil {
+			return err
+		}
+	}
 	if err := migrateAuditChain(ctx, t); err != nil {
 		return err
 	}
@@ -125,6 +146,14 @@ func (s *Store) Close() error {
 	return err
 }
 
+func (s *Store) DatabaseSize(ctx context.Context) (int64, error) {
+	var n int64
+	err := s.rdb.QueryRowContext(ctx, `SELECT pg_database_size(current_database())`).Scan(&n)
+	return n, err
+}
+
+func (s *Store) Done() <-chan struct{} { return s.quit }
+
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
@@ -138,7 +167,13 @@ func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	case err := <-r.done:
 		return err
 	case <-s.quit:
-		return errors.New("store closed")
+		s.wg.Wait()
+		select {
+		case err := <-r.done:
+			return err
+		default:
+			return errors.New("store closed")
+		}
 	}
 }
 
@@ -170,23 +205,51 @@ func (s *Store) writer() {
 }
 
 func (s *Store) runBatch(batch []*wreq) {
-	ctx := context.Background()
-	fail := func(err error) {
+	errs, retry := s.tryBatch(batch)
+	if retry && len(batch) > 1 {
 		for _, r := range batch {
-			r.done <- err
+			s.runBatch([]*wreq{r})
 		}
+		return
+	}
+	for attempt := 0; retry && attempt < maxRetries; attempt++ {
+		select {
+		case <-time.After(retryDelay(attempt)):
+		case <-s.quit:
+		}
+		errs, retry = s.tryBatch(batch)
+	}
+	for i, r := range batch {
+		r.done <- errs[i]
+	}
+}
+
+func retryDelay(attempt int) time.Duration {
+	return retryBase << attempt
+}
+
+func retryable(err error) bool {
+	var pg *pgconn.PgError
+	return errors.As(err, &pg) && (pg.Code == pgSerializationFailure || pg.Code == pgDeadlockDetected)
+}
+
+func (s *Store) tryBatch(batch []*wreq) ([]error, bool) {
+	ctx := context.Background()
+	errs := make([]error, len(batch))
+	fail := func(err error) ([]error, bool) {
+		for i := range errs {
+			errs[i] = err
+		}
+		return errs, retryable(err)
 	}
 	t, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
-		fail(err)
-		return
+		return fail(err)
 	}
 	if _, err := t.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, hashtext(current_schema()))`, lockSpace); err != nil {
 		_ = t.Rollback()
-		fail(err)
-		return
+		return fail(err)
 	}
-	errs := make([]error, len(batch))
 	ok := make([]bool, len(batch))
 	for i, r := range batch {
 		if cerr := r.ctx.Err(); cerr != nil {
@@ -195,6 +258,10 @@ func (s *Store) runBatch(batch []*wreq) {
 		}
 		if _, e := t.ExecContext(ctx, "SAVEPOINT op"); e != nil {
 			errs[i] = e
+			if retryable(e) {
+				_ = t.Rollback()
+				return fail(e)
+			}
 			continue
 		}
 		e := safeRun(r.fn, &tx{q: t, ctx: ctx})
@@ -202,6 +269,10 @@ func (s *Store) runBatch(batch []*wreq) {
 			_, e = t.ExecContext(ctx, "RELEASE SAVEPOINT op")
 		}
 		if e != nil {
+			if retryable(e) {
+				_ = t.Rollback()
+				return fail(e)
+			}
 			_, _ = t.ExecContext(ctx, "ROLLBACK TO SAVEPOINT op")
 			_, _ = t.ExecContext(ctx, "RELEASE SAVEPOINT op")
 			errs[i] = e
@@ -209,13 +280,17 @@ func (s *Store) runBatch(batch []*wreq) {
 		}
 		ok[i] = true
 	}
-	cerr := t.Commit()
-	for i, r := range batch {
-		if ok[i] && cerr != nil {
-			errs[i] = cerr
+	if cerr := t.Commit(); cerr != nil {
+		if retryable(cerr) {
+			return fail(cerr)
 		}
-		r.done <- errs[i]
+		for i := range batch {
+			if ok[i] {
+				errs[i] = cerr
+			}
+		}
 	}
+	return errs, false
 }
 
 func safeRun(fn func(store.Tx) error, t store.Tx) (err error) {

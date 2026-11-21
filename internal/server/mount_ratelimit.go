@@ -1,19 +1,22 @@
 package server
 
 import (
-	"encoding/json"
+	"errors"
+	"fmt"
 	"log/slog"
 	"math"
 	"net"
 	"net/http"
-	"os"
 	"strconv"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
+	"github.com/SigmaUno/subspace/internal/reload"
 )
 
 const (
@@ -60,12 +63,20 @@ func parseRate(v string) (ratelimit.Limit, error) {
 	return ratelimit.Limit{PerMinute: per, Burst: max(b, 1)}, nil
 }
 
-func envRate(log *slog.Logger, key, def string) ratelimit.Limit {
-	v := os.Getenv(key)
+func rateFrom(getenv func(string) string, key, def string) (ratelimit.Limit, error) {
+	v := getenv(key)
 	if v == "" {
 		v = def
 	}
 	lim, err := parseRate(v)
+	if err != nil {
+		return lim, fmt.Errorf("%s: invalid rate %q", key, v)
+	}
+	return lim, nil
+}
+
+func envRate(log *slog.Logger, getenv func(string) string, key, def string) ratelimit.Limit {
+	lim, err := rateFrom(getenv, key, def)
 	if err != nil {
 		log.Warn("invalid rate limit, using default", "env", key, "default", def)
 		lim, _ = parseRate(def)
@@ -78,8 +89,9 @@ type rateLimited struct {
 	deps    Deps
 	clock   ratelimit.Clock
 	mcp     *ratelimit.Limiter
-	mcpLim  ratelimit.Limit
+	mcpLim  atomic.Pointer[ratelimit.Limit]
 	fails   *ratelimit.Limiter
+	failLim atomic.Pointer[ratelimit.Limit]
 	mu      sync.Mutex
 	lockout map[string]time.Time
 }
@@ -89,20 +101,34 @@ func newRateLimited(next http.Handler, d Deps, clock ratelimit.Clock) http.Handl
 	if log == nil {
 		log = slog.Default()
 	}
-	mcpLim := envRate(log, envRateMCP, defaultRateMCP)
-	failLim := envRate(log, envRateAuthFail, defaultRateFail)
-	if mcpLim.PerMinute <= 0 && failLim.PerMinute <= 0 {
-		return next
-	}
-	return &rateLimited{
+	mcpLim := envRate(log, d.getenv(), envRateMCP, defaultRateMCP)
+	failLim := envRate(log, d.getenv(), envRateAuthFail, defaultRateFail)
+	h := &rateLimited{
 		next:    next,
 		deps:    d,
 		clock:   clock,
 		mcp:     ratelimit.New(ratelimit.Options{Default: mcpLim, Clock: clock}),
-		mcpLim:  mcpLim,
 		fails:   ratelimit.New(ratelimit.Options{Default: failLim, Clock: clock}),
 		lockout: make(map[string]time.Time),
 	}
+	h.mcpLim.Store(&mcpLim)
+	h.failLim.Store(&failLim)
+	d.reloadable("ratelimit", []string{envRateMCP, envRateAuthFail}, h)
+	return h
+}
+
+func (h *rateLimited) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	mcpLim, err := rateFrom(getenv, envRateMCP, defaultRateMCP)
+	failLim, ferr := rateFrom(getenv, envRateAuthFail, defaultRateFail)
+	if err = errors.Join(err, ferr); err != nil {
+		return reload.Plan{}, err
+	}
+	return reload.Plan{Commit: func() {
+		h.mcp.SetDefault(mcpLim)
+		h.fails.SetDefault(failLim)
+		h.mcpLim.Store(&mcpLim)
+		h.failLim.Store(&failLim)
+	}}, nil
 }
 
 func (h *rateLimited) now() time.Time {
@@ -115,7 +141,8 @@ func (h *rateLimited) now() time.Time {
 func (h *rateLimited) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	p := r.URL.Path
 	isMCP := p == "/mcp"
-	if !isMCP && p != "/api/v1" && !strings.HasPrefix(p, "/api/v1/") {
+	mcpLim := *h.mcpLim.Load()
+	if (!isMCP && p != "/api/v1" && !strings.HasPrefix(p, "/api/v1/")) || (mcpLim.PerMinute <= 0 && h.failLim.Load().PerMinute <= 0) {
 		h.next.ServeHTTP(w, r)
 		return
 	}
@@ -124,9 +151,9 @@ func (h *rateLimited) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		deny(w, wait)
 		return
 	}
-	if isMCP && h.mcpLim.PerMinute > 0 {
+	if isMCP && mcpLim.PerMinute > 0 {
 		if id := h.agentID(r); id != "" && !h.mcp.Allow(id) {
-			deny(w, time.Duration(60/h.mcpLim.PerMinute*float64(time.Second)))
+			deny(w, time.Duration(60/mcpLim.PerMinute*float64(time.Second)))
 			return
 		}
 	}
@@ -191,9 +218,7 @@ func clientIP(r *http.Request) string {
 func deny(w http.ResponseWriter, wait time.Duration) {
 	secs := max(int(math.Ceil(wait.Seconds())), 1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "rate_limited", "message": "too many requests"}})
+	httpx.WriteError(w, model.Errf("rate_limited", "too many requests"))
 }
 
 type failWatcher struct {

@@ -252,3 +252,94 @@ func TestCacheConcurrent(t *testing.T) {
 	}
 	wg.Wait()
 }
+
+func TestCacheExpiredTokenRejected(t *testing.T) {
+	db := newFakeDB()
+	now := time.Unix(1000, 0)
+	exp := now.Add(time.Minute)
+	db.put("tok", model.Agent{ID: "a1", Status: model.AgentActive, TokenExpiresAt: &exp})
+	c := NewCacheClock(db.load, time.Hour, func() time.Time { return now })
+	if a, err := c.LookupToken("tok"); err != nil || a == nil {
+		t.Fatalf("before expiry: %v %v", a, err)
+	}
+	now = exp
+	if a, err := c.LookupToken("tok"); !errors.Is(err, ErrTokenExpired) || a != nil {
+		t.Fatalf("cached at expiry: %v %v", a, err)
+	}
+	c.InvalidateAll()
+	if a, err := c.LookupToken("tok"); !errors.Is(err, ErrTokenExpired) || a != nil {
+		t.Fatalf("loaded at expiry: %v %v", a, err)
+	}
+}
+
+func TestCacheDropsExpiredEntryState(t *testing.T) {
+	db := newFakeDB()
+	db.put("tok", model.Agent{ID: "a1", Status: model.AgentActive})
+	now := time.Unix(1000, 0)
+	c := NewCacheClock(db.load, time.Minute, func() time.Time { return now })
+	if a, _ := c.LookupToken("tok"); a == nil {
+		t.Fatal("setup")
+	}
+	db.mu.Lock()
+	delete(db.agents, Hash("tok"))
+	db.mu.Unlock()
+	now = now.Add(2 * time.Minute)
+	if a, _ := c.LookupToken("tok"); a != nil {
+		t.Fatal("removed token still resolves")
+	}
+	if len(c.pos) != 0 || len(c.byAgent) != 0 {
+		t.Fatalf("stale state: pos=%d byAgent=%d", len(c.pos), len(c.byAgent))
+	}
+}
+
+func TestCacheZeroTTLKeepsNoPositiveState(t *testing.T) {
+	db := newFakeDB()
+	db.put("tok", model.Agent{ID: "a1", Status: model.AgentActive})
+	c := NewCache(db.load, 0)
+	for range 2 {
+		if a, _ := c.LookupToken("tok"); a == nil {
+			t.Fatal("lookup failed")
+		}
+	}
+	if db.calls.Load() != 2 || len(c.pos) != 0 || len(c.byAgent) != 0 {
+		t.Fatalf("calls=%d pos=%d byAgent=%d", db.calls.Load(), len(c.pos), len(c.byAgent))
+	}
+}
+
+func TestCacheNewTokenUsableFiveSecondsAfterMiss(t *testing.T) {
+	db := newFakeDB()
+	start := time.Unix(1000, 0)
+	now := start
+	c := NewCacheClock(db.load, time.Minute, func() time.Time { return now })
+	_, _ = c.LookupToken("new")
+	db.put("new", model.Agent{ID: "a1", Status: model.AgentActive})
+	now = start.Add(4 * time.Second)
+	if a, _ := c.LookupToken("new"); a != nil {
+		t.Fatal("negative entry expired early")
+	}
+	now = start.Add(5 * time.Second)
+	if a, _ := c.LookupToken("new"); a == nil {
+		t.Fatal("negative entry outlived 5s")
+	}
+}
+
+func TestCacheNegativeBoundAndExpiredFirst(t *testing.T) {
+	db := newFakeDB()
+	now := time.Unix(1000, 0)
+	c := NewCacheClock(db.load, time.Minute, func() time.Time { return now })
+	for i := range 10000 {
+		_, _ = c.LookupToken(fmt.Sprintf("bad-%d", i))
+	}
+	if len(c.neg) != 10000 {
+		t.Fatalf("negative cache holds %d, want 10000", len(c.neg))
+	}
+	_, _ = c.LookupToken("one-more")
+	if len(c.neg) != 10000 {
+		t.Fatalf("negative cache holds %d after overflow, want 10000", len(c.neg))
+	}
+	now = now.Add(negativeCacheTTL)
+	_, _ = c.LookupToken("after-expiry")
+	if len(c.neg) != 1 {
+		t.Fatalf("expired entries kept: %d", len(c.neg))
+	}
+}

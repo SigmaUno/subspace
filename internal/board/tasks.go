@@ -7,7 +7,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -25,25 +27,29 @@ func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool strin
 	if err := w.post(tx, model.ThreadTask, t.ID, actor, model.MsgStatus, msg); err != nil {
 		return err
 	}
-	return w.audit(tx, actor, tool, t.ID, map[string]any{"status": from}, map[string]any{"status": to}, note)
+	return w.audit(tx, actor, tool, t.ID, map[string]any{"status": from}, map[string]any{"status": to, "state": replayState(t)}, note)
 }
 
-func (b *Board) endLease(t *model.Task) {
+func replayState(t *model.Task) map[string]any {
+	return map[string]any{"status": t.Status, "assignee": t.Assignee, "reviewer": t.Reviewer, "progress_pct": t.ProgressPct, "cost_used": t.CostUsed}
+}
+
+func (b *Board) endLease(w *wctx, t *model.Task) {
 	now := b.now()
-	if t.ClaimedAt != nil {
+	if t.ClaimedAt != nil && now.After(*t.ClaimedAt) {
 		t.MinutesUsed += int(now.Sub(*t.ClaimedAt) / time.Minute)
 	}
 	t.ClaimedAt, t.LeaseExpiresAt = nil, nil
-	b.forget(t.ID)
+	w.forget = append(w.forget, t.ID)
 }
 
-func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, to, note string) error {
-	b.endLease(t)
-	return b.statusChange(tx, w, actor, "lease_release", t, to, note)
+func (b *Board) releaseLease(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, note string) error {
+	b.endLease(w, t)
+	return b.statusChange(tx, w, actor, "lease_release", t, model.StatusAssigned, note)
 }
 
 func (b *Board) block(tx store.Tx, w *wctx, actor model.Actor, t *model.Task, reason string) error {
-	b.endLease(t)
+	b.endLease(w, t)
 	t.BlockedReason = strp(reason)
 	return b.statusChange(tx, w, actor, "block", t, model.StatusBlocked, reason)
 }
@@ -58,7 +64,7 @@ func canSee(a model.Actor, t *model.Task) bool {
 
 func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.Task, error) {
 	var out *model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
+	err := b.readAs(ctx, a, func(tx store.Tx) error {
 		t, err := tx.GetTask(id)
 		if err != nil {
 			return err
@@ -74,28 +80,18 @@ func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.T
 
 type TaskQuery struct {
 	BriefID, Status, Assignee, Role string
+	Cursor                          string
 	Limit                           int
 }
 
 func (b *Board) ListTasks(ctx context.Context, q TaskQuery) ([]*model.Task, error) {
-	f := store.TaskFilter{BriefID: q.BriefID, Assignee: q.Assignee, Role: q.Role, Limit: q.Limit}
-	if q.Status != "" {
-		f.Status = strings.Split(q.Status, ",")
-	}
-	var out []*model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
-		ts, err := tx.ListTasks(f)
-		for _, t := range ts {
-			out = append(out, b.overlay(t))
-		}
-		return err
-	})
-	return nz(out), err
+	p, err := b.ListTasksPage(ctx, q)
+	return p.Items, err
 }
 
 func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []string) ([]*model.Task, error) {
 	var out []*model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
+	err := b.readAs(ctx, a, func(tx store.Tx) error {
 		seen := map[string]bool{}
 		for _, f := range []store.TaskFilter{{Assignee: a.ID, Status: statuses}, {Reviewer: a.ID, Status: statuses}} {
 			ts, err := tx.ListTasks(f)
@@ -115,8 +111,9 @@ func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []strin
 }
 
 func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*model.Task, error) {
+	in = b.scrubTask(ctx, a, in)
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {
 			return err
@@ -128,8 +125,23 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if br.PlanStatus == model.PlanApproved {
 			status = model.StatusReady
 		}
+		rules, err := b.rulesFor(tx, br.Playbook)
+		if err != nil {
+			return err
+		}
+		if rules != nil {
+			in.Budget = rules.ApplyDefaults(in.Budget)
+			if err := playbookTaskCheck(a, br.Playbook, rules, lintTasks([]TaskInput{in})[0]); err != nil {
+				return err
+			}
+		}
+		deps := in.DependsOn
+		in.DependsOn = nil
 		t, err := b.newTask(tx, br, in, "", status, nil)
 		if err != nil {
+			return err
+		}
+		if t.DependsOn, err = b.checkDeps(tx, t, deps); err != nil {
 			return err
 		}
 		if err := tx.InsertTask(t); err != nil {
@@ -137,7 +149,7 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		}
 		w.task(t, true)
 		out = t
-		return w.audit(tx, a, "create_task", t.ID, nil, map[string]any{"status": status}, in.Title)
+		return w.audit(tx, a, "create_task", t.ID, nil, map[string]any{"status": status, "state": replayState(t)}, in.Title)
 	})
 	return out, err
 }
@@ -152,8 +164,18 @@ type TaskPatch struct {
 }
 
 func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p TaskPatch) (*model.Task, error) {
+	if p.Title != nil {
+		p.Title = strp(b.scrub(ctx, a, ChannelTask, *p.Title))
+	}
+	if p.Spec != nil {
+		p.Spec = strp(b.scrub(ctx, a, ChannelTask, *p.Spec))
+	}
+	if p.AcceptanceCriteria != nil {
+		ac := b.scrubAll(ctx, a, ChannelTask, *p.AcceptanceCriteria)
+		p.AcceptanceCriteria = &ac
+	}
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(id)
 		if err != nil {
 			return err
@@ -172,21 +194,29 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			t.AcceptanceCriteria = nz(*p.AcceptanceCriteria)
 		}
 		if p.DependsOn != nil {
-			for _, d := range *p.DependsOn {
-				if d == id {
-					return model.BadRequest("task cannot depend on itself")
-				}
-				if _, err := tx.GetTask(d); err != nil {
-					return model.BadRequest("unknown dependency %q", d)
-				}
+			if t.DependsOn, err = b.checkDeps(tx, t, *p.DependsOn); err != nil {
+				return err
 			}
-			t.DependsOn = nz(*p.DependsOn)
 		}
 		if p.Budget != nil {
-			if p.Budget.MaxMinutes < 0 || p.Budget.MaxCostEUR < 0 {
-				return model.BadRequest("budget must be >= 0")
+			if err := checkLeaderBudget(t.Budget, *p.Budget); err != nil {
+				return err
 			}
 			t.Budget = *p.Budget
+		}
+		if p.AcceptanceCriteria != nil || p.Budget != nil {
+			br, err := unscoped(tx).GetBrief(t.BriefID)
+			if err != nil {
+				return err
+			}
+			rules, err := b.rulesFor(tx, br.Playbook)
+			if err != nil {
+				return err
+			}
+			lt := planlint.Task{Title: t.Title, Spec: t.Spec, AcceptanceCriteria: t.AcceptanceCriteria, Role: t.Role, Budget: t.Budget}
+			if err := playbookTaskCheck(a, br.Playbook, rules, lt); err != nil {
+				return err
+			}
 		}
 		t.UpdatedAt = b.now()
 		if p.Status != nil {
@@ -198,13 +228,13 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 					return model.Conflict("cannot block a %s task", t.Status)
 				}
 				if t.Status == model.StatusInProgress {
-					b.endLease(t)
+					b.endLease(w, t)
 				}
-				t.BlockedReason = strp("blocked by leader")
+				t.BlockedReason = strp(leaderBlock)
 				return b.finishUpdate(tx, w, a, "update_task", t, model.StatusBlocked, &out)
 			case model.StatusCancelled:
 				if t.Status == model.StatusInProgress {
-					b.endLease(t)
+					b.endLease(w, t)
 				}
 				return b.finishUpdate(tx, w, a, "update_task", t, model.StatusCancelled, &out)
 			case model.StatusReady:
@@ -212,12 +242,14 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 					return model.Conflict("cannot make a %s task ready", t.Status)
 				}
 				to := model.StatusReady
-				if t.Assignee != nil {
+				if t.Status == model.StatusBlocked && t.Assignee != nil {
 					to = model.StatusAssigned
 				}
 				if t.Status == model.StatusBacklog {
-
 					return model.Forbidden("backlog tasks become ready through owner plan approval")
+				}
+				if err := leaderMayUnblock(t); err != nil {
+					return err
 				}
 				t.BlockedReason, t.LeaseExpiries = nil, 0
 				return b.finishUpdate(tx, w, a, "update_task", t, to, &out)
@@ -233,6 +265,40 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 		return w.audit(tx, a, "update_task", t.ID, nil, map[string]any{"title": t.Title}, "")
 	})
 	return out, err
+}
+
+func playbookTaskCheck(a model.Actor, playbook string, rules *planlint.Rules, t planlint.Task) error {
+	if rules == nil || a.Role != model.RoleLeader {
+		return nil
+	}
+	if errs, _ := planlint.Split(planlint.LintPlaybookTask(t, rules)); len(errs) > 0 {
+		return model.BadRequest("task rejected by playbook %s: %s", playbook, planlint.Format(errs))
+	}
+	return nil
+}
+
+const leaderBlock = "blocked by leader"
+
+func leaderMayUnblock(t *model.Task) error {
+	if t.Status != model.StatusBlocked {
+		return nil
+	}
+	r := deref(t.BlockedReason)
+	if r == leaderBlock || strings.HasPrefix(r, "blocked by agent") {
+		return nil
+	}
+	return model.Forbidden("task is blocked (%s); only the owner can unblock it", r)
+}
+
+func checkLeaderBudget(old, nb model.Budget) error {
+	if nb.MaxMinutes < 0 || nb.MaxCostEUR < 0 {
+		return model.BadRequest("budget must be >= 0")
+	}
+	if (old.MaxMinutes > 0 && (nb.MaxMinutes == 0 || nb.MaxMinutes > old.MaxMinutes)) ||
+		(old.MaxCostEUR > 0 && (nb.MaxCostEUR == 0 || nb.MaxCostEUR > old.MaxCostEUR)) {
+		return model.Forbidden("only the owner can raise or remove a task budget")
+	}
+	return nil
 }
 
 func (b *Board) finishUpdate(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, to string, out **model.Task) error {
@@ -263,7 +329,7 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 		return nil, model.BadRequest("as must be assignee or reviewer")
 	}
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)
 		if err != nil {
 			return err
@@ -293,7 +359,11 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 				return model.Conflict("task is %s; reviewer can be set on submitted tasks", t.Status)
 			}
 			if t.Assignee != nil {
-				if wk, err := tx.GetAgent(*t.Assignee); err == nil && wk.Provider == ag.Provider {
+				wk, err := tx.GetAgent(*t.Assignee)
+				if err != nil && !isErr(err, store.ErrNotFound) {
+					return err
+				}
+				if err == nil && wk.Provider == ag.Provider {
 					return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
 				}
 			}
@@ -304,9 +374,16 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
 		}
 		from := t.Status
+		var overlaps []*model.Task
 		if tool == "assign" {
 			if t.Status != model.StatusReady {
 				return model.Conflict("task is %s, only ready tasks can be assigned (use reassign)", t.Status)
+			}
+			if overlaps, err = b.pathConflicts(tx, t, agentID); err != nil {
+				return err
+			}
+			if len(overlaps) > 0 && b.ConflictMode() == conflict.Block {
+				return model.Conflict("task %s overlaps paths of %s held by other agents", t.ID, conflictIDs(overlaps))
 			}
 		} else {
 			switch t.Status {
@@ -314,9 +391,17 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			default:
 				return model.Conflict("cannot reassign a %s task", t.Status)
 			}
+			if err := leaderMayUnblock(t); err != nil {
+				return err
+			}
+		}
+		if deref(t.Assignee) != agentID {
+			if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
+				return err
+			}
 		}
 		if t.Status == model.StatusInProgress {
-			b.endLease(t)
+			b.endLease(w, t)
 		}
 		t.Assignee, t.BlockedReason = &agentID, nil
 		if from == model.StatusChangesRequested {
@@ -330,13 +415,16 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
 				return err
 			}
-			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID}, reason)
+			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
 		}
 		if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, &out); err != nil {
 			return err
 		}
 		if err := w.post(tx, model.ThreadAgent, agentID, a, model.MsgSystem, fmt.Sprintf("Task %s assigned to you: %s", t.ID, t.Title)); err != nil {
 			return err
+		}
+		if len(overlaps) > 0 {
+			return w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, conflictNote(t, overlaps))
 		}
 		return nil
 	})
@@ -355,6 +443,11 @@ func (b *Board) checkBudget(tx store.Tx, t *model.Task, br *model.Brief) error {
 		if err != nil {
 			return err
 		}
+		if t.ID != "" {
+			if prev, err := tx.GetTask(t.ID); err == nil {
+				c += t.CostUsed - prev.CostUsed
+			}
+		}
 		if c >= br.Budget.MaxCostEUR {
 			return model.Errf("budget_exceeded", "brief cost budget exhausted")
 		}
@@ -372,6 +465,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 			return err
 		}
 		t, err := tx.GetTask(taskID)
+		if err != nil && !isErr(err, store.ErrNotFound) {
+			return err
+		}
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
 		}
@@ -380,6 +476,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 		}
 		for _, d := range t.DependsOn {
 			dt, err := tx.GetTask(d)
+			if err != nil && !isErr(err, store.ErrNotFound) {
+				return err
+			}
 			if err != nil || dt.Status != model.StatusDone {
 				return model.Conflict("dependency %s is not done yet", d)
 			}
@@ -407,10 +506,16 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}
+		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
+			return err
+		}
 		now := b.now()
 		lease := now.Add(b.o.Lease)
 		t.ClaimedAt, t.LeaseExpiresAt, t.LastHeartbeatAt, t.BlockedReason = &now, &lease, &now, nil
 		if err := b.statusChange(tx, w, a, "claim_task", t, model.StatusInProgress, ""); err != nil {
+			return err
+		}
+		if err := b.gated(tx, w, GateClaimed, a.ID, t, 0); err != nil {
 			return err
 		}
 		out = t
@@ -423,13 +528,16 @@ func (b *Board) ReleaseTask(ctx context.Context, a model.Actor, taskID, reason s
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)
+		if err != nil && !isErr(err, store.ErrNotFound) {
+			return err
+		}
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
 		}
 		if t.Status != model.StatusInProgress {
 			return model.Conflict("task is %s, not in_progress", t.Status)
 		}
-		if err := b.releaseLease(tx, w, a, t, model.StatusAssigned, "released: "+reason); err != nil {
+		if err := b.releaseLease(tx, w, a, t, "released: "+reason); err != nil {
 			return err
 		}
 		out = t
@@ -453,10 +561,18 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	} else if a.Role == model.RoleWorker {
 		return nil, model.BadRequest("pr_url is required")
 	}
-	in.Summary = Redact(in.Summary)
-	var out *model.Task
+	in.Summary = b.scrub(ctx, a, ChannelSummary, in.Summary)
+	in.PRURL = b.Scan(ctx, a, ChannelPR, in.PRURL)
+	var (
+		out  *model.Task
+		held *model.Error
+	)
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		held = nil
 		t, err := tx.GetTask(in.TaskID)
+		if err != nil && !isErr(err, store.ErrNotFound) {
+			return err
+		}
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", in.TaskID)
 		}
@@ -470,11 +586,25 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		to := model.StatusSubmitted
 		if !br.CrossReview {
 			to = model.StatusApproved
+			pending := *t
+			pending.PRURL = strp(in.PRURL)
+			if qerr := b.checkQuality(tx, QualityCheck{Ctx: ctx, Op: QualitySubmit, Actor: a, Task: b.overlay(&pending), Brief: br}); qerr != nil {
+				ge, ok := gatesFailed(qerr)
+				if !ok {
+					return qerr
+				}
+				to, held = model.StatusSubmitted, ge
+			}
 		}
-		b.endLease(t)
+		b.endLease(w, t)
 		t.PRURL, t.ProgressPct = strp(in.PRURL), 100
 		if err := b.statusChange(tx, w, a, "submit", t, to, "PR "+in.PRURL); err != nil {
 			return err
+		}
+		if held != nil {
+			if err := b.postHeld(tx, w, t, held); err != nil {
+				return err
+			}
 		}
 		if in.Summary != "" {
 			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgNote, "Submission summary: "+in.Summary); err != nil {
@@ -484,8 +614,13 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		out = t
 		return nil
 	})
+	if err == nil && held != nil {
+		return out, held
+	}
 	return out, err
 }
+
+const MaxCostEUR = 1e6
 
 type StatusInput struct {
 	TaskID      string   `json:"task_id"`
@@ -502,13 +637,16 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	if in.ProgressPct != nil && (*in.ProgressPct < 0 || *in.ProgressPct > 100) {
 		return nil, model.BadRequest("progress_pct must be 0..100")
 	}
-	if in.CostEUR != nil && *in.CostEUR < 0 {
-		return nil, model.BadRequest("cost_eur must be >= 0")
+	if in.CostEUR != nil && (*in.CostEUR < 0 || *in.CostEUR > MaxCostEUR) {
+		return nil, model.BadRequest("cost_eur must be between 0 and %g", MaxCostEUR)
 	}
-	in.Note = Redact(in.Note)
+	in.Note = b.scrub(ctx, a, ChannelStatus, in.Note)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
+		if err != nil && !isErr(err, store.ErrNotFound) {
+			return err
+		}
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", in.TaskID)
 		}
@@ -519,7 +657,14 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 			t.ProgressPct = *in.ProgressPct
 		}
 		if in.CostEUR != nil && *in.CostEUR > t.CostUsed {
+			delta := *in.CostEUR - t.CostUsed
 			t.CostUsed = *in.CostEUR
+			if err := tx.UpdateTask(t); err != nil {
+				return err
+			}
+			if err := b.gated(tx, w, GateCost, a.ID, t, delta); err != nil {
+				return err
+			}
 		}
 		br, err := tx.GetBrief(t.BriefID)
 		if err != nil {
@@ -542,7 +687,7 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 				return err
 			}
 		}
-		return w.audit(tx, a, "update_status", t.ID, nil, map[string]any{"progress_pct": t.ProgressPct, "cost_used": t.CostUsed}, in.Note)
+		return w.audit(tx, a, "update_status", t.ID, nil, map[string]any{"progress_pct": t.ProgressPct, "cost_used": t.CostUsed, "state": replayState(t)}, in.Note)
 	})
 	if err == nil && out != nil && out.Status == model.StatusBlocked && in.Status != model.StatusBlocked {
 		return out, model.Errf("budget_exceeded", "budget exceeded: task blocked")
@@ -573,17 +718,32 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 	now := b.now()
 	lease := now.Add(b.o.Lease)
 	res := &HeartbeatResult{OK: true}
+	var urgent []store.LeaseRow
 	b.mu.Lock()
 	for _, t := range mine {
 		if taskID != "" && t.ID != taskID {
 			continue
 		}
-		b.tasks[t.ID] = hotTask{hb: now, lease: lease}
-		b.dirtyT[t.ID] = struct{}{}
 		l := lease
+		if h, ok := b.tasks[t.ID]; ok && h.assignee == a.ID && h.lease.After(l) {
+			l = h.lease
+		}
+		if t.LeaseExpiresAt != nil && t.LeaseExpiresAt.After(l) {
+			l = *t.LeaseExpiresAt
+		}
+		b.tasks[t.ID] = hotTask{hb: now, lease: l, assignee: a.ID}
+		b.dirtyT[t.ID] = struct{}{}
 		res.LeaseExpiresAt = &l
+		if b.o.Shared && (t.LeaseExpiresAt == nil || t.LeaseExpiresAt.Before(now.Add(b.syncWindow()))) {
+			urgent = append(urgent, store.LeaseRow{TaskID: t.ID, Assignee: a.ID, Heartbeat: now.UnixMilli(), Lease: l.UnixMilli()})
+		}
 	}
 	b.mu.Unlock()
+	if len(urgent) > 0 {
+		if err := b.st.Atomic(ctx, func(tx store.Tx) error { return tx.ExtendLeases(urgent) }); err != nil {
+			b.log.Error("flush expiring leases", "err", err)
+		}
+	}
 	if taskID != "" && res.LeaseExpiresAt == nil {
 		return nil, model.Errf("not_assigned", "task %s is not an in_progress task of yours", taskID)
 	}
@@ -594,15 +754,21 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	if passed < 0 || failed < 0 {
 		return nil, model.BadRequest("counts must be >= 0")
 	}
-	log = Redact(log)
+	log = b.scrub(ctx, a, ChannelTests, log)
 	if len(log) > 8000 {
 		log = log[:8000] + "…"
 	}
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)
+		if err != nil && !isErr(err, store.ErrNotFound) {
+			return err
+		}
 		if err != nil || deref(t.Assignee) != a.ID {
 			return model.Errf("not_assigned", "task %s is not assigned to you", taskID)
+		}
+		if t.Status != model.StatusInProgress {
+			return model.Conflict("task is %s; report_tests needs an in_progress task (claim it first)", t.Status)
 		}
 		t.Tests = &model.TestResult{Passed: passed, Failed: failed, ReportedAt: b.now()}
 		t.UpdatedAt = b.now()
@@ -678,9 +844,13 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 	if verdict == "changes_requested" && strings.TrimSpace(comments) == "" {
 		return nil, model.BadRequest("comments are required when requesting changes")
 	}
-	comments = Redact(comments)
-	var out *model.Task
+	comments = b.scrub(ctx, a, ChannelReview, comments)
+	var (
+		out  *model.Task
+		held *model.Error
+	)
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+		held = nil
 		t, err := tx.GetTask(taskID)
 		if err != nil {
 			return model.NotFound("task %s not found", taskID)
@@ -703,7 +873,11 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 			return model.Forbidden("provider %q is not allowed for brief %s", me.Provider, br.ID)
 		}
 		if t.Assignee != nil {
-			if wk, e := tx.GetAgent(*t.Assignee); e == nil && wk.Provider == me.Provider {
+			wk, e := tx.GetAgent(*t.Assignee)
+			if e != nil && !isErr(e, store.ErrNotFound) {
+				return e
+			}
+			if e == nil && wk.Provider == me.Provider {
 				return model.Forbidden("reviewer must use a different provider than the worker (%s)", wk.Provider)
 			}
 		}
@@ -713,6 +887,14 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		}
 		if verdict == "approve" {
 			out = t
+			if qerr := b.checkQuality(tx, QualityCheck{Ctx: ctx, Op: QualityApprove, Actor: a, Task: b.overlay(t), Brief: br, Comments: comments}); qerr != nil {
+				ge, ok := gatesFailed(qerr)
+				if !ok {
+					return qerr
+				}
+				held = ge
+				return b.holdForGates(tx, w, a, t, ge)
+			}
 			return b.statusChange(tx, w, a, "review", t, model.StatusApproved, comments)
 		}
 		t.ReviewRounds++
@@ -724,6 +906,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		out = t
 		return b.statusChange(tx, w, a, "review", t, to, comments)
 	})
+	if err == nil && held != nil {
+		return out, held
+	}
 	return out, err
 }
 
@@ -749,7 +934,7 @@ func (b *Board) ownerMove(ctx context.Context, tool, id, note, to string, from .
 			return model.Conflict("task is already %s", t.Status)
 		}
 		if t.Status == model.StatusInProgress {
-			b.endLease(t)
+			b.endLease(w, t)
 		}
 		out = t
 		return b.statusChange(tx, w, model.Owner, tool, t, to, note)
@@ -778,7 +963,7 @@ func (b *Board) Reopen(ctx context.Context, id, to, note string) (*model.Task, e
 		if to == model.StatusAssigned && t.Assignee == nil {
 			return model.BadRequest("task has no assignee")
 		}
-		if t.Status == model.StatusNeedsOwner {
+		if t.Status == model.StatusNeedsOwner || t.ReviewRounds >= MaxReviewRounds {
 			t.ReviewRounds = 0
 		}
 		t.BlockedReason, t.LeaseExpiries = nil, 0
@@ -845,7 +1030,13 @@ func (b *Board) Sweep(ctx context.Context) error {
 		err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 			expiredAgent = ""
 			cur, err := tx.GetTask(id)
-			if err != nil || cur.Status != model.StatusInProgress {
+			if isErr(err, store.ErrNotFound) {
+				return nil
+			}
+			if err != nil {
+				return err
+			}
+			if cur.Status != model.StatusInProgress {
 				return nil
 			}
 			ov := b.overlay(cur)
@@ -866,7 +1057,7 @@ func (b *Board) Sweep(ctx context.Context) error {
 				return w.post(tx, model.ThreadTask, cur.ID, sys, model.MsgSystem,
 					fmt.Sprintf("Task blocked as a poison task after %d lease expiries; the owner must decide whether to reopen it.", cur.LeaseExpiries))
 			}
-			return b.releaseLease(tx, w, sys, cur, model.StatusAssigned, "lease expired")
+			return b.releaseLease(tx, w, sys, cur, "lease expired")
 		})
 		if err != nil {
 			return err
@@ -875,6 +1066,9 @@ func (b *Board) Sweep(ctx context.Context) error {
 			if err := b.PauseAgent(ctx, expiredAgent, "flapping"); err != nil {
 				return err
 			}
+			b.mu.Lock()
+			delete(b.expiries, expiredAgent)
+			b.mu.Unlock()
 		}
 	}
 	return nil
@@ -885,16 +1079,17 @@ func (b *Board) recordExpiry(agentID string) bool {
 	cutoff := now.Add(-b.o.FlapWindow)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for id, ts := range b.expiries {
+		if !ts[0].After(cutoff) {
+			delete(b.expiries, id)
+		}
+	}
 	recent := []time.Time{now}
 	for _, at := range b.expiries[agentID] {
 		if at.After(cutoff) {
 			recent = append(recent, at)
 		}
 	}
-	if len(recent) >= b.o.FlapExpiries {
-		delete(b.expiries, agentID)
-		return true
-	}
 	b.expiries[agentID] = recent
-	return false
+	return len(recent) >= b.o.FlapExpiries
 }

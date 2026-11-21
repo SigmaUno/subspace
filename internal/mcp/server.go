@@ -6,14 +6,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"io"
+	"log/slog"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -22,6 +26,7 @@ const ProtocolVersion = "2025-06-18"
 const (
 	maxBody        = 1 << 20
 	sessionTTL     = 24 * time.Hour
+	sessionSweep   = time.Hour
 	maxSessionsPer = 8
 )
 
@@ -59,12 +64,16 @@ type Server struct {
 	Registry   *Registry
 	Guard      audit.LoopGuard
 	Hooks      Hooks
+	Surface    *Surface
 	OwnerToken string
 	Now        func() time.Time
+	Sessions   SessionStore
+	Push       *Push
 
 	mu       sync.Mutex
 	sessions map[string]session
 	byAgent  map[string][]string
+	swept    time.Time
 }
 
 func NewServer(a auth.AgentLookup, r *Registry) *Server {
@@ -78,22 +87,45 @@ func (s *Server) newSession(agent string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.Now()
+	if now.Sub(s.swept) >= sessionSweep {
+		s.swept = now
+		for a := range s.byAgent {
+			s.pruneLocked(a, now)
+		}
+	}
+	live := s.pruneLocked(agent, now)
+	for len(live) >= maxSessionsPer {
+		s.forgetLocked(live[0])
+		live = live[1:]
+	}
+	s.sessions[id] = session{agent: agent, created: now}
+	s.byAgent[agent] = append(live, id)
+	return id
+}
+
+func (s *Server) pruneLocked(agent string, now time.Time) []string {
 	list := s.byAgent[agent]
 	live := list[:0]
 	for _, sid := range list {
 		if ss, ok := s.sessions[sid]; ok && now.Sub(ss.created) < sessionTTL {
 			live = append(live, sid)
 		} else {
-			delete(s.sessions, sid)
+			s.forgetLocked(sid)
 		}
 	}
-	for len(live) >= maxSessionsPer {
-		delete(s.sessions, live[0])
-		live = live[1:]
+	if len(live) == 0 {
+		delete(s.byAgent, agent)
+		return nil
 	}
-	s.sessions[id] = session{agent: agent, created: now}
-	s.byAgent[agent] = append(live, id)
-	return id
+	s.byAgent[agent] = live
+	return live
+}
+
+func (s *Server) forgetLocked(sid string) {
+	delete(s.sessions, sid)
+	if s.Push != nil {
+		s.Push.Drop(sid)
+	}
 }
 
 func (s *Server) sessionOK(id, agent string) bool {
@@ -110,7 +142,11 @@ func (s *Server) dropSession(id, agent string) bool {
 	if !ok || ss.agent != agent {
 		return false
 	}
-	delete(s.sessions, id)
+	s.forgetLocked(id)
+	s.byAgent[agent] = slices.DeleteFunc(s.byAgent[agent], func(sid string) bool { return sid == id })
+	if len(s.byAgent[agent]) == 0 {
+		delete(s.byAgent, agent)
+	}
 	return true
 }
 
@@ -119,9 +155,19 @@ func unauthorized(w http.ResponseWriter) {
 	http.Error(w, "unauthorized", http.StatusUnauthorized)
 }
 
+func tokenExpired(w http.ResponseWriter) {
+	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token", error_description="token expired"`)
+	httpx.WriteError(w, model.Errf("token_expired", "agent token expired"))
+}
+
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if r.Method != http.MethodPost && r.Method != http.MethodDelete {
-		w.Header().Set("Allow", "POST, DELETE")
+	stream := r.Method == http.MethodGet && s.Push != nil
+	if r.Method != http.MethodPost && r.Method != http.MethodDelete && !stream {
+		allow := "POST, DELETE"
+		if s.Push != nil {
+			allow = "GET, POST, DELETE"
+		}
+		w.Header().Set("Allow", allow)
 		http.Error(w, "method not allowed", http.StatusMethodNotAllowed)
 		return
 	}
@@ -135,6 +181,10 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	agent, err := s.Auth.LookupToken(tok)
+	if errors.Is(err, auth.ErrTokenExpired) {
+		tokenExpired(w)
+		return
+	}
 	if err != nil {
 		http.Error(w, "internal error", http.StatusInternalServerError)
 		return
@@ -144,8 +194,20 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	sid := r.Header.Get("Mcp-Session-Id")
+	if stream {
+		s.serveStream(w, r, sid, agent.ID)
+		return
+	}
 	if r.Method == http.MethodDelete {
-		if sid == "" || !s.dropSession(sid, agent.ID) {
+		ok := false
+		if sid != "" {
+			var err error
+			if ok, err = s.closeSession(r.Context(), sid, agent.ID); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if !ok {
 			http.Error(w, "unknown session", http.StatusNotFound)
 			return
 		}
@@ -159,29 +221,41 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var req rpcReq
 	if err := json.Unmarshal(body, &req); err != nil || req.JSONRPC != "2.0" {
-		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32700, "parse error"}})
+		httpx.WriteJSON(w, http.StatusOK, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32700, "parse error"}})
 		return
 	}
-	if sid != "" && req.Method != "initialize" && !s.sessionOK(sid, agent.ID) {
-		http.Error(w, "unknown session", http.StatusNotFound)
-		return
+	if sid != "" && req.Method != "initialize" {
+		ok, err := s.checkSession(r.Context(), sid, agent.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "unknown session", http.StatusNotFound)
+			return
+		}
 	}
 	if len(req.ID) == 0 || req.Method == "" {
 		w.WriteHeader(http.StatusAccepted)
 		return
 	}
 	if !validID(req.ID) {
-		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
+		httpx.WriteJSON(w, http.StatusOK, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
 		return
 	}
-	actor := model.Actor{ID: agent.ID, Role: agent.Role}
+	actor := model.Actor{ID: agent.ID, Role: agent.Role, Kind: agent.Kind}
 	resp := rpcResp{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
-		w.Header().Set("Mcp-Session-Id", s.newSession(agent.ID))
+		id, err := s.openSession(r.Context(), agent.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Mcp-Session-Id", id)
 		resp.Result = map[string]any{
 			"protocolVersion": ProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
+			"capabilities":    s.capabilities(),
 			"serverInfo":      map[string]any{"name": "subspace", "version": "0.1.0"},
 		}
 	case "ping":
@@ -194,14 +268,22 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Result = map[string]any{"tools": tools}
 	case "tools/call":
 		resp.Result, resp.Error = s.call(r.Context(), agent, req.Params)
+	case "prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list":
+		resp.Result, resp.Error = s.surface(r.Context(), actor, req.Method, req.Params)
+	case "resources/subscribe", "resources/unsubscribe":
+		if s.Push == nil {
+			resp.Error = &rpcErr{-32601, "method not found"}
+			break
+		}
+		resp.Result, resp.Error = s.subscription(r.Context(), req.Method, sid, agent.ID, req.Params)
 	default:
 		resp.Error = &rpcErr{-32601, "method not found"}
 	}
-	writeJSON(w, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMessage) (any, *rpcErr) {
-	a := model.Actor{ID: agent.ID, Role: agent.Role}
+	a := model.Actor{ID: agent.ID, Role: agent.Role, Kind: agent.Kind}
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
@@ -221,20 +303,29 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		if agent.PauseReason != nil {
 			why += ": " + *agent.PauseReason
 		}
-		return toolResult(errBody("agent_paused", why+"; ask the owner to resume you"), true), nil
+		return toolResult(errBody("agent_paused", why+"; ask the owner to resume you", t.Name), true), nil
 	}
 	if !t.ReadOnly && s.Guard != nil {
 		if s.Guard.Hit(a.ID, t.Name, audit.ArgsHash(schemaArgs(t.Schema, p.Arguments)), s.Now()) {
 			if s.Hooks != nil {
 				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop: same call repeated too often")
 			}
-			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused"), true), nil
+			s.Registry.fail(a, t.Name, "agent_paused", "loop protection", p.Arguments)
+			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused", t.Name), true), nil
 		}
 	}
 	res, err := t.Handler(ctx, &Call{Actor: a, Args: p.Arguments})
 	if err != nil {
 		e := model.AsError(err)
-		return toolResult(errBody(e.Code, e.Message), true), nil
+		if e.Code == "internal" {
+			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
+		}
+		s.Registry.fail(a, t.Name, e.Code, e.Message, p.Arguments)
+		body := errBody(e.Code, e.Message, t.Name)
+		if e.Details != nil {
+			body["error"].(map[string]any)["details"] = e.Details
+		}
+		return toolResult(body, true), nil
 	}
 	return toolResult(res, false), nil
 }
@@ -279,8 +370,12 @@ func validID(id json.RawMessage) bool {
 	return c == '"' || c == '-' || (c >= '0' && c <= '9')
 }
 
-func errBody(code, msg string) map[string]any {
-	return map[string]any{"error": map[string]any{"code": code, "message": msg}}
+func errBody(code, msg, tool string) map[string]any {
+	e := map[string]any{"code": code, "message": msg}
+	if h := Hint(code, tool); h != "" {
+		e["hint"] = h
+	}
+	return map[string]any{"error": e}
 }
 
 func toolResult(v any, isErr bool) map[string]any {
@@ -294,11 +389,6 @@ func toolResult(v any, isErr bool) map[string]any {
 		"structuredContent": sc,
 		"isError":           isErr,
 	}
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 func bearer(r *http.Request) (string, bool) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"reflect"
 	"time"
 )
 
@@ -47,7 +48,18 @@ func (o *Outcome) WriteTrace(w io.Writer) {
 
 type Runner struct {
 	Factory Factory
+	World   func(seed int64) World
 	Dir     string
+	Serial  bool
+	Leaders bool
+}
+
+type Settler interface {
+	Settle()
+}
+
+func ServerRunner(dir string) *Runner {
+	return &Runner{Factory: NewServerSystem, World: NewServerWorld, Dir: dir}
 }
 
 func (r *Runner) Run(ctx context.Context, seed int64, steps int) (*Outcome, error) {
@@ -68,7 +80,14 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 			err = rerr
 		}
 	}()
-	w := NewWorld(seed)
+	world := r.World
+	if world == nil {
+		world = NewWorld
+	}
+	w := world(seed)
+	if r.Leaders {
+		w.Rival = "lead2"
+	}
 	clock := NewClock(Epoch)
 	sys, err := r.Factory(dir, clock, w.Lease)
 	if err != nil {
@@ -83,13 +102,13 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 	if err != nil {
 		return nil, fmt.Errorf("setup: %w", err)
 	}
-	gen := NewGen(seed, w, setup)
-	chk := NewChecker()
+	gen := NewGen(seed, w, setup, r.Serial)
+	chk := NewChecker(w.Lease)
 	pre, err := sys.Snapshot(ctx)
 	if err != nil {
 		return nil, err
 	}
-	chk.audit = pre.Audit
+	chk.Init(pre)
 	out = &Outcome{Seed: seed}
 	for i := range steps {
 		var op Op
@@ -108,40 +127,42 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 			st.Err = res.Err.Error()
 		}
 		out.Steps = append(out.Steps, st)
-		if v := chk.Check(op, res, pre, post); v != nil {
+		v := chk.Check(op, res, pre, post)
+		if v == nil && (op.Kind == OpRestart || i == steps-1) {
+			v, err = verifyAudit(ctx, sys, post)
+			if err != nil {
+				return nil, err
+			}
+		}
+		if v != nil {
 			out.Violation = v
 			return out, nil
 		}
 		pre = post
 	}
+	if st, ok := sys.(Settler); ok {
+		st.Settle()
+		post, err := sys.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out.Violation = chk.Final(post)
+	}
 	return out, nil
 }
 
-func (r *Runner) Shrink(ctx context.Context, o *Outcome, budget int) (*Outcome, error) {
-	if !o.Failed() {
-		return o, nil
+func verifyAudit(ctx context.Context, sys System, s *State) (*Violation, error) {
+	full, err := sys.Audit(ctx)
+	if err != nil {
+		return nil, err
 	}
-	best := o
-	inv := o.Violation.Invariant
-	for chunk := len(best.Steps) / 2; chunk >= 1 && budget > 0; {
-		removed := false
-		for start := 0; start+chunk <= len(best.Steps) && budget > 0; {
-			ops := best.Ops()
-			cand := append(append([]Op{}, ops[:start]...), ops[start+chunk:]...)
-			budget--
-			got, err := r.Replay(ctx, o.Seed, cand)
-			if err != nil {
-				return nil, err
-			}
-			if got.Failed() && got.Violation.Invariant == inv {
-				best, removed = got, true
-				continue
-			}
-			start += chunk
-		}
-		if !removed {
-			chunk /= 2
+	if len(full) != len(s.Audit) {
+		return violation(InvAudit, "audit log has %d events, %d observed", len(full), len(s.Audit)), nil
+	}
+	for i, e := range full {
+		if !reflect.DeepEqual(e, s.Audit[i]) {
+			return violation(InvAudit, "audit event %d changed after it was written", e.ID), nil
 		}
 	}
-	return best, nil
+	return nil, nil
 }

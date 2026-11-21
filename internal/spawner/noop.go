@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"strconv"
+	"time"
 )
 
 type Noop struct {
@@ -24,11 +26,39 @@ func (n Noop) Spawn(ctx context.Context, r Request) error {
 	return nil
 }
 
+func (Noop) Stop(context.Context, string) error { return ErrNotImplemented }
+
+func (Noop) Status(context.Context, string) (Status, error) { return StatusUnknown, nil }
+
 func redacted(token string) string {
 	if token == "" {
 		return ""
 	}
 	return "[redacted]"
+}
+
+func envDuration(env func(string) string, key string) (time.Duration, error) {
+	v := env(key)
+	if v == "" {
+		return 0, nil
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return 0, fmt.Errorf("spawner: invalid %s %q", key, v)
+	}
+	return d, nil
+}
+
+func envInt(env func(string) string, key string) (int, error) {
+	v := env(key)
+	if v == "" {
+		return 0, nil
+	}
+	n, err := strconv.Atoi(v)
+	if err != nil || n < 0 {
+		return 0, fmt.Errorf("spawner: invalid %s %q", key, v)
+	}
+	return n, nil
 }
 
 func New(name string, env func(string) string) (Spawner, error) {
@@ -43,7 +73,22 @@ func New(name string, env func(string) string) (Spawner, error) {
 		if bin == "" {
 			bin = "hc"
 		}
-		return &HC{Bin: bin, Host: env("SUBSPACE_HC_HOST"), CommandTmpl: env("SUBSPACE_HC_COMMAND")}, nil
+		h := &HC{
+			Bin: bin, Host: env("SUBSPACE_HC_HOST"), CommandTmpl: env("SUBSPACE_HC_COMMAND"),
+			NudgeTmpl: env("SUBSPACE_HC_NUDGE_COMMAND"), StatusTmpl: env("SUBSPACE_HC_STATUS_COMMAND"),
+			StopTmpl: env("SUBSPACE_HC_STOP_COMMAND"),
+		}
+		var err error
+		if h.Timeout, err = envDuration(env, "SUBSPACE_HC_TIMEOUT"); err != nil {
+			return nil, err
+		}
+		if h.MaxOutput, err = envInt(env, "SUBSPACE_HC_MAX_OUTPUT"); err != nil {
+			return nil, err
+		}
+		if h.MaxPerHost, err = envInt(env, "SUBSPACE_HC_MAX_PER_HOST"); err != nil {
+			return nil, err
+		}
+		return h, nil
 	case "opencode":
 		root := env("SUBSPACE_OPENCODE_ROOT")
 		if root == "" {

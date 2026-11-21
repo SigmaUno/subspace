@@ -1,14 +1,6 @@
-export type Artifact = {
-  id: string;
-  scope: string;
-  name: string;
-  size: number;
-  sha256: string;
-  content_type: string;
-  uploaded_by: string;
-  project: string;
-  created_at: string;
-};
+import type { Artifact } from "./generated-types";
+
+export type { Artifact };
 
 export type ArtifactList = { artifacts: Artifact[] };
 

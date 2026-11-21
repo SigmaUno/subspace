@@ -1,0 +1,35 @@
+internal/auth/auth.go	if _, err := rand.Read(b); err != nil {	skip error check
+internal/auth/auth.go	return "", err	remove error return
+internal/auth/auth.go	return owner != "" && subtle.ConstantTimeCompare(a[:], b[:]) == 1	swap arguments a[:] and b[:]
+internal/auth/cache.go	c.removePosLocked(hash, "")	swap arguments hash and ""
+internal/auth/cache.go	if !ok {	negate condition
+internal/auth/cache.go	if agentID == "" {	replace == with !=
+internal/capacity/impl.go	} else if avail < 0 {	change constant 0 to 1
+internal/capacity/impl.go	} else if avail < 0 {	replace < with <=
+internal/idempotency/idempotency.go	body, err := io.ReadAll(io.LimitReader(r.Body, maxBody+1))	change constant 1 to 2
+internal/idempotency/idempotency.go	if err := h.opts.Store.PutIdempotency(context.WithoutCancel(ctx), agent.ID, key, rec, now); err != nil {	replace != with ==
+internal/idempotency/idempotency.go	if err := h.opts.Store.PutIdempotency(context.WithoutCancel(ctx), agent.ID, key, rec, now); err != nil {	skip error check
+internal/idempotency/idempotency.go	if json.Unmarshal(rw.body.Bytes(), &resp) != nil || len(resp.Error) > 0 || len(resp.Result) == 0 {	change constant 0 to 1
+internal/idempotency/idempotency.go	if json.Unmarshal(rw.body.Bytes(), &resp) != nil || len(resp.Error) > 0 || len(resp.Result) == 0 {	replace || with &&
+internal/planlint/planlint.go	low[v] = min(low[v], index[w])	swap arguments low[v] and index[w]
+internal/planlint/planlint.go	low[v] = min(low[v], low[w])	swap arguments low[v] and low[w]
+internal/planlint/planlint.go	next := 0	change constant 0 to 1
+internal/redact/redact.go	for _, m := range genericRunRe.FindAllStringIndex(s, -1) {	change constant 1 to 2
+internal/redact/redact.go	for _, m := range r.re.FindAllStringSubmatchIndex(s, -1) {	change constant 1 to 2
+internal/redact/redact.go	for _, sp := range spans[1:] {	change constant 1 to 0
+internal/redact/redact.go	idx := -1	change constant 1 to 0
+internal/redact/redact.go	idx := -1	change constant 1 to 2
+internal/redact/redact.go	if hi > lo {	replace > with >=
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	change constant 0 to 1
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	change constant 1 to 0
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	change constant 2 to 1
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	change constant 2 to 3
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	replace < with <=
+internal/redact/redact.go	if idx >= 0 && 2*idx+1 < len(m) && m[2*idx] >= 0 {	replace >= with >
+internal/redact/redact.go	if len(spans) < 2 {	change constant 2 to 1
+internal/redact/redact.go	if sp.hi > last.hi {	replace > with >=
+internal/redact/redact.go	return spans[i].hi < spans[j].hi	replace < with <=
+internal/redact/redact.go	return spans[i].hi < spans[j].hi	replace < with >=
+internal/redact/redact.go	return spans[i].lo < spans[j].lo	replace < with <=
+internal/redact/redact.go	var freq [256]int	change constant 256 to 255
+internal/redact/redact.go	var freq [256]int	change constant 256 to 257

@@ -20,9 +20,21 @@ type Notification struct {
 	BriefID  string    `json:"brief_id,omitempty"`
 	TaskID   string    `json:"task_id,omitempty"`
 	TS       time.Time `json:"ts"`
+	Actions  []Action  `json:"actions,omitempty"`
+	decision string
+	choices  int
 }
 
-var Topics = []string{"questions", "plans", "control", "board"}
+type Action struct {
+	Label string `json:"label"`
+	URL   string `json:"url"`
+}
+
+type Minter func(decisionID, action string, option int) (string, error)
+
+const maxActions = 3
+
+var Topics = []string{"questions", "plans", "control", "board", "alerts"}
 
 func describe(ev events.Event) (id, sig string, n *Notification) {
 	switch d := ev.Data.(type) {
@@ -38,6 +50,8 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		return taskEvent(ev, d)
 	case model.Task:
 		return taskEvent(ev, &d)
+	case Notification:
+		return alertEvent(ev, d)
 	}
 	switch ev.Type {
 	case "control.paused":
@@ -47,8 +61,48 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		}
 	case "control.resumed":
 		return "control", "resumed", nil
+	case "spend.warning":
+		return spendEvent(ev)
+	case "quota.warning":
+		return quotaEvent(ev)
 	}
 	return "", "", nil
+}
+
+func spendEvent(ev events.Event) (string, string, *Notification) {
+	d, ok := ev.Data.(map[string]any)
+	if !ok {
+		return "", "", nil
+	}
+	window, _ := d["window"].(string)
+	spent, _ := d["spent_eur"].(float64)
+	limit, _ := d["cap_eur"].(float64)
+	pct, _ := d["percent"].(float64)
+	level, _ := d["level"].(string)
+	id := "org_budget:" + window
+	n := &Notification{
+		ID: id, Kind: "org_budget", Priority: 5, TS: ev.TS,
+		Title: fmt.Sprintf("Organization %s spend at %.0f%% of its cap", window, pct),
+		Text:  fmt.Sprintf("€%.2f of €%.2f spent (%s)", spent, limit, level),
+	}
+	return id, fmt.Sprintf("%v|%v|%s", d["starts_at"], limit, level), n
+}
+
+func quotaEvent(ev events.Event) (string, string, *Notification) {
+	d, ok := ev.Data.(map[string]any)
+	if !ok {
+		return "", "", nil
+	}
+	agent, _ := d["agent_id"].(string)
+	pct, _ := d["percent"].(float64)
+	level, _ := d["level"].(string)
+	id := "agent_quota:" + agent
+	n := &Notification{
+		ID: id, Kind: "agent_quota", Priority: 4, TS: ev.TS,
+		Title: fmt.Sprintf("Agent %s is at %.0f%% of its daily quota", agent, pct),
+		Text:  fmt.Sprintf("%s: %s quota level", agent, level),
+	}
+	return id, fmt.Sprintf("%v|%s", d["starts_at"], level), n
 }
 
 func questionEvent(ev events.Event, q *model.Question) (string, string, *Notification) {
@@ -58,7 +112,8 @@ func questionEvent(ev events.Event, q *model.Question) (string, string, *Notific
 	if ev.Type != "question.created" {
 		return q.ID, ev.Type, nil
 	}
-	n := &Notification{ID: q.ID, Kind: "question", Title: "Question " + q.ID + " needs an answer", Priority: 4, TS: ev.TS}
+	n := &Notification{ID: q.ID, Kind: "question", Title: "Question " + q.ID + " needs an answer", Priority: 4, TS: ev.TS,
+		decision: "q:" + q.ID, choices: len(q.Options)}
 	if q.TaskID != nil {
 		n.TaskID = *q.TaskID
 	}
@@ -76,7 +131,8 @@ func planEvent(ev events.Event, p *model.Plan) (string, string, *Notification) {
 	if ev.Type != "plan.proposed" {
 		return p.ID, ev.Type, nil
 	}
-	n := &Notification{ID: p.ID, Kind: "plan", Title: "Plan " + p.ID + " awaits approval", Priority: 4, BriefID: p.BriefID, TS: ev.TS}
+	n := &Notification{ID: p.ID, Kind: "plan", Title: "Plan " + p.ID + " awaits approval", Priority: 4, BriefID: p.BriefID, TS: ev.TS,
+		decision: "plan:" + p.ID}
 	n.Text = fmt.Sprintf("Agent %s proposed %s%s with %d tasks", p.ProposedBy, p.ID, scope(n), len(p.Tasks))
 	return p.ID, ev.Type, n
 }
@@ -101,7 +157,55 @@ func taskEvent(ev events.Event, t *model.Task) (string, string, *Notification) {
 		Title: fmt.Sprintf("Task %s is %s", t.ID, strings.ReplaceAll(t.Status, "_", " ")),
 	}
 	n.Text = fmt.Sprintf("%s: %s", t.ID, truncate(t.Title, maxTitle))
+	if t.Status == model.StatusApproved {
+		n.decision = "merge:" + t.ID
+	}
 	return t.ID, t.Status, n
+}
+
+func withActions(n Notification, mint Minter) Notification {
+	if mint == nil || n.decision == "" {
+		return n
+	}
+	type link struct {
+		label, action string
+		option        int
+	}
+	var want []link
+	switch {
+	case strings.HasPrefix(n.decision, "q:"):
+		if n.choices == 0 {
+			return n
+		}
+		for i := range min(n.choices, maxActions) {
+			want = append(want, link{fmt.Sprintf("Option %d", i+1), "answer", i})
+		}
+	case strings.HasPrefix(n.decision, "plan:"):
+		want = []link{{"Approve", "approve", 0}, {"Reject", "reject", 0}}
+	case strings.HasPrefix(n.decision, "merge:"):
+		want = []link{{"Mark merged", "merge", 0}}
+	}
+	if len(want) < maxActions {
+		want = append(want, link{"Snooze 1h", "skip", 0})
+	}
+	for _, l := range want {
+		u, err := mint(n.decision, l.action, l.option)
+		if err != nil {
+			continue
+		}
+		n.Actions = append(n.Actions, Action{Label: l.label, URL: u})
+	}
+	return n
+}
+
+func alertEvent(ev events.Event, n Notification) (string, string, *Notification) {
+	switch ev.Type {
+	case "alert.raised":
+		return n.ID, ev.Type, &n
+	case "alert.resolved":
+		return n.ID, ev.Type, nil
+	}
+	return "", "", nil
 }
 
 func scope(n *Notification) string {

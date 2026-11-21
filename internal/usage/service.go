@@ -40,6 +40,8 @@ type Service struct {
 	Capacity CapacitySource
 	Briefs   BriefSource
 	BriefOf  func(ctx context.Context, taskID string) (string, error)
+	Attrib   Attributor
+	Allow    func(ctx context.Context, a model.Actor, taskID, briefID string) error
 	Now      func() time.Time
 
 	seq atomic.Int64
@@ -84,6 +86,11 @@ func (s *Service) Record(ctx context.Context, recs ...Record) error {
 				return err
 			}
 			r.BriefID = b
+		}
+		if s.Attrib != nil {
+			if err := s.Attrib(ctx, r); err != nil {
+				return err
+			}
 		}
 		if r.Key == "" {
 			r.Key = r.Source + ":" + strconv.FormatInt(r.TS.UnixNano(), 36) + ":" + strconv.FormatInt(s.seq.Add(1), 36)

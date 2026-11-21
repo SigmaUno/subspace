@@ -8,10 +8,16 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
+	"sync"
 	"testing"
 	"time"
 
+	_ "github.com/jackc/pgx/v5/stdlib"
+
 	"github.com/SigmaUno/subspace/internal/server"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 const OwnerToken = "owner-token-for-tests-0123456789"
@@ -20,6 +26,9 @@ type Env struct {
 	T   *testing.T
 	TS  *httptest.Server
 	Srv *server.Server
+
+	stop sync.Once
+	halt func()
 }
 
 func New(t *testing.T) *Env {
@@ -35,8 +44,19 @@ func Start(t *testing.T, cfg server.Config) *Env {
 			_ = os.Setenv(k, "off")
 		}
 	}
+	if err := sqlite.EnableTemplate(); err != nil {
+		t.Fatal(err)
+	}
 	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(t.TempDir(), "t.db")
+		cfg.DBPath = DB(t)
+	}
+	if strings.HasPrefix(cfg.DBPath, "postgres") {
+		if cfg.DataDir == "" {
+			cfg.DataDir = t.TempDir()
+		}
+		if cfg.BackupDir == "" {
+			cfg.BackupDir = filepath.Join(cfg.DataDir, "backups")
+		}
 	}
 	if cfg.OwnerToken == "" {
 		cfg.OwnerToken = OwnerToken
@@ -47,13 +67,26 @@ func Start(t *testing.T, cfg server.Config) *Env {
 		cancel()
 		t.Fatal(err)
 	}
-	go s.Board.Run(ctx)
+	go s.RunBackground(ctx)
 	ts := httptest.NewServer(s.Handler())
-	t.Cleanup(func() { ts.Close(); cancel(); _ = s.Close() })
-	return &Env{T: t, TS: ts, Srv: s}
+	e := &Env{T: t, TS: ts, Srv: s, halt: func() { cancel(); ts.CloseClientConnections(); ts.Close(); _ = s.Close() }}
+	t.Cleanup(e.Stop)
+	return e
+}
+
+func (e *Env) Stop() { e.stop.Do(e.halt) }
+
+func DB(t *testing.T) string {
+	t.Helper()
+	return testdb.Path(t, "t.db")
 }
 
 func (e *Env) REST(method, path string, body any) (int, map[string]any) {
+	e.T.Helper()
+	return e.RESTAs(OwnerToken, method, path, body)
+}
+
+func (e *Env) RESTAs(tok, method, path string, body any) (int, map[string]any) {
 	e.T.Helper()
 	var rd *bytes.Reader
 	if body != nil {
@@ -63,7 +96,9 @@ func (e *Env) REST(method, path string, body any) (int, map[string]any) {
 		rd = bytes.NewReader(nil)
 	}
 	req, _ := http.NewRequest(method, e.TS.URL+path, rd)
-	req.Header.Set("Authorization", "Bearer "+OwnerToken)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.T.Fatal(err)

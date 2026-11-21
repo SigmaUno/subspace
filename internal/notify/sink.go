@@ -9,9 +9,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
+	"net/url"
 	"strconv"
+	"strings"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const SignatureHeader = "X-Subspace-Signature"
@@ -49,13 +52,17 @@ func (s *httpSink) Send(ctx context.Context, n Notification) error {
 	}
 	resp, err := s.client.Do(req)
 	if err != nil {
+		var ue *url.Error
+		if errors.As(err, &ue) {
+			err = fmt.Errorf("%s: %w", s.name, netguard.Scrub(err))
+		}
 		if errors.Is(err, ErrBlockedTarget) {
 			return permanentError{err}
 		}
 		return err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	netguard.Drain(resp.Body, 4096)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return nil
@@ -89,13 +96,36 @@ func NewNtfy(url string, c *http.Client) Sink {
 			"Priority":     {strconv.Itoa(n.Priority)},
 			"Tags":         {n.Kind},
 		}
+		if len(n.Actions) > 0 {
+			acts := make([]string, 0, maxActions)
+			for _, a := range n.Actions[:min(len(n.Actions), maxActions)] {
+				acts = append(acts, "view, "+a.Label+", "+a.URL+", clear=true")
+			}
+			h.Set("Actions", strings.Join(acts, "; "))
+		}
 		return []byte(n.Text), h, nil
 	}}
 }
 
 func NewSlack(url string, c *http.Client) Sink {
 	return &httpSink{name: "slack", url: url, client: c, build: func(n Notification) ([]byte, http.Header, error) {
-		b, err := json.Marshal(map[string]string{"text": "*" + n.Title + "*\n" + n.Text})
+		text := "*" + slackEscape(n.Title) + "*\n" + slackEscape(n.Text)
+		body := map[string]any{"text": text}
+		if len(n.Actions) > 0 {
+			buttons := make([]map[string]any, len(n.Actions))
+			for i, a := range n.Actions {
+				buttons[i] = map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": a.Label}, "url": a.URL}
+			}
+			body["blocks"] = []map[string]any{
+				{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": text}},
+				{"type": "actions", "elements": buttons},
+			}
+		}
+		b, err := json.Marshal(body)
 		return b, http.Header{"Content-Type": {"application/json"}}, err
 	}}
 }
+
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+func slackEscape(s string) string { return slackEscaper.Replace(s) }

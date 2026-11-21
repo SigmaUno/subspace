@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -101,18 +102,38 @@ type BriefBudget struct {
 }
 
 type Brief struct {
-	ID               string      `json:"id"`
-	Title            string      `json:"title"`
-	Body             string      `json:"body"`
-	Repos            []string    `json:"repos"`
-	Status           string      `json:"status"`
-	Budget           BriefBudget `json:"budget"`
-	AllowedProviders []string    `json:"allowed_providers"`
-	CrossReview      bool        `json:"cross_review"`
-	AutoDoneOnMerge  bool        `json:"auto_done_on_merge"`
-	CostUsed         float64     `json:"cost_used"`
-	PlanStatus       string      `json:"plan_status"`
-	CreatedAt        time.Time   `json:"created_at"`
+	ID               string       `json:"id"`
+	Title            string       `json:"title"`
+	Body             string       `json:"body"`
+	Repos            []string     `json:"repos"`
+	Status           string       `json:"status"`
+	Budget           BriefBudget  `json:"budget"`
+	AllowedProviders []string     `json:"allowed_providers"`
+	CrossReview      bool         `json:"cross_review"`
+	AutoDoneOnMerge  bool         `json:"auto_done_on_merge"`
+	CostUsed         float64      `json:"cost_used"`
+	PlanStatus       string       `json:"plan_status"`
+	LeaderID         *string      `json:"leader_id"`
+	QualityGates     QualityGates `json:"quality_gates"`
+	Playbook         string       `json:"playbook"`
+	CreatedAt        time.Time    `json:"created_at"`
+}
+
+type QualityGates struct {
+	Tests          bool    `json:"tests"`
+	MinTestsPassed int     `json:"min_tests_passed"`
+	Checks         bool    `json:"checks"`
+	Scope          bool    `json:"scope"`
+	Questions      bool    `json:"questions"`
+	Review         bool    `json:"review"`
+	Budget         bool    `json:"budget"`
+	MaxPRAgeHours  float64 `json:"max_pr_age_hours"`
+}
+
+func (q QualityGates) Enabled() bool { return q != QualityGates{} }
+
+func (b *Brief) LedBy(leaderID string) bool {
+	return b.LeaderID == nil || *b.LeaderID == leaderID
 }
 
 type TestResult struct {
@@ -136,6 +157,7 @@ type Task struct {
 	DependsOn          []string    `json:"depends_on"`
 	Priority           int         `json:"priority"`
 	ComponentID        *string     `json:"component_id"`
+	Paths              Paths       `json:"paths"`
 	Status             string      `json:"status"`
 	ProgressPct        int         `json:"progress_pct"`
 	LastHeartbeatAt    *time.Time  `json:"last_heartbeat_at"`
@@ -152,6 +174,15 @@ type Task struct {
 	UpdatedAt          time.Time   `json:"updated_at"`
 
 	ClaimedAt *time.Time `json:"-"`
+}
+
+type Paths []string
+
+func (p Paths) MarshalJSON() ([]byte, error) {
+	if p == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]string(p))
 }
 
 type Plan struct {
@@ -186,6 +217,8 @@ type Agent struct {
 	LastSeenAt    *time.Time `json:"last_seen_at"`
 	CreatedAt     time.Time  `json:"created_at"`
 	Spawned       bool       `json:"spawned"`
+
+	TokenExpiresAt *time.Time `json:"token_expires_at"`
 
 	TokenHash string `json:"-"`
 }
@@ -256,6 +289,7 @@ type Spawn struct {
 type Actor struct {
 	ID   string
 	Role string
+	Kind string
 }
 
 var Owner = Actor{ID: "owner", Role: RoleOwner}
@@ -263,6 +297,7 @@ var Owner = Actor{ID: "owner", Role: RoleOwner}
 type Error struct {
 	Code    string
 	Message string
+	Details any
 }
 
 func (e *Error) Error() string { return e.Message }
@@ -271,13 +306,13 @@ func (e *Error) HTTPStatus() int {
 	switch e.Code {
 	case "bad_request":
 		return http.StatusBadRequest
-	case "unauthorized":
+	case "unauthorized", "token_expired":
 		return http.StatusUnauthorized
 	case "forbidden", "not_assigned":
 		return http.StatusForbidden
 	case "not_found":
 		return http.StatusNotFound
-	case "conflict", "capacity", "budget_exceeded", "lease_expired":
+	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed":
 		return http.StatusConflict
 	case "paused", "agent_paused":
 		return http.StatusLocked

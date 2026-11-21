@@ -1,0 +1,18 @@
+{
+  "id": "p03-audit-csv",
+  "title": "Export the audit log as CSV",
+  "body": "The owner needs to hand the audit log to an external reviewer as a spreadsheet.\n\n- New endpoint GET /api/v1/audit.csv with the same filters as GET /api/v1/audit, streaming rows (ts, agent_id, role, tool, task_id, note) without loading everything in memory.\n- Values that start with =, +, - or @ must be prefixed with a single quote to prevent formula injection.\n- The web app gets a \"Download CSV\" button on the audit page that respects the current filters.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server with the REST API and docs/api.md"},
+    {"name": "SigmaUno/subspace-web", "description": "Next.js owner UI; pages under app/, Playwright tests under e2e/"}
+  ],
+  "max_cost_eur": 25,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 4,
+  "requirements": [
+    {"id": "endpoint", "title": "Stream the audit log as CSV from GET /api/v1/audit.csv", "keywords": ["csv", "audit"], "checks": ["formula|quote", "test"], "repo": "SigmaUno/subspace"},
+    {"id": "button", "title": "Add a Download CSV button to the audit page", "keywords": ["download", "button|page"], "checks": ["filter", "test|playwright"], "repo": "SigmaUno/subspace-web", "after": ["endpoint"]}
+  ]
+}

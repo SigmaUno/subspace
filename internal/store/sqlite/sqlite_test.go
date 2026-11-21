@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 func openTest(t *testing.T) *Store {
@@ -300,7 +301,8 @@ func TestPanicRecovery(t *testing.T) {
 
 func TestNextIDConcurrentUnique(t *testing.T) {
 	s := openTest(t)
-	const workers, per = 32, 25
+	const workers = 32
+	per := testmode.Size(10, 25)
 	prefixes := []string{"T", "Q"}
 
 	var mu sync.Mutex
@@ -361,14 +363,14 @@ func TestNextIDConcurrentUnique(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	const total = workers * per
+	total := workers * per
 	for _, p := range prefixes {
 		for i := 1; i <= total; i++ {
 			if id := fmt.Sprintf("%s-%d", p, i); !seen[id] {
 				t.Fatalf("missing %s", id)
 			}
 		}
-		if v := seqValue(t, s.rdb, p); v != total {
+		if v := seqValue(t, s.rdb, p); v != int64(total) {
 			t.Fatalf("seq %s = %d, want %d", p, v, total)
 		}
 	}

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -18,16 +19,17 @@ type TaskEdit struct {
 	Repo               *string       `json:"repo"`
 	Role               *string       `json:"role"`
 	Budget             *model.Budget `json:"budget"`
+	Paths              *[]string     `json:"paths"`
 }
 
 func (e TaskEdit) budgetOnly() bool {
 	return e.Budget != nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil
+		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
 }
 
 func (e TaskEdit) empty() bool {
 	return e.Budget == nil && e.Title == nil && e.Spec == nil && e.AcceptanceCriteria == nil &&
-		e.DependsOn == nil && e.Repo == nil && e.Role == nil
+		e.DependsOn == nil && e.Repo == nil && e.Role == nil && e.Paths == nil
 }
 
 func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Task, error) {
@@ -81,6 +83,9 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 			if err := checkRepo(br, *e.Repo); err != nil {
 				return err
 			}
+			if err := b.checkRegistry(tx, *e.Repo, t.Branch); err != nil {
+				return err
+			}
 			set("repo", t.Repo, *e.Repo, t.Repo != *e.Repo)
 			t.Repo = *e.Repo
 		}
@@ -101,6 +106,18 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 			set("budget", t.Budget, *e.Budget, t.Budget != *e.Budget)
 			t.Budget = *e.Budget
 		}
+		if e.Paths != nil {
+			ps, err := conflict.NormalizeAll(*e.Paths)
+			if err != nil {
+				return model.BadRequest("paths: %v", err)
+			}
+			np := model.Paths(ps)
+			if len(np) == 0 {
+				np = nil
+			}
+			set("paths", t.Paths, np, !slices.Equal(t.Paths, np))
+			t.Paths = np
+		}
 		if e.DependsOn != nil {
 			deps, err := b.checkDeps(tx, t, *e.DependsOn)
 			if err != nil {
@@ -115,6 +132,9 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 		}
 		if _, ok := after["title"]; ok {
 			t.Branch = "sub/" + strings.ToLower(t.ID) + "-" + slug(t.Title)
+			if err := b.checkRegistry(tx, t.Repo, t.Branch); err != nil {
+				return err
+			}
 		}
 		t.UpdatedAt = b.now()
 		if err := tx.UpdateTask(t); err != nil {
@@ -167,7 +187,7 @@ func (b *Board) AddPlanTask(ctx context.Context, planID string, in TaskInput) (*
 		if err := w.post(tx, model.ThreadBrief, br.ID, model.Owner, model.MsgSystem, msg); err != nil {
 			return err
 		}
-		return w.audit(tx, model.Owner, "add_plan_task", t.ID, nil, map[string]any{"plan_id": p.ID, "title": t.Title}, "")
+		return w.audit(tx, model.Owner, "add_plan_task", t.ID, nil, map[string]any{"plan_id": p.ID, "title": t.Title, "state": replayState(t)}, "")
 	})
 	return out, err
 }
@@ -217,7 +237,7 @@ func (b *Board) DropPlanTask(ctx context.Context, planID, taskID string) (*model
 		if err := w.post(tx, model.ThreadBrief, p.BriefID, model.Owner, model.MsgSystem, msg); err != nil {
 			return err
 		}
-		return w.audit(tx, model.Owner, "drop_plan_task", t.ID, map[string]any{"status": model.StatusBacklog}, map[string]any{"status": model.StatusCancelled, "plan_id": p.ID}, "")
+		return w.audit(tx, model.Owner, "drop_plan_task", t.ID, map[string]any{"status": model.StatusBacklog}, map[string]any{"status": model.StatusCancelled, "plan_id": p.ID, "state": replayState(t)}, "")
 	})
 	return out, err
 }

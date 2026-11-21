@@ -1,0 +1,13 @@
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "subspace-sdk"
+version = "0.1.0"
+description = "Python SDK for Subspace: MCP agent client, owner REST client and SSE event stream"
+requires-python = ">=3.10"
+dependencies = []
+
+[tool.setuptools.packages.find]
+include = ["subspace_sdk*"]

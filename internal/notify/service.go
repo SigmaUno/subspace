@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const maxTracked = 4096
@@ -36,6 +37,7 @@ type Config struct {
 	Clock     Clock
 	Jitter    func(n int64) int64
 	Log       *slog.Logger
+	Mint      Minter
 }
 
 type Stats struct {
@@ -47,7 +49,11 @@ type Stats struct {
 
 type Service struct {
 	cfg     Config
+	mu      sync.RWMutex
 	lanes   []*lane
+	ctx     context.Context
+	hub     events.Hub
+	looping bool
 	wg      sync.WaitGroup
 	sent    atomic.Int64
 	failed  atomic.Int64
@@ -55,9 +61,10 @@ type Service struct {
 }
 
 type lane struct {
-	s    *Service
-	sink Sink
-	q    chan Notification
+	s      *Service
+	sink   Sink
+	q      chan Notification
+	retire chan struct{}
 }
 
 func New(cfg Config) *Service {
@@ -86,17 +93,77 @@ func New(cfg Config) *Service {
 		cfg.Log = slog.Default()
 	}
 	s := &Service{cfg: cfg}
-	for _, k := range cfg.Sinks {
-		s.lanes = append(s.lanes, &lane{s: s, sink: k, q: make(chan Notification, cfg.Queue)})
-	}
+	s.lanes = s.newLanes(cfg.Sinks)
 	return s
 }
 
-func (s *Service) Enabled() bool { return len(s.lanes) > 0 }
+func (s *Service) newLanes(sinks []Sink) []*lane {
+	lanes := make([]*lane, 0, len(sinks))
+	for _, k := range sinks {
+		lanes = append(lanes, &lane{s: s, sink: k, q: make(chan Notification, s.cfg.Queue), retire: make(chan struct{})})
+	}
+	return lanes
+}
+
+func (s *Service) snapshot() []*lane {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return s.lanes
+}
+
+func (s *Service) startLanes(ctx context.Context, hub events.Hub) {
+	s.mu.Lock()
+	s.ctx, s.hub = ctx, hub
+	lanes := s.lanes
+	s.mu.Unlock()
+	for _, l := range lanes {
+		s.wg.Go(func() { l.run(ctx) })
+	}
+}
+
+func (s *Service) ReplaceSinks(sinks []Sink) {
+	next := s.newLanes(sinks)
+	s.mu.Lock()
+	old := s.lanes
+	s.lanes = next
+	ctx := s.ctx
+	s.mu.Unlock()
+	for _, l := range old {
+		close(l.retire)
+	}
+	if ctx == nil {
+		return
+	}
+	for _, l := range next {
+		s.wg.Go(func() { l.run(ctx) })
+	}
+	if len(next) > 0 {
+		s.startLoop(ctx)
+	}
+}
+
+func (s *Service) startLoop(ctx context.Context) {
+	s.mu.Lock()
+	hub := s.hub
+	if s.looping || hub == nil {
+		s.mu.Unlock()
+		return
+	}
+	s.looping = true
+	s.mu.Unlock()
+	sub := hub.Subscribe(Topics)
+	s.wg.Go(func() {
+		defer sub.Close()
+		s.loop(ctx, sub)
+	})
+}
+
+func (s *Service) Enabled() bool { return len(s.snapshot()) > 0 }
 
 func (s *Service) SinkNames() []string {
-	names := make([]string, len(s.lanes))
-	for i, l := range s.lanes {
+	lanes := s.snapshot()
+	names := make([]string, len(lanes))
+	for i, l := range lanes {
 		names[i] = l.sink.Name()
 	}
 	return names
@@ -104,24 +171,17 @@ func (s *Service) SinkNames() []string {
 
 func (s *Service) Stats() Stats {
 	st := Stats{Sent: s.sent.Load(), Failed: s.failed.Load(), Dropped: s.dropped.Load()}
-	for _, l := range s.lanes {
+	for _, l := range s.snapshot() {
 		st.Queued += len(l.q)
 	}
 	return st
 }
 
 func (s *Service) Start(ctx context.Context, hub events.Hub) {
-	if !s.Enabled() {
-		return
+	s.startLanes(ctx, hub)
+	if s.Enabled() {
+		s.startLoop(ctx)
 	}
-	sub := hub.Subscribe(Topics)
-	for _, l := range s.lanes {
-		s.wg.Go(func() { l.run(ctx) })
-	}
-	s.wg.Go(func() {
-		defer sub.Close()
-		s.loop(ctx, sub)
-	})
 }
 
 func (s *Service) Wait() { s.wg.Wait() }
@@ -140,7 +200,8 @@ func (s *Service) loop(ctx context.Context, sub events.Subscription) {
 			return cmp.Or(a.TS.Compare(b.TS), cmp.Compare(a.ID, b.ID))
 		})
 		for _, n := range batch {
-			for _, l := range s.lanes {
+			n = withActions(n, s.cfg.Mint)
+			for _, l := range s.snapshot() {
 				l.enqueue(n)
 			}
 		}
@@ -152,7 +213,10 @@ func (s *Service) loop(ctx context.Context, sub events.Subscription) {
 		case <-timer:
 			timer = nil
 			flush()
-		case ev := <-sub.C():
+		case ev, ok := <-sub.C():
+			if !ok {
+				return
+			}
 			id, sig, n := describe(ev)
 			if id == "" || last[id] == sig {
 				continue
@@ -195,8 +259,22 @@ func (l *lane) run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-l.retire:
+			l.drain(ctx)
+			return
 		case n := <-l.q:
 			l.deliver(ctx, n)
+		}
+	}
+}
+
+func (l *lane) drain(ctx context.Context) {
+	for {
+		select {
+		case n := <-l.q:
+			l.deliver(ctx, n)
+		default:
+			return
 		}
 	}
 }
@@ -224,10 +302,5 @@ func (l *lane) deliver(ctx context.Context, n Notification) {
 }
 
 func (s *Service) backoff(attempt int) time.Duration {
-	d := s.cfg.MaxDelay
-	if attempt < 32 && s.cfg.BaseDelay<<(attempt-1) < d {
-		d = s.cfg.BaseDelay << (attempt - 1)
-	}
-	half := d / 2
-	return half + time.Duration(s.cfg.Jitter(int64(half)+1))
+	return retryq.HalfJitter(retryq.Exp(s.cfg.BaseDelay, s.cfg.MaxDelay, attempt), s.cfg.Jitter)
 }

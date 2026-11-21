@@ -6,7 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"log/slog"
 	"net/http"
 	"os"
@@ -16,17 +15,18 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/repos"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 const mqSchema = `
 CREATE TABLE IF NOT EXISTS mq_candidates (
   id TEXT PRIMARY KEY, repo TEXT NOT NULL, pr INTEGER NOT NULL, head TEXT NOT NULL, base TEXT NOT NULL,
   task_id TEXT NOT NULL, state TEXT NOT NULL, merged_sha TEXT NOT NULL DEFAULT '', log TEXT NOT NULL DEFAULT '',
-  enqueued_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
+  enqueued_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS mq_candidates_repo ON mq_candidates(repo, state);
 `
@@ -38,14 +38,17 @@ var mqRunner mergequeue.Runner
 var mqSystem = model.Actor{ID: "mergequeue", Role: "system"}
 
 func init() {
-	sqlite.RegisterSchema(mqSchema)
+	registerSchema(mqSchema, "mq_candidates")
 	registerMount(mountMergeQueue)
 }
 
 type mqRepo struct {
-	Remote string   `json:"remote"`
-	Verify []string `json:"verify"`
-	Base   string   `json:"base"`
+	Remote   string   `json:"remote"`
+	Verify   []string `json:"verify"`
+	Base     string   `json:"base"`
+	Train    int      `json:"train"`
+	Required []string `json:"required"`
+	WorkDir  string   `json:"workdir"`
 }
 
 type mqFile struct {
@@ -54,29 +57,67 @@ type mqFile struct {
 	Repos    map[string]mqRepo `json:"repos"`
 }
 
+const (
+	mqConfigEnv   = "SUBSPACE_MQ_CONFIG"
+	mqIntervalEnv = "SUBSPACE_MQ_INTERVAL"
+)
+
 func mountMergeQueue(d Deps) {
-	path := os.Getenv("SUBSPACE_MQ_CONFIG")
-	if path == "" {
+	f, ok, err := mqConfig(d)
+	if err != nil {
+		d.Log.Error("mergequeue disabled", "err", err)
 		return
 	}
-	if err := startMergeQueue(d, path); err != nil {
-		d.Log.Error("mergequeue disabled", "config", path, "err", err)
+	if !ok {
+		return
+	}
+	if err := startMergeQueue(d, f); err != nil {
+		d.Log.Error("mergequeue disabled", "err", err)
 	}
 }
 
-func startMergeQueue(d Deps, path string) error {
+func mqConfig(d Deps) (mqFile, bool, error) {
+	rs, err := repos.Enabled(d.Ctx, repoSource(d))
+	if err != nil {
+		return mqFile{}, false, err
+	}
+	f := mqFile{Repos: map[string]mqRepo{}, Interval: os.Getenv(mqIntervalEnv)}
+	for _, r := range rs {
+		if len(r.MergeTestCommand) > 0 {
+			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir}
+		}
+	}
+	if len(f.Repos) > 0 {
+		return f, true, nil
+	}
+	path := os.Getenv(mqConfigEnv)
+	if path == "" {
+		return mqFile{}, false, nil
+	}
+	repos.Deprecated(d.Log, mqConfigEnv)
 	raw, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
 	if err != nil {
-		return err
+		return mqFile{}, false, err
 	}
-	var f mqFile
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return err
+		return mqFile{}, false, err
 	}
+	return f, true, nil
+}
+
+func startMergeQueue(d Deps, f mqFile) error {
+	var err error
 	interval := 30 * time.Second
 	if f.Interval != "" {
 		if interval, err = time.ParseDuration(f.Interval); err != nil || interval <= 0 {
 			return fmt.Errorf("invalid interval %q", f.Interval)
+		}
+	}
+	if isPostgres(d.Cfg.DBPath) && f.WorkDir == "" {
+		for name, r := range f.Repos {
+			if r.WorkDir == "" {
+				return fmt.Errorf("workdir is required with the postgres backend (repo %s)", name)
+			}
 		}
 	}
 	if f.WorkDir == "" {
@@ -89,13 +130,17 @@ func startMergeQueue(d Deps, path string) error {
 	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
 	bases := make(map[string]string, len(f.Repos))
 	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify}
+		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir}
 		bases[name] = r.Base
 		if r.Base == "" {
 			bases[name] = "main"
 		}
 	}
 	gate := mqGate{d.Board}
+	var checks mergequeue.Checks
+	if ps, ok := d.Store.(prStatusReader); ok {
+		checks = mqChecks{ps}
+	}
 	q, err := mergequeue.New(mergequeue.Config{
 		Repos:    repos,
 		WorkDir:  f.WorkDir,
@@ -104,6 +149,8 @@ func startMergeQueue(d Deps, path string) error {
 		Notifier: mqNotifier{d.Board},
 		Gate:     gate,
 		Tasks:    mqTasks{d.Board},
+		Deps:     mqDeps{d.Board},
+		Checks:   checks,
 		Logger:   d.Log,
 	})
 	if err != nil {
@@ -121,7 +168,7 @@ func startMergeQueue(d Deps, path string) error {
 		<-life.Done()
 		cancel()
 	}()
-	go q.Run(ctx, interval)
+	d.Leader.Go(ctx, func(ctx context.Context) { q.Run(ctx, interval) })
 	return nil
 }
 
@@ -260,6 +307,12 @@ func (g mqGate) check(ctx context.Context, taskID string) (*model.Task, error) {
 	if rv.Provider == wk.Provider {
 		return nil, model.Conflict("task %s was reviewed by %s on the worker's provider %s", t.ID, rv.ID, rv.Provider)
 	}
+	if err := g.b.CheckQuality(ctx, t.ID); err != nil {
+		if me := model.AsError(err); me.Code == board.CodeGatesFailed {
+			return nil, model.Conflict("task %s: %s", t.ID, me.Message)
+		}
+		return nil, err
+	}
 	return t, nil
 }
 
@@ -305,7 +358,7 @@ func (h *mqHandler) list(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusOK, map[string]any{"candidates": cs})
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{"candidates": cs})
 }
 
 func (h *mqHandler) get(w http.ResponseWriter, r *http.Request) {
@@ -314,22 +367,21 @@ func (h *mqHandler) get(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusOK, c)
+	httpx.WriteJSON(w, http.StatusOK, c)
 }
 
 func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, 1<<20))
-	if err != nil {
-		h.fail(w, model.BadRequest("request body too large or unreadable"))
-		return
-	}
 	var in struct {
 		TaskID string `json:"task_id"`
 		PR     int    `json:"pr"`
 		Base   string `json:"base"`
 	}
-	if err := json.Unmarshal(raw, &in); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	raw, err := httpx.Body(w, r, 1<<20)
+	if err == nil {
+		err = httpx.Unmarshal(raw, &in)
+	}
+	if err != nil {
+		h.fail(w, err)
 		return
 	}
 	if in.TaskID == "" {
@@ -352,21 +404,11 @@ func (h *mqHandler) enqueue(w http.ResponseWriter, r *http.Request) {
 		h.fail(w, err)
 		return
 	}
-	writeMQ(w, http.StatusCreated, c)
+	httpx.WriteJSON(w, http.StatusCreated, c)
 }
 
 func (h *mqHandler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" {
-		h.log.Error("mergequeue error", "err", err)
-	}
-	writeMQ(w, e.HTTPStatus(), map[string]any{"error": map[string]string{"code": e.Code, "message": e.Message}})
-}
-
-func writeMQ(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
+	httpx.Fail(w, h.log, "mergequeue error", err)
 }
 
 func prNumber(u *string) int {

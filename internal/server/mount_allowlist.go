@@ -1,14 +1,18 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
+	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
 	"net/netip"
-	"os"
 	"strings"
+	"sync/atomic"
+
+	"github.com/SigmaUno/subspace/internal/httpx"
+	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/reload"
 )
 
 const (
@@ -16,12 +20,6 @@ const (
 	envAgentAllowCIDRs = "SUBSPACE_AGENT_ALLOW_CIDRS"
 	envTrustedProxies  = "SUBSPACE_TRUSTED_PROXIES"
 )
-
-func init() {
-	wraps = append(wraps, func(next http.Handler, d Deps) http.Handler {
-		return newAllowlisted(next, d)
-	})
-}
 
 type allowRule struct {
 	open bool
@@ -32,11 +30,51 @@ func (r allowRule) allows(a netip.Addr) bool {
 	return r.open || inPrefixes(r.nets, a)
 }
 
+type allowState struct {
+	owner allowRule
+	agent allowRule
+}
+
+type proxyTrust struct {
+	nets atomic.Pointer[[]netip.Prefix]
+}
+
+func newProxyTrust(log *slog.Logger, getenv func(string) string) *proxyTrust {
+	t := &proxyTrust{}
+	nets, err := trustedFrom(getenv)
+	if err != nil {
+		log.Error("invalid trusted proxies, ignoring X-Forwarded-For", "env", envTrustedProxies, "err", err)
+	}
+	t.nets.Store(&nets)
+	return t
+}
+
+func trustedFrom(getenv func(string) string) ([]netip.Prefix, error) {
+	v := strings.TrimSpace(getenv(envTrustedProxies))
+	if v == "" {
+		return nil, nil
+	}
+	nets, err := parsePrefixes(v)
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", envTrustedProxies, err)
+	}
+	return nets, nil
+}
+
+func (t *proxyTrust) get() []netip.Prefix { return *t.nets.Load() }
+
+func (t *proxyTrust) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	nets, err := trustedFrom(getenv)
+	if err != nil {
+		return reload.Plan{}, err
+	}
+	return reload.Plan{Commit: func() { t.nets.Store(&nets) }}, nil
+}
+
 type allowlisted struct {
-	next    http.Handler
-	owner   allowRule
-	agent   allowRule
-	trusted []netip.Prefix
+	next  http.Handler
+	state atomic.Pointer[allowState]
+	trust *proxyTrust
 }
 
 func newAllowlisted(next http.Handler, d Deps) http.Handler {
@@ -44,32 +82,47 @@ func newAllowlisted(next http.Handler, d Deps) http.Handler {
 	if log == nil {
 		log = slog.Default()
 	}
-	h := &allowlisted{
-		next:  next,
-		owner: envRule(log, envOwnerAllowCIDRs),
-		agent: envRule(log, envAgentAllowCIDRs),
+	h := &allowlisted{next: next, trust: d.Trust}
+	if h.trust == nil {
+		h.trust = newProxyTrust(log, d.getenv())
 	}
-	if v := strings.TrimSpace(os.Getenv(envTrustedProxies)); v != "" {
-		nets, err := parsePrefixes(v)
-		if err != nil {
-			log.Error("invalid trusted proxies, ignoring X-Forwarded-For", "env", envTrustedProxies, "err", err)
-		}
-		h.trusted = nets
-	}
+	h.state.Store(&allowState{
+		owner: envRule(log, d.getenv(), envOwnerAllowCIDRs),
+		agent: envRule(log, d.getenv(), envAgentAllowCIDRs),
+	})
+	d.reloadable("allowlist", []string{envOwnerAllowCIDRs, envAgentAllowCIDRs}, h)
 	return h
 }
 
-func envRule(log *slog.Logger, key string) allowRule {
-	v := strings.TrimSpace(os.Getenv(key))
+func (h *allowlisted) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	owner, err := ruleFrom(getenv, envOwnerAllowCIDRs)
+	agent, aerr := ruleFrom(getenv, envAgentAllowCIDRs)
+	if err = errors.Join(err, aerr); err != nil {
+		return reload.Plan{}, err
+	}
+	st := &allowState{owner: owner, agent: agent}
+	return reload.Plan{Commit: func() { h.state.Store(st) }}, nil
+}
+
+func ruleFrom(getenv func(string) string, key string) (allowRule, error) {
+	v := strings.TrimSpace(getenv(key))
 	if v == "" {
-		return allowRule{open: true}
+		return allowRule{open: true}, nil
 	}
 	nets, err := parsePrefixes(v)
+	if err != nil {
+		return allowRule{}, fmt.Errorf("%s: %w", key, err)
+	}
+	return allowRule{nets: nets}, nil
+}
+
+func envRule(log *slog.Logger, getenv func(string) string, key string) allowRule {
+	r, err := ruleFrom(getenv, key)
 	if err != nil {
 		log.Error("invalid allowlist, denying all requests to this surface", "env", key, "err", err)
 		return allowRule{}
 	}
-	return allowRule{nets: nets}
+	return r
 }
 
 func parsePrefixes(v string) ([]netip.Prefix, error) {
@@ -96,7 +149,7 @@ func parsePrefixes(v string) ([]netip.Prefix, error) {
 }
 
 func (h *allowlisted) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	rule, guarded := h.rule(r.URL.Path)
+	rule, guarded := h.rule(h.state.Load(), r.URL.Path)
 	if !guarded {
 		h.next.ServeHTTP(w, r)
 		return
@@ -109,12 +162,12 @@ func (h *allowlisted) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.next.ServeHTTP(w, r)
 }
 
-func (h *allowlisted) rule(p string) (allowRule, bool) {
+func (h *allowlisted) rule(st *allowState, p string) (allowRule, bool) {
 	switch {
 	case p == "/mcp":
-		return h.agent, true
+		return st.agent, true
 	case p == "/api/v1" || strings.HasPrefix(p, "/api/v1/"):
-		return h.owner, true
+		return st.owner, true
 	}
 	return allowRule{}, false
 }
@@ -124,8 +177,9 @@ func (h *allowlisted) client(r *http.Request) (netip.Addr, bool) {
 	if err != nil {
 		host = r.RemoteAddr
 	}
+	trusted := h.trust.get()
 	peer, ok := parseHop(host)
-	if !ok || !inPrefixes(h.trusted, peer) {
+	if !ok || !inPrefixes(trusted, peer) {
 		return peer, ok
 	}
 	fwd := strings.Join(r.Header.Values("X-Forwarded-For"), ",")
@@ -138,7 +192,7 @@ func (h *allowlisted) client(r *http.Request) (netip.Addr, bool) {
 		if !ok {
 			return netip.Addr{}, false
 		}
-		if !inPrefixes(h.trusted, a) {
+		if !inPrefixes(trusted, a) {
 			return a, true
 		}
 	}
@@ -163,7 +217,5 @@ func inPrefixes(nets []netip.Prefix, a netip.Addr) bool {
 }
 
 func forbid(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "forbidden", "message": "request not allowed from this address"}})
+	httpx.WriteError(w, model.Forbidden("request not allowed from this address"))
 }

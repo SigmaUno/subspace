@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const planCols = `id, brief_id, status, proposed_by, note, created_at, decided_at, warnings`
@@ -69,9 +70,10 @@ func (t *tx) UpdatePlan(p *model.Plan) error {
   warnings=$8::jsonb WHERE id=$1`, a...)
 }
 
-func (t *tx) ListPlans(briefID, status string) ([]*model.Plan, error) {
+func (t *tx) ListPlans(f store.PlanFilter) ([]*model.Plan, error) {
 	var a args
-	a.eq("brief_id", briefID)
-	a.eq("status", status)
-	return list(t, scanPlan, `SELECT `+planCols+` FROM plans`+a.clause()+` ORDER BY created_at, id`, a.vals...)
+	a.eq("brief_id", f.BriefID)
+	a.eq("status", f.Status)
+	a.afterCreated("plans", f.AfterID)
+	return list(t, scanPlan, `SELECT `+planCols+` FROM plans`+a.clause()+` ORDER BY created_at, id`+a.limit(f.Limit), a.vals...)
 }

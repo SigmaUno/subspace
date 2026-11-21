@@ -27,7 +27,7 @@ const (
 var tools = map[string]bool{
 	"claim_task": true, "release_task": true, "submit": true, "review": true, "update_status": true,
 	"report_tests": true, "ask_owner": true, "post_message": true, "add_note": true, "assign": true,
-	"reassign": true, "propose_plan": true, "create_task": true, "request_spawn": true,
+	"reassign": true, "propose_plan": true, "create_task": true, "create_task_from_template": true, "request_spawn": true,
 }
 
 var transient = map[string]bool{"internal": true, "agent_paused": true, "rate_limited": true}
@@ -51,6 +51,7 @@ type Options struct {
 	Agents auth.AgentLookup
 	Now    func() time.Time
 	Log    *slog.Logger
+	Lock   func(ctx context.Context, key string) (func(), error)
 }
 
 type handler struct {
@@ -128,6 +129,15 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	unlock := h.lock(agent.ID + "\x00" + key)
 	defer unlock()
 	ctx := r.Context()
+	if h.opts.Lock != nil {
+		release, err := h.opts.Lock(ctx, agent.ID+"\x00"+key)
+		if err != nil {
+			h.opts.Log.Error("idempotency lock", "err", err)
+			writeRPC(w, req.ID, toolError("internal", "internal error"), false)
+			return
+		}
+		defer release()
+	}
 	rec, err := h.opts.Store.GetIdempotency(ctx, agent.ID, key, h.opts.Now())
 	if err != nil {
 		h.opts.Log.Error("idempotency lookup", "err", err)

@@ -1,0 +1,12 @@
+go test fuzz v1
+byte('U')
+byte('&')
+byte('\x01')
+byte('\x00')
+string("0")
+string("0")
+string("0")
+string("")
+string("0")
+bool(false)
+[]byte("0")

@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "subspace": {
+      "type": "http",
+      "url": "${SUBSPACE_URL}/mcp",
+      "headers": {
+        "Authorization": "Bearer ${SUBSPACE_TOKEN}"
+      }
+    }
+  }
+}

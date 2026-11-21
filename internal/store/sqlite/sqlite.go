@@ -68,6 +68,7 @@ func Open(path string) (*Store, error) {
 			return nil, fmt.Errorf("create db dir: %w", err)
 		}
 	}
+	seeded := seedFromTemplate(path)
 	wdb, err := sql.Open("sqlite", dsn(path, true))
 	if err != nil {
 		return nil, err
@@ -81,27 +82,37 @@ func Open(path string) (*Store, error) {
 	}
 	rdb.SetMaxOpenConns(16)
 	rdb.SetMaxIdleConns(16)
-	if _, err := wdb.Exec(schema); err != nil {
-		_ = wdb.Close()
-		_ = rdb.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	if err := migrate(wdb); err != nil {
-		_ = wdb.Close()
-		_ = rdb.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	for _, ddl := range extraSchemas {
-		if _, err := wdb.Exec(ddl); err != nil {
+	if !seeded {
+		if err := initSchema(wdb); err != nil {
 			_ = wdb.Close()
 			_ = rdb.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
+	if err := migrateAuditDeleteTrigger(wdb); err != nil {
+		_ = wdb.Close()
+		_ = rdb.Close()
+		return nil, fmt.Errorf("migrate: %w", err)
+	}
 	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
+}
+
+func initSchema(wdb *sql.DB) error {
+	if _, err := wdb.Exec(schema); err != nil {
+		return err
+	}
+	if err := migrate(wdb); err != nil {
+		return err
+	}
+	for _, ddl := range extraSchemas {
+		if _, err := wdb.Exec(ddl); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) Close() error {

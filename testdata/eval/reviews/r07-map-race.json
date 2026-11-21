@@ -1,0 +1,16 @@
+{
+  "id": "r07-map-race",
+  "title": "Cache agent stats scores",
+  "spec": "Autopilot recomputes agent scores on every assignment. Cache scores for 30 seconds. The cache is used from concurrent HTTP handlers and must be safe for concurrent use.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "scores are cached for 30 seconds",
+    "the cache is safe for concurrent use and go test -race passes"
+  ],
+  "tests": {"passed": 22, "failed": 0},
+  "pr_title": "Score cache",
+  "pr_body": "Adds a small TTL cache.",
+  "defects": [
+    {"file": "internal/agentstats/cache.go", "match": "c.entries[id] = entry{", "kind": "data_race", "note": "the map is written without holding c.mu while Get reads it under the lock", "criterion": 1}
+  ]
+}

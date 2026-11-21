@@ -1,9 +1,17 @@
+import type { CapacityLimit } from "./generated-types";
+
 export const statuses = [
   ["backlog", "Backlog"], ["ready", "Ready"], ["assigned", "Assigned"],
   ["in_progress", "In progress"], ["submitted", "Submitted"], ["in_review", "In review"],
   ["changes_requested", "Changes requested"], ["approved", "Approved"], ["done", "Done"],
   ["blocked", "Blocked"], ["needs_owner", "Needs owner"], ["cancelled", "Cancelled"],
 ] as const;
+
+export const agentRoles = ["leader", "worker", "tester", "reviewer"];
+
+export const agentKinds = [
+  ["claude-code", "Claude Code"], ["codex", "Codex"], ["opencode", "OpenCode"], ["other", "Other"],
+];
 
 export type TaskStatus = typeof statuses[number][0];
 
@@ -17,6 +25,7 @@ export interface Brief {
   allowed_providers: string[] | null;
   cost_used: number;
   plan_status: string;
+  playbook?: string;
   hillclimb_jobs?: import("./swarm").HillclimbJob[];
 }
 
@@ -30,6 +39,7 @@ export interface Task {
   role: string;
   assignee: string | null;
   component_id?: string | null;
+  priority?: number;
   depends_on: string[] | null;
   status: TaskStatus;
   progress_pct: number;
@@ -68,6 +78,14 @@ export interface Plan {
   proposed_by: string;
   note: string | null;
   tasks: Task[] | null;
+  warnings?: PlanFinding[] | null;
+}
+
+export interface PlanFinding {
+  severity: string;
+  rule: string;
+  task?: string;
+  message: string;
 }
 
 export interface Question {
@@ -117,14 +135,7 @@ export interface Control {
   version: string;
 }
 
-export interface CapacityLimit {
-  provider: string;
-  model: string;
-  max_concurrency: number;
-  requests_per_min: number;
-  in_use: number;
-  available: number;
-}
+export type { CapacityLimit };
 
 export interface Capacity {
   global_max_agents: number;

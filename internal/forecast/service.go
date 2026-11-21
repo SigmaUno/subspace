@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/decisions"
+	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/usage"
@@ -72,9 +73,14 @@ func (s *Service) Decisions(ctx context.Context) ([]*decisions.Decision, error) 
 	return out, nil
 }
 
+type Estimator interface {
+	ForTasks(ctx context.Context, tasks []*model.Task) (map[string]estimate.Estimate, error)
+}
+
 type StoreSource struct {
-	Store store.Store
-	Usage UsageSource
+	Store     store.Store
+	Usage     UsageSource
+	Estimator Estimator
 }
 
 func (s StoreSource) Snapshot(ctx context.Context, briefID string) (Snapshot, error) {
@@ -102,13 +108,28 @@ func (s StoreSource) Snapshot(ctx context.Context, briefID string) (Snapshot, er
 			return Snapshot{}, err
 		}
 	}
+	if s.Estimator != nil {
+		if out.Estimates, err = s.Estimator.ForTasks(ctx, openTasks(out.Tasks)); err != nil {
+			return Snapshot{}, err
+		}
+	}
 	return out, nil
+}
+
+func openTasks(tasks []*model.Task) []*model.Task {
+	var out []*model.Task
+	for _, t := range tasks {
+		if t.Status != model.StatusCancelled && !estimate.Completed(t) {
+			out = append(out, t)
+		}
+	}
+	return out
 }
 
 func (s StoreSource) OpenBriefs(ctx context.Context) ([]string, error) {
 	var ids []string
 	err := s.Store.View(ctx, func(tx store.Tx) error {
-		bs, err := tx.ListBriefs("open")
+		bs, err := tx.ListBriefs(store.BriefFilter{Status: "open"})
 		for _, b := range bs {
 			ids = append(ids, b.ID)
 		}

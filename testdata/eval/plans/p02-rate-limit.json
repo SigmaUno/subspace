@@ -1,0 +1,18 @@
+{
+  "id": "p02-rate-limit",
+  "title": "Per-agent rate limit on /mcp",
+  "body": "A misbehaving worker sent 40k tool calls in ten minutes. Add a per-agent rate limit to the MCP endpoint.\n\n- Token bucket per agent id, configured with SUBSPACE_MCP_RATE (calls per minute, default 600) and SUBSPACE_MCP_BURST (default 60).\n- Over the limit the call fails with JSON-RPC error code `rate_limited` and a retry_after hint; heartbeat is exempt.\n- Export a `subspace_mcp_rate_limited_total` counter labelled by agent role on /metrics.\n- A tester writes a deterministic simulation test with a fake clock that proves the limit and the heartbeat exemption.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server; internal/ratelimit has a token bucket, internal/metrics the Prometheus registry"}
+  ],
+  "max_cost_eur": 40,
+  "max_parallel_agents": 4,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 5,
+  "requirements": [
+    {"id": "limiter", "title": "Rate limit MCP calls per agent with a token bucket", "keywords": ["rate", "agent", "heartbeat"], "checks": ["rate_limited|limit", "test"]},
+    {"id": "metric", "title": "Export subspace_mcp_rate_limited_total on /metrics", "keywords": ["subspace_mcp_rate_limited_total|rate_limited_total|metric"], "checks": ["/metrics|metric"], "after": ["limiter"]},
+    {"id": "simtest", "title": "Simulation test for the MCP rate limit with a fake clock", "keywords": ["fake clock|simulated clock|simulation"], "checks": ["heartbeat", "deterministic|seed|fake clock"], "role": "tester", "after": ["limiter"]}
+  ]
+}

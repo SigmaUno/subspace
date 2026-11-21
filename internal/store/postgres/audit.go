@@ -100,13 +100,13 @@ func (t *tx) AuditHead(maxID int64) (model.AuditHead, error) {
 	var h model.AuditHead
 	err := t.q.QueryRowContext(t.ctx, `SELECT id, hash FROM audit WHERE id <= $1 ORDER BY id DESC LIMIT 1`, maxID).Scan(&h.ID, &h.Hash)
 	if errors.Is(err, sql.ErrNoRows) {
-		return h, nil
+		return t.auditAnchor()
 	}
 	return h, err
 }
 
-func (t *tx) auditRecords(fn func(audit.Record, string) bool) error {
-	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit ORDER BY id`)
+func (t *tx) auditRecords(after int64, fn func(audit.Record, string) bool) error {
+	rows, err := t.q.QueryContext(t.ctx, `SELECT `+auditCols+` FROM audit WHERE id > $1 ORDER BY id`, after)
 	if err != nil {
 		return err
 	}
@@ -129,11 +129,13 @@ func (t *tx) auditRecords(fn func(audit.Record, string) bool) error {
 }
 
 func (t *tx) VerifyAudit() (model.AuditCheck, error) {
-	var (
-		c      audit.Chain
-		broken int64
-	)
-	err := t.auditRecords(func(r audit.Record, hash string) bool {
+	anchor, err := t.auditAnchor()
+	if err != nil {
+		return model.AuditCheck{}, err
+	}
+	var broken int64
+	c := audit.Chain{HeadID: anchor.ID, HeadHash: anchor.Hash}
+	err = t.auditRecords(anchor.ID, func(r audit.Record, hash string) bool {
 		if c.Add(r, hash) {
 			return true
 		}
@@ -150,7 +152,7 @@ func (t *tx) chainExisting() ([]model.AuditHead, error) {
 		prev string
 		lerr error
 	)
-	err := t.auditRecords(func(r audit.Record, _ string) bool {
+	err := t.auditRecords(0, func(r audit.Record, _ string) bool {
 		h, err := audit.Link(prev, r)
 		if err != nil {
 			lerr = fmt.Errorf("audit %d: %w", r.ID, err)
@@ -205,10 +207,11 @@ func (t *tx) UpdateSpawn(s *model.Spawn) error {
   error=$9, requested_by=$10, created_at=$11 WHERE id=$1`, spawnArgs(s)...)
 }
 
-func (t *tx) ListSpawns(briefID string) ([]*model.Spawn, error) {
+func (t *tx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
 	var a args
-	a.eq("brief_id", briefID)
-	return list(t, scanSpawn, `SELECT `+spawnCols+` FROM spawns`+a.clause()+` ORDER BY created_at, `+idNum+`, id`, a.vals...)
+	a.eq("brief_id", f.BriefID)
+	a.afterCreatedNum("spawns", f.AfterID)
+	return list(t, scanSpawn, `SELECT `+spawnCols+` FROM spawns`+a.clause()+` ORDER BY created_at, `+idNum+`, id`+a.limit(f.Limit), a.vals...)
 }
 
 func (t *tx) GetKV(key string) (string, bool, error) {

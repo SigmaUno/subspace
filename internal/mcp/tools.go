@@ -379,6 +379,7 @@ func NewRegistry(b *board.Board) *Registry {
 			return map[string]any{"spawns": sp}, err
 		})
 	RegisterArtifacts(r, b)
+	RegisterKnowledge(r, b)
 	return r
 }
 

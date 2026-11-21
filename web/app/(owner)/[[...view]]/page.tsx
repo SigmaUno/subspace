@@ -1,6 +1,6 @@
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
-import { ownerCookie, ownerStatus } from "../../../lib/upstream";
+import { ownerCookie, ownerSession, type OwnerSession } from "../../../lib/upstream";
 import { AgentDetailPage } from "./agent-detail";
 import { AuditPage } from "./audit";
 import { DagPage } from "./dag";
@@ -16,10 +16,14 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   const { view = [] } = await params;
   const token = (await cookies()).get(ownerCookie)?.value;
   if (!token) redirect("/login");
-  const status = await ownerStatus(token).catch(() => 502);
-  if (status === 401 || status === 403) redirect("/login");
-  if (status !== 200) redirect("/login?error=unavailable");
+  const session = await ownerSession(token).catch((): OwnerSession => ({ status: 502 }));
+  if (session.status === 401 || session.status === 403) redirect("/login");
+  if (session.status !== 200) redirect("/login?error=unavailable");
 
+  return <div className="scope" data-scope={session.scope === "owner" ? "owner" : "viewer"}>{content(view)}</div>;
+}
+
+function content(view: string[]) {
   const [root, id, subview] = view;
   if (root === "audit" && view.length === 1) return <AuditPage />;
   if (root === "prompts" && view.length === 1) return <PromptsPage />;

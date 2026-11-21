@@ -50,7 +50,7 @@ export function OrgBudget({ revision }: { revision: number }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(16rem, 1fr))", gap: ".8rem" }}>
         {current.windows.map((spend) => <WindowTile key={spend.window} spend={spend} />)}
       </div>
-      <form key={`${current.daily_cost_eur}:${current.weekly_cost_eur}`} className="actions" onSubmit={(event) => form.submit(event, async (fields) => {
+      <form key={`${current.daily_cost_eur}:${current.weekly_cost_eur}`} className="actions" data-write onSubmit={(event) => form.submit(event, async (fields) => {
         const response = await api<SpendLimits>("limits", "PUT", { daily_cost_eur: cap(fields, "daily_cost_eur"), weekly_cost_eur: cap(fields, "weekly_cost_eur") });
         limits.setData(response);
         limits.refresh();

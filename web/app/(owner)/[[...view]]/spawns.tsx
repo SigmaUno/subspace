@@ -89,7 +89,7 @@ export function SpawnsPanel({ revision }: { revision: number }) {
             <td><time dateTime={spawn.created_at} title={spawn.created_at}>{now ? age(spawn, now) : "—"}</time></td>
             <td>{timer ?? "—"}</td>
             <td>{spawn.status === "spawned"
-              ? <button type="button" className="danger" disabled={busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
+              ? <button type="button" className="danger" data-write disabled={busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
               : "—"}</td>
           </tr>;
         })}</tbody>

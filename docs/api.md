@@ -5,20 +5,22 @@ the server changes, this file changes in the same PR.
 
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
 
 | Surface | Credential | Notes |
 |---|---|---|
-| `/api/v1/*` | `Authorization: Bearer <owner token>` | Owner token from env `SUBSPACE_OWNER_TOKEN` or `SUBSPACE_OWNER_TOKEN_FILE`. Agent tokens are rejected here (403). |
+| `/api/v1/*` | `Authorization: Bearer <owner token>` | The env token `SUBSPACE_OWNER_TOKEN` / `SUBSPACE_OWNER_TOKEN_FILE` (root, break-glass, scope `owner`) or a managed API token (`ssu_`, see Tokens). Agent tokens are rejected here (403). |
 | `/mcp` | `Authorization: Bearer <agent token>` | One token per agent. The owner token is rejected here (403): owner actions are never reachable through MCP. |
 | `/healthz` | none | `{"status":"ok","version":"...","paused":false}` |
 | `POST /hooks/github`, `POST /hooks/forgejo` | HMAC signature (`X-Hub-Signature-256`; `X-Forgejo-Signature` / `X-Gitea-Signature`) | Mounted only when `SUBSPACE_WEBHOOK_SECRET_GITHUB` / `SUBSPACE_WEBHOOK_SECRET_FORGEJO` is set. Body ≤ 1 MiB, `*-Delivery` id required, replayed delivery ids → 202 without effect. |
 | `GET /a/{token}`, `POST /a/{token}` | signed one-time action token in the path | See Action links. Rate limited per client address. |
 
 Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashes are stored; the plaintext is returned exactly once (register / rotate). Comparison is constant-time.
+
+Managed API tokens are 32 random bytes, base64url, prefixed `ssu_`, stored as SHA-256 hashes and returned once on create. Scope `owner` may call every `/api/v1` endpoint. Scope `viewer` may only use `GET`/`HEAD` (including SSE and mounted read endpoints) and never `/api/v1/tokens`; anything else is 403 `forbidden`. This is enforced centrally before any handler runs. Revoked or expired tokens are 401. Every state-changing owner action records the acting token id in the audit `note` as `token=<id>` (`token=root` for the env token), followed by `; <note>` when the action has its own note. `last_used_at` is written at most once per minute per token.
 
 Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` is always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
 
@@ -30,7 +32,7 @@ Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token p
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
-In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s owner state endpoint before forwarding requests to protected handlers. Go also authenticates each protected request.
+In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next.js. The proxy adds the bearer from the browser's httpOnly owner cookie. It also accepts an explicit bearer from CLI/API clients without a session cookie, so `SUBSPACE_URL` can point to the public Caddy URL. Next validates both with Go’s `GET /api/v1/me` before forwarding requests to protected handlers. Go also authenticates each protected request.
 
 ## 2. Objects
 
@@ -114,6 +116,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Control & state
 | Method | Path | Body → Response |
 |---|---|---|
+| GET | `/api/v1/me` | → `{"role":"owner","scope":"owner"}`; `scope` is `owner` or `viewer` for the presented token. |
 | GET | `/api/v1/state` | → `{"paused":false,"pause_reason":null,"counts":{"agents":12,"agents_active":10,"tasks":{"ready":3,"in_progress":5,...},"open_questions":2,"proposed_plans":1},"version":"..."}` |
 | POST | `/api/v1/pause-all` | `{"reason":"..."}` → `{"paused":true}`. Revokes all leases (in_progress → assigned), blocks claims. |
 | POST | `/api/v1/resume-all` | `{}` → `{"paused":false}` |
@@ -365,6 +368,20 @@ Durations use Go syntax; `0` disables a rule. The `noop` spawner cannot stop or 
 ```
 
 Samples are usage reports (`report_usage`; `rate_limited: true` counts as an error) and `report_provider_error` calls, kept per provider/model in memory for a rolling window. A breaker opens when the window holds at least `SUBSPACE_BREAKER_MIN_SAMPLES` samples (default 10) and the error rate is above `SUBSPACE_BREAKER_ERROR_RATE` (default `0.5`, window `SUBSPACE_BREAKER_WINDOW`, default `5m`). While open, `request_spawn`, `POST /api/v1/bots/spawn` and autopilot start no agents of that provider/model (409 `capacity`) and autopilot assigns it no tasks; running agents continue. After `SUBSPACE_BREAKER_COOLDOWN` (default `1m`) it half-opens: one probe agent (`n` = 1) may be spawned and autopilot assigns one task when no agent of that provider/model has work. The next sample decides: a success closes the breaker, an error opens it again. An unused probe grant expires after another cooldown. Breakers are held in memory per server process. An open or half-open breaker appears in the decision inbox as `breaker:<provider>:<model>` (`skip` only); resetting or closing removes it.
+
+### Tokens
+Owner scope only.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/tokens` | `{"name","scope":"viewer or owner","expires_at":null}` → `{"token":Token,"secret":"ssu_..."}` (201; `secret` shown once). 400 for an empty name, an unknown scope or an `expires_at` that is not in the future. |
+| GET | `/api/v1/tokens` | → `{"tokens":[Token]}` ascending by id, revoked ones included. |
+| POST | `/api/v1/tokens/{id}/revoke` | `{}` → Token. Dead immediately. 404 for an unknown id, 409 if already revoked. |
+
+```jsonc
+// Token
+{"id":"K-1","name":"ci dashboard","scope":"viewer","created_at":"...","last_used_at":null,"revoked_at":null,"expires_at":null}
+```
 
 ### Audit
 | Method | Path | Body → Response |

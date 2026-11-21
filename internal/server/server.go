@@ -59,6 +59,7 @@ type Server struct {
 	Store   store.Store
 	Board   *board.Board
 	Hub     events.Hub
+	api     *api.API
 	handler http.Handler
 	backups *backup.Scheduler
 
@@ -189,7 +190,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		h = w(h, deps)
 	}
 	h = newAllowlisted(h, deps)
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, drain: make(chan struct{})}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil

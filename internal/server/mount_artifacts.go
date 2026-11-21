@@ -11,6 +11,7 @@ import (
 	"strconv"
 
 	"github.com/SigmaUno/subspace/internal/artifacts"
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -114,6 +115,15 @@ func (d artifactDirectory) AgentTasks(ctx context.Context, agentID string) ([]*m
 type artifactAuditor struct{ st store.Store }
 
 func (a artifactAuditor) Record(ctx context.Context, e *model.AuditEvent) error {
+	if e.Role == model.RoleOwner {
+		var note string
+		if e.Note != nil {
+			note = *e.Note
+		}
+		if note = auth.AuditNote(ctx, note); note != "" {
+			e.Note = &note
+		}
+	}
 	return a.st.Atomic(ctx, func(tx store.Tx) error { return tx.InsertAudit(e) })
 }
 

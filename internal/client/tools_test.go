@@ -10,6 +10,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/client"
 	"github.com/SigmaUno/subspace/internal/helpreq"
+	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/prompts"
@@ -121,6 +122,22 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("question %+v", q)
 	}
 	_ = must(e.owner.AnswerQuestion(ctx, q.ID, "sqlite"))
+	k := must(tm.worker.AddKnowledge(ctx, knowledge.Input{Kind: "decision", Title: "use sqlite", Body: "owner answered", Tags: []string{"db"}}))
+	if k.Status != knowledge.StatusPending || k.BriefID != br.ID || k.Author != "wally" {
+		t.Fatalf("knowledge %+v", k)
+	}
+	if ks := must(tm.leader.SearchKnowledge(ctx, "sqlite", "decision", br.ID, 5)); len(ks) != 1 || ks[0].ID != k.ID {
+		t.Fatalf("search knowledge %+v", ks)
+	}
+	if g := must(tm.leader.GetKnowledge(ctx, k.ID)); g.Title != "use sqlite" {
+		t.Fatalf("get knowledge %+v", g)
+	}
+	if p := must(tm.leader.PinKnowledge(ctx, k.ID, true)); !p.Pinned {
+		t.Fatalf("pin knowledge %+v", p)
+	}
+	if sk := must(tm.leader.SupersedeKnowledge(ctx, k.ID, "")); sk.Status != knowledge.StatusSuperseded {
+		t.Fatalf("supersede knowledge %+v", sk)
+	}
 	posted := must(tm.worker.PostMessage(ctx, "task:"+impl, "hello thread"))
 	if posted.ThreadID != impl {
 		t.Fatalf("posted %+v", posted)

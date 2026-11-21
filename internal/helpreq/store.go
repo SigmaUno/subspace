@@ -1,0 +1,137 @@
+package helpreq
+
+import (
+	"context"
+	"database/sql"
+	"encoding/json"
+	"errors"
+	"time"
+
+	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
+)
+
+const schema = `
+CREATE TABLE IF NOT EXISTS help_requests (
+  id TEXT PRIMARY KEY, type TEXT NOT NULL, kind TEXT NOT NULL, task_id TEXT NOT NULL, brief_id TEXT NOT NULL,
+  agent_id TEXT NOT NULL, role TEXT NOT NULL, needs TEXT NOT NULL DEFAULT '', details TEXT NOT NULL,
+  proposed TEXT NOT NULL DEFAULT '[]', status TEXT NOT NULL, created_tasks TEXT NOT NULL DEFAULT '[]',
+  created_at INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS help_requests_brief ON help_requests(brief_id, id);
+CREATE INDEX IF NOT EXISTS help_requests_task ON help_requests(task_id, type, status);
+`
+
+const cols = `id,type,kind,task_id,brief_id,agent_id,role,needs,details,proposed,status,created_tasks,created_at`
+
+func init() { sqlite.RegisterSchema(schema) }
+
+type sqlTx interface {
+	Exec(q string, args ...any) (sql.Result, error)
+	Query(q string, args ...any) (*sql.Rows, error)
+}
+
+var errNoSQL = errors.New("helpreq: store transaction does not expose SQL")
+
+func withSQL(fn func(store.Tx, sqlTx) error) func(store.Tx) error {
+	return func(t store.Tx) error {
+		q, ok := t.(sqlTx)
+		if !ok {
+			return errNoSQL
+		}
+		return fn(t, q)
+	}
+}
+
+func insert(t store.Tx, q sqlTx, r *Request) error {
+	id, err := t.NextID("HR")
+	if err != nil {
+		return err
+	}
+	proposed, err := json.Marshal(nzTasks(r.ProposedTasks))
+	if err != nil {
+		return err
+	}
+	if _, err := q.Exec(`INSERT INTO help_requests(`+cols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+		id, r.Type, r.Kind, r.TaskID, r.BriefID, r.AgentID, r.Role, r.Needs, r.Details, string(proposed), r.Status, "[]",
+		r.CreatedAt.UnixMilli()); err != nil {
+		return err
+	}
+	r.ID = id
+	return nil
+}
+
+func query(q sqlTx, where string, args ...any) ([]*Request, error) {
+	rows, err := q.Query(`SELECT `+cols+` FROM help_requests `+where, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []*Request
+	for rows.Next() {
+		var (
+			r                 Request
+			proposed, created string
+			at                int64
+		)
+		if err := rows.Scan(&r.ID, &r.Type, &r.Kind, &r.TaskID, &r.BriefID, &r.AgentID, &r.Role, &r.Needs, &r.Details,
+			&proposed, &r.Status, &created, &at); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(proposed), &r.ProposedTasks); err != nil {
+			return nil, err
+		}
+		if err := json.Unmarshal([]byte(created), &r.CreatedTasks); err != nil {
+			return nil, err
+		}
+		r.ProposedTasks, r.CreatedTasks = nzTasks(r.ProposedTasks), nzStrings(r.CreatedTasks)
+		r.CreatedAt = time.UnixMilli(at).UTC()
+		out = append(out, &r)
+	}
+	return out, rows.Err()
+}
+
+func get(q sqlTx, id string) (*Request, error) {
+	rs, err := query(q, `WHERE id=?`, id)
+	if err != nil {
+		return nil, err
+	}
+	if len(rs) == 0 {
+		return nil, model.NotFound("help request %s not found", id)
+	}
+	return rs[0], nil
+}
+
+func setStatus(q sqlTx, id, from, to string) error {
+	res, err := q.Exec(`UPDATE help_requests SET status=? WHERE id=? AND status=?`, to, id, from)
+	if err != nil {
+		return err
+	}
+	if n, err := res.RowsAffected(); err != nil || n == 0 {
+		return errors.Join(err, model.Conflict("help request %s is not %s", id, from))
+	}
+	return nil
+}
+
+func nzTasks(s []Proposed) []Proposed {
+	if s == nil {
+		return []Proposed{}
+	}
+	return s
+}
+
+func nzStrings(s []string) []string {
+	if s == nil {
+		return []string{}
+	}
+	return s
+}
+
+func (s *Service) atomic(ctx context.Context, fn func(store.Tx, sqlTx) error) error {
+	return s.st.Atomic(ctx, withSQL(fn))
+}
+
+func (s *Service) view(ctx context.Context, fn func(store.Tx, sqlTx) error) error {
+	return s.st.View(ctx, withSQL(fn))
+}

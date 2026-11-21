@@ -184,19 +184,34 @@ func LintPlaybook(brief model.Brief, tasks []Task, r *Rules) []Finding {
 	if r == nil {
 		return out
 	}
-	add := func(severity, rule string, t *Task, format string, a ...any) {
-		f := Finding{Severity: severity, Rule: rule, Message: fmt.Sprintf(format, a...)}
-		if t != nil {
-			f.Task = label(t)
-		}
-		out = append(out, f)
-	}
+	add := collect(&out)
 	coverage(r, brief, tasks, add)
 	requiredTasks(r, tasks, add)
 	criteria(r, tasks, add)
 	sizes(r, tasks, add)
 	sort.SliceStable(out, func(i, j int) bool { return out[i].Severity == SeverityError && out[j].Severity != SeverityError })
 	return out
+}
+
+func LintPlaybookTask(t Task, r *Rules) []Finding {
+	var out []Finding
+	if r == nil {
+		return out
+	}
+	add := collect(&out)
+	criteria(r, []Task{t}, add)
+	sizes(r, []Task{t}, add)
+	return out
+}
+
+func collect(out *[]Finding) adder {
+	return func(severity, rule string, t *Task, format string, a ...any) {
+		f := Finding{Severity: severity, Rule: rule, Message: fmt.Sprintf(format, a...)}
+		if t != nil {
+			f.Task = label(t)
+		}
+		*out = append(*out, f)
+	}
 }
 
 func isWorker(t *Task) bool { return t.Role == "" || t.Role == model.RoleWorker }

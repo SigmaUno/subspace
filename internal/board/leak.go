@@ -20,6 +20,7 @@ const (
 	ChannelPR       = "pr_text"
 	ChannelOutput   = "log_output"
 	ChannelTask     = "task_text"
+	ChannelHelp     = "help_request"
 )
 
 type LeakSource struct {

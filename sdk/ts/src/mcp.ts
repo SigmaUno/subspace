@@ -231,15 +231,19 @@ export class McpClient {
 
   async *notifications(options: FollowOptions = {}): AsyncGenerator<McpNotification> {
     await this.#session();
-    const open = async (lastEventId: string | undefined, signal: AbortSignal | undefined): Promise<Response> => {
+    const open = async (
+      lastEventId: string | undefined,
+      signal: AbortSignal | undefined,
+      renewed = false,
+    ): Promise<Response> => {
       const headers = this.#headers("text/event-stream");
       if (lastEventId !== undefined) headers["last-event-id"] = lastEventId;
       const res = await this.#fetch(this.url, { method: "GET", headers, signal });
       if (res.ok) return res;
       const err = await errorFromResponse(res);
-      if (err.status === 404 && this.#sessionId !== undefined) {
+      if (err.status === 404 && !renewed && this.#sessionId !== undefined) {
         await this.initialize();
-        return open(lastEventId, signal);
+        return open(lastEventId, signal, true);
       }
       throw err;
     };

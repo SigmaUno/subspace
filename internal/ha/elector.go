@@ -2,6 +2,7 @@ package ha
 
 import (
 	"context"
+	"errors"
 	"log/slog"
 	"sync"
 	"time"
@@ -13,6 +14,8 @@ const (
 	DefaultInterval = time.Second
 	DefaultTTL      = 5 * time.Second
 )
+
+var errLeaseExpired = errors.New("leader lease expired before it could be renewed")
 
 type Lock interface {
 	Acquire(ctx context.Context) (bool, error)
@@ -50,14 +53,18 @@ type EventStats struct {
 type Elector struct {
 	o Options
 
-	mu      sync.Mutex
-	leader  bool
-	term    int64
-	since   time.Time
-	holder  string
-	termCtx context.Context
-	end     context.CancelFunc
-	changed chan struct{}
+	clock func() time.Time
+
+	mu       sync.Mutex
+	leader   bool
+	term     int64
+	since    time.Time
+	holder   string
+	deadline time.Time
+	watch    *time.Timer
+	termCtx  context.Context
+	end      context.CancelFunc
+	changed  chan struct{}
 }
 
 func New(o Options) *Elector {
@@ -67,8 +74,8 @@ func New(o Options) *Elector {
 	if o.TTL <= 0 {
 		o.TTL = DefaultTTL
 	}
-	if o.TTL < 2*o.Interval {
-		o.TTL = 2 * o.Interval
+	if o.TTL < 3*o.Interval {
+		o.TTL = 3 * o.Interval
 	}
 	if o.Log == nil {
 		o.Log = slog.Default()
@@ -79,9 +86,9 @@ func New(o Options) *Elector {
 	if o.Backend == "" {
 		o.Backend = "single"
 	}
-	e := &Elector{o: o, changed: make(chan struct{})}
+	e := &Elector{o: o, clock: time.Now, changed: make(chan struct{})}
 	if o.Lock == nil {
-		e.promote()
+		e.promote(e.clock())
 		e.holder = o.ID
 	}
 	return e
@@ -92,18 +99,23 @@ func (e *Elector) ID() string { return e.o.ID }
 func (e *Elector) IsLeader() bool {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	return e.leader
+	return e.leadingLocked()
+}
+
+func (e *Elector) leadingLocked() bool {
+	return e.leader && (e.o.Lock == nil || e.clock().Before(e.deadline))
 }
 
 func (e *Elector) Status() Status {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	s := Status{Instance: e.o.ID, Backend: e.o.Backend, Leader: e.leader, Term: e.term, LeaseSeconds: e.o.TTL.Seconds()}
+	leading := e.leadingLocked()
+	s := Status{Instance: e.o.ID, Backend: e.o.Backend, Leader: leading, Term: e.term, LeaseSeconds: e.o.TTL.Seconds()}
 	if e.holder != "" {
 		h := e.holder
 		s.LeaderInstance = &h
 	}
-	if e.leader {
+	if leading {
 		since := e.since
 		s.Since = &since
 	}
@@ -113,13 +125,13 @@ func (e *Elector) Status() Status {
 func (e *Elector) current() (context.Context, <-chan struct{}) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if e.leader {
+	if e.leadingLocked() {
 		return e.termCtx, nil
 	}
 	return nil, e.changed
 }
 
-func (e *Elector) promote() {
+func (e *Elector) promote(start time.Time) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	if e.leader {
@@ -130,19 +142,48 @@ func (e *Elector) promote() {
 	e.since = e.o.Now()
 	e.holder = e.o.ID
 	e.termCtx, e.end = context.WithCancel(context.Background())
+	e.extendLocked(start)
 	close(e.changed)
 	e.changed = make(chan struct{})
+}
+
+func (e *Elector) extendLocked(start time.Time) {
+	if e.o.Lock == nil {
+		return
+	}
+	e.deadline = start.Add(e.o.TTL - e.o.Interval)
+	if e.watch != nil {
+		e.watch.Stop()
+	}
+	term := e.term
+	e.watch = time.AfterFunc(e.deadline.Sub(e.clock()), func() { e.expire(term) })
+}
+
+func (e *Elector) expire(term int64) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	if e.leader && e.term == term && !e.clock().Before(e.deadline) {
+		e.demoteLocked()
+	}
 }
 
 func (e *Elector) demote() {
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	e.demoteLocked()
+}
+
+func (e *Elector) demoteLocked() {
 	if !e.leader {
 		return
 	}
 	e.leader = false
 	if e.holder == e.o.ID {
 		e.holder = ""
+	}
+	if e.watch != nil {
+		e.watch.Stop()
+		e.watch = nil
 	}
 	e.end()
 	close(e.changed)
@@ -178,18 +219,16 @@ func (e *Elector) Run(ctx context.Context) {
 }
 
 func (e *Elector) step(ctx context.Context) {
-	sctx, cancel := context.WithTimeout(ctx, e.o.TTL)
-	defer cancel()
-	if e.IsLeader() {
-		if err := e.o.Lock.Renew(sctx); err != nil {
-			if ctx.Err() == nil {
-				e.o.Log.Warn("leader lease lost, stepping down", "instance", e.o.ID, "err", err)
-			}
-			e.demote()
-			e.o.Lock.Release()
-		}
+	start := e.clock()
+	e.mu.Lock()
+	leader, deadline := e.leader, e.deadline
+	e.mu.Unlock()
+	if leader {
+		e.renew(ctx, start, deadline.Sub(start))
 		return
 	}
+	sctx, cancel := context.WithTimeout(ctx, e.o.TTL)
+	defer cancel()
 	ok, err := e.o.Lock.Acquire(sctx)
 	if err != nil {
 		if ctx.Err() == nil {
@@ -199,7 +238,7 @@ func (e *Elector) step(ctx context.Context) {
 		return
 	}
 	if ok {
-		e.promote()
+		e.promote(start)
 		e.o.Log.Info("became leader", "instance", e.o.ID, "term", e.Status().Term)
 		return
 	}
@@ -207,6 +246,28 @@ func (e *Elector) step(ctx context.Context) {
 	if err == nil {
 		e.setHolder(h)
 	}
+}
+
+func (e *Elector) renew(ctx context.Context, start time.Time, left time.Duration) {
+	err := errLeaseExpired
+	if left > 0 {
+		rctx, cancel := context.WithTimeout(ctx, min(e.o.TTL, left))
+		err = e.o.Lock.Renew(rctx)
+		cancel()
+	}
+	if err == nil {
+		e.mu.Lock()
+		if e.leader {
+			e.extendLocked(start)
+		}
+		e.mu.Unlock()
+		return
+	}
+	if ctx.Err() == nil {
+		e.o.Log.Warn("leader lease lost, stepping down", "instance", e.o.ID, "err", err)
+	}
+	e.demote()
+	e.o.Lock.Release()
 }
 
 func (e *Elector) Lead(ctx context.Context, fn func(context.Context)) {

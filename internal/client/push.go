@@ -174,6 +174,9 @@ func (m *MCP) pump(ctx context.Context) {
 					return
 				}
 			}
+			if lastID == "" {
+				lastID = "0"
+			}
 			reason, rerr := m.readStream(ctx, resp, &lastID)
 			if rerr != nil && ctx.Err() != nil {
 				m.stopPump(ctx.Err())

@@ -19,6 +19,7 @@ import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
 import { KeyboardShortcuts } from "./shortcuts";
 import { Clock, Feedback } from "./components";
+import { ConnectionStatus, ResourceState } from "./states";
 
 export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
   const topbar = useRef<HTMLElement>(null);
@@ -40,6 +41,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
   const [inboxOpen, setInboxOpen] = useState(section === "swarm");
   const [moreOpen, setMoreOpen] = useState(false);
   const { revisions, recent, connected } = useLive("all");
+  const { revisions, recent, status } = useLive("all");
   const state = useResource<Control>("state", revisions.control);
   const decisions = useResource("decisions", revisions.decisions, optionalResource<DecisionFeed>);
   const decisionCount = decisions.data?.count ?? decisions.data?.decisions?.length ??
@@ -107,6 +109,8 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         <div className="top-actions">
           <span className={`connection ${connected ? "online" : ""}`} role="status">{connected ? "Live" : "Reconnecting"}</span>
           <button type="button" className="desktop-only" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
+          <ConnectionStatus status={status} />
+          <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
             Decisions <span className="nav-count">{decisionCount}</span>
           </button>
           <button className={state.data?.paused ? "primary" : "danger"} onClick={togglePause} disabled={pending || !state.data}>
@@ -116,7 +120,8 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         </div>
       </header>
       <main className={`workspace ${section === "swarm" ? "wide" : ""}`}>
-        <Feedback error={error || state.error} />
+        <Feedback error={error} />
+        <ResourceState error={state.error} retry={state.refresh} />
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
         <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
           <div className="stack workspace-content">

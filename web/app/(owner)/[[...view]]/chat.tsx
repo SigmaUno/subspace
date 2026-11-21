@@ -5,6 +5,7 @@ import { api, optionalResource, useResource, useSubmit, value } from "../../../l
 import type { Component, Conversation } from "../../../lib/swarm";
 import type { Agent } from "../../../lib/types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 function ConversationPanel({ target, revision }: { target: string; revision: number }) {
   const [id, setID] = useState("");
@@ -23,13 +24,13 @@ function ConversationPanel({ target, revision }: { target: string; revision: num
 
   return <>
     <div className="chat-log" role="log" aria-label="Conversation" ref={log} tabIndex={0}>
-      <Feedback error={conversation.error} loading={!!id && conversation.data === undefined} />
+      <ResourceState error={conversation.error} loading={!!id && conversation.data === undefined} retry={conversation.refresh} rows={2} />
       {conversation.data?.messages?.map((message) => <article key={message.id}>
         <div className="message-meta"><strong>{message.author_id}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time></div>
         <p className="preserve">{message.body}</p>
       </article>)}
-      {!id && <p className="muted">No messages yet.</p>}
-      {id && conversation.data === null && <p className="muted">Conversation history is unavailable.</p>}
+      {!id && <EmptyState>No messages yet.</EmptyState>}
+      {id && conversation.data === null && <EmptyState>Conversation history is unavailable.</EmptyState>}
     </div>
     <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");

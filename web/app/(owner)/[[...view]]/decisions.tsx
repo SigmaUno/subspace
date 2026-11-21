@@ -6,6 +6,7 @@ import { api, optionalResource, safeURL, useResource, useSubmit, value } from ".
 import type { Decision } from "../../../lib/swarm";
 import type { Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState, Skeleton } from "./states";
 
 export type DecisionFeed = { decisions: Decision[]; count?: number };
 
@@ -130,13 +131,13 @@ export function DecisionInbox({ feed, count, revision, refresh, close, openThrea
 
   return <aside className="panel stack decision-panel" aria-label="Decision inbox">
     <div className="heading"><h2>Decision inbox <span className="pill">{count}</span></h2><button onClick={close}>Close</button></div>
-    <Feedback error={error || next.error} />
+    <ResourceState error={error || next.error} retry={() => { refresh(); next.refresh(); }} rows={3} />
     {item && <DecisionCard key={item.id} item={item} openThread={openThread}
       next={(id) => setSkipped((items) => [...items, id])}
       acting={(id) => { setResolved((items) => [...items, id]); refresh(); next.refresh(); }} />}
-    {!item && feed === undefined && !error && <Feedback loading />}
+    {!item && feed === undefined && !error && <Skeleton rows={3} />}
     {!item && feed === null && <div className="actions"><Link href="/plans">Plan approvals</Link><Link href="/questions">Questions</Link></div>}
-    {!item && feed && <p className="empty">{skipped.length ? "No unskipped decisions." : "No pending decisions."}</p>}
+    {!item && feed && <EmptyState>{skipped.length ? "No unskipped decisions." : "No pending decisions."}</EmptyState>}
     {skipped.length > 0 && <div><button type="button" onClick={() => setSkipped([])}>Review skipped</button></div>}
   </aside>;
 }

@@ -5,6 +5,7 @@ import { useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Prompt, PromptList, RenderedPrompt } from "../../../lib/prompts-types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 function CopyButton({ text }: { text: string }) {
   const [feedback, setFeedback] = useState("");
@@ -75,8 +76,8 @@ export function PromptsPage() {
           </select>
         </label>
       </div>
-      <Feedback error={all.error || list.error} loading={!list.data} />
-      {list.data && !list.data.prompts.length && <p className="empty">No prompts match this tag.</p>}
+      <ResourceState error={all.error || list.error} loading={!list.data} retry={() => { all.refresh(); list.refresh(); }} rows={4} />
+      {list.data && !list.data.prompts.length && <EmptyState>No prompts match this tag.</EmptyState>}
       {!!list.data?.prompts.length && <div className="table-wrap">
         <table>
           <thead><tr><th>Prompt</th><th>Tags</th><th>Variables</th></tr></thead>

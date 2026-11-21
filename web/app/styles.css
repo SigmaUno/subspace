@@ -87,9 +87,17 @@ pre { margin: .5rem 0 0; padding: .65rem .75rem; white-space: pre-wrap; overflow
 .topbar nav a:hover { color: var(--text); background: var(--panel-sunken); }
 .topbar nav a[aria-current] { color: var(--text); background: var(--panel); border-color: var(--border); box-shadow: var(--shadow-sm); }
 .nav-count { display: inline-block; min-width: 1.25rem; margin-left: .2rem; padding: 0 .35rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); font-size: .75rem; font-weight: 600; text-align: center; font-variant-numeric: tabular-nums; }
-.connection { color: var(--muted); font: 500 .6875rem/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
-.connection.online { color: var(--accent); }
-.connection.online::before { content: ""; display: inline-block; width: .4rem; height: .4rem; margin-right: .4rem; border-radius: 50%; background: var(--green); box-shadow: 0 0 0 3px var(--accent-soft); vertical-align: 8%; }
+.connection { display: inline-flex; align-items: center; gap: .4rem; min-width: 9.5rem; color: var(--muted); font: 500 .6875rem/1 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; }
+.connection::before { content: ""; width: .4rem; height: .4rem; border-radius: 50%; background: currentColor; }
+.connection.connected, .connection.online { color: var(--accent); }
+.connection.connected::before, .connection.online::before { background: var(--green); box-shadow: 0 0 0 3px var(--accent-soft); }
+.connection.reconnecting { color: var(--warn); }
+.connection.offline { color: var(--danger); }
+.skeleton { min-height: 4.5rem; padding: .25rem 0; }
+.skeleton-line { display: block; height: .9rem; border-radius: var(--radius-sm); background: linear-gradient(90deg, var(--panel-muted) 25%, var(--panel-sunken) 50%, var(--panel-muted) 75%) 0 0 / 200% 100%; animation: skeleton 1.4s ease-in-out infinite; }
+@keyframes skeleton { to { background-position: -200% 0; } }
+@media (prefers-reduced-motion: reduce) { .skeleton-line { animation: none; } }
+.error-banner { display: flex; align-items: center; justify-content: space-between; gap: .75rem; flex-wrap: wrap; }
 .workspace { display: grid; gap: 1.25rem; width: min(100%, 90rem); margin: auto; padding: clamp(1rem, 3vw, 2rem) clamp(1rem, 3vw, 2.4rem); }
 .workspace.wide { width: 100%; }
 .heading { display: flex; align-items: center; justify-content: space-between; gap: .65rem; flex-wrap: wrap; }

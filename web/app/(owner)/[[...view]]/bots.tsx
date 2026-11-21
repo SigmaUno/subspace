@@ -5,6 +5,7 @@ import { ApiError, api, useResource, useSubmit, value } from "../../../lib/clien
 import type { Bot, BotAction, BotList, BotRegistration } from "../../../lib/bots-types";
 import type { Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 const roles = ["leader", "worker", "tester", "reviewer"];
 const kinds = [
@@ -142,9 +143,10 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
       <button className="primary" disabled={!!credentials} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Add bot"}</button></div>
     {showForm && <AddBotForm complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
-    <Feedback error={error || bots.error} loading={!bots.data} />
+    <Feedback error={error} />
+    <ResourceState error={bots.error} loading={!bots.data} retry={bots.refresh} rows={5} />
     {notice && <p className="meta" role="status">{notice}</p>}
-    {bots.data && !items.length && <p className="empty">No bots registered.</p>}
+    {bots.data && !items.length && <EmptyState>No bots registered.</EmptyState>}
     {!!items.length && <div className="table-wrap">
       <table>
         <thead><tr>

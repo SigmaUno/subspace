@@ -6,6 +6,7 @@ import { api, optionalResource, useResource, useSubmit, value } from "../../../l
 import type { Brief } from "../../../lib/types";
 import type { InstructionDiff, InstructionKind, InstructionLog, InstructionVersion } from "../../../lib/instructions-types";
 import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 const kinds: [InstructionKind, string][] = [["rules", "Rules"], ["style", "Style"], ["templates", "Templates"]];
 const diffMarks = { equal: " ", add: "+", delete: "-" };
@@ -18,7 +19,7 @@ function VersionDiff({ scope, kind, version }: { scope: string; kind: Instructio
   const diff = useResource<InstructionDiff>(`${documentPath(scope, kind)}/diff?from=${version - 1}&to=${version}`, 0);
   return <section className="stack">
     <h3>Changes from v{version - 1} to v{version}</h3>
-    <Feedback error={diff.error} loading={!diff.data} />
+    <ResourceState error={diff.error} loading={!diff.data} retry={diff.refresh} rows={3} />
     {diff.data && <pre className="preserve">{diff.data.lines.map((line, index) => (
       <div key={index} className={line.op}>{diffMarks[line.op]} {line.text}</div>
     ))}</pre>}
@@ -76,11 +77,13 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
   }
 
   return <section className="stack">
-    <Feedback error={current.error || log.error || error} loading={current.data === undefined} />
+    <Feedback error={error} />
+    <ResourceState error={current.error || log.error} loading={current.data === undefined}
+      retry={() => { current.refresh(); log.refresh(); }} rows={6} />
     {current.data !== undefined && <Editor key={head} scope={scope} kind={kind} text={current.data?.text ?? ""} reload={reload} />}
     {log.data !== undefined && <section className="panel stack">
       <h2>Version history</h2>
-      {!versions.length && <p className="empty">No versions yet.</p>}
+      {!versions.length && <EmptyState>No versions yet.</EmptyState>}
       {!!versions.length && <div className="table-wrap">
         <table>
           <thead><tr><th>Version</th><th>Author</th><th>Message</th><th>Saved</th><th><span className="meta">Action</span></th></tr></thead>
@@ -98,7 +101,7 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
         </table>
       </div>}
       {focus > 1 && <VersionDiff key={focus} scope={scope} kind={kind} version={focus} />}
-      {focus === 1 && <p className="empty">First version, nothing earlier to compare.</p>}
+      {focus === 1 && <EmptyState>First version, nothing earlier to compare.</EmptyState>}
     </section>}
   </section>;
 }
@@ -119,7 +122,7 @@ export function InstructionsPage() {
     </header>
     <main className="workspace stack">
       <div className="heading"><h1>Instructions</h1></div>
-      <Feedback error={briefs.error} />
+      <ResourceState error={briefs.error} retry={briefs.refresh} />
       <div className="actions" role="group" aria-label="Scope">
         {scopes.map((item) => <button key={item.id} className="text-button" aria-pressed={item.id === scope}
           onClick={() => setScope(item.id)}>{item.name}</button>)}

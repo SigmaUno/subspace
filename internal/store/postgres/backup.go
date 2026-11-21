@@ -17,9 +17,9 @@ import (
 
 const restoreChunk = 500
 
-var tables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns"}
+var coreTables = []string{"seq", "kv", "briefs", "plans", "tasks", "agents", "messages", "questions", "audit", "spawns"}
 
-var identityTables = []string{"messages", "audit"}
+func tables() []string { return append(slices.Clip(coreTables), extraTables...) }
 
 type backupRow struct {
 	Table string          `json:"t"`
@@ -49,7 +49,7 @@ func (s *Store) Backup(ctx context.Context, path string) (err error) {
 	defer func() { _ = t.Rollback() }()
 	w := bufio.NewWriter(f)
 	enc := json.NewEncoder(w)
-	for _, name := range tables {
+	for _, name := range tables() {
 		if err := dumpTable(ctx, t, enc, name); err != nil {
 			return fmt.Errorf("backup %s: %w", name, err)
 		}
@@ -61,7 +61,7 @@ func (s *Store) Backup(ctx context.Context, path string) (err error) {
 }
 
 func dumpTable(ctx context.Context, t *sql.Tx, enc *json.Encoder, name string) error {
-	rows, err := t.QueryContext(ctx, `SELECT row_to_json(x)::text FROM `+name+` x`) //nolint:gosec // name is from the fixed tables list
+	rows, err := t.QueryContext(ctx, `SELECT row_to_json(x)::text FROM `+name+` x`) //nolint:gosec // name is from the registered tables list
 	if err != nil {
 		return err
 	}
@@ -78,6 +78,35 @@ func dumpTable(ctx context.Context, t *sql.Tx, enc *json.Encoder, name string) e
 	return rows.Err()
 }
 
+func VerifyBackup(ctx context.Context, path string) error {
+	f, err := os.Open(path) //nolint:gosec // path is chosen by the operator
+	if err != nil {
+		return err
+	}
+	defer func() { _ = f.Close() }()
+	all := tables()
+	dec := json.NewDecoder(bufio.NewReader(f))
+	for n := 0; ; n++ {
+		if n%restoreChunk == 0 && ctx.Err() != nil {
+			return ctx.Err()
+		}
+		var r backupRow
+		err := dec.Decode(&r)
+		if errors.Is(err, io.EOF) {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("verify: row %d: %w", n, err)
+		}
+		if !slices.Contains(all, r.Table) {
+			return fmt.Errorf("verify: row %d: unknown table %q", n, r.Table)
+		}
+		if len(r.Row) == 0 || r.Row[0] != '{' {
+			return fmt.Errorf("verify: row %d: malformed %s row", n, r.Table)
+		}
+	}
+}
+
 func (s *Store) Restore(ctx context.Context, path string) error {
 	f, err := os.Open(path) //nolint:gosec // path is chosen by the operator
 	if err != nil {
@@ -89,7 +118,8 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		if !ok {
 			return errors.New("restore: unexpected tx type")
 		}
-		for _, name := range tables {
+		all := tables()
+		for _, name := range all {
 			var exists bool
 			if err := t.q.QueryRowContext(t.ctx, `SELECT EXISTS(SELECT 1 FROM `+name+`)`).Scan(&exists); err != nil {
 				return err
@@ -123,7 +153,7 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 			if err != nil {
 				return fmt.Errorf("restore: %w", err)
 			}
-			if !slices.Contains(tables, r.Table) {
+			if !slices.Contains(all, r.Table) {
 				return fmt.Errorf("restore: unknown table %q", r.Table)
 			}
 			if r.Table != cur || len(chunk) >= restoreChunk {
@@ -137,7 +167,14 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		if err := flush(); err != nil {
 			return err
 		}
-		for _, name := range identityTables {
+		identity, err := identityTables(t)
+		if err != nil {
+			return err
+		}
+		for _, name := range identity {
+			if !slices.Contains(all, name) {
+				continue
+			}
 			if err := t.exec(`SELECT setval(pg_get_serial_sequence($1, 'id'), COALESCE((SELECT MAX(id) FROM `+name+`), 0) + 1, false)`,
 				name); err != nil {
 				return err
@@ -145,4 +182,22 @@ func (s *Store) Restore(ctx context.Context, path string) error {
 		}
 		return nil
 	})
+}
+
+func identityTables(t *tx) ([]string, error) {
+	rows, err := t.q.QueryContext(t.ctx, `SELECT table_name FROM information_schema.columns
+  WHERE table_schema = current_schema() AND column_name = 'id' AND is_identity = 'YES' ORDER BY table_name`)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []string
+	for rows.Next() {
+		var name string
+		if err := rows.Scan(&name); err != nil {
+			return nil, err
+		}
+		out = append(out, name)
+	}
+	return out, rows.Err()
 }

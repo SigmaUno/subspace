@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
@@ -38,6 +39,36 @@ func (t *tx) NextID(prefix string) (string, error) {
 		return "", err
 	}
 	return prefix + "-" + strconv.FormatInt(n, 10), nil
+}
+
+func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
+	return t.q.ExecContext(t.ctx, rebind(q), args...)
+}
+
+func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
+	return t.q.QueryContext(t.ctx, rebind(q), args...)
+}
+
+func rebind(q string) string {
+	if !strings.Contains(q, "?") {
+		return q
+	}
+	var b strings.Builder
+	n := 0
+	quoted := false
+	for _, r := range q {
+		switch {
+		case r == '\'':
+			quoted = !quoted
+		case r == '?' && !quoted:
+			n++
+			b.WriteByte('$')
+			b.WriteString(strconv.Itoa(n))
+			continue
+		}
+		b.WriteRune(r)
+	}
+	return b.String()
 }
 
 func (t *tx) exec(q string, args ...any) error {

@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -38,6 +39,9 @@ func init() {
 
 func artifactsConfig(d Deps) (artifacts.Config, error) {
 	dir := os.Getenv("SUBSPACE_DATA_DIR")
+	if dir == "" && isPostgres(d.Cfg.DBPath) {
+		return artifacts.Config{}, errors.New("SUBSPACE_DATA_DIR is required with the postgres backend")
+	}
 	if dir == "" {
 		dir = filepath.Dir(d.Cfg.DBPath)
 	}

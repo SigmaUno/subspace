@@ -3,13 +3,20 @@ package servertest
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"database/sql"
+	"encoding/hex"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
+
+	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/SigmaUno/subspace/internal/server"
 )
@@ -36,7 +43,7 @@ func Start(t *testing.T, cfg server.Config) *Env {
 		}
 	}
 	if cfg.DBPath == "" {
-		cfg.DBPath = filepath.Join(t.TempDir(), "t.db")
+		cfg.DBPath = DB(t)
 	}
 	if cfg.OwnerToken == "" {
 		cfg.OwnerToken = OwnerToken
@@ -51,6 +58,40 @@ func Start(t *testing.T, cfg server.Config) *Env {
 	ts := httptest.NewServer(s.Handler())
 	t.Cleanup(func() { ts.Close(); cancel(); _ = s.Close() })
 	return &Env{T: t, TS: ts, Srv: s}
+}
+
+func DB(t *testing.T) string {
+	t.Helper()
+	base := os.Getenv("SUBSPACE_TEST_DB")
+	if base == "" {
+		base = os.Getenv("SUBSPACE_TEST_PG_DSN")
+	}
+	if !strings.HasPrefix(base, "postgres://") && !strings.HasPrefix(base, "postgresql://") {
+		return filepath.Join(t.TempDir(), "t.db")
+	}
+	b := make([]byte, 6)
+	_, _ = rand.Read(b)
+	schema := "subspace_test_" + hex.EncodeToString(b)
+	admin, err := sql.Open("pgx", base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := admin.Exec(`CREATE SCHEMA ` + schema); err != nil {
+		_ = admin.Close()
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_, _ = admin.Exec(`DROP SCHEMA ` + schema + ` CASCADE`)
+		_ = admin.Close()
+	})
+	u, err := url.Parse(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	q := u.Query()
+	q.Set("search_path", schema)
+	u.RawQuery = q.Encode()
+	return u.String()
 }
 
 func (e *Env) REST(method, path string, body any) (int, map[string]any) {

@@ -258,6 +258,38 @@ func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githos
 	return nil
 }
 
+func (c *Client) ClosePR(ctx context.Context, ref PRRef) error {
+	owner, name, ok := strings.Cut(ref.Repo, "/")
+	if !ok || !repoPart.MatchString(owner) || !repoPart.MatchString(name) || ref.Number <= 0 {
+		return fmt.Errorf("%w: %+v", ErrInvalidPRURL, ref)
+	}
+	endpoint := fmt.Sprintf("%s/repos/%s/%s/pulls/%d", c.apiURL, owner, name, ref.Number)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPatch, endpoint, strings.NewReader(`{"state":"closed"}`))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/vnd.github+json")
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("X-GitHub-Api-Version", "2022-11-28")
+	req.Header.Set("User-Agent", "subspace")
+	if c.token != "" {
+		req.Header.Set("Authorization", "Bearer "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("github: close pull: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	netguard.Drain(resp.Body, 4096)
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("%w: %s#%d", ErrNotFound, ref.Repo, ref.Number)
+	case resp.StatusCode != http.StatusOK:
+		return fmt.Errorf("github: close pull %s#%d: %w", ref.Repo, ref.Number, githost.NewStatusError(resp))
+	}
+	return nil
+}
+
 type ghWebhook struct {
 	Action      string `json:"action"`
 	PullRequest *ghPR  `json:"pull_request"`

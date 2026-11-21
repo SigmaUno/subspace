@@ -5,9 +5,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"log/slog"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -359,4 +361,36 @@ func TestRevokedOrClearedTargetIsNotContacted(t *testing.T) {
 	g.fire(t, time.Second)
 	rcv.none(t)
 	eventually(t, "drained", func() bool { return g.d.Stats().Pending == 0 })
+}
+
+type syncBuffer struct {
+	mu sync.Mutex
+	b  strings.Builder
+}
+
+func (s *syncBuffer) Write(p []byte) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.Write(p)
+}
+
+func (s *syncBuffer) String() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.b.String()
+}
+
+func TestFailedDeliveryLogNeverContainsCallbackURL(t *testing.T) {
+	var logs syncBuffer
+	targets := fakeTargets{"w1": {URL: "http://127.0.0.1:1/hook?key=topsecret-capability", Secret: "sscb_w1"}}
+	g := newRig(t, targets, func(o *Options) {
+		o.MaxAttempts = 1
+		o.Log = slog.New(slog.NewTextHandler(&logs, nil))
+	})
+	g.d.Enqueue(context.Background(), "w1", Reason{Type: ReasonAssigned, TaskID: "T-1"})
+	g.fire(t, time.Second)
+	eventually(t, "failed delivery", func() bool { return g.d.Stats().Failed == 1 })
+	if out := logs.String(); strings.Contains(out, "topsecret") || strings.Contains(out, "/hook") {
+		t.Fatalf("callback url logged: %s", out)
+	}
 }

@@ -12,6 +12,7 @@ import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, 
 import { ImportBrief } from "./brief-import";
 import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { PlaybookPicker, usePlaybooks } from "./playbooks";
 import { PRBadges, usePRs } from "./pr-status";
 import { typing } from "./shortcuts";
 import { EmptyState, ResourceState } from "./states";
@@ -23,6 +24,8 @@ export function BriefsView({ revision }: { revision: number }) {
   const { data, error, refresh } = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revision);
   const form = useSubmit();
   const router = useRouter();
+  const playbooks = usePlaybooks();
+  const [playbook, setPlaybook] = useState("");
 
   return (
     <>
@@ -39,6 +42,7 @@ export function BriefsView({ revision }: { revision: number }) {
             allowed_providers: commaList(value(fields, "providers")),
             max_cost_eur: Number(value(fields, "cost")),
             max_parallel_agents: Number(value(fields, "parallel")),
+            playbook: value(fields, "playbook"),
           });
           router.push(`/briefs/${encodeURIComponent(brief.id)}`);
         })}>
@@ -50,6 +54,7 @@ export function BriefsView({ revision }: { revision: number }) {
             <label>Allowed providers<input name="providers" placeholder="All providers" /></label>
             <label>Budget (EUR)<input name="cost" type="number" min="0" step="0.01" defaultValue="50" required /></label>
             <label>Max parallel agents<input name="parallel" type="number" min="1" defaultValue="10" required /></label>
+            {!!playbooks.list.length && <PlaybookPicker playbooks={playbooks.list} selected={playbook} onChange={setPlaybook} />}
           </div>
           <Feedback error={form.error} />
           <div><button type="submit" className="primary" disabled={form.busy}>Create brief</button></div>
@@ -60,7 +65,7 @@ export function BriefsView({ revision }: { revision: number }) {
       <div className="brief-list">
         {data?.briefs?.map((brief) => (
           <Link key={brief.id} href={`/briefs/${encodeURIComponent(brief.id)}`} className="panel brief-link">
-            <span className="meta">{brief.id} · {brief.status}</span>
+            <span className="meta">{brief.id} · {brief.status}{brief.playbook && ` · ${brief.playbook}`}</span>
             <h2>{brief.title}</h2>
             <span className="meta">{brief.repos?.join(", ") || "No repositories"} · Plan {brief.plan_status}</span>
             <span className="meta">{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)} · {brief.budget.max_parallel_agents} parallel agents</span>

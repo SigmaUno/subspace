@@ -19,6 +19,7 @@ export interface Brief {
   allowed_providers: string[] | null;
   cost_used: number;
   plan_status: string;
+  playbook?: string;
   hillclimb_jobs?: import("./swarm").HillclimbJob[];
 }
 
@@ -71,6 +72,14 @@ export interface Plan {
   proposed_by: string;
   note: string | null;
   tasks: Task[] | null;
+  warnings?: PlanFinding[] | null;
+}
+
+export interface PlanFinding {
+  severity: string;
+  rule: string;
+  task?: string;
+  message: string;
 }
 
 export interface Question {

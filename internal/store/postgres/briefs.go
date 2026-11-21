@@ -5,7 +5,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const briefCols = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id, quality_gates`
+const briefCols = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id, quality_gates, playbook`
 
 func scanBrief(r scanner) (*model.Brief, error) {
 	var (
@@ -15,7 +15,7 @@ func scanBrief(r scanner) (*model.Brief, error) {
 		gates          string
 	)
 	if err := r.Scan(&b.ID, &b.Title, &b.Body, &repos, &b.Status, &b.Budget.MaxCostEUR, &b.Budget.MaxParallelAgent,
-		&allowed, &b.PlanStatus, &created, &b.CrossReview, &b.AutoDoneOnMerge, &b.LeaderID, &gates); err != nil {
+		&allowed, &b.PlanStatus, &created, &b.CrossReview, &b.AutoDoneOnMerge, &b.LeaderID, &gates, &b.Playbook); err != nil {
 		return nil, err
 	}
 	var err error
@@ -46,7 +46,7 @@ func briefArgs(b *model.Brief) ([]any, error) {
 		return nil, err
 	}
 	return []any{b.ID, b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, ms(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates}, nil
+		allowed, b.PlanStatus, ms(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates, b.Playbook}, nil
 }
 
 func (t *tx) InsertBrief(b *model.Brief) error {
@@ -54,7 +54,7 @@ func (t *tx) InsertBrief(b *model.Brief) error {
 	if err != nil {
 		return err
 	}
-	return t.exec(`INSERT INTO briefs(`+briefCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14)`, a...)
+	return t.exec(`INSERT INTO briefs(`+briefCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15)`, a...)
 }
 
 func (t *tx) GetBrief(id string) (*model.Brief, error) {
@@ -68,7 +68,7 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
 		return err
 	}
 	return t.update(`UPDATE briefs SET title=$2, body=$3, repos=$4, status=$5, max_cost_eur=$6, max_parallel=$7,
-  allowed_providers=$8, plan_status=$9, created_at=$10, cross_review=$11, auto_done_on_merge=$12, leader_id=$13, quality_gates=$14 WHERE id=$1`, a...)
+  allowed_providers=$8, plan_status=$9, created_at=$10, cross_review=$11, auto_done_on_merge=$12, leader_id=$13, quality_gates=$14, playbook=$15 WHERE id=$1`, a...)
 }
 
 func (t *tx) ListBriefs(f store.BriefFilter) ([]*model.Brief, error) {

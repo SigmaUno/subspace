@@ -11,7 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id, quality_gates`
+const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id, quality_gates, playbook`
 
 type briefScanner interface {
 	Scan(dest ...any) error
@@ -45,8 +45,9 @@ func briefScan(s briefScanner) (*model.Brief, error) {
 		autoDone           bool
 		leader             sql.NullString
 		gates              string
+		playbook           string
 	)
-	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS, &crossReview, &autoDone, &leader, &gates); err != nil {
+	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS, &crossReview, &autoDone, &leader, &gates, &playbook); err != nil {
 		return nil, err
 	}
 	var err error
@@ -55,6 +56,7 @@ func briefScan(s briefScanner) (*model.Brief, error) {
 	}
 	b.ID, b.Title, b.Body, b.Status, b.PlanStatus, b.CrossReview = id, title, body, status, planStatus, crossReview
 	b.AutoDoneOnMerge = autoDone
+	b.Playbook = playbook
 	if leader.Valid {
 		b.LeaderID = &leader.String
 	}
@@ -90,9 +92,9 @@ func (t *tx) InsertBrief(b *model.Brief) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		b.ID, b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates)
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates, b.Playbook)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return store.ErrDuplicate
 	}
@@ -121,9 +123,9 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
 		return err
 	}
 	res, err := t.q.ExecContext(t.ctx, `UPDATE briefs SET title=?, body=?, repos=?, status=?, max_cost_eur=?,
-		max_parallel=?, allowed_providers=?, plan_status=?, created_at=?, cross_review=?, auto_done_on_merge=?, leader_id=?, quality_gates=? WHERE id=?`,
+		max_parallel=?, allowed_providers=?, plan_status=?, created_at=?, cross_review=?, auto_done_on_merge=?, leader_id=?, quality_gates=?, playbook=? WHERE id=?`,
 		b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates, b.ID)
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates, b.Playbook, b.ID)
 	if err != nil {
 		return err
 	}

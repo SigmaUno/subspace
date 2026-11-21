@@ -61,6 +61,7 @@ type Board struct {
 	gate    Gate
 	capDB   bool
 	quality QualityGate
+	rules   PlaybookRules
 
 	repoCheck RepoCheck
 	leak      LeakScanner

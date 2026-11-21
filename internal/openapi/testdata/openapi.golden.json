@@ -1648,6 +1648,9 @@
           "plan_status": {
             "type": "string"
           },
+          "playbook": {
+            "type": "string"
+          },
           "quality_gates": {
             "$ref": "#/components/schemas/QualityGates"
           },
@@ -1678,6 +1681,7 @@
           "id",
           "leader_id",
           "plan_status",
+          "playbook",
           "quality_gates",
           "repos",
           "status",
@@ -1763,6 +1767,9 @@
           },
           "max_parallel_agents": {
             "type": "integer"
+          },
+          "playbook": {
+            "type": "string"
           },
           "quality_gates": {
             "oneOf": [
@@ -1918,6 +1925,9 @@
           "max_parallel_agents": {
             "type": "integer"
           },
+          "playbook": {
+            "type": "string"
+          },
           "quality_gates": {
             "oneOf": [
               {
@@ -1959,6 +1969,7 @@
           "leader_id",
           "max_cost_eur",
           "max_parallel_agents",
+          "playbook",
           "quality_gates",
           "repos",
           "task_budget",
@@ -2667,6 +2678,29 @@
           "requests",
           "tokens_in",
           "tokens_out"
+        ],
+        "type": "object"
+      },
+      "CriteriaRule": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "pattern",
+          "role",
+          "severity"
         ],
         "type": "object"
       },
@@ -4918,6 +4952,163 @@
         ],
         "type": "object"
       },
+      "Playbook": {
+        "properties": {
+          "allowed_sizes": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "brief_cost_multiplier": {
+            "type": "number"
+          },
+          "builtin": {
+            "type": "boolean"
+          },
+          "coverage": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "criteria_rules": {
+            "items": {
+              "$ref": "#/components/schemas/CriteriaRule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cross_review": {
+            "type": "boolean"
+          },
+          "default_task_budget": {
+            "$ref": "#/components/schemas/TaskBudget"
+          },
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/RequiredTask"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed_sizes",
+          "brief_cost_multiplier",
+          "builtin",
+          "coverage",
+          "created_at",
+          "criteria_rules",
+          "cross_review",
+          "default_task_budget",
+          "description",
+          "instructions",
+          "name",
+          "required_tasks",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "PlaybookClone": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "type": "object"
+      },
+      "PlaybookInput": {
+        "properties": {
+          "allowed_sizes": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "brief_cost_multiplier": {
+            "type": "number"
+          },
+          "coverage": {
+            "type": "string"
+          },
+          "criteria_rules": {
+            "items": {
+              "$ref": "#/components/schemas/CriteriaRule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "cross_review": {
+            "type": "boolean"
+          },
+          "default_task_budget": {
+            "$ref": "#/components/schemas/TaskBudget"
+          },
+          "description": {
+            "type": "string"
+          },
+          "instructions": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "required_tasks": {
+            "items": {
+              "$ref": "#/components/schemas/RequiredTask"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "allowed_sizes",
+          "brief_cost_multiplier",
+          "coverage",
+          "criteria_rules",
+          "cross_review",
+          "default_task_budget",
+          "instructions",
+          "name",
+          "required_tasks"
+        ],
+        "type": "object"
+      },
       "Preview": {
         "properties": {
           "cron": {
@@ -6403,6 +6594,29 @@
           "actions",
           "reason",
           "revoke"
+        ],
+        "type": "object"
+      },
+      "RequiredTask": {
+        "properties": {
+          "name": {
+            "type": "string"
+          },
+          "pattern": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "pattern",
+          "role",
+          "severity"
         ],
         "type": "object"
       },
@@ -13674,6 +13888,220 @@
         ]
       }
     },
+    "/api/v1/playbooks": {
+      "get": {
+        "operationId": "getPlaybooks",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "playbooks": {
+                      "items": {
+                        "$ref": "#/components/schemas/Playbook"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "playbooks"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List playbooks",
+        "tags": [
+          "playbooks"
+        ]
+      },
+      "post": {
+        "operationId": "postPlaybooks",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playbook"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Create a playbook",
+        "tags": [
+          "playbooks"
+        ]
+      }
+    },
+    "/api/v1/playbooks/{name}": {
+      "delete": {
+        "operationId": "deletePlaybooksByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete a custom playbook that no brief uses; built-in playbooks cannot be deleted",
+        "tags": [
+          "playbooks"
+        ]
+      },
+      "get": {
+        "operationId": "getPlaybooksByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playbook"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a playbook",
+        "tags": [
+          "playbooks"
+        ]
+      },
+      "put": {
+        "operationId": "putPlaybooksByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playbook"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace a playbook; built-in playbooks can be edited too",
+        "tags": [
+          "playbooks"
+        ]
+      }
+    },
+    "/api/v1/playbooks/{name}/clone": {
+      "post": {
+        "operationId": "postPlaybooksByNameClone",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PlaybookClone"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Playbook"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Copy a playbook under a new name",
+        "tags": [
+          "playbooks"
+        ]
+      }
+    },
     "/api/v1/prompts": {
       "get": {
         "operationId": "getPrompts",
@@ -16285,6 +16713,9 @@
     },
     {
       "name": "plans"
+    },
+    {
+      "name": "playbooks"
     },
     {
       "name": "prompts"

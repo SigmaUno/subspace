@@ -129,6 +129,17 @@ function PlanCard({ plan, decided, changed, openThread }: { plan: Plan; decided:
       <div className="actions"><span className="pill">{count} tasks</span><button onClick={() => openThread({ kind: "brief", id: plan.brief_id })}>Brief thread</button></div>
     </div>
     {plan.note && <p className="preserve">{plan.note}</p>}
+    {!!plan.warnings?.length && <section className="stack" aria-label={`Lint findings of ${plan.id}`}>
+      <h3>Lint findings</h3>
+      <ul className="stack">
+        {plan.warnings.map((finding, index) => <li key={index}>
+          <span className={`pill ${finding.severity === "error" ? "revoked" : "paused"}`}>{finding.severity}</span>{" "}
+          <strong>{finding.rule.replace(/^playbook_/, "playbook · ")}</strong>
+          {finding.task && <span className="meta"> · {finding.task}</span>}
+          <div className="meta">{finding.message}</div>
+        </li>)}
+      </ul>
+    </section>}
     <PlanEditor plan={plan} changed={changed} />
     <form className="stack" data-write onSubmit={(event) => {
       const button = (event.nativeEvent as SubmitEvent).submitter;

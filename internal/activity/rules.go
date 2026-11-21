@@ -114,6 +114,7 @@ var rules = map[string]rule{
 	"set_brief_leader": {icon: "folder", text: "{actor} changed the leader of brief {a.brief_id}{a.leader_id? to }"},
 	"set_budget":       {icon: "budget", text: "{actor} changed the budget of brief {a.brief_id}", onTask: "{actor} changed the budget of {task}"},
 	"set_capacity":     {icon: "settings", text: "{actor} set capacity to {a.global_max_agents} agents and {a.limits} limits"},
+	"set_components":   {icon: "folder", text: "{actor} replaced the architecture of brief {a.brief_id} ({a.components} components)"},
 	"set_limits":       {icon: "budget", text: "{actor} set spend limits to {a.daily_cost_eur} per day and {a.weekly_cost_eur} per week"},
 	"spawn_bot":        {icon: "spawn", text: "{actor} spawned bot {a.bot}{note?: }"},
 	"stop_spawn":       {icon: "stop", text: "{actor} stopped spawn {a.spawn_id} ({a.reason})"},

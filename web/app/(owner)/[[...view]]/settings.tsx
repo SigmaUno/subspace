@@ -21,6 +21,7 @@ import { DigestPanel } from "./digest";
 import { InstructionsView } from "./instructions";
 import type { Revisions } from "./live";
 import { PlaybooksPanel } from "./playbooks";
+import { PoliciesPanel } from "./policies";
 import { CapacityView } from "./operations";
 import { OrgBudget } from "./org-budget";
 import { PushPanel } from "./push";
@@ -135,6 +136,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     { id: "playbooks", name: "Playbooks", show: true },
     { id: "announcements", name: "Announcements", show: true },
     { id: "schedules", name: "Schedules", show: true },
+    { id: "policies", name: "Policies", show: true },
     { id: "notifications", name: "Notifications", show: notify.data !== null },
     { id: "backups", name: "Backups", show: backups.data !== null },
     { id: "digest", name: "Digest", show: digest.data !== null },
@@ -163,6 +165,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     {active === "playbooks" && <PlaybooksPanel />}
     {active === "announcements" && <AnnouncementsView embedded />}
     {active === "schedules" && <SchedulesView embedded />}
+    {active === "policies" && <PoliciesPanel />}
     {active === "notifications" && <>
       <ResourceState error={notify.error} loading={notify.data === undefined} retry={notify.refresh} rows={2} />
       {notify.data && <NotificationsPanel status={notify.data} />}

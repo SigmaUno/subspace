@@ -282,7 +282,7 @@ Built-in templates are embedded; `.md` files in `SUBSPACE_PROMPTS_DIR` override 
 {"n":1,"attempt_id":1,"agent_id":"claude-1","branch":"sub/t-3-speedup","value":12.5,"best":12.5,"measured_at":"..."}   // value null when the attempt failed
 ```
 
-Jobs are held in memory per server process, and the server has no measurement runner configured, so jobs stay `running` with no attempts.
+Jobs and attempts are stored in the database. Attempts are recorded by the MCP `measure` tool, which exists only when `SUBSPACE_HILLCLIMB_WORKDIR` is set; without it jobs stay `running` with no attempts. The runner fetches the branch into a fresh git worktree under that directory and runs `metric_cmd` with `/bin/sh -c`, using only repos listed in `SUBSPACE_HILLCLIMB_REPOS` (JSON object `{"<repo>":"<git url>"}`). Other settings: `SUBSPACE_HILLCLIMB_TIMEOUT` (default `10m`), `SUBSPACE_HILLCLIMB_MAX_OUTPUT` (bytes, default 1 MiB), `SUBSPACE_HILLCLIMB_ENV` (comma list of extra env names passed through; `PATH`, `LANG`, `LC_ALL`, `TZ` always are), `SUBSPACE_HILLCLIMB_RLIMIT_CPU` (seconds), `SUBSPACE_HILLCLIMB_RLIMIT_MEM` (bytes), `SUBSPACE_HILLCLIMB_RLIMIT_NOFILE`. A timeout, an exceeded output cap, a symlink escaping the worktree or a non-zero exit records a failed attempt (`value` null).
 
 ### Artifacts
 Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools.
@@ -441,6 +441,9 @@ All tools return an object; `task` = Task object above.
 
 **Tester**
 - `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`
+
+**Hill-climb** (worker and tester; listed only when `SUBSPACE_HILLCLIMB_WORKDIR` is set, see Hillclimb)
+- `measure {"job_id","branch"}` → `{"attempt":{"id","job_id","agent_id","branch","value","status":"ok|failed","measured_at","log"},"metric","loss","best","job_status","stop_reason","remaining_attempts"}`. `loss` is the metric negated for `max` jobs; `remaining_attempts` is null for an unlimited budget; `metric` is the last number printed by `metric_cmd`. Requires an `in_progress` task of mine in the job's brief and repo whose branch is `branch` or a prefix of it followed by `-`, within task and brief budgets (`budget_exceeded`), and Subspace not paused; otherwise `not_assigned`. 409 `conflict` on a stopped job, `budget_exceeded` when the job has no attempts left, 403 for a repo outside `SUBSPACE_HILLCLIMB_REPOS`.
 
 **Reviewer**
 - `list_reviews {}` → `{"tasks":[Task]}` — `submitted`/`in_review` tasks where `reviewer` is me or unset, and the worker's provider differs from mine.

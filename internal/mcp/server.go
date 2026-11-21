@@ -315,7 +315,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 	if !t.ReadOnly && s.Guard != nil {
 		if s.Guard.Hit(a.ID, t.Name, audit.ArgsHash(schemaArgs(t.Schema, p.Arguments)), s.Now()) {
 			if s.Hooks != nil {
-				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop: same call repeated too often")
+				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop")
 			}
 			s.Registry.fail(a, t.Name, "agent_paused", "loop protection", p.Arguments)
 			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused", t.Name), true), nil

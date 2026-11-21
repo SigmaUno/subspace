@@ -17,13 +17,14 @@ import (
 type pausedControl struct {
 	flakyControl
 	paused    bool
+	why       string
 	resumeErr error
 	resumeBad map[string]bool
 	resumed   []string
 }
 
-func (c *pausedControl) PauseAll(context.Context, string) error {
-	c.paused = true
+func (c *pausedControl) PauseAll(_ context.Context, reason string) error {
+	c.paused, c.why = true, reason
 	return nil
 }
 
@@ -35,7 +36,7 @@ func (c *pausedControl) ResumeAll(context.Context) error {
 	return nil
 }
 
-func (c *pausedControl) Paused() (bool, string) { return c.paused, "" }
+func (c *pausedControl) Paused() (bool, string) { return c.paused, c.why }
 
 func (c *pausedControl) ListAgents(_ context.Context, _, status string) ([]*model.Agent, error) {
 	var out []*model.Agent

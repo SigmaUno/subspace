@@ -138,7 +138,7 @@ function IncidentDialog({ active, close }: { active?: Incident; close: () => voi
           <legend>Effects</legend>
           {options.map((option) => <label key={option.id} className="incident-choice">
             <input type="checkbox" checked={actions.includes(option.id)} onChange={(event) => toggle(option.id, event.target.checked)} />
-            <span><strong>{option.name}</strong><br /><span className="meta">{effect(option.id, role, provider.trim())}</span></span>
+            <strong>{option.name}</strong> <span className="meta">{effect(option.id, role, provider.trim())}</span>
           </label>)}
         </fieldset>
         {revoking && <div className="actions">

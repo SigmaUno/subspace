@@ -114,6 +114,7 @@ type Brief struct {
 	CostUsed         float64     `json:"cost_used"`
 	PlanStatus       string      `json:"plan_status"`
 	LeaderID         *string     `json:"leader_id"`
+	Playbook         string      `json:"playbook"`
 	CreatedAt        time.Time   `json:"created_at"`
 }
 

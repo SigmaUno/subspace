@@ -7,6 +7,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/notify"
+	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/quota"
 )
 
@@ -177,6 +178,17 @@ type ProfileInput struct {
 	ExpiresIn   string `json:"expires_in,omitempty"`
 	Count       int    `json:"count,omitempty"`
 	CallbackURL string `json:"callback_url,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
+type PlaybookInput struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+	planlint.Rules
+}
+
+type PlaybookClone struct {
+	Name        string `json:"name"`
 	Description string `json:"description,omitempty"`
 }
 

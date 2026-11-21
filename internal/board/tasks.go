@@ -123,6 +123,13 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if br.PlanStatus == model.PlanApproved {
 			status = model.StatusReady
 		}
+		rules, err := b.rulesFor(tx, br.Playbook)
+		if err != nil {
+			return err
+		}
+		if rules != nil {
+			in.Budget = rules.ApplyDefaults(in.Budget)
+		}
 		deps := in.DependsOn
 		in.DependsOn = nil
 		t, err := b.newTask(tx, br, in, "", status, nil)

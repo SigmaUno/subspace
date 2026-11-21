@@ -27,6 +27,7 @@ type Doc struct {
 	AllowedProviders []string          `json:"allowed_providers"`
 	CrossReview      bool              `json:"cross_review"`
 	LeaderID         *string           `json:"leader_id"`
+	Playbook         string            `json:"playbook"`
 	TaskBudget       *TaskBudget       `json:"task_budget"`
 	Components       []components.Spec `json:"components"`
 }
@@ -70,12 +71,18 @@ func Parse(src []byte) (*Doc, error) {
 				}
 				d.LeaderID = &id
 			}
+		case "playbook":
+			if d.Playbook, err = text(v, e.key); err == nil {
+				if d.Playbook = strings.TrimSpace(d.Playbook); d.Playbook == "" {
+					err = errAt(v.pos, "playbook must not be empty")
+				}
+			}
 		case "task_budget":
 			d.TaskBudget, err = taskBudget(v)
 		case "components":
 			d.Components, err = componentList(v, e.pos)
 		default:
-			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, task_budget, components)", e.key)
+			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, playbook, task_budget, components)", e.key)
 		}
 		if err != nil {
 			return nil, err
@@ -102,7 +109,7 @@ func (d *Doc) BriefInput() board.BriefInput {
 	}
 	cross := d.CrossReview
 	in := board.BriefInput{Title: d.Title, Body: body, Repos: d.Repos, MaxCostEUR: d.MaxCostEUR, MaxParallel: d.MaxParallel,
-		AllowedProviders: d.AllowedProviders, CrossReview: &cross}
+		AllowedProviders: d.AllowedProviders, CrossReview: &cross, Playbook: d.Playbook}
 	if d.LeaderID != nil {
 		in.LeaderID = *d.LeaderID
 	}

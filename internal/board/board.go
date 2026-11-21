@@ -59,6 +59,7 @@ type Board struct {
 	capCfg  capacity.Config
 	capGate capacity.Gate
 	gate    Gate
+	rules   PlaybookRules
 
 	expiries map[string][]time.Time
 

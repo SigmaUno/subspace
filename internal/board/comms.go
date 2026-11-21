@@ -287,6 +287,13 @@ func (b *Board) Instructions(ctx context.Context, a model.Actor) (string, error)
 	if a.Role == model.RoleWorker && kindInstructions[a.Kind] != "" {
 		s += "\n" + kindInstructions[a.Kind]
 	}
+	if a.Role == model.RoleLeader {
+		pb, err := b.playbookInstructions(ctx, a)
+		if err != nil {
+			return "", err
+		}
+		s += pb
+	}
 	if e.Text != "" {
 		s += "\n--- Owner instructions (" + e.Version + ") ---\n" + e.Text
 	}

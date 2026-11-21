@@ -28,6 +28,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/notify"
+	"github.com/SigmaUno/subspace/internal/playbooks"
 	"github.com/SigmaUno/subspace/internal/profiles"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/prsync"
@@ -139,6 +140,12 @@ var operations = []Op{
 	get("/api/v1/agent-profiles/{name}", "Get an agent profile", profiles.Profile{}),
 	put("/api/v1/agent-profiles/{name}", "Replace an agent profile", ProfileInput{}, profiles.Profile{}),
 	del("/api/v1/agent-profiles/{name}", "Delete an agent profile unless autopilot options use it", nil).S(gone),
+	get("/api/v1/playbooks", "List playbooks", list[playbooks.Playbook]("playbooks")),
+	post("/api/v1/playbooks", "Create a playbook", PlaybookInput{}, playbooks.Playbook{}).S(created),
+	get("/api/v1/playbooks/{name}", "Get a playbook", playbooks.Playbook{}),
+	put("/api/v1/playbooks/{name}", "Replace a playbook; built-in playbooks can be edited too", PlaybookInput{}, playbooks.Playbook{}),
+	del("/api/v1/playbooks/{name}", "Delete a custom playbook that no brief uses; built-in playbooks cannot be deleted", nil).S(gone),
+	post("/api/v1/playbooks/{name}/clone", "Copy a playbook under a new name", PlaybookClone{}, playbooks.Playbook{}).S(created),
 
 	get("/api/v1/questions", "List questions", list[model.Question]("questions")).Q("status"),
 	post("/api/v1/questions/{id}/answer", "Answer a question", Answer{}, model.Question{}),

@@ -9,6 +9,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -133,7 +134,7 @@ func loadEnv(getenv func(string) string) (env, error) {
 	e.token = strings.TrimSpace(getenv("SUBSPACE_TOKEN"))
 	if e.token == "" {
 		if path := getenv("SUBSPACE_TOKEN_FILE"); path != "" {
-			b, err := os.ReadFile(path)
+			b, err := os.ReadFile(filepath.Clean(path))
 			if err != nil {
 				return e, fmt.Errorf("read token file: %w", err)
 			}

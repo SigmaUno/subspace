@@ -1,7 +1,9 @@
 package server
 
 import (
+	"context"
 	"slices"
+	"strings"
 	"testing"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -12,21 +14,28 @@ import (
 func TestEveryExtensionHasPostgresOrDeclaration(t *testing.T) {
 	pgTables := postgres.SchemaTables()
 	pgColumns := postgres.SchemaColumns()
-	declared := store.SQLiteOnly()
-	for _, name := range sqlite.ExtensionTables() {
-		if _, ok := declared[name]; !ok && !slices.Contains(pgTables, name) {
-			t.Errorf("table %s has no postgres schema and no SQLite-only declaration", name)
+	declared := store.SQLiteOnlySchema()
+	for _, key := range append(sqlite.ExtensionTables(), sqlite.ExtensionColumns()...) {
+		_, only := declared[key]
+		switch onPG := slices.Contains(pgTables, key) || slices.Contains(pgColumns, key); {
+		case !onPG && !only:
+			t.Errorf("%s has neither a postgres schema nor a SQLite-only declaration", key)
+		case onPG && only:
+			t.Errorf("%s is declared SQLite-only (%s) but has a postgres schema", key, declared[key])
 		}
 	}
-	for _, key := range sqlite.ExtensionColumns() {
-		if _, ok := declared[key]; !ok && !slices.Contains(pgColumns, key) {
-			t.Errorf("column %s has no postgres schema and no SQLite-only declaration", key)
+	for key, feature := range declared {
+		if !slices.Contains(sqlite.ExtensionTables(), key) && !slices.Contains(sqlite.ExtensionColumns(), key) {
+			t.Errorf("%s: %s declares a schema object that SQLite does not register", key, feature)
 		}
 	}
-	for name := range declared {
-		if slices.Contains(pgTables, name) || slices.Contains(pgColumns, name) {
-			t.Errorf("%s is declared SQLite-only but has a postgres schema", name)
-		}
+}
+
+func TestPostgresRefusesEnabledSQLiteOnlyFeature(t *testing.T) {
+	t.Setenv("SUBSPACE_DRILL_EVERY", "1h")
+	_, err := New(context.Background(), Config{DBPath: "postgres://invalid.invalid/subspace", OwnerToken: "owner-token-for-tests-0123456789"})
+	if err == nil || !strings.Contains(err.Error(), "SUBSPACE_DRILL_EVERY") || !strings.Contains(err.Error(), "Postgres") {
+		t.Fatalf("startup error: %v", err)
 	}
 }
 

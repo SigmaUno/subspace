@@ -350,6 +350,13 @@ func (b *Board) Flush(ctx context.Context) {
 		b.log.Error("flush heartbeats", "err", err)
 		return
 	}
+	b.mu.Lock()
+	for id, ms := range seen {
+		if _, dirty := b.dirtyA[id]; !dirty && b.seen[id].UnixMilli() == ms {
+			delete(b.seen, id)
+		}
+	}
+	b.mu.Unlock()
 	if b.o.Hub == nil {
 		return
 	}

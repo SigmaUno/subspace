@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"io"
 	"net/http"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -22,6 +23,7 @@ const ProtocolVersion = "2025-06-18"
 const (
 	maxBody        = 1 << 20
 	sessionTTL     = 24 * time.Hour
+	sessionSweep   = time.Hour
 	maxSessionsPer = 8
 )
 
@@ -65,6 +67,7 @@ type Server struct {
 	mu       sync.Mutex
 	sessions map[string]session
 	byAgent  map[string][]string
+	swept    time.Time
 }
 
 func NewServer(a auth.AgentLookup, r *Registry) *Server {
@@ -78,6 +81,23 @@ func (s *Server) newSession(agent string) string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	now := s.Now()
+	if now.Sub(s.swept) >= sessionSweep {
+		s.swept = now
+		for a := range s.byAgent {
+			s.pruneLocked(a, now)
+		}
+	}
+	live := s.pruneLocked(agent, now)
+	for len(live) >= maxSessionsPer {
+		delete(s.sessions, live[0])
+		live = live[1:]
+	}
+	s.sessions[id] = session{agent: agent, created: now}
+	s.byAgent[agent] = append(live, id)
+	return id
+}
+
+func (s *Server) pruneLocked(agent string, now time.Time) []string {
 	list := s.byAgent[agent]
 	live := list[:0]
 	for _, sid := range list {
@@ -87,13 +107,12 @@ func (s *Server) newSession(agent string) string {
 			delete(s.sessions, sid)
 		}
 	}
-	for len(live) >= maxSessionsPer {
-		delete(s.sessions, live[0])
-		live = live[1:]
+	if len(live) == 0 {
+		delete(s.byAgent, agent)
+		return nil
 	}
-	s.sessions[id] = session{agent: agent, created: now}
-	s.byAgent[agent] = append(live, id)
-	return id
+	s.byAgent[agent] = live
+	return live
 }
 
 func (s *Server) sessionOK(id, agent string) bool {
@@ -111,6 +130,10 @@ func (s *Server) dropSession(id, agent string) bool {
 		return false
 	}
 	delete(s.sessions, id)
+	s.byAgent[agent] = slices.DeleteFunc(s.byAgent[agent], func(sid string) bool { return sid == id })
+	if len(s.byAgent[agent]) == 0 {
+		delete(s.byAgent, agent)
+	}
 	return true
 }
 

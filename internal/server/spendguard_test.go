@@ -55,14 +55,15 @@ func TestOrgBudgetGuardOverHTTP(t *testing.T) {
 		}
 		return false
 	})
-	waitFor(t, "spend.warning event", func() bool {
+	timeout := time.After(5 * time.Second)
+	for got := false; !got; {
 		select {
 		case ev := <-events.C():
-			return ev.Type == "spend.warning"
-		default:
-			return false
+			got = ev.Type == "spend.warning"
+		case <-timeout:
+			t.Fatal("timed out waiting for spend.warning event")
 		}
-	})
+	}
 	if _, st := e.REST("GET", "/api/v1/state", nil); st["paused"] != false {
 		t.Fatalf("paused at 85%%: %v", st)
 	}

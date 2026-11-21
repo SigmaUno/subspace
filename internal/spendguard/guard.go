@@ -219,7 +219,10 @@ func (g *Guard) observe(t TaskCost, at time.Time) bool {
 func (g *Guard) Reconcile(ctx context.Context) error {
 	g.evalMu.Lock()
 	defer g.evalMu.Unlock()
-	return g.reconcile(ctx)
+	if err := g.reconcile(ctx); err != nil {
+		return err
+	}
+	return g.evaluate(ctx)
 }
 
 func (g *Guard) reconcile(ctx context.Context) error {

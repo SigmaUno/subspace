@@ -1,0 +1,21 @@
+{
+  "policy": {
+    "name": "brief budget cap per component",
+    "enabled": true,
+    "rules": [
+      {"id": "api-cap", "when": {"actions": ["assign", "claim_task"], "match": "brief.id == \"B-1\" && task.component == \"api\" && cost.component_used >= 10"},
+       "then": {"effect": "deny", "message": "component api of B-1 spent its 10 EUR"}},
+      {"id": "any-cap-warn", "when": {"actions": ["claim_task"], "match": "task.component != \"\" && cost.component_used >= 8"},
+       "then": {"effect": "warn", "message": "component close to its cap"}},
+      {"id": "two-per-provider", "when": {"actions": ["claim_task"], "match": ""},
+       "then": {"effect": "set_max_parallel", "max": 2, "per": "provider"}}
+    ]
+  },
+  "cases": [
+    {"name": "under the cap", "action": "claim_task", "facts": {"brief.id": "B-1", "task.component": "api", "cost.component_used": 4, "count.in_progress_provider": 0}, "want": "allow", "matched": ["two-per-provider"]},
+    {"name": "near the cap warns", "action": "claim_task", "facts": {"brief.id": "B-1", "task.component": "api", "cost.component_used": 9.5, "count.in_progress_provider": 1}, "want": "warn", "applied": ["any-cap-warn"]},
+    {"name": "at the cap denied", "action": "assign", "facts": {"brief.id": "B-1", "task.component": "api", "cost.component_used": 10}, "want": "deny", "applied": ["api-cap"]},
+    {"name": "other brief not capped", "action": "assign", "facts": {"brief.id": "B-2", "task.component": "api", "cost.component_used": 50}, "want": "allow"},
+    {"name": "provider parallel limit", "action": "claim_task", "facts": {"brief.id": "B-2", "task.component": "", "count.in_progress_provider": 2}, "want": "deny", "applied": ["two-per-provider"]}
+  ]
+}

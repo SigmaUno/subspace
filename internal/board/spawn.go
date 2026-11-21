@@ -158,7 +158,7 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	var ls []launch
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		ls = ls[:0]
-		br, err := b.checkSpawn(tx, in)
+		br, err := b.checkSpawn(tx, w, a, in)
 		if err != nil {
 			return err
 		}
@@ -198,7 +198,7 @@ func (b *Board) spawnCapacity(tx store.Tx) (capacity.Config, error) {
 	return cfg, nil
 }
 
-func (b *Board) checkSpawn(tx store.Tx, in SpawnInput) (*model.Brief, error) {
+func (b *Board) checkSpawn(tx store.Tx, w *wctx, a model.Actor, in SpawnInput) (*model.Brief, error) {
 	if err := pausedTx(tx); err != nil {
 		return nil, err
 	}
@@ -217,6 +217,10 @@ func (b *Board) checkSpawn(tx store.Tx, in SpawnInput) (*model.Brief, error) {
 		return nil, model.Forbidden("provider %q is not allowed for brief %s", in.Provider, br.ID)
 	}
 	if err := b.checkBudget(tx, &model.Task{}, br); err != nil {
+		return nil, err
+	}
+	sp := in
+	if err := b.checkPolicy(tx, w, PolicyRequest{Action: "request_spawn", Actor: a, Brief: br, Spawn: &sp}); err != nil {
 		return nil, err
 	}
 	u, busy, err := b.usage(tx)

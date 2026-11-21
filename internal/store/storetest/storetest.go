@@ -46,6 +46,7 @@ var scenarios = []struct {
 	{"concurrent writes", scenarioConcurrent},
 	{"batch isolation", scenarioBatchIsolation},
 	{"timeseries", scenarioTimeseries},
+	{"costs", scenarioCosts},
 	{"search", scenarioSearch},
 	{"extension sql", scenarioExtensionSQL},
 	{"keyset pagination", scenarioKeysetPagination},

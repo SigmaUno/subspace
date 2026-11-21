@@ -106,6 +106,7 @@ export interface BriefReport {
   throughput: ReportThroughput;
   critical_path: ReportCriticalPath;
   outliers: ReportOutlier[] | null;
+  efficiency: ReportEfficiency;
 }
 
 export interface BriefTaskBudget {
@@ -160,6 +161,46 @@ export interface CapacityView {
   limits: CapacityLimit[] | null;
   agents_in_use: number;
   paused: boolean;
+}
+
+export interface CostBreakdown {
+  group_by: string;
+  split_by?: string;
+  brief_id?: string;
+  since: string;
+  until: string;
+  total: CostTotals;
+  groups: CostGroup[] | null;
+}
+
+export interface CostGroup {
+  key: string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number;
+  cache_write: number;
+  cost_eur: number;
+  split?: CostPart[];
+}
+
+export interface CostPart {
+  key: string;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number;
+  cache_write: number;
+  cost_eur: number;
+}
+
+export interface CostTotals {
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  cache_read: number;
+  cache_write: number;
+  cost_eur: number;
 }
 
 export interface Decision {
@@ -398,6 +439,21 @@ export interface ReportCost {
 export interface ReportCriticalPath {
   task_ids: string[] | null;
   seconds: number;
+}
+
+export interface ReportEfficiency {
+  done_tasks: number;
+  merged_tasks: number;
+  cost_per_done_task: number | null;
+  cost_per_merged_task: number | null;
+  accepted_lines: number;
+  cost_per_accepted_line: number | null;
+  review_overhead_eur: number;
+  review_overhead_pct: number;
+  cancelled_eur: number;
+  reworked_eur: number;
+  wasted_eur: number;
+  cost_by_status: Record<string, number> | null;
 }
 
 export interface ReportOutlier {

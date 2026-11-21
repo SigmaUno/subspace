@@ -2,6 +2,7 @@ package report
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"time"
 
@@ -42,6 +43,42 @@ func (s *Service) Report(ctx context.Context, briefID string) (Report, error) {
 
 type StoreSource struct {
 	Store store.Store
+}
+
+type prLister interface {
+	PRStatuses(ctx context.Context) ([][]byte, error)
+}
+
+func (s StoreSource) prs(ctx context.Context, briefID string) (map[string]PR, error) {
+	l, ok := s.Store.(prLister)
+	if !ok {
+		return nil, nil
+	}
+	raws, err := l.PRStatuses(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]PR{}
+	for _, raw := range raws {
+		var st struct {
+			TaskID  string `json:"task_id"`
+			BriefID string `json:"brief_id"`
+			State   string `json:"state"`
+			Diff    *struct {
+				Additions int `json:"additions"`
+				Deletions int `json:"deletions"`
+			} `json:"diff"`
+		}
+		if json.Unmarshal(raw, &st) != nil || st.BriefID != briefID {
+			continue
+		}
+		pr := PR{State: st.State}
+		if st.Diff != nil {
+			pr.Additions, pr.Deletions, pr.HasDiff = st.Diff.Additions, st.Diff.Deletions, true
+		}
+		out[st.TaskID] = pr
+	}
+	return out, nil
 }
 
 func (s StoreSource) Snapshot(ctx context.Context, briefID string) (Snapshot, error) {
@@ -85,5 +122,9 @@ func (s StoreSource) Snapshot(ctx context.Context, briefID string) (Snapshot, er
 	if errors.Is(err, store.ErrNotFound) {
 		return Snapshot{}, model.NotFound("brief %s not found", briefID)
 	}
+	if err != nil {
+		return out, err
+	}
+	out.PRs, err = s.prs(ctx, briefID)
 	return out, err
 }

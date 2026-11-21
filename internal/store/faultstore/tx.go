@@ -22,6 +22,7 @@ var (
 	_ store.ActivityTx   = (*Tx)(nil)
 	_ store.SearchTx     = (*Tx)(nil)
 	_ store.TimeseriesTx = (*Tx)(nil)
+	_ store.CostsTx      = (*Tx)(nil)
 )
 
 func (t *Tx) Inner() store.Tx { return t.in }
@@ -318,4 +319,23 @@ func (t *Tx) PutUsage(r store.UsageRecord) error {
 		return err
 	}
 	return in.PutUsage(r)
+}
+
+func (t *Tx) PutCost(r store.CostRecord) error {
+	in, ok := t.in.(store.CostsTx)
+	if !ok {
+		return fmt.Errorf("faultstore: %T has no costs", t.in)
+	}
+	if err := t.do("PutCost"); err != nil {
+		return err
+	}
+	return in.PutCost(r)
+}
+
+func (t *Tx) Costs(q store.CostQuery) ([]store.CostRow, error) {
+	in, ok := t.in.(store.CostsTx)
+	if !ok {
+		return nil, fmt.Errorf("faultstore: %T has no costs", t.in)
+	}
+	return call(t, "Costs", func() ([]store.CostRow, error) { return in.Costs(q) })
 }

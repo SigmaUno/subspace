@@ -27,6 +27,7 @@ func run() int {
 	logDir := flag.String("log", "", "directory minimal failing step logs are written to (empty = off)")
 	minimize := flag.String("minimize", "", "step log to minimize, replayed with seed -start")
 	serial := flag.Bool("serial", false, "disable concurrent batches")
+	leaders := flag.Bool("leaders", false, "run two leaders with brief handoffs")
 	flag.Parse()
 	if *seeds < 1 || *steps < 1 || *parallel < 1 {
 		fmt.Fprintln(os.Stderr, "seeds, steps and parallel must be >= 1")
@@ -44,7 +45,7 @@ func run() int {
 		fmt.Fprintf(os.Stderr, "unknown mode %q\n", *mode)
 		return 2
 	}
-	r.Serial = *serial
+	r.Serial, r.Leaders = *serial, *leaders
 	if *minimize != "" {
 		return minimizeLog(ctx, r, *minimize, *start, *shrink)
 	}

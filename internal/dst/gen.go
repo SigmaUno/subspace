@@ -2,7 +2,10 @@ package dst
 
 import (
 	"fmt"
+	"maps"
 	"math/rand"
+	"slices"
+	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/instructions"
@@ -152,6 +155,9 @@ func (g *Gen) next(s *State) Op {
 	}
 	if g.w.Server != nil && g.chance(18) {
 		return g.server(s)
+	}
+	if g.w.Server != nil && g.chance(14) {
+		return g.feature(s)
 	}
 	switch p := g.pick(100); {
 	case p < 11:
@@ -615,4 +621,171 @@ func (g *Gen) webhook(s *State) Op {
 		g.queue = append(g.queue, op)
 	}
 	return op
+}
+
+func (g *Gen) actor(s *State, a *agentSim) Op {
+	g.refresh(s, a)
+	return Op{Actor: a.spec.ID, Token: a.token}
+}
+
+func (g *Gen) anyAgent() *agentSim {
+	if n := g.pick(len(g.agents) + 2); n < len(g.agents) {
+		return g.agents[n]
+	}
+	return g.leaderSim()
+}
+
+func (g *Gen) workerSim() *agentSim {
+	var ws []*agentSim
+	for _, a := range g.agents {
+		if a.spec.Role == model.RoleWorker || a.spec.Role == model.RoleTester {
+			ws = append(ws, a)
+		}
+	}
+	if len(ws) == 0 {
+		return g.agents[g.pick(len(g.agents))]
+	}
+	return ws[g.pick(len(ws))]
+}
+
+func (g *Gen) pickID(ids []string, prefix string) string {
+	if len(ids) == 0 || g.chance(10) {
+		return fmt.Sprintf("%s-%d", prefix, 1+g.pick(4))
+	}
+	return ids[g.pick(len(ids))]
+}
+
+var (
+	leaderReads = []string{"get_brief", "board", "read_thread", "get_forecast", "get_task", "list_briefs", "list_help_requests"}
+	crons       = []string{"*/15 * * * *", "0 * * * *", "*/5 * * * *", "30 */2 * * *"}
+	incidentSet = []string{"pause_all", "revoke_agents", "rotate_leader_tokens", "snapshot", "notify"}
+)
+
+func (g *Gen) feature(s *State) Op {
+	sv := s.Server
+	brief := g.firstBrief(s)
+	switch p := g.pick(100); {
+	case p < 5:
+		return Op{Kind: OpAdvance, Dur: time.Duration(18+g.pick(14)) * time.Hour}
+	case p < 13:
+		op := Op{Kind: OpSetQuota, Target: g.workerSim().spec.ID}
+		if g.chance(60) {
+			op.Cost = float64(1 + g.pick(6))
+		}
+		if g.chance(60) {
+			op.N = 1 + g.pick(4)
+		}
+		if g.chance(60) {
+			op.Limit = 1 + g.pick(2)
+		}
+		return op
+	case p < 20:
+		op := Op{Kind: OpAnnounce, Text: fmt.Sprintf("notice %d\nsecond line", g.pick(100))}
+		if g.chance(50) {
+			op.Target = brief
+		}
+		if g.chance(40) {
+			op.Dur = time.Duration(10+g.pick(110)) * time.Minute
+		}
+		return op
+	case p < 22:
+		return Op{Kind: OpUnannounce, Target: g.pickID(sv.Announcements, "AN")}
+	case p < 30:
+		op := g.actor(s, g.anyAgent())
+		op.Kind = OpInstructions
+		return op
+	case p < 38:
+		a := g.workerSim()
+		op := g.actor(s, a)
+		op.Kind, op.Task = OpGetTask, g.choose(g.mine(s, a.spec.ID, model.StatusAssigned, model.StatusInProgress, model.StatusChangesRequested), s)
+		return op
+	case p < 46:
+		op := g.actor(s, g.leaderSim())
+		op.Kind, op.Text = OpLeaderRead, leaderReads[g.pick(len(leaderReads))]
+		switch op.Text {
+		case "get_task":
+			op.Task = g.anyTask(s)
+		case "list_briefs", "list_help_requests":
+		default:
+			op.Target = brief
+		}
+		return op
+	case p < 49:
+		a := g.workerSim()
+		op := g.actor(s, a)
+		op.Kind, op.Task = OpRequestHelp, g.choose(g.mine(s, a.spec.ID, model.StatusAssigned, model.StatusInProgress), s)
+		return op
+	case p < 53:
+		a := g.workerSim()
+		op := g.actor(s, a)
+		op.Kind, op.Task, op.N = OpSuggestSplit, g.choose(g.mine(s, a.spec.ID, model.StatusAssigned, model.StatusInProgress, model.StatusBlocked), s), 2+g.pick(2)
+		if g.chance(50) {
+			op.Text = "chain"
+		}
+		return op
+	case p < 58:
+		op := g.actor(s, g.leaderSim())
+		op.Kind = OpAcceptSplit
+		ids := slices.Sorted(maps.Keys(sv.Splits))
+		op.Target = g.pickID(ids, "HR")
+		op.Task = sv.Splits[op.Target]
+		return op
+	case p < 63:
+		a := g.anyAgent()
+		op := g.actor(s, a)
+		op.Kind, op.Text = OpAddKnowledge, fmt.Sprintf("pitfall %d", g.pick(50))
+		if a.spec.Role == model.RoleLeader || g.chance(20) {
+			op.Target = brief
+		}
+		return op
+	case p < 66:
+		return Op{Kind: OpModerate, Target: g.pickID(sv.Knowledge, "K"), Approve: g.chance(70)}
+	case p < 71:
+		op := g.actor(s, g.anyAgent())
+		op.Kind = OpReadKnowledge
+		if g.chance(50) {
+			op.Target = g.pickID(sv.Knowledge, "K")
+		}
+		return op
+	case p < 75:
+		return Op{Kind: OpEstimate, Target: brief}
+	case p < 77:
+		var acts []string
+		for _, a := range incidentSet {
+			if g.chance(40) {
+				acts = append(acts, a)
+			}
+		}
+		if len(acts) == 0 {
+			acts = []string{incidentSet[g.pick(len(incidentSet))]}
+		}
+		op := Op{Kind: OpIncidentStart, Text: strings.Join(acts, ",")}
+		if slices.Contains(acts, "revoke_agents") {
+			providers := []string{"anthropic", "openai", "deepseek"}
+			op.Target = []string{model.RoleWorker, model.RoleTester}[g.pick(2)] + "/" + providers[g.pick(len(providers))]
+		}
+		return op
+	case p < 80:
+		return Op{Kind: OpIncidentEnd, Approve: g.chance(50)}
+	case p < 82:
+		return Op{Kind: OpResumeAgent, Target: g.anyAgent().spec.ID}
+	case p < 84:
+		return Op{Kind: OpSchedule, Target: crons[g.pick(len(crons))], Text: []string{"skip", "run-once"}[g.pick(2)], N: g.pick(3)}
+	case p < 90:
+		return Op{Kind: OpScheduleTick, N: 1 + g.pick(2)}
+	case p < 93:
+		return Op{Kind: OpRetention}
+	case p < 95:
+		return Op{Kind: OpRestore, N: g.pick(8)}
+	case p < 97:
+		gs := []string{"questions", "review", "budget", "tests"}
+		g.r.Shuffle(len(gs), func(i, j int) { gs[i], gs[j] = gs[j], gs[i] })
+		return Op{Kind: OpSetGates, Text: strings.Join(gs[:g.pick(len(gs)+1)], ","), N: g.pick(12)}
+	default:
+		op := Op{Kind: OpOverride, Task: g.choose(g.tasksIn(s, model.StatusSubmitted, model.StatusInReview), s)}
+		if g.chance(50) {
+			op.Text = []string{"tests", "questions", "budget"}[g.pick(3)]
+		}
+		return op
+	}
 }

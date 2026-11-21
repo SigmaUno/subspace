@@ -38,6 +38,13 @@ type BoardSystem struct {
 	last   *State
 	dirty  map[string]bool
 	steps  int
+	viol   []*Violation
+}
+
+func (s *BoardSystem) fault(inv, format string, a ...any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.viol = append(s.viol, violation(inv, format, a...))
 }
 
 func (s *BoardSystem) touch(op Op) {
@@ -61,8 +68,12 @@ func (s *BoardSystem) touch(op Op) {
 		mark("plans")
 	case OpSetCapacity:
 		mark("capacity")
-	case OpHandoff:
+	case OpHandoff, OpSetGates:
 		mark("briefs")
+	case OpIncidentStart, OpIncidentEnd, OpResumeAgent:
+		mark("agents", "tasks")
+	case OpScheduleTick, OpAcceptSplit:
+		mark("briefs", "tasks")
 	}
 }
 
@@ -430,6 +441,7 @@ func (s *BoardSystem) Snapshot(ctx context.Context) (*State, error) {
 	for id, ts := range s.tokens {
 		out.Tokens[id] = len(ts) - 1
 	}
+	out.Faults = slices.Clone(s.viol)
 	s.mu.Unlock()
 	out.Subs, out.Subscribers = s.hub.stats()
 	s.last = out

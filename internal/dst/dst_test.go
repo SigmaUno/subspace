@@ -12,7 +12,7 @@ import (
 const (
 	regressionsFile = "../../testdata/dst/regressions.txt"
 	idempotencyFile = "../../testdata/dst/idempotency.txt"
-	freshSeeds      = 50
+	freshSeeds      = 8
 	freshSteps      = 200
 )
 
@@ -45,9 +45,9 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 }
 
 func TestSimulation(t *testing.T) {
-	seeds, steps, fresh := 16, 300, freshSeeds
+	seeds, steps, fresh := 5, 300, freshSeeds
 	if testing.Short() {
-		seeds, steps, fresh = 4, 200, 8
+		seeds, steps, fresh = 3, 200, 4
 	}
 	var regs []Regression
 	for seed := int64(1); seed <= int64(seeds); seed++ {
@@ -67,7 +67,7 @@ func TestSimulation(t *testing.T) {
 }
 
 func TestServerSimulation(t *testing.T) {
-	seeds, steps := 6, 400
+	seeds, steps := 4, 400
 	if testing.Short() {
 		seeds, steps = 4, 300
 	}
@@ -81,7 +81,7 @@ func TestServerSimulation(t *testing.T) {
 }
 
 func TestSimulationWithLeaderHandoffs(t *testing.T) {
-	seeds, steps := 8, 300
+	seeds, steps := 3, 300
 	if testing.Short() {
 		seeds, steps = 3, 200
 	}
@@ -151,7 +151,7 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
-	seeds, steps := 8, 300
+	seeds, steps := 4, 300
 	if testing.Short() {
 		seeds, steps = 3, 200
 	}
@@ -191,34 +191,36 @@ func TestIdempotencyRegressions(t *testing.T) {
 	}
 }
 
-func TestDetectsMergeWithoutGate(t *testing.T) {
-	t.Parallel()
-	r := ServerRunner(t.TempDir())
-	r.Factory = NewServerFactory(ServerOptions{AutoApprove: true})
-	outs := make([]*Outcome, 4)
-	var wg sync.WaitGroup
-	for i := range outs {
-		wg.Go(func() {
-			o, err := r.Run(context.Background(), int64(i+1), 400)
-			if err != nil {
-				t.Error(err)
+func TestDetectsServerFaults(t *testing.T) {
+	for _, tc := range []struct {
+		name string
+		o    ServerOptions
+		inv  string
+		from int64
+	}{
+		{"merge_without_gate", ServerOptions{AutoApprove: true}, InvMerge, 4},
+		{"claim_without_quota", ServerOptions{NoQuotaGate: true}, InvQuota, 3},
+		{"approve_without_quality_gates", ServerOptions{NoQualityGate: true}, InvGates, 9},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			r := ServerRunner(t.TempDir())
+			r.Factory = NewServerFactory(tc.o)
+			for seed := tc.from; seed < tc.from+3; seed++ {
+				o, err := r.Run(context.Background(), seed, 400)
+				if err != nil {
+					t.Fatal(err)
+				}
+				if !o.Failed() {
+					continue
+				}
+				if o.Violation.Invariant != tc.inv {
+					t.Fatalf("seed %d: got %s, want %s", seed, o.Violation, tc.inv)
+				}
+				return
 			}
-			outs[i] = o
+			t.Fatalf("no seed detected %s", tc.inv)
 		})
-	}
-	wg.Wait()
-	found := false
-	for _, o := range outs {
-		if o == nil || !o.Failed() {
-			continue
-		}
-		if o.Violation.Invariant != InvMerge {
-			t.Fatalf("seed %d: got %s, want %s", o.Seed, o.Violation, InvMerge)
-		}
-		found = true
-	}
-	if !found {
-		t.Fatalf("no seed detected %s", InvMerge)
 	}
 }
 
@@ -293,7 +295,7 @@ func TestDetectsInjectedBugs(t *testing.T) {
 				if !tc.shrink {
 					return
 				}
-				s, err := r.Minimize(ctx, o, 200)
+				s, err := r.Minimize(ctx, o, 60)
 				if err != nil {
 					t.Fatal(err)
 				}

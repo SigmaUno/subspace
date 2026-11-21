@@ -144,6 +144,7 @@ func (f *fakeEngine) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			nets[n] = map[string]any{}
 		}
 		_ = json.NewEncoder(w).Encode(map[string]any{"Id": id, "State": map[string]bool{"Running": c.state == "running"},
+			"Config":          map[string]any{"Image": c.body.Image, "Cmd": c.body.Cmd, "Labels": c.body.Labels},
 			"NetworkSettings": map[string]any{"Networks": nets}})
 	case len(parts) == 3 && parts[0] == "containers" && r.Method == http.MethodPost && parts[2] == "start":
 		_, c := f.byRef(parts[1])
@@ -329,6 +330,27 @@ func (f *fakeEngine) agentBody(t *testing.T, agentID string) createBody {
 	}
 	t.Fatalf("no container for %s", agentID)
 	return createBody{}
+}
+
+func TestDockerReplacesStaleEgress(t *testing.T) {
+	d, f := dockerFixture(t, func(c *DockerConfig) {
+		c.EgressImage = "subspace/egress:2"
+		c.EgressAllow = []string{"new.test"}
+	})
+	stale := f.add("subspace-egress", "running", map[string]string{"subspace.managed": "true", "subspace.role": "egress"})
+	f.mu.Lock()
+	f.containers[stale].body.Image = "subspace/egress:1"
+	f.containers[stale].body.Cmd = []string{"-listen", ":3128", "-allow", "old.test"}
+	f.containers[stale].nets = []string{"bridge", DefaultDockerNetwork}
+	f.mu.Unlock()
+	if err := d.Spawn(context.Background(), testRequest()); err != nil {
+		t.Fatal(err)
+	}
+	id, eg := f.get("subspace-egress")
+	want := []string{"-listen", ":3128", "-allow", "new.test"}
+	if id == stale || eg.body.Image != "subspace/egress:2" || !slices.Equal(eg.body.Cmd, want) || eg.state != "running" {
+		t.Fatalf("egress kept a stale config: %s %s %v %s", id, eg.body.Image, eg.body.Cmd, eg.state)
+	}
 }
 
 func TestDockerSpawnRequestShape(t *testing.T) {

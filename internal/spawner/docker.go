@@ -522,7 +522,12 @@ func (d *Docker) egressCmd() []string {
 func (d *Docker) ensureEgress(ctx context.Context) error {
 	name := d.egressName()
 	var info struct {
-		ID    string `json:"Id"`
+		ID     string `json:"Id"`
+		Config struct {
+			Image  string            `json:"Image"`
+			Cmd    []string          `json:"Cmd"`
+			Labels map[string]string `json:"Labels"`
+		} `json:"Config"`
 		State struct {
 			Running bool `json:"Running"`
 		} `json:"State"`
@@ -531,6 +536,14 @@ func (d *Docker) ensureEgress(ctx context.Context) error {
 		} `json:"NetworkSettings"`
 	}
 	err := d.do(ctx, "", http.MethodGet, "/containers/"+name+"/json", nil, &info)
+	if err == nil && (info.Config.Image != d.cfg.EgressImage || !slices.Equal(info.Config.Cmd, d.egressCmd()) ||
+		info.Config.Labels[d.label("managed")] != "true" || info.Config.Labels[d.label("role")] != "egress") {
+		if err := d.do(ctx, "", http.MethodDelete, "/containers/"+info.ID+"?force=true", nil, nil); err != nil && !isStatus(err, http.StatusNotFound) {
+			return fmt.Errorf("spawner docker: egress replace: %w", err)
+		}
+		info.NetworkSettings.Networks, info.State.Running = nil, false
+		err = &engineError{status: http.StatusNotFound}
+	}
 	switch {
 	case isStatus(err, http.StatusNotFound):
 		hc := d.hardened(Limits{CPUs: 1, MemoryBytes: 256 << 20, Pids: 256})

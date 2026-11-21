@@ -21,7 +21,7 @@ const (
 	budget   = 1700 * time.Millisecond
 	backstop = 1950 * time.Millisecond
 	redacted = "<redacted>"
-	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|instructions [flags] [text]"
+	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|instructions [flags] [text | -]"
 )
 
 type config struct {
@@ -149,7 +149,10 @@ func (h *hook) heartbeat(ctx context.Context, task string) error {
 }
 
 func (h *hook) log(ctx context.Context, task, stream, text string) error {
-	if text == "" {
+	switch text {
+	case "-":
+		text = strings.TrimSpace(tail(readText(ctx, h.stdin, h.cfg.token), maxChunk))
+	case "":
 		text = readPayload(ctx, h.stdin, h.cfg.token).logText()
 	}
 	if text == "" {

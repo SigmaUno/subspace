@@ -585,3 +585,14 @@ func TestTokenCutAtALimitLeaksNoPart(t *testing.T) {
 		}
 	}
 }
+
+func TestLogReadsRawTextFromStdinWithoutTheToken(t *testing.T) {
+	r := newRig(t)
+	r.ok("[bash] env\ntoken "+r.token+"\nok\n", "log", "-task", r.taskID, "--", "-")
+	if got := r.tap.last(); got.tool != "log_output" || got.args["text"] != "[bash] env\ntoken "+redacted+"\nok" {
+		t.Fatalf("log call: %s %v", got.tool, got.args)
+	}
+	if n := len(r.output()); n != 3 {
+		t.Fatalf("output lines: %d", n)
+	}
+}

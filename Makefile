@@ -1,6 +1,7 @@
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report release-dist release-dry clean
 .PHONY: all build test vet lint fmt gen-ts run loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
+.PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
 GO ?= go
 BIN := bin
@@ -58,6 +59,26 @@ loadtest-short:
 # 1000 agents ramped in over 20s, 500 SSE subscribers; JSON report and pprof profiles under bin/.
 loadtest-1000:
 	$(GO) run ./cmd/loadtest -agents 1000 -duration 90s -ramp 20s -sse-subs 500 -out $(LOADTEST_OUT) -profile $(LOADTEST_PROFILE)
+
+loadtest-scenarios: loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart
+
+loadtest-contention:
+	$(GO) run ./cmd/loadtest -scenario contention -agents 200 -sse-subs 0 -duration 60s
+
+loadtest-big-plan:
+	$(GO) run ./cmd/loadtest -scenario big-plan -agents 50 -sse-subs 0 -duration 120s
+
+loadtest-many-briefs:
+	$(GO) run ./cmd/loadtest -scenario many-briefs -agents 50 -sse-subs 0 -duration 120s
+
+loadtest-thread-heavy:
+	$(GO) run ./cmd/loadtest -scenario thread-heavy -agents 20 -messages 500 -sse-subs 0 -duration 60s
+
+loadtest-reconnect-storm:
+	$(GO) run ./cmd/loadtest -scenario reconnect-storm -agents 50 -sse-subs 500 -duration 20s
+
+loadtest-restart:
+	$(GO) run ./cmd/loadtest -scenario restart -agents 50 -tasks-per-agent 6 -sse-subs 100 -duration 60s
 
 loadtest-report:
 	@test -f $(LOADTEST_OUT) || { echo "$(LOADTEST_OUT) not found; run make loadtest-1000 first" >&2; exit 1; }

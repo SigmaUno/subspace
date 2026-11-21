@@ -1,9 +1,22 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Message, Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+
+const pageSize = 200;
+
+const MessageItem = memo(function MessageItem({ message }: { message: Message }) {
+  return (
+    <article>
+      <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
+        <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
+      </div>
+      <p className="preserve">{message.body}</p>
+    </article>
+  );
+});
 
 export function ThreadPanel({ thread, revision, top, close }: { thread: Thread; revision: number; top: number; close: () => void }) {
   const path = `threads/${thread.kind}/${encodeURIComponent(thread.id)}/messages`;
@@ -25,6 +38,8 @@ export function ThreadPanel({ thread, revision, top, close }: { thread: Thread; 
     return log.current;
   }, []);
   const messages = useResource(path, revision, load);
+  const [shown, setShown] = useState(pageSize);
+  const hidden = Math.max(0, (messages.data?.length ?? 0) - shown);
   useEffect(() => {
     if (follow.current && messageArea.current) {
       messageArea.current.scrollTop = messageArea.current.scrollHeight;
@@ -56,14 +71,8 @@ export function ThreadPanel({ thread, revision, top, close }: { thread: Thread; 
         }}>
         <Feedback error={messages.error} loading={!messages.data} />
         {messages.data?.length === 0 && <p className="empty">No messages yet.</p>}
-        {messages.data?.map((message) => (
-          <article key={message.id}>
-            <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
-              <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
-            </div>
-            <p className="preserve">{message.body}</p>
-          </article>
-        ))}
+        {hidden > 0 && <button type="button" className="text-button" onClick={() => setShown(shown + pageSize)}>Show {Math.min(hidden, pageSize)} earlier messages ({hidden} hidden)</button>}
+        {messages.data?.slice(hidden).map((message) => <MessageItem key={message.id} message={message} />)}
       </div>
       <form className="stack reply" data-write onSubmit={(event) => form.submit(event, async (fields, element) => {
         const body = value(fields, "body");

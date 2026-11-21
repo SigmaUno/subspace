@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useContext, useState } from "react";
+import { memo, useContext, useDeferredValue, useMemo, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import type { PRStatus } from "../../../lib/pr-types";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
@@ -67,7 +67,7 @@ export function BriefsView({ revision }: { revision: number }) {
   );
 }
 
-function TaskCard({ task, agent, agents, bulk, pr: prStatus, openThread }: {
+const TaskCard = memo(function TaskCard({ task, agent, agents, bulk, pr: prStatus, openThread }: {
   task: Task; agent?: Agent; agents: Agent[]; bulk: Bulk; pr?: PRStatus; openThread: (thread: Thread) => void;
 }) {
   const pr = safeURL(task.pr_url);
@@ -93,7 +93,7 @@ function TaskCard({ task, agent, agents, bulk, pr: prStatus, openThread }: {
       <QuickMenu taskID={task.id} agents={agents} bulk={bulk} />
     </article>
   );
-}
+});
 
 export function Kanban({ board, agents, revision, openThread }: {
   board: Board; agents: Agent[]; revision: number; openThread: (thread: Thread) => void;
@@ -101,15 +101,18 @@ export function Kanban({ board, agents, revision, openThread }: {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatus] = useState("");
   const [mergeReady, setMergeReady] = useState(false);
+  const deferredFilter = useDeferredValue(filter);
   const prs = usePRs(revision, board.brief.id);
   const bulk = useBulk();
-  const byID = new Map(agents.map((agent) => [agent.id, agent]));
+  const byID = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
   const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
-  const needle = filter.toLowerCase().trim();
-  const matches = (task: Task) =>
-    (!needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))) &&
-    (!mergeReady || !!prs.byTask.get(task.id)?.merge_ready);
-  const visible = visibleStatuses.flatMap(([status]) => (board.columns[status] ?? []).filter(matches));
+  const columns = useMemo(() => {
+    const needle = deferredFilter.toLowerCase().trim();
+    return Object.fromEntries(statuses.map(([status]) => [status, (board.columns[status] ?? []).filter((task) =>
+      (!needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))) &&
+      (!mergeReady || !!prs.byTask.get(task.id)?.merge_ready))]));
+  }, [board, deferredFilter, mergeReady, prs.byTask]);
+  const visible = visibleStatuses.flatMap(([status]) => columns[status]);
 
   return <section className="stack">
     <div className="heading">
@@ -129,7 +132,7 @@ export function Kanban({ board, agents, revision, openThread }: {
     </div>
     <section className="board" aria-label="Kanban board" tabIndex={0}>
       {visibleStatuses.map(([status, name]) => {
-        const tasks = (board.columns[status] ?? []).filter(matches);
+        const tasks = columns[status];
         return <section className="column" aria-label={name} key={status} data-status={status}>
           <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
           <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"

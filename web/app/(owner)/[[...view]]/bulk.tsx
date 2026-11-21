@@ -1,7 +1,7 @@
 "use client";
 
 import "./bulk.css";
-import { useState } from "react";
+import { useMemo, useState } from "react";
 import { api, useSubmit, value } from "../../../lib/client";
 import type { AgentAction, BulkResponse, TaskAction } from "../../../lib/bulk-types";
 import type { Agent } from "../../../lib/types";
@@ -49,7 +49,7 @@ export const agentActions: AgentAction[] = ["pause", "resume", "rotate-token", "
 export function useBulk() {
   const [selected, setSelected] = useState<ReadonlySet<string>>(new Set());
   const [result, setResult] = useState<BulkResponse | null>(null);
-  return {
+  return useMemo(() => ({
     selected, result,
     toggle: (id: string) => setSelected((current) => {
       const next = new Set(current);
@@ -63,7 +63,7 @@ export function useBulk() {
       setResult(response);
     },
     dismiss: () => setResult(null),
-  };
+  }), [selected, result]);
 }
 
 export type Bulk = ReturnType<typeof useBulk>;

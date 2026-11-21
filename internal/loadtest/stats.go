@@ -178,6 +178,9 @@ func (r *Recorder) Observe(op string, d time.Duration, err error) {
 	}
 }
 
+// Count returns the number of requests observed so far.
+func (r *Recorder) Count() int64 { return r.overall.hist.Count() }
+
 // OpReport summarises one operation.
 type OpReport struct {
 	Name   string  `json:"name"`

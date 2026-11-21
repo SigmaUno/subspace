@@ -1,0 +1,9 @@
+.filter-row { display: flex; flex-wrap: wrap; align-items: center; gap: .5rem .65rem; }
+.filter-row > .meta { margin-inline-start: auto; }
+.saved-views, .saved-view-form { display: flex; flex-wrap: wrap; align-items: center; gap: .4rem; }
+.saved-view-form input { width: auto; max-width: 100%; font-size: .8125rem; padding-block: .35rem; }
+.column-tools { display: inline-flex; align-items: center; gap: .4rem; }
+.column-toggle { padding: 0 .45rem; line-height: 1.5; box-shadow: none; }
+.column[data-collapsed=true] { min-height: 0; }
+.board[data-density=compact] .task { gap: .15rem; padding: .4rem .5rem; font-size: .75rem; }
+.board[data-density=compact] .task .task-title { font-size: .8125rem; }

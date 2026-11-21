@@ -1,15 +1,19 @@
 "use client";
 
 import Link from "next/link";
-import { useRouter } from "next/navigation";
-import { memo, useContext, useDeferredValue, useMemo, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { memo, useContext, useDeferredValue, useEffect, useMemo, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import type { PRStatus } from "../../../lib/pr-types";
-import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
+import type { Component } from "../../../lib/swarm";
+import { statuses, type Agent, type Board, type Brief, type Task, type TaskStatus, type Thread } from "../../../lib/types";
+import { BoardFilters, useBoardPrefs } from "./board-views";
+import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, parseQuery } from "./board-query";
 import { ImportBrief } from "./brief-import";
 import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { PRBadges, usePRs } from "./pr-status";
+import { typing } from "./shortcuts";
 import { EmptyState, ResourceState } from "./states";
 import { VirtualList } from "./virtual";
 
@@ -95,48 +99,79 @@ const TaskCard = memo(function TaskCard({ task, agent, agents, bulk, pr: prStatu
   );
 });
 
-export function Kanban({ board, agents, revision, openThread }: {
-  board: Board; agents: Agent[]; revision: number; openThread: (thread: Thread) => void;
+export function Kanban({ board, agents, components, revision, openThread }: {
+  board: Board; agents: Agent[]; components: Component[]; revision: number; openThread: (thread: Thread) => void;
 }) {
-  const [filter, setFilter] = useState("");
-  const [statusFilter, setStatus] = useState("");
-  const [mergeReady, setMergeReady] = useState(false);
-  const deferredFilter = useDeferredValue(filter);
+  const now = useContext(Clock);
+  const pathname = usePathname();
+  const search = useSearchParams();
+  const [query, setQuery] = useState(() => parseQuery(search.toString()));
+  const deferredQuery = useDeferredValue(query);
+  const { density, setDensity, collapsed, toggleCollapsed } = useBoardPrefs();
   const prs = usePRs(revision, board.brief.id);
   const bulk = useBulk();
   const byID = useMemo(() => new Map(agents.map((agent) => [agent.id, agent])), [agents]);
-  const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
+  const tasks = useMemo(() => statuses.flatMap(([status]) => board.columns[status] ?? []), [board]);
+  const haystacks = useMemo(() => new Map(tasks.map((task) => [task.id, haystack(task)])), [tasks]);
+  const options = useMemo(() => facets(tasks), [tasks]);
+  const matched = useMemo(() => filterTasks(tasks, haystacks, deferredQuery, {
+    isStale: (task) => staleAt(task.last_heartbeat_at, now, task.lease_expires_at),
+    isMergeReady: (id) => !!prs.byTask.get(id)?.merge_ready,
+  }), [tasks, haystacks, deferredQuery, now, prs.byTask]);
   const columns = useMemo(() => {
-    const needle = deferredFilter.toLowerCase().trim();
-    return Object.fromEntries(statuses.map(([status]) => [status, (board.columns[status] ?? []).filter((task) =>
-      (!needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))) &&
-      (!mergeReady || !!prs.byTask.get(task.id)?.merge_ready))]));
-  }, [board, deferredFilter, mergeReady, prs.byTask]);
-  const visible = visibleStatuses.flatMap(([status]) => columns[status]);
+    const grouped: Partial<Record<TaskStatus, Task[]>> = {};
+    for (const task of matched) (grouped[task.status] ??= []).push(task);
+    return grouped;
+  }, [matched]);
+  const groupFilter = groupStatuses(deferredQuery.group);
+  const visibleStatuses = groupFilter ? statuses.filter(([status]) => groupFilter.includes(status)) : statuses;
+  const visible = visibleStatuses.flatMap(([status]) => columns[status] ?? []);
+
+  useEffect(() => {
+    const next = formatQuery(query);
+    if (next === window.location.search.slice(1)) return;
+    window.history.replaceState(window.history.state, "", next ? `${pathname}?${next}` : pathname);
+  }, [query, pathname]);
+
+  useEffect(() => {
+    const actions: Record<string, () => void> = {
+      B: () => setQuery((current) => ({ ...current, blocked: !current.blocked })),
+      S: () => setQuery((current) => ({ ...current, stale: !current.stale })),
+      M: () => { if (prs.supported) setQuery((current) => ({ ...current, mergeReady: !current.mergeReady })); },
+      D: () => setDensity(density === "compact" ? "comfortable" : "compact"),
+      X: () => setQuery(emptyQuery),
+    };
+    function onKey(event: KeyboardEvent) {
+      if (!event.shiftKey || event.ctrlKey || event.metaKey || event.altKey || typing(event.target)) return;
+      const action = actions[event.key];
+      if (!action) return;
+      event.preventDefault();
+      action();
+    }
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [density, prs.supported, setDensity]);
 
   return <section className="stack">
     <div className="heading">
       <h2>Kanban</h2>
       <div className="actions">
         <SelectAll ids={visible.map((task) => task.id)} bulk={bulk} name="tasks" />
-        <input className="filter-input" type="search" aria-label="Filter tasks" placeholder="Filter tasks"
-          value={filter} onChange={(event) => setFilter(event.target.value)} />
-        <select className="filter-input" aria-label="Task status" value={statusFilter} onChange={(event) => setStatus(event.target.value)}>
-          <option value="">All statuses</option>
-          {statuses.map(([status, name]) => <option key={status} value={status}>{name}</option>)}
-        </select>
-        {prs.supported && <label className="inline">
-          <input type="checkbox" checked={mergeReady} onChange={(event) => setMergeReady(event.target.checked)} /> Merge ready
-        </label>}
       </div>
     </div>
-    <section className="board" aria-label="Kanban board" tabIndex={0}>
+    <BoardFilters query={query} onChange={setQuery} facets={options} components={components} mergeSupported={prs.supported}
+      shown={visible.length} total={tasks.length} density={density} onDensity={setDensity} />
+    <section className="board" data-density={density} aria-label="Kanban board" tabIndex={0}>
       {visibleStatuses.map(([status, name]) => {
-        const tasks = columns[status];
-        return <section className="column" aria-label={name} key={status} data-status={status}>
-          <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
-          <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"
-            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} agents={agents} bulk={bulk} pr={prs.byTask.get(task.id)} openThread={openThread} />} />
+        const items = columns[status] ?? [];
+        const folded = collapsed.has(status);
+        return <section className="column" aria-label={name} key={status} data-status={status} data-collapsed={folded}>
+          <h3><span className="pill" data-status={status}>{name}</span>
+            <span className="column-tools"><span className="meta">{items.length}</span>
+              <button type="button" className="column-toggle" aria-expanded={!folded} aria-label={`${folded ? "Show" : "Hide"} ${name} tasks`}
+                onClick={() => toggleCollapsed(status)}>{folded ? "+" : "−"}</button></span></h3>
+          {!folded && <VirtualList items={items} name={`${name} tasks`} estimate={density === "compact" ? 120 : 207} className="column-list"
+            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} agents={agents} bulk={bulk} pr={prs.byTask.get(task.id)} openThread={openThread} />} />}
         </section>;
       })}
     </section>

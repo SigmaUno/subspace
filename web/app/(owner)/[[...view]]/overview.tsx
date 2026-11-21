@@ -151,7 +151,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
   const board = useResource<Board>(`briefs/${encodeURIComponent(id)}/board`, revisions.board);
   const registry = useResource<{ agents: Agent[] }>("agents?limit=1000&include=last_message", revisions.agents);
   const [chat, setChat] = useState<string | null>(null);
-  const componentFeed = useResource((architecture || chat) ? `briefs/${encodeURIComponent(id)}/architecture` : null,
+  const componentFeed = useResource(`briefs/${encodeURIComponent(id)}/architecture`,
     revisions.architecture, optionalResource<{ components: Component[] }>);
   const components = componentFeed.data?.components ?? emptyComponents;
   const agents = registry.data?.agents ?? emptyAgents;
@@ -200,7 +200,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
           {architecture ? <Architecture components={components} tasks={taskList} loading={componentFeed.data === undefined}
             error={componentFeed.error} openThread={openThread} openChat={setChat} /> : <>
             <ForecastPanel briefID={id} revision={revisions.board} />
-            <Kanban board={board.data!} agents={agents} revision={revisions.board} openThread={openThread} />
+            <Kanban board={board.data!} agents={agents} components={components} revision={revisions.board} openThread={openThread} />
             <Workload agents={agents} tasks={taskList} recent={recent} openThread={openThread} openChat={setChat} />
             <ActivityFeed briefID={id} revision={revisions.activity} openThread={openThread} />
             <AutopilotPanel revision={revisions.board} spawnRevision={revisions.agents} />

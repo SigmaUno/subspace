@@ -32,6 +32,7 @@ export interface Task {
   role: string;
   assignee: string | null;
   component_id?: string | null;
+  priority?: number;
   depends_on: string[] | null;
   status: TaskStatus;
   progress_pct: number;

@@ -38,6 +38,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/report"
+	"github.com/SigmaUno/subspace/internal/schedule"
 	"github.com/SigmaUno/subspace/internal/search"
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
@@ -233,6 +234,14 @@ var operations = []Op{
 	post("/api/v1/knowledge/{id}/pin", "Pin or unpin a knowledge entry", KnowledgePin{}, knowledge.Entry{}),
 	post("/api/v1/knowledge/{id}/approve", "Approve a pending knowledge entry", Free{}, knowledge.Entry{}),
 	post("/api/v1/knowledge/{id}/supersede", "Mark a knowledge entry superseded", KnowledgeSupersede{}, knowledge.Entry{}),
+
+	post("/api/v1/schedules", "Create a schedule that creates briefs or adds tasks on a cron timetable", schedule.Input{}, schedule.Schedule{}).S(created),
+	get("/api/v1/schedules", "List schedules with their next run", list[schedule.Schedule]("schedules")),
+	get("/api/v1/schedules/preview", "Next run times of a cron expression in a time zone", schedule.Preview{}).Q("cron! timezone count:integer"),
+	get("/api/v1/schedules/{id}", "Get a schedule", schedule.Schedule{}),
+	patch("/api/v1/schedules/{id}", "Edit, enable or disable a schedule", schedule.Patch{}, schedule.Schedule{}),
+	del("/api/v1/schedules/{id}", "Delete a schedule and its run history", nil).S(gone),
+	get("/api/v1/schedules/{id}/runs", "Runs of a schedule, newest first", list[schedule.Run]("runs")).Q("limit:integer"),
 
 	get("/api/v1/autopilot", "Autopilot status and per-brief flags", AutopilotView{}),
 	post("/api/v1/autopilot/briefs/{id}", "Enable or disable autopilot for a brief", AutopilotSet{}, AutopilotBrief{}),

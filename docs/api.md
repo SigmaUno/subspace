@@ -7,7 +7,7 @@ the server changes, this file changes in the same PR.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
@@ -1153,6 +1153,48 @@ Policy: `SUBSPACE_RETAIN_AUDIT_DAYS`, `SUBSPACE_RETAIN_MESSAGES_DAYS`, `SUBSPACE
 | POST | `/api/v1/retention/segments/{id}/restore` | `{}` → Segment with status `restored`. Re-inserts the rows (existing keys are kept). Audit segments are restored newest first (409 otherwise); 409 if already restored, 404 unknown id. Rows still older than the policy are archived again by the next run. |
 
 `subspace retention-restore --db <path> [--dir <archive>] (--list | --segment <id> | --kind <kind>)` does the same offline; `--kind` restores every archived segment of that kind newest first.
+
+### Schedules
+Recurring work: a schedule creates a brief, or adds tasks to an existing brief, from templates on a cron timetable. Owner scope writes, viewer scope reads. Create, update and delete append audit events (`create_schedule`, `update_schedule`, `delete_schedule`).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| POST | `/api/v1/schedules` | `{"name","cron","timezone":"UTC","action":"create_brief","brief":{...},"enabled":true,"max_active":1,"catch_up":"skip"}` → Schedule (201). 400 on invalid fields or unknown fields, 404 for an unknown template or target brief, 409 above 100 schedules. |
+| GET | `/api/v1/schedules` | → `{"schedules":[Schedule]}` oldest first. |
+| GET | `/api/v1/schedules/preview?cron=&timezone=&count=` | → `{"cron","timezone","next":["2026-11-23T08:00:00Z"]}`, the next `count` (default 5, max 20) run times after now in UTC, without saving anything. 400 for an invalid expression or time zone. |
+| GET | `/api/v1/schedules/{id}` | → Schedule. 404 for an unknown id. |
+| PATCH | `/api/v1/schedules/{id}` | any of the create fields → Schedule. The cron expression is always validated; the brief document or task templates and the target brief only when `action`, `brief`, `brief_id` or `tasks` change, so a schedule can always be disabled. |
+| DELETE | `/api/v1/schedules/{id}` | → 204. Deletes the schedule and its run history; briefs and tasks it created stay. |
+| GET | `/api/v1/schedules/{id}/runs?limit=` | → `{"runs":[Run]}` newest first by scheduled instant; `limit` default 100, max 1000. |
+
+```jsonc
+// Schedule
+{"id":"SC-1","name":"Weekly security audit","cron":"0 9 * * 1","timezone":"Europe/Berlin",
+ "action":"create_brief",                          // create_brief|add_tasks
+ "brief":{"template_id":"security-audit","markdown":"","vars":{"repo":"SigmaUno/subspace"}},   // create_brief; null for add_tasks
+ "brief_id":"","tasks":[],                         // add_tasks: target brief and task templates
+ "enabled":true,"max_active":1,"catch_up":"skip",  // catch_up: skip|run-once
+ "next_run_at":"2026-11-23T08:00:00Z","last_run_at":null,   // next_run_at is null while disabled; last_run_at is the latest instant that ran (not skipped)
+ "created_at":"...","updated_at":"..."}
+
+// task entry of add_tasks: {"template_id":"fix-bug-with-regression-test","vars":{"bug":"..."},"repo":"SigmaUno/subspace","priority":0}
+
+// Run
+{"schedule_id":"SC-1","scheduled_for":"2026-11-23T08:00:00Z",
+ "status":"created",                               // running|created|skipped|failed|interrupted
+ "missed":0,"detail":"",                           // skipped: missed|max_active; failed: the error
+ "brief_id":"B-7","task_ids":[],"started_at":"...","finished_at":"..."}
+```
+
+`cron` has the five classic fields (minute, hour, day of month, month, day of week). Each field takes `*`, numbers, ranges (`1-5`), lists (`1,15`) and steps (`*/10`, `0-30/5`, `5/15`); months and weekdays also take three-letter names (`jan`, `mon`), weekday `7` is Sunday. A restricted day of month and a restricted day of week match when either does (like Vixie cron), otherwise both must match. An expression that can never match (`0 0 31 2 *`) is rejected. `timezone` is an IANA name (default `UTC`, the database is built in). A time that does not exist on a daylight-saving day runs at the instant the clocks jump forward; an ambiguous time runs once, at its first occurrence.
+
+- `action` `create_brief` needs `brief` with exactly one of `template_id` (a brief template, see Briefs) or `markdown` (an import document), plus `vars` for the template placeholders. The document is rendered and parsed when the schedule is saved (400 with the position on errors), then imported on every run with its component plan. The new brief's thread gets a `system` message naming the schedule and the scheduled instant.
+- `action` `add_tasks` needs `brief_id` of an existing brief (a run fails while the brief is closed) and 1 to 20 `tasks`, each a task template (see Task templates) with `vars`, `repo` and `priority`. Every run creates the tasks like the leader tool `create_task_from_template` (author `schedule`) and posts one `system` message to the brief thread.
+- `max_active` (default 1, `0` = unlimited) limits the runs whose result is still open: for `create_brief` the created brief is `open`, for `add_tasks` a created task is not `done` or `cancelled`. A due run beyond the limit is recorded as `skipped` with detail `max_active`.
+- `catch_up` decides what happens to instants missed while the server was down or the schedule was disabled. The runner looks at the instants since the last handled one (at most 31 days back): with `run-once` it runs once for the latest due instant and counts the others in `missed`; with `skip` it runs only when the latest due instant is at most `SUBSPACE_SCHEDULE_GRACE` (default `5m`) old, otherwise it records a `skipped` run with detail `missed`. Editing `cron` or `timezone` and enabling a disabled schedule restart the timetable from now.
+- A run is keyed by schedule and scheduled instant (table `schedule_runs`, primary key `(schedule_id, instant)`), claimed before anything is created, so an instant never runs twice, also across restarts. A run claimed but not finished when the server stopped becomes `interrupted` on the next start and is not retried. Every created or failed run appends a `run_schedule` audit event by `schedule` (role `system`).
+
+The runner evaluates every `SUBSPACE_SCHEDULE_INTERVAL` (default `30s`). Schedules are stored in the `schedules` table.
 
 ## 4. SSE: `GET /api/v1/events`
 

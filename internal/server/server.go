@@ -161,6 +161,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 	compStore := components.NewMemory()
 	comps := components.NewService(compStore, componentSource{b, st}, nil)
+	b.SetComponentPaths(func(briefID, id string) []string { return comps.Paths(ctx, briefID, id) })
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 

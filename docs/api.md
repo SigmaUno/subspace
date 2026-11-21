@@ -52,7 +52,8 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "status":"in_progress",
  "progress_pct":40,"last_heartbeat_at":"...","lease_expires_at":"...","pr_url":null,
  "budget":{"max_minutes":120,"max_cost_eur":5.0},"cost_used":0.4,"minutes_used":12,
- "review_rounds":0,"priority":0,"component_id":"","lease_expiries":0,"tests":null,                       // or {"passed":10,"failed":1,"reported_at":"..."}
+ "review_rounds":0,"priority":0,"component_id":"","lease_expiries":0,"paths":["internal/api/**"],
+ "tests":null,                                         // or {"passed":10,"failed":1,"reported_at":"..."}
  "blocked_reason":null,                                // string when status is blocked or needs_owner
  "created_at":"...","updated_at":"..."}
 // status: backlog|ready|assigned|in_progress|submitted|in_review|changes_requested|approved|done|blocked|needs_owner|cancelled
@@ -207,7 +208,7 @@ Template variables are `{{name}}` placeholders. Values substituted into the fron
 | GET | `/api/v1/plans/{id}` | → Plan |
 | POST | `/api/v1/plans/{id}/approve` | `{"note":""}` → Plan. Tasks `backlog → ready`. 409 if not `proposed`. |
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
-| POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{}}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
+| POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{},"priority":0,"component_id":"","paths":[]}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
 | DELETE | `/api/v1/plans/{id}/tasks/{taskId}` | → Plan. Drops a `backlog` task of a `proposed` plan: the task becomes `cancelled` and stays in `tasks`. 409 while a non-cancelled task still lists it in `depends_on` (edit those first, the message names them) or if the plan is not `proposed`; 404 if the task is not part of the plan. |
 
 Plan edits post a system message to the brief thread and append an audit event (`add_plan_task`, `drop_plan_task`).
@@ -217,7 +218,7 @@ Plan edits post a system message to the brief thread and append an audit event (
 |---|---|---|
 | GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=&cursor=&limit=` | → `{"tasks":[Task],"next_cursor":null}` ordered by `priority` descending, then id. |
 | GET | `/api/v1/tasks/{id}` | → Task |
-| PATCH | `/api/v1/tasks/{id}` | any of `title, spec, acceptance_criteria, depends_on, repo, role, budget` → Task. A body with only `budget` is set_budget (any status; unblocks a budget-blocked task if now within budget). Any other field edits the task and requires status `backlog` or `ready` (409 otherwise). 400 on an empty body, empty title/spec, a repo outside the brief, a role other than `worker|tester`, a role change on an assigned task (409), or a dependency that is unknown, itself, cancelled, in another brief or forms a cycle. A title change regenerates `branch`. Effective edits post a system message to the brief thread and append an `edit_task` audit event with before/after of the changed fields. |
+| PATCH | `/api/v1/tasks/{id}` | any of `title, spec, acceptance_criteria, depends_on, repo, role, budget, paths` → Task. A body with only `budget` is set_budget (any status; unblocks a budget-blocked task if now within budget). Any other field edits the task and requires status `backlog` or `ready` (409 otherwise). 400 on an empty body, empty title/spec, a repo outside the brief, a role other than `worker|tester`, a role change on an assigned task (409), or a dependency that is unknown, itself, cancelled, in another brief or forms a cycle. A title change regenerates `branch`. Effective edits post a system message to the brief thread and append an `edit_task` audit event with before/after of the changed fields. |
 | POST | `/api/v1/tasks/{id}/done` | `{"note":"merged in #123"}` → Task. Only from `approved` (or `needs_owner`). Sets `done`. |
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |
@@ -256,6 +257,8 @@ A PR is only fetched when its repo is the task's `repo` and, for a mapped repo, 
 `token_env` reads the token from that environment variable; tokens are only sent as `Authorization` headers and never logged or stored. Requests are conditional (`If-None-Match` with the last `ETag`, cached in memory). Each request takes a token from the global and the host bucket; when one is empty the task waits for the next cycle. A host answering 429 (or 403 with `X-RateLimit-Remaining: 0`) is paused for `Retry-After` / until `X-RateLimit-Reset`. Other failures set `error` and back the task off with jitter: a random delay between half and all of `interval × 2^(failures-1)`, capped at 32 intervals.
 
 When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
+
+Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
 
 ### Agents
 | Method | Path | Body → Response |
@@ -415,7 +418,7 @@ Owner scope only.
 {"id":"C-1","brief_id":"B-1","name":"api","description":"...","paths":["internal/api"],"depends_on":["C-2"]}
 ```
 
-Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
+Components are held in memory per server process. Tasks created with a `component_id` and without `paths` copy the component's paths at creation time. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
 
 ### Decisions
 The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes), active health alerts (see Alerts) and active agents whose token expires in less than 24 hours (or already has).
@@ -434,6 +437,7 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|help
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|merge-ready|breaker
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|budget|token_expiry|help|merge-ready|alert
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|budget|merge-ready|help|conflict
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
@@ -445,6 +449,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status), `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `help:<help request id>`, `merge-ready:<task id>` (see Pull request status), `alert:<alert id>`. Priority is the base for the kind (plan 80, alert 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40, help 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `budget:<cap>`, `merge-ready:<task id>` (see Pull request status), `help:<help request id>`, `conflict:<task id>`. Priority is the base for the kind (plan 80, question 70, budget 65, merge 60, token_expiry 55, unblock 50, stale_agent 40, merge-ready, help and conflict 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -457,6 +462,9 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `breaker` | `skip` | – |
 | `alert` | `skip` | – (the decision disappears when the alert resolves) |
 | `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
+| `conflict` | `skip` | – |
+
+A `conflict` decision is a hint for a task held (`assigned`, `in_progress` or `submitted`) whose paths overlap a lower-numbered task in the same repo held by another agent; it disappears once the overlap is gone. None are produced when `SUBSPACE_CONFLICT_MODE=off`.
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
 
@@ -814,12 +822,11 @@ All tools return an object; `task` = Task object above.
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
 - `list_help_requests {"status?":"open|accepted|superseded|closed|all","brief_id?","task_id?","limit?":1-1000}` → `{"requests":[HelpRequest]}` (help requests, blockers and split proposals, newest first; default `open`)
 - `accept_split {"request_id"}` → `{"request":HelpRequest,"tasks":[Task],"original":Task,"rewired":["T-9"]}`. Creates the proposed tasks like `create_task` (ready or backlog), roots depend on the original's dependencies, tasks that depended on the original are re-pointed at the new tasks nothing else in the split depends on (`rewired`), then cancels the original. 409 if the proposal is not `open` or the task is `done`/`cancelled`. On a failure the created tasks are cancelled and the proposal stays open.
-- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
-- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
+- `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1","paths?":["internal/api/**"]}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
+- `create_task {"brief_id", ...task fields incl. "priority?", "component_id?", "paths?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval). Tasks blocked for `budget_exceeded` or `poison_task` can only be unblocked by the owner (403, also for `reassign`). `budget` may only add or lower limits; raising or removing one is owner-only (403). `depends_on` follows the same rules as the owner PATCH (400 on unknown, self, cancelled, foreign-brief or cyclic dependencies); `create_task` checks `depends_on` the same way.
 - `create_task_from_template {"brief_id","template_id","vars":{"<variable>":"<value>"},"repo","depends_on?":["T-1"],"priority?":int}` → `{"task":Task}`. Renders a task template (see Task templates) into the task's title, spec, `acceptance_criteria`, `role` and `budget`, then creates it like `create_task` (status `ready` if the brief has an approved plan, else `backlog`). 400 `bad_request` when a declared variable is missing or blank (`task template X: missing variables: a, b (declared: ...)`), a variable is not declared, a value exceeds 4000 bytes (16000 in total) or contains a control character other than newline and tab, or the rendered title is empty or longer than 200 characters or the spec longer than 20000; 404 for an unknown template, listing the available ids.
-- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
-- `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
+- `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider. Path conflicts (`SUBSPACE_CONFLICT_MODE`, default `warn`): when the task's paths overlap a task in the same repo that is `assigned`, `in_progress` or `submitted` for another agent, `warn` assigns and posts a system message naming the overlapping tasks to the task thread, `block` fails with `conflict` listing the overlapping task ids, `off` skips the check. The autopilot never assigns such a task to a different agent: it gives it to the agent already holding the overlapping work once that agent has nothing `assigned` or `in_progress`, and otherwise leaves it `ready` (without requesting spawns for it) until the overlap clears, unless the mode is `off`.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`

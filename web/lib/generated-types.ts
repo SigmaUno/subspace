@@ -486,6 +486,7 @@ export interface Task {
   depends_on: string[] | null;
   priority: number;
   component_id: string | null;
+  paths: string[] | null;
   status: string;
   progress_pct: number;
   last_heartbeat_at: string | null;

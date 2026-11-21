@@ -1,0 +1,57 @@
+groups:
+  - name: subspace-availability
+    rules:
+      - alert: SubspaceHealthzProbeFailing
+        expr: probe_success{job="subspace-healthz"} == 0
+        for: 2m
+        labels:
+          severity: critical
+        annotations:
+          summary: Subspace server is down
+          description: "The /healthz probe of {{ $labels.instance }} has failed for 2 minutes."
+      - alert: SubspaceMetricsScrapeDown
+        expr: up{job="subspace"} == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Subspace metrics scrape failing
+          description: "Prometheus cannot scrape /api/v1/metrics on {{ $labels.instance }} for 5 minutes. Check the owner token file and the server."
+  - name: subspace-errors
+    rules:
+      - alert: SubspaceHighHTTPErrorRate
+        expr: sum(rate(subspace_http_requests_total{code=~"5.."}[5m])) / sum(rate(subspace_http_requests_total[5m])) > 0.05 and sum(rate(subspace_http_requests_total[5m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 5% of HTTP requests fail with 5xx
+          description: "Server error ratio is {{ $value | humanizePercentage }} over the last 5 minutes."
+      - alert: SubspaceHighMCPErrorRate
+        expr: sum(rate(subspace_mcp_tool_calls_total{result!="ok"}[10m])) / sum(rate(subspace_mcp_tool_calls_total[10m])) > 0.1 and sum(rate(subspace_mcp_tool_calls_total[10m])) > 0.1
+        for: 10m
+        labels:
+          severity: warning
+        annotations:
+          summary: More than 10% of MCP tool calls fail
+          description: "MCP tool error ratio is {{ $value | humanizePercentage }} over the last 10 minutes. Break it down by result in the swarm dashboard."
+  - name: subspace-swarm
+    rules:
+      - alert: SubspaceSwarmStalled
+        expr: sum(subspace_tasks{status="in_progress"}) > 0 and sum(increase(subspace_mcp_tool_calls_total[30m])) == 0
+        for: 5m
+        labels:
+          severity: warning
+        annotations:
+          summary: Tasks are in progress but no agent called a tool for 30 minutes
+          description: "Check leases, paused agents and whether the agents are still running."
+  - name: subspace-backups
+    rules:
+      - alert: SubspaceBackupTooOld
+        expr: time() - max(subspace_backup_last_timestamp_seconds) > 26 * 3600
+        for: 1h
+        labels:
+          severity: warning
+        annotations:
+          summary: The newest Subspace backup is older than 26 hours
+          description: "Check the backup sidecar and SUBSPACE_BACKUP_INTERVAL. Also fires when no backup has ever been written."

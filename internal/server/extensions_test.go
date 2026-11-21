@@ -3,6 +3,8 @@ package server
 import (
 	"context"
 	"database/sql"
+	"errors"
+	"fmt"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -99,6 +101,122 @@ func columnsOf(t *testing.T, st store.Store, query string) map[string]map[string
 				out[table] = map[string]bool{}
 			}
 			out[table][col] = true
+		}
+		return rows.Err()
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return out
+}
+
+type pgSQL interface {
+	Exec(q string, args ...any) (sql.Result, error)
+	Query(q string, args ...any) (*sql.Rows, error)
+}
+
+func TestPostgresBackupRestoreRoundTripsEveryTable(t *testing.T) {
+	if !testdb.Postgres() {
+		t.Skip("SUBSPACE_TEST_PG_DSN not set")
+	}
+	ctx := context.Background()
+	src := testdb.Open(t, testdb.Path(t, "t.db"))
+	fixed := map[string]string{
+		"hillclimb_jobs.id": "H-1", "hillclimb_attempts.job_id": "H-1",
+		"retention_segments.kind": "messages", "retention_segments.status": "restored",
+	}
+	for _, table := range postgres.BackupTables() {
+		var cols []string
+		var args []any
+		err := src.Atomic(ctx, func(tx store.Tx) error {
+			q := tx.(pgSQL)
+			var empty bool
+			rows, err := q.Query(`SELECT NOT EXISTS (SELECT 1 FROM ` + table + `)`)
+			if err != nil {
+				return err
+			}
+			for rows.Next() {
+				if err := rows.Scan(&empty); err != nil {
+					return err
+				}
+			}
+			if err := errors.Join(rows.Err(), rows.Close()); err != nil || !empty {
+				return err
+			}
+			rows, err = q.Query(`SELECT column_name, data_type FROM information_schema.columns
+				WHERE table_schema = current_schema() AND table_name = ? ORDER BY ordinal_position`, table)
+			if err != nil {
+				return err
+			}
+			for n := 100; rows.Next(); n++ {
+				var name, typ string
+				if err := rows.Scan(&name, &typ); err != nil {
+					return err
+				}
+				cols = append(cols, name)
+				switch v, ok := fixed[table+"."+name]; {
+				case ok:
+					args = append(args, v)
+				case typ == "bigint" || typ == "integer":
+					args = append(args, n)
+				case typ == "double precision":
+					args = append(args, float64(n)+0.5)
+				case typ == "boolean":
+					args = append(args, true)
+				case typ == "jsonb" || typ == "json":
+					args = append(args, `{"n":1}`)
+				default:
+					args = append(args, fmt.Sprintf("v-%s", name))
+				}
+			}
+			if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+				return err
+			}
+			marks := strings.TrimSuffix(strings.Repeat("?,", len(cols)), ",")
+			_, err = q.Exec(`INSERT INTO `+table+`(`+strings.Join(cols, ",")+`) VALUES(`+marks+`)`, args...)
+			return err
+		})
+		if err != nil {
+			t.Fatalf("fill %s: %v", table, err)
+		}
+	}
+
+	path := filepath.Join(t.TempDir(), "b.jsonl")
+	if err := src.Backup(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	dst := testdb.Open(t, testdb.Path(t, "t.db"))
+	if err := dst.(interface {
+		Restore(ctx context.Context, path string) error
+	}).Restore(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	for _, table := range postgres.BackupTables() {
+		want, got := dumpTable(t, src, table), dumpTable(t, dst, table)
+		if len(want) == 0 {
+			t.Errorf("%s: nothing was backed up", table)
+		}
+		if !slices.Equal(want, got) {
+			t.Errorf("%s: restored %v, want %v", table, got, want)
+		}
+	}
+}
+
+func dumpTable(t *testing.T, st store.Store, table string) []string {
+	t.Helper()
+	var out []string
+	err := st.View(context.Background(), func(tx store.Tx) error {
+		rows, err := tx.(pgSQL).Query(`SELECT row_to_json(x)::text FROM ` + table + ` x ORDER BY 1`)
+		if err != nil {
+			return err
+		}
+		defer func() { _ = rows.Close() }()
+		for rows.Next() {
+			var s string
+			if err := rows.Scan(&s); err != nil {
+				return err
+			}
+			out = append(out, s)
 		}
 		return rows.Err()
 	})

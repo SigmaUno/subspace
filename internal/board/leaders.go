@@ -64,19 +64,48 @@ func (t *leaderTx) guard(briefID string) error {
 	return nil
 }
 
-func filter[T any](t *leaderTx, in []T, brief func(T) string) ([]T, error) {
-	out := in[:0]
-	for _, x := range in {
-		ok, err := t.owns(brief(x))
+func filter[T any](t *leaderTx, brief func(T) string) func([]T, error) ([]T, error) {
+	return func(in []T, err error) ([]T, error) {
 		if err != nil {
 			return nil, err
 		}
-		if ok {
-			out = append(out, x)
+		out := in[:0]
+		for _, x := range in {
+			ok, err := t.owns(brief(x))
+			if err != nil {
+				return nil, err
+			}
+			if ok {
+				out = append(out, x)
+			}
 		}
+		return out, nil
 	}
-	return out, nil
 }
+
+func owned[T any](t *leaderTx, brief func(T) string) func(T, error) (T, error) {
+	return func(x T, err error) (T, error) {
+		if err == nil {
+			err = t.guard(brief(x))
+		}
+		if err != nil {
+			var zero T
+			return zero, err
+		}
+		return x, nil
+	}
+}
+
+func (t *leaderTx) guarded(briefID string, op func() error) error {
+	if err := t.guard(briefID); err != nil {
+		return err
+	}
+	return op()
+}
+
+func planBrief(p *model.Plan) string   { return p.BriefID }
+func taskBrief(x *model.Task) string   { return x.BriefID }
+func spawnBrief(s *model.Spawn) string { return s.BriefID }
 
 func (t *leaderTx) GetBrief(id string) (*model.Brief, error) {
 	br, err := t.Tx.GetBrief(id)
@@ -91,10 +120,7 @@ func (t *leaderTx) GetBrief(id string) (*model.Brief, error) {
 }
 
 func (t *leaderTx) UpdateBrief(br *model.Brief) error {
-	if err := t.guard(br.ID); err != nil {
-		return err
-	}
-	return t.Tx.UpdateBrief(br)
+	return t.guarded(br.ID, func() error { return t.Tx.UpdateBrief(br) })
 }
 
 func (t *leaderTx) ListBriefs(f store.BriefFilter) ([]*model.Brief, error) {
@@ -105,73 +131,39 @@ func (t *leaderTx) ListBriefs(f store.BriefFilter) ([]*model.Brief, error) {
 	for _, br := range bs {
 		t.seen[br.ID] = br.LedBy(t.leader)
 	}
-	return filter(t, bs, func(br *model.Brief) string { return br.ID })
+	return filter(t, func(br *model.Brief) string { return br.ID })(bs, nil)
 }
 
 func (t *leaderTx) InsertPlan(p *model.Plan) error {
-	if err := t.guard(p.BriefID); err != nil {
-		return err
-	}
-	return t.Tx.InsertPlan(p)
+	return t.guarded(p.BriefID, func() error { return t.Tx.InsertPlan(p) })
 }
 
 func (t *leaderTx) GetPlan(id string) (*model.Plan, error) {
-	p, err := t.Tx.GetPlan(id)
-	if err != nil {
-		return nil, err
-	}
-	if err := t.guard(p.BriefID); err != nil {
-		return nil, err
-	}
-	return p, nil
+	return owned(t, planBrief)(t.Tx.GetPlan(id))
 }
 
 func (t *leaderTx) UpdatePlan(p *model.Plan) error {
-	if err := t.guard(p.BriefID); err != nil {
-		return err
-	}
-	return t.Tx.UpdatePlan(p)
+	return t.guarded(p.BriefID, func() error { return t.Tx.UpdatePlan(p) })
 }
 
 func (t *leaderTx) ListPlans(f store.PlanFilter) ([]*model.Plan, error) {
-	ps, err := t.Tx.ListPlans(f)
-	if err != nil {
-		return nil, err
-	}
-	return filter(t, ps, func(p *model.Plan) string { return p.BriefID })
+	return filter(t, planBrief)(t.Tx.ListPlans(f))
 }
 
 func (t *leaderTx) InsertTask(task *model.Task) error {
-	if err := t.guard(task.BriefID); err != nil {
-		return err
-	}
-	return t.Tx.InsertTask(task)
+	return t.guarded(task.BriefID, func() error { return t.Tx.InsertTask(task) })
 }
 
 func (t *leaderTx) GetTask(id string) (*model.Task, error) {
-	task, err := t.Tx.GetTask(id)
-	if err != nil {
-		return nil, err
-	}
-	if err := t.guard(task.BriefID); err != nil {
-		return nil, err
-	}
-	return task, nil
+	return owned(t, taskBrief)(t.Tx.GetTask(id))
 }
 
 func (t *leaderTx) UpdateTask(task *model.Task) error {
-	if err := t.guard(task.BriefID); err != nil {
-		return err
-	}
-	return t.Tx.UpdateTask(task)
+	return t.guarded(task.BriefID, func() error { return t.Tx.UpdateTask(task) })
 }
 
 func (t *leaderTx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {
-	ts, err := t.Tx.ListTasks(f)
-	if err != nil {
-		return nil, err
-	}
-	return filter(t, ts, func(x *model.Task) string { return x.BriefID })
+	return filter(t, taskBrief)(t.Tx.ListTasks(f))
 }
 
 func (t *leaderTx) ListMessages(kind, id string, sinceID int64, limit int) ([]*model.Message, error) {
@@ -221,18 +213,11 @@ func (t *leaderTx) ListQuestions(f store.QuestionFilter) ([]*model.Question, err
 }
 
 func (t *leaderTx) InsertSpawn(s *model.Spawn) error {
-	if err := t.guard(s.BriefID); err != nil {
-		return err
-	}
-	return t.Tx.InsertSpawn(s)
+	return t.guarded(s.BriefID, func() error { return t.Tx.InsertSpawn(s) })
 }
 
 func (t *leaderTx) ListSpawns(f store.SpawnFilter) ([]*model.Spawn, error) {
-	sps, err := t.Tx.ListSpawns(f)
-	if err != nil {
-		return nil, err
-	}
-	return filter(t, sps, func(s *model.Spawn) string { return s.BriefID })
+	return filter(t, spawnBrief)(t.Tx.ListSpawns(f))
 }
 
 func (b *Board) BriefFor(ctx context.Context, a model.Actor, id string) (*model.Brief, error) {

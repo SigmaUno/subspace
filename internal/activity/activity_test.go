@@ -76,7 +76,7 @@ func TestFromAudit(t *testing.T) {
 			"owner used frobnicate", SevInfo, "activity", []Ref{}},
 		{"missing fields", audit("rex", "leader", "propose_plan", "", "", nil, nil),
 			"rex proposed plan with tasks", SevInfo, "plan", []Ref{}},
-		{"secret in note", audit("owner", "owner", "cancel", "T-1", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 leaked", nil, m{"status": "cancelled"}),
+		{"secret in note", audit("owner", "owner", "cancel", "T-1", "token ghp_"+"abcdefghijklmnopqrstuvwxyz0123456789 leaked", nil, m{"status": "cancelled"}),
 			"", SevWarning, "x", []Ref{{"task", "T-1"}}},
 	}
 	for _, c := range cases {

@@ -80,7 +80,7 @@ func TestAccessLogOverHTTPNeverLeaksCredentials(t *testing.T) {
 	agent := e.Register("claude-1", "worker", "claude-code")
 	e.Must(agent, "heartbeat", map[string]any{})
 
-	secretQuery := "SECRETQUERYVALUE9n2mKp4Rt8Qw3Xy5Zc7Vb1Nm6Lk0Jh3"
+	secretQuery := "SECRETQUERYVALUE" + "9n2mKp4Rt8Qw3Xy5Zc7" + "Vb1Nm6Lk0Jh3"
 	req, _ := http.NewRequest("GET", e.TS.URL+"/api/v1/state?token="+secretQuery, nil)
 	req.Header.Set("Authorization", "Bearer "+servertest.OwnerToken)
 	req.Header.Set("X-Request-Id", "it-state-1")

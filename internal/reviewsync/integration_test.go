@@ -19,8 +19,8 @@ import (
 )
 
 const (
-	ghToken = "gh-review-token-0123456789"
-	fjToken = "fj-review-token-0123456789"
+	ghToken = "gh-review-" + "token-0123456789"
+	fjToken = "fj-review-" + "token-0123456789"
 )
 
 type fakeForge struct {

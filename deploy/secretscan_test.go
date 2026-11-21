@@ -45,6 +45,7 @@ var genericAssign = regexp.MustCompile(`(?i)\b[\w.-]*(?:token|secret|password|pa
 const genericRule = "generic-secret"
 
 var (
+	commitID     = regexp.MustCompile(`^[0-9a-f]{40}$`)
 	envName      = regexp.MustCompile(`^[A-Z][A-Z0-9_]*$`)
 	mixedClasses = regexp.MustCompile(`^(?:.*[A-Za-z].*[0-9]|.*[0-9].*[A-Za-z]).*$`)
 )
@@ -84,6 +85,7 @@ func detectLine(line string) []string {
 }
 
 type allowEntry struct {
+	Commit  string `json:"commit,omitempty"`
 	Path    string `json:"path"`
 	Pattern string `json:"pattern"`
 	Reason  string `json:"reason"`
@@ -111,6 +113,9 @@ func parseAllowlist(b []byte) (allowlist, error) {
 		return nil, err
 	}
 	for i, e := range entries {
+		if e.Commit != "" && !commitID.MatchString(e.Commit) {
+			return nil, fmt.Errorf("entry %d: commit must be a full 40-character hash", i)
+		}
 		if e.Path == "" {
 			return nil, fmt.Errorf("entry %d: path is required", i)
 		}
@@ -127,9 +132,9 @@ func parseAllowlist(b []byte) (allowlist, error) {
 	return entries, nil
 }
 
-func (a allowlist) allows(file, rule string) bool {
+func (a allowlist) allows(commit, file, rule string) bool {
 	for _, e := range a {
-		if e.Pattern != rule {
+		if e.Pattern != rule || (e.Commit != "" && e.Commit != commit) {
 			continue
 		}
 		if ok, _ := path.Match(e.Path, file); ok || e.Path == file {
@@ -160,7 +165,7 @@ func scanText(file string, text string, allow allowlist) []finding {
 	sc.Buffer(make([]byte, 0, 64<<10), maxScanLine)
 	for n := 1; sc.Scan(); n++ {
 		for _, rule := range detectLine(sc.Text()) {
-			if !allow.allows(file, rule) {
+			if !allow.allows("", file, rule) {
 				out = append(out, finding{file: file, line: n, rule: rule})
 			}
 		}
@@ -197,7 +202,7 @@ func scanDiff(r io.Reader, allow allowlist) ([]finding, error) {
 			}
 		case inHunk && strings.HasPrefix(line, "+"):
 			for _, rule := range detectLine(line[1:]) {
-				if !allow.allows(file, rule) {
+				if !allow.allows(commit, file, rule) {
 					out = append(out, finding{commit: commit, file: file, line: newLine, rule: rule})
 				}
 			}
@@ -414,6 +419,17 @@ func TestDiffScanReportsCommitWithoutValue(t *testing.T) {
 	if err != nil || len(allowed) != 0 {
 		t.Fatalf("allowlisted findings = %v, err = %v", allowed, err)
 	}
+	pinned, err := scanDiff(strings.NewReader(diff), allowlist{{Commit: "bbbb222", Path: "cfg/env.txt", Pattern: "github-token", Reason: "fixture"}})
+	if err != nil || len(pinned) != 0 {
+		t.Fatalf("commit-allowlisted findings = %v, err = %v", pinned, err)
+	}
+	other, err := scanDiff(strings.NewReader(diff), allowlist{{Commit: "aaaa111", Path: "cfg/env.txt", Pattern: "github-token", Reason: "fixture"}})
+	if err != nil || len(other) != 1 {
+		t.Fatalf("allowlist for another commit hid findings = %v, err = %v", other, err)
+	}
+	if tree := scanText("cfg/env.txt", "GITHUB="+secret, allowlist{{Commit: "bbbb222", Path: "cfg/env.txt", Pattern: "github-token", Reason: "fixture"}}); len(tree) != 1 {
+		t.Fatalf("commit-scoped entry hid a tracked-file finding: %v", tree)
+	}
 }
 
 func TestAllowlistRequiresReason(t *testing.T) {
@@ -423,6 +439,7 @@ func TestAllowlistRequiresReason(t *testing.T) {
 		`[{"path":"","pattern":"jwt","reason":"x"}]`,
 		`[{"path":"a.txt","pattern":"nope","reason":"x"}]`,
 		`[{"path":"a.txt","pattern":"jwt","reason":"x","extra":1}]`,
+		`[{"commit":"abc123","path":"a.txt","pattern":"jwt","reason":"x"}]`,
 	}
 	for _, in := range bad {
 		if _, err := parseAllowlist([]byte(in)); err == nil {
@@ -433,7 +450,7 @@ func TestAllowlistRequiresReason(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !good.allows("a/b.txt", "jwt") || good.allows("a/b.txt", "aws-access-key") || good.allows("c/b.txt", "jwt") {
+	if !good.allows("", "a/b.txt", "jwt") || good.allows("", "a/b.txt", "aws-access-key") || good.allows("", "c/b.txt", "jwt") {
 		t.Fatal("allowlist matching is wrong")
 	}
 }

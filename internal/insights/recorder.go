@@ -14,6 +14,7 @@ const (
 	DefaultRetention = 7 * 24 * time.Hour
 	DefaultMaxRows   = 50000
 	maxBuffered      = 4096
+	maxTaskID        = 64
 	flushEvery       = time.Second
 	pruneEvery       = time.Minute
 )
@@ -65,6 +66,9 @@ func (r *Recorder) Observe(agentID, tool, code, message string, args json.RawMes
 		TaskID string `json:"task_id"`
 	}
 	_ = json.Unmarshal(args, &a)
+	if len(a.TaskID) > maxTaskID {
+		a.TaskID = ""
+	}
 	e := ToolError{
 		TS: r.opt.Now().UTC(), AgentID: agentID, Tool: tool, Code: code,
 		TaskID: a.TaskID, Fingerprint: Fingerprint(tool, code, message),

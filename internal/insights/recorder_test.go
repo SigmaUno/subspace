@@ -3,6 +3,7 @@ package insights_test
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -49,5 +50,30 @@ func TestRecorderRetentionIsBounded(t *testing.T) {
 		if e.TaskID != "T-2" || e.ID <= all[5].ID {
 			t.Fatalf("kept the wrong rows: %+v", left)
 		}
+	}
+}
+
+func TestRecorderDropsOversizedTaskIDs(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	clock := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	rec := insights.NewRecorder(st, insights.RecorderOptions{Now: func() time.Time { return clock }})
+	ctx := context.Background()
+
+	huge := strings.Repeat("A", 512<<10)
+	rec.Observe("a", "claim_task", "not_found", "task not found", []byte(`{"task_id":"`+huge+`"}`))
+	rec.Observe("a", "claim_task", "not_found", "task not found", []byte(`{"task_id":"T-7"}`))
+	if err := rec.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	all, err := st.ListToolErrors(ctx, clock.Add(-time.Hour), 10)
+	if err != nil || len(all) != 2 {
+		t.Fatalf("stored: %d %v", len(all), err)
+	}
+	if len(all[0].TaskID) > 64 || all[1].TaskID != "T-7" {
+		t.Fatalf("task ids: %d bytes, %q", len(all[0].TaskID), all[1].TaskID)
 	}
 }

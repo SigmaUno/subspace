@@ -219,7 +219,7 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 
 					return model.Forbidden("backlog tasks become ready through owner plan approval")
 				}
-				t.BlockedReason = nil
+				t.BlockedReason, t.LeaseExpiries = nil, 0
 				return b.finishUpdate(tx, w, a, "update_task", t, to, &out)
 			default:
 				return model.BadRequest("status must be blocked, ready or cancelled")
@@ -453,6 +453,7 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 	} else if a.Role == model.RoleWorker {
 		return nil, model.BadRequest("pr_url is required")
 	}
+	in.Summary = Redact(in.Summary)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
@@ -504,6 +505,7 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 	if in.CostEUR != nil && *in.CostEUR < 0 {
 		return nil, model.BadRequest("cost_eur must be >= 0")
 	}
+	in.Note = Redact(in.Note)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(in.TaskID)
@@ -592,6 +594,7 @@ func (b *Board) ReportTests(ctx context.Context, a model.Actor, taskID string, p
 	if passed < 0 || failed < 0 {
 		return nil, model.BadRequest("counts must be >= 0")
 	}
+	log = Redact(log)
 	if len(log) > 8000 {
 		log = log[:8000] + "…"
 	}
@@ -675,6 +678,7 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 	if verdict == "changes_requested" && strings.TrimSpace(comments) == "" {
 		return nil, model.BadRequest("comments are required when requesting changes")
 	}
+	comments = Redact(comments)
 	var out *model.Task
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)
@@ -777,7 +781,7 @@ func (b *Board) Reopen(ctx context.Context, id, to, note string) (*model.Task, e
 		if t.Status == model.StatusNeedsOwner {
 			t.ReviewRounds = 0
 		}
-		t.BlockedReason = nil
+		t.BlockedReason, t.LeaseExpiries = nil, 0
 		out = t
 		return b.statusChange(tx, w, model.Owner, "reopen", t, to, note)
 	})
@@ -837,7 +841,9 @@ func (b *Board) Sweep(ctx context.Context) error {
 			continue
 		}
 		id := t.ID
+		expiredAgent := ""
 		err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+			expiredAgent = ""
 			cur, err := tx.GetTask(id)
 			if err != nil || cur.Status != model.StatusInProgress {
 				return nil
@@ -850,11 +856,45 @@ func (b *Board) Sweep(ctx context.Context) error {
 			if ov.LeaseExpiresAt != nil && !ov.LeaseExpiresAt.Before(b.now()) {
 				return nil
 			}
+			expiredAgent = deref(cur.Assignee)
+			cur.LeaseExpiries++
+			if cur.LeaseExpiries >= b.o.PoisonExpiries {
+				reason := fmt.Sprintf("poison_task: lease expired %d times", cur.LeaseExpiries)
+				if err := b.block(tx, w, sys, cur, reason); err != nil {
+					return err
+				}
+				return w.post(tx, model.ThreadTask, cur.ID, sys, model.MsgSystem,
+					fmt.Sprintf("Task blocked as a poison task after %d lease expiries; the owner must decide whether to reopen it.", cur.LeaseExpiries))
+			}
 			return b.releaseLease(tx, w, sys, cur, model.StatusAssigned, "lease expired")
 		})
 		if err != nil {
 			return err
 		}
+		if expiredAgent != "" && b.recordExpiry(expiredAgent) {
+			if err := b.PauseAgent(ctx, expiredAgent, "flapping"); err != nil {
+				return err
+			}
+		}
 	}
 	return nil
+}
+
+func (b *Board) recordExpiry(agentID string) bool {
+	now := b.now()
+	cutoff := now.Add(-b.o.FlapWindow)
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	recent := []time.Time{now}
+	for _, at := range b.expiries[agentID] {
+		if at.After(cutoff) {
+			recent = append(recent, at)
+		}
+	}
+	if len(recent) >= b.o.FlapExpiries {
+		delete(b.expiries, agentID)
+		return true
+	}
+	b.expiries[agentID] = recent
+	return false
 }

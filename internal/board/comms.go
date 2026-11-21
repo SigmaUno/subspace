@@ -69,6 +69,7 @@ func (b *Board) post(ctx context.Context, a model.Actor, ref threads.Ref, body, 
 	if kind == "" {
 		kind = model.MsgMessage
 	}
+	body = Redact(body)
 	var out *model.Message
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {
@@ -139,6 +140,7 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 	if len(options) > 10 {
 		return nil, model.BadRequest("at most 10 options")
 	}
+	question, options = Redact(question), redactAll(options)
 	var out *model.Question
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
 		q := &model.Question{AgentID: a.ID, Question: question, Options: nz(options), Status: "open", CreatedAt: b.now()}
@@ -222,6 +224,18 @@ func (b *Board) ListAudit(ctx context.Context, f store.AuditFilter) ([]*model.Au
 	var out []*model.AuditEvent
 	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListAudit(f); return })
 	return nz(out), err
+}
+
+func (b *Board) AuditHead(ctx context.Context, maxID int64) (model.AuditHead, error) {
+	var out model.AuditHead
+	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.AuditHead(maxID); return })
+	return out, err
+}
+
+func (b *Board) VerifyAudit(ctx context.Context) (model.AuditCheck, error) {
+	var out model.AuditCheck
+	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.VerifyAudit(); return })
+	return out, err
 }
 
 const baseInstructions = `You are %s, role %s, on Subspace.

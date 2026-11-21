@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"database/sql"
+	"encoding/json"
 	"errors"
 	"strings"
 	"time"
@@ -10,7 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const planCols = `id, brief_id, status, proposed_by, note, created_at, decided_at`
+const planCols = `id, brief_id, status, proposed_by, note, created_at, decided_at, warnings`
 
 func planMS(t *time.Time) int64 {
 	if t == nil || t.IsZero() {
@@ -35,9 +36,16 @@ func planScan(r planScanner) (*model.Plan, error) {
 		p                  model.Plan
 		note               sql.NullString
 		createdMS, decided int64
+		warnings           string
 	)
-	if err := r.Scan(&p.ID, &p.BriefID, &p.Status, &p.ProposedBy, &note, &createdMS, &decided); err != nil {
+	if err := r.Scan(&p.ID, &p.BriefID, &p.Status, &p.ProposedBy, &note, &createdMS, &decided, &warnings); err != nil {
 		return nil, err
+	}
+	if err := json.Unmarshal([]byte(warnings), &p.Warnings); err != nil {
+		return nil, err
+	}
+	if len(p.Warnings) == 0 {
+		p.Warnings = nil
 	}
 	if note.Valid && note.String != "" {
 		n := note.String
@@ -51,10 +59,23 @@ func planScan(r planScanner) (*model.Plan, error) {
 	return &p, nil
 }
 
+func planWarnings(p *model.Plan) (string, error) {
+	w := p.Warnings
+	if w == nil {
+		w = []model.PlanFinding{}
+	}
+	b, err := json.Marshal(w)
+	return string(b), err
+}
+
 func (t *tx) InsertPlan(p *model.Plan) error {
-	_, err := t.q.ExecContext(t.ctx,
-		`INSERT INTO plans(`+planCols+`) VALUES(?,?,?,?,?,?,?)`,
-		p.ID, p.BriefID, p.Status, p.ProposedBy, planNote(p.Note), p.CreatedAt.UnixMilli(), planMS(p.DecidedAt))
+	warnings, err := planWarnings(p)
+	if err != nil {
+		return err
+	}
+	_, err = t.q.ExecContext(t.ctx,
+		`INSERT INTO plans(`+planCols+`) VALUES(?,?,?,?,?,?,?,?)`,
+		p.ID, p.BriefID, p.Status, p.ProposedBy, planNote(p.Note), p.CreatedAt.UnixMilli(), planMS(p.DecidedAt), warnings)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return store.ErrDuplicate
 	}
@@ -70,9 +91,13 @@ func (t *tx) GetPlan(id string) (*model.Plan, error) {
 }
 
 func (t *tx) UpdatePlan(p *model.Plan) error {
+	warnings, err := planWarnings(p)
+	if err != nil {
+		return err
+	}
 	res, err := t.q.ExecContext(t.ctx,
-		`UPDATE plans SET brief_id=?, status=?, proposed_by=?, note=?, created_at=?, decided_at=? WHERE id=?`,
-		p.BriefID, p.Status, p.ProposedBy, planNote(p.Note), p.CreatedAt.UnixMilli(), planMS(p.DecidedAt), p.ID)
+		`UPDATE plans SET brief_id=?, status=?, proposed_by=?, note=?, created_at=?, decided_at=?, warnings=? WHERE id=?`,
+		p.BriefID, p.Status, p.ProposedBy, planNote(p.Note), p.CreatedAt.UnixMilli(), planMS(p.DecidedAt), warnings, p.ID)
 	if err != nil {
 		return err
 	}

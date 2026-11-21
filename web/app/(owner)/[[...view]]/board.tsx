@@ -5,18 +5,24 @@ import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
+import { ImportBrief } from "./brief-import";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { VirtualList } from "./virtual";
 
 export function BriefsView({ revision }: { revision: number }) {
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const { data, error } = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revision);
   const form = useSubmit();
   const router = useRouter();
 
   return (
     <>
-      <div className="heading"><h1>Briefs</h1><button className="primary" onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button></div>
+      <div className="heading"><h1>Briefs</h1><div className="actions">
+        <button onClick={() => setImporting(!importing)}>{importing ? "Close import" : "Import brief"}</button>
+        <button className="primary" onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button>
+      </div></div>
+      {importing && <ImportBrief />}
       {creating && (
         <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
           const brief = await api<Brief>("briefs", "POST", {
@@ -65,7 +71,7 @@ function TaskCard({ task, agent, openThread }: { task: Task; agent?: Agent; open
   return (
     <article className={`task ${attention ? "needs-attention" : ""}`}>
       <button className="text-button task-title" onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button>
-      <div className="meta">{task.id} · {task.role}</div>
+      <div className="meta"><Link href={`/tasks/${encodeURIComponent(task.id)}`}>{task.id}</Link> · {task.role}</div>
       <div>
         {task.assignee
           ? <button className="text-button" onClick={() => openThread({ kind: "agent", id: task.assignee! })}>{task.assignee}</button>

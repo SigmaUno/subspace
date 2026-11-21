@@ -3,6 +3,7 @@ package client
 import (
 	"errors"
 	"fmt"
+	"time"
 )
 
 const (
@@ -20,13 +21,21 @@ const (
 	CodeNotAssigned    = "not_assigned"
 	CodeBudgetExceeded = "budget_exceeded"
 	CodeToolError      = "tool_error"
+	CodeIdempotency    = "idempotency_conflict"
 )
 
 type Error struct {
-	Status  int
-	Code    string
-	Message string
+	Status     int
+	Code       string
+	Message    string
+	RetryAfter time.Duration
 }
+
+type TransportError struct{ Err error }
+
+func (e *TransportError) Error() string { return e.Err.Error() }
+
+func (e *TransportError) Unwrap() error { return e.Err }
 
 func (e *Error) Error() string {
 	switch {

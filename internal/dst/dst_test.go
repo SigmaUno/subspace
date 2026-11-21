@@ -8,7 +8,12 @@ import (
 	"time"
 )
 
-const regressionsFile = "../../testdata/dst/regressions.txt"
+const (
+	regressionsFile = "../../testdata/dst/regressions.txt"
+	idempotencyFile = "../../testdata/dst/idempotency.txt"
+)
+
+var mcpFaults = MCPOptions{FaultSeed: 1, DropPct: 10, DupPct: 10}
 
 func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	t.Helper()
@@ -57,18 +62,63 @@ func TestRegressions(t *testing.T) {
 }
 
 func TestDeterministic(t *testing.T) {
-	r := &Runner{Factory: NewBoardSystem, Dir: t.TempDir()}
-	trace := func() string {
-		o, err := r.Run(context.Background(), 7, 300)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var b strings.Builder
-		o.WriteTrace(&b)
-		return b.String()
+	for name, f := range map[string]Factory{"board": NewBoardSystem, "mcp_faults": NewMCPSystem(mcpFaults)} {
+		t.Run(name, func(t *testing.T) {
+			r := &Runner{Factory: f, Dir: t.TempDir()}
+			trace := func() string {
+				o, err := r.Run(context.Background(), 7, 300)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var b strings.Builder
+				o.WriteTrace(&b)
+				return b.String()
+			}
+			if a, b := trace(), trace(); a != b {
+				t.Fatalf("seed 7 is not reproducible:\n%s\n---\n%s", a, b)
+			}
+		})
 	}
-	if a, b := trace(), trace(); a != b {
-		t.Fatalf("seed 7 is not reproducible:\n%s\n---\n%s", a, b)
+}
+
+func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
+	seeds, steps := 8, 300
+	if testing.Short() {
+		seeds, steps = 3, 200
+	}
+	r := &Runner{Factory: NewMCPSystem(mcpFaults), Dir: t.TempDir()}
+	for seed := int64(1); seed <= int64(seeds); seed++ {
+		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+			t.Parallel()
+			runSeed(t, r, seed, steps)
+		})
+	}
+}
+
+func TestIdempotencyRegressions(t *testing.T) {
+	regs, err := LoadRegressions(idempotencyFile)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(regs) == 0 {
+		t.Fatal("no idempotency regression seeds")
+	}
+	without := mcpFaults
+	without.NoIdempotency = true
+	bare := &Runner{Factory: NewMCPSystem(without), Dir: t.TempDir()}
+	r := &Runner{Factory: NewMCPSystem(mcpFaults), Dir: t.TempDir()}
+	for _, reg := range regs {
+		t.Run(fmt.Sprint(reg.Seed), func(t *testing.T) {
+			t.Parallel()
+			o, err := bare.Run(context.Background(), reg.Seed, reg.Steps)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !o.Failed() || o.Violation.Invariant != InvAtomic {
+				t.Fatalf("seed %d no longer double-applies without idempotency keys: %v", reg.Seed, o.Violation)
+			}
+			runSeed(t, r, reg.Seed, reg.Steps)
+		})
 	}
 }
 

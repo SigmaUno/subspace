@@ -2,10 +2,13 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -131,14 +134,21 @@ func (b *Board) SetCharter(ctx context.Context, text string) (Charter, error) {
 }
 
 func (b *Board) Backup(ctx context.Context) (string, int64, error) {
-	if b.o.BackupDir == "" {
+	if b.o.Backups == nil {
 		return "", 0, model.BadRequest("backups are not configured")
 	}
-	path := fmt.Sprintf("%s/subspace-%s.db", strings.TrimRight(b.o.BackupDir, "/"), b.now().Format("20060102T150405Z"))
-	if err := b.st.Backup(ctx, path); err != nil {
-		return "", 0, err
+	info, err := b.o.Backups.RunOnce(ctx)
+	if errors.Is(err, backup.ErrExists) {
+		return "", 0, model.Errf("conflict", "a backup was already taken this second")
 	}
-	return path, fileSize(path), nil
+	return info.Path, info.Bytes, err
+}
+
+func (b *Board) ListBackups(ctx context.Context) ([]backup.Info, error) {
+	if b.o.Backups == nil {
+		return nil, model.BadRequest("backups are not configured")
+	}
+	return b.o.Backups.List(ctx)
 }
 
 type BriefInput struct {
@@ -214,6 +224,7 @@ type BriefPatch struct {
 	MaxParallel      *int      `json:"max_parallel_agents"`
 	AllowedProviders *[]string `json:"allowed_providers"`
 	CrossReview      *bool     `json:"cross_review"`
+	AutoDoneOnMerge  *bool     `json:"auto_done_on_merge"`
 	Status           *string   `json:"status"`
 }
 
@@ -241,6 +252,9 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		}
 		if p.CrossReview != nil {
 			br.CrossReview = *p.CrossReview
+		}
+		if p.AutoDoneOnMerge != nil {
+			br.AutoDoneOnMerge = *p.AutoDoneOnMerge
 		}
 		if p.Status != nil {
 			if *p.Status != "open" && *p.Status != "closed" {
@@ -303,6 +317,8 @@ type TaskInput struct {
 	DependsOn          []string     `json:"depends_on"`
 	Role               string       `json:"role"`
 	Budget             model.Budget `json:"budget"`
+	Priority           int          `json:"priority"`
+	ComponentID        string       `json:"component_id"`
 }
 
 type PlanInput struct {
@@ -349,7 +365,8 @@ func (b *Board) newTask(tx store.Tx, br *model.Brief, in TaskInput, planID, stat
 	now := b.now()
 	return &model.Task{ID: id, BriefID: br.ID, PlanID: planID, Title: in.Title, Spec: in.Spec,
 		AcceptanceCriteria: nz(in.AcceptanceCriteria), Repo: in.Repo, Branch: "sub/" + strings.ToLower(id) + "-" + slug(in.Title),
-		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, CreatedAt: now, UpdatedAt: now}, nil
+		Role: role, DependsOn: deps, Status: status, Budget: in.Budget, Priority: in.Priority, ComponentID: strp(in.ComponentID),
+		CreatedAt: now, UpdatedAt: now}, nil
 }
 
 func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*model.Plan, error) {
@@ -364,6 +381,10 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		}
 		if br.Status != "open" {
 			return model.Conflict("brief %s is closed", br.ID)
+		}
+		errs, warns := planlint.Split(planlint.Lint(*br, lintTasks(in.Tasks)))
+		if len(errs) > 0 {
+			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
 		}
 		old, err := tx.ListPlans(br.ID, model.PlanProposed)
 		if err != nil {
@@ -390,7 +411,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if err != nil {
 			return err
 		}
-		p := &model.Plan{ID: pid, BriefID: br.ID, Status: model.PlanProposed, ProposedBy: a.ID, Note: strp(in.Note), CreatedAt: b.now()}
+		p := &model.Plan{ID: pid, BriefID: br.ID, Status: model.PlanProposed, ProposedBy: a.ID, Note: strp(in.Note), Warnings: nz(warns), CreatedAt: b.now()}
 		if err := tx.InsertPlan(p); err != nil {
 			return err
 		}
@@ -398,14 +419,11 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 
 		var tasks []*model.Task
 		for _, ti := range in.Tasks {
-			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria}, pid, model.StatusBacklog, nil)
+			t, err := b.newTask(tx, br, TaskInput{Title: ti.Title, Spec: ti.Spec, Repo: ti.Repo, Role: ti.Role, Budget: ti.Budget, AcceptanceCriteria: ti.AcceptanceCriteria, Priority: ti.Priority, ComponentID: ti.ComponentID}, pid, model.StatusBacklog, nil)
 			if err != nil {
 				return err
 			}
 			if ti.Ref != "" {
-				if _, dup := refs[ti.Ref]; dup {
-					return model.BadRequest("duplicate ref %q", ti.Ref)
-				}
 				refs[ti.Ref] = t.ID
 			}
 			tasks = append(tasks, t)
@@ -422,9 +440,6 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 				}
 				tasks[i].DependsOn = append(tasks[i].DependsOn, d)
 			}
-		}
-		if hasCycle(tasks) {
-			return model.BadRequest("dependency cycle in plan")
 		}
 		for _, t := range tasks {
 			if err := tx.InsertTask(t); err != nil {
@@ -448,35 +463,13 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 	return out, err
 }
 
-func hasCycle(ts []*model.Task) bool {
-	deps := map[string][]string{}
-	for _, t := range ts {
-		deps[t.ID] = t.DependsOn
+func lintTasks(in []TaskInput) []planlint.Task {
+	out := make([]planlint.Task, len(in))
+	for i, t := range in {
+		out[i] = planlint.Task{Ref: t.Ref, Title: t.Title, Spec: t.Spec, AcceptanceCriteria: t.AcceptanceCriteria,
+			Repo: t.Repo, Role: t.Role, DependsOn: t.DependsOn, Budget: t.Budget}
 	}
-	state := map[string]int{}
-	var visit func(string) bool
-	visit = func(id string) bool {
-		switch state[id] {
-		case 1:
-			return true
-		case 2:
-			return false
-		}
-		state[id] = 1
-		for _, d := range deps[id] {
-			if visit(d) {
-				return true
-			}
-		}
-		state[id] = 2
-		return false
-	}
-	for id := range deps {
-		if visit(id) {
-			return true
-		}
-	}
-	return false
+	return out
 }
 
 func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
@@ -489,6 +482,7 @@ func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
 		return nil, err
 	}
 	p.Tasks = nz(ts)
+	p.Warnings = nz(p.Warnings)
 	return p, nil
 }
 

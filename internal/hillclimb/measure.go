@@ -2,6 +2,7 @@ package hillclimb
 
 import (
 	"context"
+	"errors"
 	"math"
 	"regexp"
 	"strconv"
@@ -47,6 +48,13 @@ func (m *Measurer) Measure(ctx context.Context, jobID, agentID, branch string) (
 		return nil, j, err
 	}
 	out, runErr := m.Runner.Run(ctx, j.Repo, branch, j.MetricCmd)
+	var me *model.Error
+	if errors.As(runErr, &me) {
+		m.mu.Lock()
+		m.inflight[jobID]--
+		m.mu.Unlock()
+		return nil, j, runErr
+	}
 	a := &Attempt{JobID: jobID, AgentID: agentID, Branch: branch, Status: AttemptOK, Log: tail(out)}
 	if runErr != nil {
 		a.Status = AttemptFailed
@@ -88,7 +96,7 @@ func (m *Measurer) reserve(jobID string) (*Job, error) {
 		return j, model.Errf("conflict", "hillclimb job %s is stopped (%s)", jobID, *j.StopReason)
 	}
 	if j.Budget > 0 && j.Attempts+m.inflight[jobID] >= j.Budget {
-		return j, model.Errf("conflict", "hillclimb job %s has no budget left", jobID)
+		return j, model.Errf("budget_exceeded", "hillclimb job %s has no budget left", jobID)
 	}
 	m.inflight[jobID]++
 	return j, nil

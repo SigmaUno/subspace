@@ -22,6 +22,11 @@ var extraSchemas []string
 
 func RegisterSchema(ddl string) { extraSchemas = append(extraSchemas, ddl) }
 
+type batchOp struct {
+	r   *wreq
+	err error
+}
+
 type wreq struct {
 	ctx  context.Context
 	fn   func(store.Tx) error
@@ -29,14 +34,15 @@ type wreq struct {
 }
 
 type Store struct {
-	wdb  *sql.DB
-	rdb  *sql.DB
-	ws   *stmtCache
-	rq   *readQ
-	reqs chan *wreq
-	quit chan struct{}
-	wg   sync.WaitGroup
-	once sync.Once
+	wdb   *sql.DB
+	rdb   *sql.DB
+	ws    *stmtCache
+	rq    *readQ
+	reqs  chan *wreq
+	batch []batchOp
+	quit  chan struct{}
+	wg    sync.WaitGroup
+	once  sync.Once
 }
 
 var _ store.Store = (*Store)(nil)
@@ -161,70 +167,71 @@ func (s *Store) Backup(ctx context.Context, path string) error {
 func (s *Store) writer() {
 	defer s.wg.Done()
 	for {
-		var first *wreq
 		select {
-		case first = <-s.reqs:
+		case first := <-s.reqs:
+			s.runBatch(first)
 		case <-s.quit:
 			return
 		}
-		batch := []*wreq{first}
-	drain:
-		for len(batch) < maxBatch {
-			select {
-			case r := <-s.reqs:
-				batch = append(batch, r)
-			default:
-				break drain
-			}
-		}
-		s.runBatch(batch)
 	}
 }
 
-func (s *Store) runBatch(batch []*wreq) {
+func (s *Store) runBatch(first *wreq) {
 	ctx := context.Background()
 	t, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
-		for _, r := range batch {
-			r.done <- err
-		}
+		first.done <- err
 		return
 	}
-	q := &writeQ{tx: t, c: s.ws, miss: map[string]struct{}{}}
-	errs := make([]error, len(batch))
-	ok := make([]bool, len(batch))
-	for i, r := range batch {
-		if cerr := r.ctx.Err(); cerr != nil {
-			errs[i] = cerr
-			continue
-		}
-		if _, e := q.ExecContext(ctx, "SAVEPOINT op"); e != nil {
-			errs[i] = e
-			continue
-		}
-		e := safeRun(r.fn, &tx{q: q, ctx: ctx})
-		if e != nil {
-			_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
-			_, _ = q.ExecContext(ctx, "RELEASE op")
-			errs[i] = e
-			continue
-		}
-		if _, e := q.ExecContext(ctx, "RELEASE op"); e != nil {
-			errs[i] = e
-			continue
-		}
-		ok[i] = true
+	q := &writeQ{tx: t, c: s.ws}
+	batch := s.batch[:0]
+	limit := min(maxBatch, 1+len(s.reqs))
+	for r := first; r != nil; r = s.nextReq(len(batch), limit) {
+		batch = append(batch, batchOp{r: r, err: s.runOp(ctx, q, r)})
 	}
 	cerr := t.Commit()
-	for i, r := range batch {
-		if ok[i] && cerr != nil {
-			errs[i] = cerr
+	for i := range batch {
+		op := &batch[i]
+		if op.err == nil {
+			op.err = cerr
 		}
-		r.done <- errs[i]
+		op.r.done <- op.err
+		*op = batchOp{}
 	}
+	s.batch = batch[:0]
 	for qs := range q.miss {
 		s.ws.prepare(ctx, s.wdb, qs)
 	}
+}
+
+func (s *Store) nextReq(n, limit int) *wreq {
+	if n >= limit {
+		return nil
+	}
+	select {
+	case r := <-s.reqs:
+		return r
+	default:
+		return nil
+	}
+}
+
+func (s *Store) runOp(ctx context.Context, q *writeQ, r *wreq) error {
+	if err := r.ctx.Err(); err != nil {
+		return err
+	}
+	if _, err := q.ExecContext(ctx, "SAVEPOINT op"); err != nil {
+		return err
+	}
+	if err := safeRun(r.fn, &tx{q: q, ctx: ctx}); err != nil {
+		_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
+		_, _ = q.ExecContext(ctx, "RELEASE op")
+		return err
+	}
+	if _, err := q.ExecContext(ctx, "RELEASE op"); err != nil {
+		return err
+	}
+	return nil
 }
 
 func safeRun(fn func(store.Tx) error, t store.Tx) (err error) {

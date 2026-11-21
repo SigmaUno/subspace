@@ -6,6 +6,7 @@ import { api, optionalResource, useResource } from "../../../lib/client";
 import type { Control, Thread } from "../../../lib/types";
 import { BotsView } from "./bots";
 import { BriefsView } from "./board";
+import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
 import { ThreadPanel } from "./thread";
 import { UsageView } from "./usage";
@@ -13,8 +14,10 @@ import { useLive } from "./live";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
+import { Onboarding } from "./onboarding";
 import { SwarmOverview } from "./overview";
 import { CommandPalette } from "./search";
+import { KeyboardShortcuts } from "./shortcuts";
 import { Clock, Feedback } from "./components";
 
 export function Workspace({ section, briefID, architecture }: { section: string; briefID?: string; architecture: boolean }) {
@@ -75,9 +78,11 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "bots", name: "Bots", href: "/bots" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
+    { id: "charter", name: "Charter", href: "/charter" },
     { id: "usage", name: "Usage", href: "/usage" },
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "files", name: "Files", href: "/files" },
+    { id: "audit", name: "Audit", href: "/audit" },
   ];
 
   return (
@@ -107,6 +112,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         {state.data?.paused && <div className="notice" role="status">All agents paused{state.data.pause_reason && ` · ${state.data.pause_reason}`}</div>}
         <div className={`workspace-layout ${inboxOpen ? "with-decisions" : ""}`}>
           <div className="stack workspace-content">
+            {section === "swarm" && !briefID && <Onboarding revisions={revisions} />}
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
@@ -114,6 +120,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
+            {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}
             {section === "files" && <FilesView />}
           </div>
@@ -123,6 +130,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
       </main>
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}
       <CommandPalette />
+      <KeyboardShortcuts />
     </Clock.Provider>
   );
 }

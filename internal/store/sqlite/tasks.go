@@ -15,9 +15,9 @@ const taskDefaultLimit = 1000
 
 const taskCols = `id, brief_id, plan_id, title, spec, acceptance, repo, branch, role, assignee, reviewer, depends_on,
   status, progress_pct, last_heartbeat_at, lease_expires_at, claimed_at, pr_url, max_minutes, max_cost_eur,
-  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at`
+  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, priority, component_id, lease_expiries`
 
-const taskOrder = ` ORDER BY CAST(SUBSTR(id, INSTR(id, '-') + 1) AS INTEGER), id`
+const taskOrder = ` ORDER BY priority DESC, CAST(SUBSTR(id, INSTR(id, '-') + 1) AS INTEGER), id`
 
 func taskMs(tm time.Time) int64 {
 	if tm.IsZero() {
@@ -108,6 +108,7 @@ func taskArgs(x *model.Task) ([]any, error) {
 		taskStr(x.PRURL), x.Budget.MaxMinutes, x.Budget.MaxCostEUR,
 		x.CostUsed, x.MinutesUsed, x.ReviewRounds, testsPassed, testsFailed, testsAt,
 		taskStr(x.BlockedReason), taskMs(x.CreatedAt), taskMs(x.UpdatedAt),
+		x.Priority, taskStr(x.ComponentID), x.LeaseExpiries,
 	}, nil
 }
 
@@ -119,6 +120,7 @@ func taskScan(r taskScanner) (*model.Task, error) {
 	var (
 		x                                     model.Task
 		acc, deps, assignee, reviewer, pr, br string
+		component                             string
 		hb, lease, claimed, testsAt, cAt, uAt int64
 		testsPassed, testsFailed              int64
 	)
@@ -126,7 +128,7 @@ func taskScan(r taskScanner) (*model.Task, error) {
 		&assignee, &reviewer, &deps,
 		&x.Status, &x.ProgressPct, &hb, &lease, &claimed, &pr, &x.Budget.MaxMinutes, &x.Budget.MaxCostEUR,
 		&x.CostUsed, &x.MinutesUsed, &x.ReviewRounds, &testsPassed, &testsFailed, &testsAt,
-		&br, &cAt, &uAt)
+		&br, &cAt, &uAt, &x.Priority, &component, &x.LeaseExpiries)
 	if err != nil {
 		return nil, err
 	}
@@ -140,6 +142,7 @@ func taskScan(r taskScanner) (*model.Task, error) {
 	x.Reviewer = taskStrPtr(reviewer)
 	x.PRURL = taskStrPtr(pr)
 	x.BlockedReason = taskStrPtr(br)
+	x.ComponentID = taskStrPtr(component)
 	x.LastHeartbeatAt = taskTimePtr(hb)
 	x.LeaseExpiresAt = taskTimePtr(lease)
 	x.ClaimedAt = taskTimePtr(claimed)
@@ -157,7 +160,7 @@ func (t *tx) InsertTask(x *model.Task) error {
 		return err
 	}
 	_, err = t.q.ExecContext(t.ctx,
-		`INSERT INTO tasks(`+taskCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
+		`INSERT INTO tasks(`+taskCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, args...)
 	return taskErr(err)
 }
 
@@ -178,7 +181,7 @@ func (t *tx) UpdateTask(x *model.Task) error {
 	res, err := t.q.ExecContext(t.ctx, `UPDATE tasks SET brief_id=?, plan_id=?, title=?, spec=?, acceptance=?, repo=?,
   branch=?, role=?, assignee=?, reviewer=?, depends_on=?, status=?, progress_pct=?, last_heartbeat_at=?,
   lease_expires_at=?, claimed_at=?, pr_url=?, max_minutes=?, max_cost_eur=?, cost_used=?, minutes_used=?,
-  review_rounds=?, tests_passed=?, tests_failed=?, tests_at=?, blocked_reason=?, created_at=?, updated_at=?
+  review_rounds=?, tests_passed=?, tests_failed=?, tests_at=?, blocked_reason=?, created_at=?, updated_at=?, priority=?, component_id=?, lease_expiries=?
   WHERE id=?`, args...)
 	if err != nil {
 		return taskErr(err)

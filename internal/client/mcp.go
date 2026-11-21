@@ -3,12 +3,15 @@ package client
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/http"
+	"strconv"
 	"sync"
 	"sync/atomic"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/idempotency"
 	"github.com/SigmaUno/subspace/internal/mcp"
 )
 
@@ -83,15 +86,19 @@ func (m *MCP) rpcOnce(ctx context.Context, method string, params any) (json.RawM
 	}
 	resp, err := m.post(ctx, msg, sid)
 	if err != nil {
-		return nil, err
+		return nil, &TransportError{Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	rb, err := readBody(resp)
 	if err != nil {
-		return nil, err
+		return nil, &TransportError{Err: err}
 	}
 	if resp.StatusCode != http.StatusOK {
-		return nil, httpError(resp.StatusCode, rb)
+		e := httpError(resp.StatusCode, rb)
+		if resp.StatusCode == http.StatusTooManyRequests {
+			e.RetryAfter = retryAfter(resp.Header.Get("Retry-After"), time.Now())
+		}
+		return nil, e
 	}
 	if method == "initialize" {
 		if s := resp.Header.Get("Mcp-Session-Id"); s != "" {
@@ -194,7 +201,23 @@ func (m *MCP) Call(ctx context.Context, tool string, args, out any) error {
 }
 
 func (m *MCP) call(ctx context.Context, tool string, args, out any) error {
-	raw, err := m.rpc(ctx, "tools/call", map[string]any{"name": tool, "arguments": args})
+	params := map[string]any{"name": tool, "arguments": args}
+	keyed := idempotency.Applies(tool)
+	if keyed {
+		params["_meta"] = map[string]any{"idempotencyKey": m.cfg.newKey()}
+	}
+	var raw json.RawMessage
+	var err error
+	for attempt := 0; ; attempt++ {
+		raw, err = m.rpc(ctx, "tools/call", params)
+		wait, retry := retryable(err, keyed, attempt)
+		if !retry || attempt >= m.cfg.retries || ctx.Err() != nil {
+			break
+		}
+		if serr := m.cfg.sleep(ctx, wait); serr != nil {
+			return err
+		}
+	}
 	if err != nil {
 		return err
 	}
@@ -221,4 +244,30 @@ func (m *MCP) call(ctx context.Context, tool string, args, out any) error {
 		}
 	}
 	return nil
+}
+
+func retryable(err error, keyed bool, attempt int) (time.Duration, bool) {
+	backoff := min(100*time.Millisecond<<attempt, 5*time.Second)
+	var te *TransportError
+	if errors.As(err, &te) {
+		return backoff, keyed
+	}
+	var e *Error
+	if errors.As(err, &e) && e.Status == http.StatusTooManyRequests {
+		if e.RetryAfter > 0 {
+			return e.RetryAfter, true
+		}
+		return backoff, true
+	}
+	return 0, false
+}
+
+func retryAfter(v string, now time.Time) time.Duration {
+	if n, err := strconv.Atoi(v); err == nil && n >= 0 {
+		return time.Duration(n) * time.Second
+	}
+	if t, err := http.ParseTime(v); err == nil && t.After(now) {
+		return t.Sub(now)
+	}
+	return 0
 }

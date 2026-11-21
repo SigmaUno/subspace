@@ -7,11 +7,18 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
+)
+
+const (
+	DefaultPoisonExpiries = 3
+	DefaultFlapExpiries   = 3
+	DefaultFlapWindow     = 30 * time.Minute
 )
 
 type Options struct {
@@ -23,7 +30,11 @@ type Options struct {
 	Invalidate func(agentID string)
 	Now        func() time.Time
 	Log        *slog.Logger
-	BackupDir  string
+	Backups    *backup.Scheduler
+
+	PoisonExpiries int
+	FlapExpiries   int
+	FlapWindow     time.Duration
 
 	FlushEvery time.Duration
 	SweepEvery time.Duration
@@ -46,6 +57,8 @@ type Board struct {
 	dirtyT map[string]struct{}
 	capCfg capacity.Config
 
+	expiries map[string][]time.Time
+
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string
@@ -57,6 +70,15 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 	}
 	if o.Lease <= 0 {
 		o.Lease = 15 * time.Minute
+	}
+	if o.PoisonExpiries <= 0 {
+		o.PoisonExpiries = DefaultPoisonExpiries
+	}
+	if o.FlapExpiries <= 0 {
+		o.FlapExpiries = DefaultFlapExpiries
+	}
+	if o.FlapWindow <= 0 {
+		o.FlapWindow = DefaultFlapWindow
 	}
 	if o.FlushEvery <= 0 {
 		o.FlushEvery = 2 * time.Second
@@ -74,7 +96,8 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 		o.PublicURL = "http://localhost:8080"
 	}
 	b := &Board{st: st, o: o, log: o.Log, seen: map[string]time.Time{}, tasks: map[string]hotTask{},
-		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity}
+		dirtyA: map[string]struct{}{}, dirtyT: map[string]struct{}{}, capCfg: o.Capacity,
+		expiries: map[string][]time.Time{}}
 	err := st.View(ctx, func(tx store.Tx) error {
 		if v, ok, err := tx.GetKV("paused"); err != nil {
 			return err
@@ -291,19 +314,17 @@ func (b *Board) Run(ctx context.Context) {
 
 func (b *Board) Flush(ctx context.Context) {
 	b.mu.Lock()
-	seen := map[string]int64{}
+	seen := make(map[string]int64, len(b.dirtyA))
 	for id := range b.dirtyA {
 		seen[id] = b.seen[id].UnixMilli()
 	}
-	var rows []store.LeaseRow
-	ids := make([]string, 0, len(b.dirtyT))
+	rows := make([]store.LeaseRow, 0, len(b.dirtyT))
 	for id := range b.dirtyT {
 		h := b.tasks[id]
 		rows = append(rows, store.LeaseRow{TaskID: id, Assignee: h.assignee, Heartbeat: h.hb.UnixMilli(), Lease: h.lease.UnixMilli()})
-		ids = append(ids, id)
 	}
-	b.dirtyA = map[string]struct{}{}
-	b.dirtyT = map[string]struct{}{}
+	clear(b.dirtyA)
+	clear(b.dirtyT)
 	b.mu.Unlock()
 	if len(seen) == 0 && len(rows) == 0 {
 		return
@@ -323,9 +344,9 @@ func (b *Board) Flush(ctx context.Context) {
 	if b.o.Hub == nil {
 		return
 	}
-	for _, id := range ids {
+	for _, row := range rows {
 		var t *model.Task
-		_ = b.read(ctx, func(tx store.Tx) (e error) { t, e = tx.GetTask(id); return })
+		_ = b.read(ctx, func(tx store.Tx) (e error) { t, e = tx.GetTask(row.TaskID); return })
 		if t != nil {
 			b.o.Hub.Publish([]string{"board", "brief:" + t.BriefID, "task:" + t.ID}, "task.updated", b.overlay(t))
 		}

@@ -104,6 +104,7 @@ type Report struct {
 	Ops          []OpReport `json:"ops"`
 	Tasks        TaskCounts `json:"tasks"`
 	SSE          SSEReport  `json:"sse"`
+	Heap         HeapReport `json:"heap"`
 	ErrorSamples []string   `json:"error_samples,omitempty"`
 }
 
@@ -126,6 +127,7 @@ func (r *Report) WriteText(w io.Writer) {
 	s := r.SSE
 	_, _ = fmt.Fprintf(w, "\nSSE: %d/%d connected, %d connect errors, %d stream errors, %d events, %d lagged (%d dropped), lag p50 %.2f ms p95 %.2f ms p99 %.2f ms max %.2f ms\n",
 		s.Connected, s.Subscribers, s.ConnectErrors, s.StreamErrors, s.Events, s.LaggedEvents, s.Dropped, s.LagP50ms, s.LagP95ms, s.LagP99ms, s.LagMaxms)
+	_, _ = fmt.Fprintf(w, "heap (live, process): after ramp %.1f MB, end %.1f MB, max %.1f MB\n", r.Heap.StartMB, r.Heap.EndMB, r.Heap.MaxMB)
 	for _, e := range r.ErrorSamples {
 		_, _ = fmt.Fprintf(w, "error sample: %s\n", e)
 	}
@@ -211,6 +213,7 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 		return nil, err
 	}
 
+	heap := sampleHeap(sseCtx, time.Now().Add(cfg.Ramp))
 	r.workload(ctx, workers, reviewers, mk)
 
 	time.Sleep(200 * time.Millisecond) // let the last events reach subscribers
@@ -221,7 +224,7 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	overall, ops, samples := r.rec.Snapshot()
 	rep := &Report{Target: target, Agents: cfg.Agents, Reviewers: cfg.Reviewers, Elapsed: elapsed.Seconds(),
 		Requests: overall.Count, Errors: overall.Errors, MaxErrorRate: cfg.MaxErrorRate, Overall: overall, Ops: ops,
-		SSE: fleet.Report(), ErrorSamples: samples}
+		SSE: fleet.Report(), Heap: heap(), ErrorSamples: samples}
 	rep.Tasks = TaskCounts{Created: atomic.LoadInt64(&r.tasks.Created), Claimed: atomic.LoadInt64(&r.tasks.Claimed),
 		Submitted: atomic.LoadInt64(&r.tasks.Submitted), Approved: atomic.LoadInt64(&r.tasks.Approved), Done: atomic.LoadInt64(&r.tasks.Done)}
 	if rep.Requests > 0 {

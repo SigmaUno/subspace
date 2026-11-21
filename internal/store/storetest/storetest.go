@@ -38,6 +38,7 @@ var scenarios = []struct {
 	{"questions", scenarioQuestions},
 	{"audit", scenarioAudit},
 	{"audit append only", scenarioAuditAppendOnly},
+	{"audit chain concurrent writers", scenarioAuditChain},
 	{"spawns and kv", scenarioSpawnsKV},
 	{"atomic semantics", scenarioAtomic},
 	{"next id", scenarioNextID},
@@ -142,6 +143,7 @@ func scenarioPlans(t *testing.T, s store.Store) {
 	decided := created.Add(time.Hour)
 	p1 := &model.Plan{ID: "P-1", BriefID: "B-1", Status: model.PlanProposed, ProposedBy: "rex", CreatedAt: created}
 	p2 := &model.Plan{ID: "P-2", BriefID: "B-1", Status: model.PlanApproved, ProposedBy: "rex", Note: ptr("ok"),
+		Warnings:  []model.PlanFinding{{Severity: "warning", Rule: "budget_missing", Task: "a", Message: "no task budget"}},
 		CreatedAt: created.Add(time.Second), DecidedAt: &decided}
 	p3 := &model.Plan{ID: "P-3", BriefID: "B-2", Status: model.PlanProposed, ProposedBy: "rex", Note: ptr(""), CreatedAt: created}
 	write(t, s, func(tx store.Tx) error {
@@ -221,6 +223,7 @@ func taskFull(id string) *model.Task {
 	x.CostUsed = 0.4
 	x.MinutesUsed = 12
 	x.ReviewRounds = 2
+	x.LeaseExpiries = 2
 	x.Tests = &model.TestResult{Passed: 10, Failed: 1, ReportedAt: hb}
 	x.BlockedReason = ptr("budget_exceeded")
 	return x
@@ -1065,6 +1068,85 @@ func scenarioBatchIsolation(t *testing.T, s store.Store) {
 		}
 		if len(briefs) != committed {
 			t.Errorf("briefs %d, want %d", len(briefs), committed)
+		}
+		return nil
+	})
+}
+
+func scenarioAuditChain(t *testing.T, s store.Store) {
+	const writers = 300
+	ts := time.Date(2026, 11, 20, 21, 0, 0, 0, time.UTC)
+	fail := errors.New("rolled back")
+	var wg sync.WaitGroup
+	errs := make(chan error, writers)
+	for i := 0; i < writers; i++ {
+		wg.Add(1)
+		go func(i int) {
+			defer wg.Done()
+			err := s.Atomic(context.Background(), func(tx store.Tx) error {
+				e := &model.AuditEvent{TS: ts.Add(time.Duration(i) * time.Millisecond), AgentID: fmt.Sprintf("w-%03d", i),
+					Role: "worker", Tool: "update_status", TaskID: ptr(fmt.Sprintf("T-%d", i)),
+					Before: map[string]any{"status": "assigned", "nested": map[string]any{"b": i, "a": "<&>"}},
+					After:  map[string]any{"status": "in_progress", "cost": 0.1 * float64(i)}}
+				if err := tx.InsertAudit(e); err != nil {
+					return err
+				}
+				if i%7 == 0 {
+					return fail
+				}
+				return nil
+			})
+			if err != nil && !errors.Is(err, fail) {
+				errs <- err
+			}
+		}(i)
+	}
+	wg.Wait()
+	close(errs)
+	for err := range errs {
+		t.Fatal(err)
+	}
+
+	var (
+		all []*model.AuditEvent
+		chk model.AuditCheck
+	)
+	read(t, s, func(tx store.Tx) (err error) {
+		if all, err = tx.ListAudit(store.AuditFilter{Limit: 1000}); err != nil {
+			return err
+		}
+		chk, err = tx.VerifyAudit()
+		return err
+	})
+	committed := writers - (writers+6)/7
+	if len(all) != committed {
+		t.Fatalf("events: %d want %d", len(all), committed)
+	}
+	last := all[len(all)-1]
+	same(t, model.AuditCheck{OK: true, Events: int64(committed), Head: model.AuditHead{ID: last.ID, Hash: last.Hash}}, chk)
+	seen := map[string]bool{}
+	for _, e := range all {
+		if len(e.Hash) != 64 || seen[e.Hash] {
+			t.Fatalf("event %d has bad or duplicate hash %q", e.ID, e.Hash)
+		}
+		seen[e.Hash] = true
+	}
+
+	mid := all[len(all)/2]
+	read(t, s, func(tx store.Tx) error {
+		for _, c := range []struct {
+			max  int64
+			want model.AuditHead
+		}{
+			{0, model.AuditHead{}},
+			{mid.ID, model.AuditHead{ID: mid.ID, Hash: mid.Hash}},
+			{1 << 62, model.AuditHead{ID: last.ID, Hash: last.Hash}},
+		} {
+			h, err := tx.AuditHead(c.max)
+			if err != nil {
+				return err
+			}
+			same(t, c.want, h)
 		}
 		return nil
 	})

@@ -64,7 +64,12 @@ func Plan(s Snapshot) []Action {
 	revLoad := map[string]int{}
 	busy := map[string]map[string]bool{}
 	tasks := append([]*model.Task(nil), s.Tasks...)
-	sort.Slice(tasks, func(i, j int) bool { return idLess(tasks[i].ID, tasks[j].ID) })
+	sort.Slice(tasks, func(i, j int) bool {
+		if tasks[i].Priority != tasks[j].Priority {
+			return tasks[i].Priority > tasks[j].Priority
+		}
+		return idLess(tasks[i].ID, tasks[j].ID)
+	})
 	for _, t := range tasks {
 		if t.Reviewer != nil && (t.Status == model.StatusSubmitted || t.Status == model.StatusInReview) {
 			revLoad[*t.Reviewer]++

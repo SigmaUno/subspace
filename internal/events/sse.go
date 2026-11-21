@@ -1,6 +1,7 @@
 package events
 
 import (
+	"bufio"
 	"encoding/json"
 	"net/http"
 	"strconv"
@@ -10,6 +11,10 @@ import (
 )
 
 const DefaultPingInterval = 15 * time.Second
+
+const flushDelay = 20 * time.Millisecond
+
+const writeBuffer = 32 << 10
 
 type seqer interface{ Seq() int64 }
 
@@ -93,46 +98,40 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 		hd.Set("X-Accel-Buffering", "no")
 		w.WriteHeader(http.StatusOK)
 
+		bw := bufio.NewWriterSize(w, writeBuffer)
+		flush := func() error {
+			if err := bw.Flush(); err != nil {
+				return err
+			}
+			return rc.Flush()
+		}
 		lagged := func() error {
 			if n := sub.TakeDropped(); n > 0 {
-				_, err := w.Write(encodeFrame(-1, "lagged", time.Now(), map[string]int{"dropped": n}))
+				_, err := bw.Write(encodeFrame(-1, "lagged", time.Now(), map[string]int{"dropped": n}))
 				return err
 			}
 			return nil
 		}
 
-		send := func(ev Event) (bool, error) {
-			for n := 0; ; n++ {
-				if err := lagged(); err != nil {
-					return false, err
-				}
-				if _, err := w.Write(ev.frame()); err != nil {
-					return false, err
-				}
-				if n == SubscriberBuffer {
-					return true, rc.Flush()
-				}
-				select {
-				case next, ok := <-sub.C():
-					if !ok {
-						return false, rc.Flush()
-					}
-					ev = next
-				default:
-					return true, rc.Flush()
-				}
-			}
+		if _, err := bw.Write(encodeFrame(seq, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
+			return
+		}
+		if err := flush(); err != nil {
+			return
 		}
 
-		if _, err := w.Write(encodeFrame(seq, "hello", time.Now(), map[string]int64{"seq": seq})); err != nil {
-			return
-		}
-		if err := rc.Flush(); err != nil {
-			return
+		write := func(ev Event) error {
+			if err := lagged(); err != nil {
+				return err
+			}
+			_, err := bw.Write(ev.frame())
+			return err
 		}
 
 		t := time.NewTicker(ping)
 		defer t.Stop()
+		ft := time.NewTimer(flushDelay)
+		defer ft.Stop()
 		for {
 			select {
 			case <-r.Context().Done():
@@ -141,17 +140,41 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				if err := lagged(); err != nil {
 					return
 				}
-				if _, err := w.Write([]byte(": ping\n\n")); err != nil {
+				if _, err := bw.WriteString(": ping\n\n"); err != nil {
 					return
 				}
-				if err := rc.Flush(); err != nil {
+				if err := flush(); err != nil {
 					return
 				}
 			case ev, ok := <-sub.C():
 				if !ok {
 					return
 				}
-				if more, err := send(ev); err != nil || !more {
+				if err := write(ev); err != nil {
+					return
+				}
+				ft.Reset(flushDelay)
+				select {
+				case <-r.Context().Done():
+					return
+				case <-ft.C:
+				}
+			drain:
+				for n := 0; n < SubscriberBuffer; n++ {
+					select {
+					case ev, ok := <-sub.C():
+						if !ok {
+							_ = flush()
+							return
+						}
+						if err := write(ev); err != nil {
+							return
+						}
+					default:
+						break drain
+					}
+				}
+				if err := flush(); err != nil {
 					return
 				}
 			}

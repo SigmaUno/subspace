@@ -7,14 +7,13 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
-	"os"
 	"path/filepath"
-	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/chat"
@@ -37,6 +36,7 @@ type Config struct {
 	CapacityFile   string
 	PromptsDir     string
 	Lease          time.Duration
+	PoisonExpiries int
 	Spawner        spawner.Spawner
 	BackupInterval time.Duration
 	BackupKeep     int
@@ -54,6 +54,7 @@ type Server struct {
 	Board   *board.Board
 	Hub     events.Hub
 	handler http.Handler
+	backups *backup.Scheduler
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -88,15 +89,23 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	hub := events.NewHub()
+	backups, err := backup.New(backup.Config{
+		Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
+		Run: st.Backup, Verify: sqlite.IntegrityCheck, Logger: cfg.Log,
+	})
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
 	var cache *auth.Cache
 	b, err := board.New(ctx, st, board.Options{
-		PublicURL: cfg.PublicURL, Lease: cfg.Lease, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
+		PublicURL: cfg.PublicURL, Lease: cfg.Lease, PoisonExpiries: cfg.PoisonExpiries, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub,
 		Invalidate: func(id string) {
 			if cache != nil {
 				cache.Invalidate(id)
 			}
 		},
-		Log: cfg.Log, BackupDir: cfg.BackupDir, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
+		Log: cfg.Log, Backups: backups, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
 	})
 	if err != nil {
 		_ = st.Close()
@@ -104,7 +113,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	cache = auth.NewCache(b.LoadByTokenHash, 30*time.Second)
 
-	m := mcp.NewServer(cache, mcp.NewRegistry(b))
+	reg := mcp.NewRegistry(b)
+	climber := newHillclimb(st, b, reg, cfg.Log)
+	m := mcp.NewServer(cache, reg)
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
 	m.Hooks = b
 	m.OwnerToken = cfg.OwnerToken
@@ -131,8 +142,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
 	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())
 
-	climb := hillclimb.NewHandler(hillclimb.NewMeasurer(hillclimb.NewMemStore(), noRunner{}))
-	rest.Mount(mux, "/api/v1/hillclimb/", climb)
+	rest.Mount(mux, "/api/v1/hillclimb/", hillclimb.NewHandler(climber))
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		p, _ := b.Paused()
 		w.Header().Set("Content-Type", "application/json")
@@ -146,7 +156,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
 }
 
 type deadlineBody struct {
@@ -184,9 +194,7 @@ func (s *Server) httpServer() *http.Server {
 
 func (s *Server) Run(ctx context.Context) error {
 	go s.Board.Run(ctx)
-	if s.cfg.BackupInterval > 0 {
-		go s.backupLoop(ctx)
-	}
+	go s.backups.Run(ctx)
 	srv := s.httpServer()
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
@@ -198,43 +206,5 @@ func (s *Server) Run(ctx context.Context) error {
 		return nil
 	case err := <-errc:
 		return err
-	}
-}
-
-func (s *Server) backupLoop(ctx context.Context) {
-	t := time.NewTicker(s.cfg.BackupInterval)
-	defer t.Stop()
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-t.C:
-			if p, n, err := s.Board.Backup(ctx); err != nil {
-				s.cfg.Log.Error("backup", "err", err)
-			} else {
-				s.cfg.Log.Info("backup written", "path", p, "bytes", n)
-				s.pruneBackups()
-			}
-		}
-	}
-}
-
-func (s *Server) pruneBackups() {
-	keep := s.cfg.BackupKeep
-	if keep <= 0 {
-		return
-	}
-	es, err := os.ReadDir(s.cfg.BackupDir)
-	if err != nil {
-		return
-	}
-	var names []string
-	for _, e := range es {
-		if strings.HasPrefix(e.Name(), "subspace-") && strings.HasSuffix(e.Name(), ".db") {
-			names = append(names, e.Name())
-		}
-	}
-	for i := 0; i < len(names)-keep; i++ {
-		_ = os.Remove(filepath.Join(s.cfg.BackupDir, names[i]))
 	}
 }

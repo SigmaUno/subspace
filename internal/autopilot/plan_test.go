@@ -24,6 +24,7 @@ func task(id, briefID, status string) *model.Task {
 
 func withAssignee(t *model.Task, a string) *model.Task { t.Assignee = &a; return t }
 func withReviewer(t *model.Task, r string) *model.Task { t.Reviewer = &r; return t }
+func withPriority(t *model.Task, p int) *model.Task    { t.Priority = p; return t }
 func withRole(t *model.Task, role string) *model.Task  { t.Role = role; return t }
 
 func assign(b, t, a string) Action { return Action{Kind: ActAssign, BriefID: b, TaskID: t, AgentID: a} }
@@ -68,6 +69,14 @@ func TestPlan(t *testing.T) {
 				Agents: []*model.Agent{agent("w2", model.RoleWorker, "anthropic", 0), agent("w1", model.RoleWorker, "openai", 0),
 					agent("w3", model.RoleWorker, "openai", 1)}},
 			want: []Action{assign("B-1", "T-1", "w1"), assign("B-1", "T-2", "w2"), assign("B-1", "T-3", "w1"), assign("B-1", "T-10", "w2")},
+		},
+		{
+			name: "higher priority is assigned first",
+			s: Snapshot{Enabled: on, Briefs: []*model.Brief{brief("B-1")},
+				Tasks: []*model.Task{task("T-1", "B-1", model.StatusReady), withPriority(task("T-3", "B-1", model.StatusReady), 5),
+					withPriority(task("T-2", "B-1", model.StatusReady), 1)},
+				Agents: []*model.Agent{agent("w1", model.RoleWorker, "anthropic", 0), agent("w2", model.RoleWorker, "anthropic", 0)}},
+			want: []Action{assign("B-1", "T-3", "w1"), assign("B-1", "T-2", "w2"), assign("B-1", "T-1", "w1")},
 		},
 		{
 			name: "least loaded wins, inactive and wrong role skipped",

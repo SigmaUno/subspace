@@ -109,6 +109,7 @@ type Brief struct {
 	Budget           BriefBudget `json:"budget"`
 	AllowedProviders []string    `json:"allowed_providers"`
 	CrossReview      bool        `json:"cross_review"`
+	AutoDoneOnMerge  bool        `json:"auto_done_on_merge"`
 	CostUsed         float64     `json:"cost_used"`
 	PlanStatus       string      `json:"plan_status"`
 	CreatedAt        time.Time   `json:"created_at"`
@@ -133,6 +134,8 @@ type Task struct {
 	Assignee           *string     `json:"assignee"`
 	Reviewer           *string     `json:"reviewer"`
 	DependsOn          []string    `json:"depends_on"`
+	Priority           int         `json:"priority"`
+	ComponentID        *string     `json:"component_id"`
 	Status             string      `json:"status"`
 	ProgressPct        int         `json:"progress_pct"`
 	LastHeartbeatAt    *time.Time  `json:"last_heartbeat_at"`
@@ -144,6 +147,7 @@ type Task struct {
 	ReviewRounds       int         `json:"review_rounds"`
 	Tests              *TestResult `json:"tests"`
 	BlockedReason      *string     `json:"blocked_reason"`
+	LeaseExpiries      int         `json:"lease_expiries"`
 	CreatedAt          time.Time   `json:"created_at"`
 	UpdatedAt          time.Time   `json:"updated_at"`
 
@@ -151,14 +155,22 @@ type Task struct {
 }
 
 type Plan struct {
-	ID         string     `json:"id"`
-	BriefID    string     `json:"brief_id"`
-	Status     string     `json:"status"`
-	ProposedBy string     `json:"proposed_by"`
-	Note       *string    `json:"note"`
-	Tasks      []*Task    `json:"tasks"`
-	CreatedAt  time.Time  `json:"created_at"`
-	DecidedAt  *time.Time `json:"decided_at"`
+	ID         string        `json:"id"`
+	BriefID    string        `json:"brief_id"`
+	Status     string        `json:"status"`
+	ProposedBy string        `json:"proposed_by"`
+	Note       *string       `json:"note"`
+	Tasks      []*Task       `json:"tasks"`
+	Warnings   []PlanFinding `json:"warnings"`
+	CreatedAt  time.Time     `json:"created_at"`
+	DecidedAt  *time.Time    `json:"decided_at"`
+}
+
+type PlanFinding struct {
+	Severity string `json:"severity"`
+	Rule     string `json:"rule"`
+	Task     string `json:"task,omitempty"`
+	Message  string `json:"message"`
 }
 
 type Agent struct {
@@ -212,6 +224,19 @@ type AuditEvent struct {
 	Before  map[string]any `json:"before"`
 	After   map[string]any `json:"after"`
 	Note    *string        `json:"note"`
+	Hash    string         `json:"hash,omitempty"`
+}
+
+type AuditHead struct {
+	ID   int64  `json:"id"`
+	Hash string `json:"hash"`
+}
+
+type AuditCheck struct {
+	OK       bool      `json:"ok"`
+	Events   int64     `json:"events"`
+	BrokenID int64     `json:"broken_id,omitempty"`
+	Head     AuditHead `json:"head"`
 }
 
 type Spawn struct {

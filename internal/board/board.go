@@ -61,6 +61,8 @@ type Board struct {
 	gate    Gate
 	capDB   bool
 
+	repoCheck RepoCheck
+
 	expiries map[string][]time.Time
 
 	pauseOp  sync.Mutex

@@ -83,6 +83,9 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 			if err := checkRepo(br, *e.Repo); err != nil {
 				return err
 			}
+			if err := b.checkRegistry(tx, *e.Repo, t.Branch); err != nil {
+				return err
+			}
 			set("repo", t.Repo, *e.Repo, t.Repo != *e.Repo)
 			t.Repo = *e.Repo
 		}
@@ -129,6 +132,9 @@ func (b *Board) EditTask(ctx context.Context, id string, e TaskEdit) (*model.Tas
 		}
 		if _, ok := after["title"]; ok {
 			t.Branch = "sub/" + strings.ToLower(t.ID) + "-" + slug(t.Title)
+			if err := b.checkRegistry(tx, t.Repo, t.Branch); err != nil {
+				return err
+			}
 		}
 		t.UpdatedAt = b.now()
 		if err := tx.UpdateTask(t); err != nil {

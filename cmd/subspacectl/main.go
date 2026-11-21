@@ -84,6 +84,15 @@ Commands:
   profiles create NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
                   [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
   profiles delete NAME
+  repos list
+  repos show OWNER/NAME
+  repos health OWNER/NAME
+  repos remove OWNER/NAME
+  repos add OWNER/NAME --host github|forgejo [--base-url URL] [--default-branch BRANCH]
+            [--protect PATTERN ...] [--merge-test "make test"] [--merge-workdir DIR]
+            [--token-env VAR] [--disabled]
+  repos update OWNER/NAME [--host H] [--base-url URL] [--default-branch BRANCH] [--protect PATTERN ...]
+               [--merge-test CMD] [--merge-workdir DIR] [--token-env VAR] [--enabled=false]
   spawns list [--brief ID]
   spawns stop SPAWN_ID [--reason TEXT]
   autopilot status
@@ -223,6 +232,7 @@ func registry() map[string]entry {
 		"revoke-agent": {parse: action("revoke-agent")},
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
 		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
+		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
 		"autopilot":    {parse: grouped("autopilot", autopilotCommands), subs: names(autopilotCommands)},
 		"mergequeue":   {parse: grouped("mergequeue", mergequeueCommands), subs: names(mergequeueCommands)},

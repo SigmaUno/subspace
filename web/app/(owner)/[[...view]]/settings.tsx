@@ -11,6 +11,7 @@ import { InstructionsView } from "./instructions";
 import type { Revisions } from "./live";
 import { CapacityView } from "./operations";
 import { OrgBudget } from "./org-budget";
+import { RepositoriesView } from "./repos";
 import { SchedulesView } from "./schedules";
 import { EmptyState, ResourceState } from "./states";
 
@@ -166,6 +167,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
   const tabs = [
     { id: "charter", name: "Charter", show: true },
     { id: "capacity", name: "Capacity and limits", show: true },
+    { id: "repositories", name: "Repositories", show: true },
     { id: "instructions", name: "Instructions", show: true },
     { id: "announcements", name: "Announcements", show: true },
     { id: "schedules", name: "Schedules", show: true },
@@ -187,6 +189,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
       <CapacityView revision={revisions.capacity} />
       <OrgBudget revision={revisions.capacity} />
     </>}
+    {active === "repositories" && <RepositoriesView />}
     {active === "instructions" && <InstructionsView />}
     {active === "announcements" && <AnnouncementsView />}
     {active === "schedules" && <SchedulesView />}

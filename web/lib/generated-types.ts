@@ -66,6 +66,7 @@ export interface Brief {
   cost_used: number;
   plan_status: string;
   leader_id: string | null;
+  quality_gates: QualityGates;
   created_at: string;
 }
 
@@ -91,6 +92,7 @@ export interface BriefPreview {
   cross_review: boolean;
   leader_id: string | null;
   task_budget: BriefTaskBudget | null;
+  quality_gates: QualityGates | null;
   components: BriefComponentSpec[] | null;
 }
 
@@ -368,6 +370,17 @@ export interface ProviderStatus {
   concurrency_headroom: number;
   requests_per_min: number;
   rpm_headroom: number;
+}
+
+export interface QualityGates {
+  tests: boolean;
+  min_tests_passed: number;
+  checks: boolean;
+  scope: boolean;
+  questions: boolean;
+  review: boolean;
+  budget: boolean;
+  max_pr_age_hours: number;
 }
 
 export interface Question {

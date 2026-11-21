@@ -97,7 +97,6 @@ type Service struct {
 	log     *slog.Logger
 	byWeb   map[string]Host
 	wake    chan struct{}
-	wg      sync.WaitGroup
 
 	mu   sync.Mutex
 	seq  int64
@@ -159,7 +158,7 @@ func publicBase(raw string) string {
 
 func (s *Service) Start(ctx context.Context, hub events.Hub) {
 	sub := hub.Subscribe([]string{events.TopicAll})
-	s.wg.Go(func() {
+	go func() {
 		defer sub.Close()
 		for {
 			select {
@@ -179,11 +178,9 @@ func (s *Service) Start(ctx context.Context, hub events.Hub) {
 				}
 			}
 		}
-	})
-	s.wg.Go(func() { s.Run(ctx) })
+	}()
+	go s.Run(ctx)
 }
-
-func (s *Service) Wait() { s.wg.Wait() }
 
 func (s *Service) Enqueue(m model.Message) bool {
 	if m.ThreadKind != model.ThreadTask || m.AuthorRole != model.RoleReviewer || m.Kind != model.MsgNote ||

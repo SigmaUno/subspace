@@ -5,7 +5,6 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -174,47 +173,4 @@ func (c *Client) VerifyWebhook(secret string, body []byte, signatureHeader strin
 
 func (c *Client) ValidateBranch(taskID, slug, branch string) error {
 	return githost.ValidateBranch(taskID, slug, branch)
-}
-
-// SignatureHeader is the header Forgejo uses for the webhook HMAC (X-Gitea-Signature is also sent).
-const SignatureHeader = "X-Forgejo-Signature"
-
-// EventHeader carries the webhook event type (e.g. "pull_request").
-const EventHeader = "X-Forgejo-Event"
-
-var ErrNotPullRequest = errors.New("forgejo: not a pull_request event")
-
-type webhookPayload struct {
-	Action      string `json:"action"`
-	Number      int64  `json:"number"`
-	PullRequest *apiPR `json:"pull_request"`
-	Repository  struct {
-		FullName string `json:"full_name"`
-	} `json:"repository"`
-	Sender struct {
-		Login string `json:"login"`
-	} `json:"sender"`
-}
-
-// ParsePullRequestEvent parses a pull_request webhook body. eventType is the X-Forgejo-Event header value.
-func ParsePullRequestEvent(eventType string, body []byte) (githost.PullRequestEvent, error) {
-	if eventType != "pull_request" {
-		return githost.PullRequestEvent{}, fmt.Errorf("%w: %q", ErrNotPullRequest, eventType)
-	}
-	var w webhookPayload
-	if err := json.Unmarshal(body, &w); err != nil {
-		return githost.PullRequestEvent{}, fmt.Errorf("forgejo: decode webhook: %w", err)
-	}
-	if w.PullRequest == nil || w.Repository.FullName == "" {
-		return githost.PullRequestEvent{}, errors.New("forgejo: webhook missing pull_request or repository")
-	}
-	pr := w.PullRequest
-	n := w.Number
-	if n == 0 {
-		n = pr.Number
-	}
-	return githost.PullRequestEvent{
-		Action: w.Action, Repo: w.Repository.FullName, Number: n, Title: pr.Title, State: pr.State,
-		Merged: pr.Merged, HeadBranch: pr.Head.Ref, BaseBranch: pr.Base.Ref, URL: pr.HTMLURL, Sender: w.Sender.Login,
-	}, nil
 }

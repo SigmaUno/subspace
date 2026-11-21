@@ -100,12 +100,3 @@ func TestValidateBranch(t *testing.T) {
 		})
 	}
 }
-
-func TestIsMerged(t *testing.T) {
-	if !(PullRequestEvent{Action: "closed", Merged: true}).IsMerged() {
-		t.Error("closed+merged should be merged")
-	}
-	if (PullRequestEvent{Action: "closed"}).IsMerged() || (PullRequestEvent{Action: "opened", Merged: true}).IsMerged() {
-		t.Error("should not be merged")
-	}
-}

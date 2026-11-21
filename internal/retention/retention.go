@@ -97,8 +97,6 @@ func New(o Options) (*Service, error) {
 	return &Service{st: o.Store, pol: o.Policy, dir: o.Dir, now: o.Now, log: o.Log}, nil
 }
 
-func (s *Service) Dir() string { return s.dir }
-
 func (s *Service) Run(ctx context.Context) {
 	if m, ok := s.st.(Maintainer); ok && s.pol.WALAutocheckpoint > 0 {
 		if err := m.SetAutocheckpoint(ctx, s.pol.WALAutocheckpoint); err != nil && ctx.Err() == nil {

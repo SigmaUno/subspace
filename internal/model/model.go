@@ -280,7 +280,7 @@ func (e *Error) HTTPStatus() int {
 		return http.StatusForbidden
 	case "not_found":
 		return http.StatusNotFound
-	case "conflict", "capacity", "budget_exceeded", "lease_expired":
+	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded":
 		return http.StatusConflict
 	case "paused", "agent_paused":
 		return http.StatusLocked

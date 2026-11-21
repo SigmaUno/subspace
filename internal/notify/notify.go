@@ -61,6 +61,8 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		return "control", "resumed", nil
 	case "spend.warning":
 		return spendEvent(ev)
+	case "quota.warning":
+		return quotaEvent(ev)
 	}
 	return "", "", nil
 }
@@ -82,6 +84,23 @@ func spendEvent(ev events.Event) (string, string, *Notification) {
 		Text:  fmt.Sprintf("€%.2f of €%.2f spent (%s)", spent, limit, level),
 	}
 	return id, fmt.Sprintf("%v|%v|%s", d["starts_at"], limit, level), n
+}
+
+func quotaEvent(ev events.Event) (string, string, *Notification) {
+	d, ok := ev.Data.(map[string]any)
+	if !ok {
+		return "", "", nil
+	}
+	agent, _ := d["agent_id"].(string)
+	pct, _ := d["percent"].(float64)
+	level, _ := d["level"].(string)
+	id := "agent_quota:" + agent
+	n := &Notification{
+		ID: id, Kind: "agent_quota", Priority: 4, TS: ev.TS,
+		Title: fmt.Sprintf("Agent %s is at %.0f%% of its daily quota", agent, pct),
+		Text:  fmt.Sprintf("%s: %s quota level", agent, level),
+	}
+	return id, fmt.Sprintf("%v|%s", d["starts_at"], level), n
 }
 
 func questionEvent(ev events.Event, q *model.Question) (string, string, *Notification) {

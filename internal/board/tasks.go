@@ -343,6 +343,11 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 				return err
 			}
 		}
+		if deref(t.Assignee) != agentID {
+			if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
+				return err
+			}
+		}
 		if t.Status == model.StatusInProgress {
 			b.endLease(t)
 		}
@@ -435,10 +440,16 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}
+		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
+			return err
+		}
 		now := b.now()
 		lease := now.Add(b.o.Lease)
 		t.ClaimedAt, t.LeaseExpiresAt, t.LastHeartbeatAt, t.BlockedReason = &now, &lease, &now, nil
 		if err := b.statusChange(tx, w, a, "claim_task", t, model.StatusInProgress, ""); err != nil {
+			return err
+		}
+		if err := b.gated(tx, w, GateClaimed, a.ID, t, 0); err != nil {
 			return err
 		}
 		out = t
@@ -549,8 +560,12 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 			t.ProgressPct = *in.ProgressPct
 		}
 		if in.CostEUR != nil && *in.CostEUR > t.CostUsed {
+			delta := *in.CostEUR - t.CostUsed
 			t.CostUsed = *in.CostEUR
 			if err := tx.UpdateTask(t); err != nil {
+				return err
+			}
+			if err := b.gated(tx, w, GateCost, a.ID, t, delta); err != nil {
 				return err
 			}
 		}

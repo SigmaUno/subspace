@@ -521,7 +521,7 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
  "runs":1,"log":"$ git fetch ...","created_at":"...","updated_at":"..."}
 ```
 
-The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged.
+The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged. After a successful push to a Forgejo-hosted repository the queue marks the pull request merged through the host API (`manually-merged`, because a pushed head leaves a Forgejo PR open); the repository must allow the "Manually merged" merge style, otherwise the merge stays and the task thread gets a warning.
 
 ```jsonc
 {"workdir":"/data/mergequeue","interval":"30s",

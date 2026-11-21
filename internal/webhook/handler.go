@@ -168,13 +168,13 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 // identify returns the provider, the raw signature header value, the event type and the delivery id.
 func identify(h http.Header) (provider, sig, eventType, delivery string) {
-	if s := h.Get("X-Hub-Signature-256"); s != "" {
-		return ProviderGitHub, s, h.Get("X-GitHub-Event"), h.Get("X-GitHub-Delivery")
-	}
 	for _, name := range []string{"Forgejo", "Gitea"} {
 		if s := h.Get("X-" + name + "-Signature"); s != "" {
 			return ProviderForgejo, s, h.Get("X-" + name + "-Event"), h.Get("X-" + name + "-Delivery")
 		}
+	}
+	if s := h.Get("X-Hub-Signature-256"); s != "" {
+		return ProviderGitHub, s, h.Get("X-GitHub-Event"), h.Get("X-GitHub-Delivery")
 	}
 	return "", "", "", ""
 }

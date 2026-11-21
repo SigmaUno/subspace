@@ -1,0 +1,567 @@
+{
+ "labels": [
+  {
+   "headers": {
+    "X-Total-Count": "42"
+   },
+   "body": [
+    {
+     "id": 123,
+     "name": "filler-0",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/123"
+    },
+    {
+     "id": 124,
+     "name": "filler-1",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/124"
+    },
+    {
+     "id": 133,
+     "name": "filler-10",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/133"
+    },
+    {
+     "id": 134,
+     "name": "filler-11",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/134"
+    },
+    {
+     "id": 135,
+     "name": "filler-12",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/135"
+    },
+    {
+     "id": 136,
+     "name": "filler-13",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/136"
+    },
+    {
+     "id": 137,
+     "name": "filler-14",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/137"
+    },
+    {
+     "id": 138,
+     "name": "filler-15",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/138"
+    },
+    {
+     "id": 139,
+     "name": "filler-16",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/139"
+    },
+    {
+     "id": 140,
+     "name": "filler-17",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/140"
+    },
+    {
+     "id": 141,
+     "name": "filler-18",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/141"
+    },
+    {
+     "id": 142,
+     "name": "filler-19",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/142"
+    },
+    {
+     "id": 125,
+     "name": "filler-2",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/125"
+    },
+    {
+     "id": 143,
+     "name": "filler-20",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/143"
+    },
+    {
+     "id": 144,
+     "name": "filler-21",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/144"
+    },
+    {
+     "id": 145,
+     "name": "filler-22",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/145"
+    },
+    {
+     "id": 146,
+     "name": "filler-23",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/146"
+    },
+    {
+     "id": 147,
+     "name": "filler-24",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/147"
+    },
+    {
+     "id": 148,
+     "name": "filler-25",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/148"
+    },
+    {
+     "id": 149,
+     "name": "filler-26",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/149"
+    },
+    {
+     "id": 150,
+     "name": "filler-27",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/150"
+    },
+    {
+     "id": 151,
+     "name": "filler-28",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/151"
+    },
+    {
+     "id": 152,
+     "name": "filler-29",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/152"
+    },
+    {
+     "id": 126,
+     "name": "filler-3",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/126"
+    },
+    {
+     "id": 153,
+     "name": "filler-30",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/153"
+    }
+   ]
+  },
+  {
+   "headers": {
+    "X-Total-Count": "42"
+   },
+   "body": [
+    {
+     "id": 154,
+     "name": "filler-31",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/154"
+    },
+    {
+     "id": 155,
+     "name": "filler-32",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/155"
+    },
+    {
+     "id": 156,
+     "name": "filler-33",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/156"
+    },
+    {
+     "id": 157,
+     "name": "filler-34",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/157"
+    },
+    {
+     "id": 158,
+     "name": "filler-35",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/158"
+    },
+    {
+     "id": 159,
+     "name": "filler-36",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/159"
+    },
+    {
+     "id": 160,
+     "name": "filler-37",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/160"
+    },
+    {
+     "id": 161,
+     "name": "filler-38",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/161"
+    },
+    {
+     "id": 162,
+     "name": "filler-39",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/162"
+    },
+    {
+     "id": 127,
+     "name": "filler-4",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/127"
+    },
+    {
+     "id": 128,
+     "name": "filler-5",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/128"
+    },
+    {
+     "id": 129,
+     "name": "filler-6",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/129"
+    },
+    {
+     "id": 130,
+     "name": "filler-7",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/130"
+    },
+    {
+     "id": 131,
+     "name": "filler-8",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/131"
+    },
+    {
+     "id": 132,
+     "name": "filler-9",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/132"
+    },
+    {
+     "id": 164,
+     "name": "status/ready",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/164"
+    },
+    {
+     "id": 163,
+     "name": "subspace",
+     "exclusive": false,
+     "is_archived": false,
+     "color": "cccccc",
+     "description": "",
+     "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/163"
+    }
+   ]
+  },
+  {
+   "headers": {
+    "X-Total-Count": "42"
+   },
+   "body": []
+  }
+ ],
+ "created": {
+  "id": 349,
+  "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/issues/1",
+  "html_url": "https://forge.test/alice/mir5a4e8c/issues/1",
+  "number": 1,
+  "user": {
+   "id": 1,
+   "login": "alice",
+   "login_name": "",
+   "source_id": 0,
+   "full_name": "",
+   "email": "alice@example.invalid",
+   "avatar_url": "https://forge.test/avatars/fb361da078ff3a4abf129eeb1beb5dd0",
+   "html_url": "https://forge.test/alice",
+   "language": "",
+   "is_admin": true,
+   "last_login": "1970-01-01T00:00:00Z",
+   "created": "2026-11-21T06:52:58Z",
+   "restricted": false,
+   "active": true,
+   "prohibit_login": false,
+   "location": "",
+   "pronouns": "",
+   "website": "",
+   "description": "",
+   "visibility": "public",
+   "followers_count": 0,
+   "following_count": 0,
+   "starred_repos_count": 0,
+   "username": "alice"
+  },
+  "original_author": "",
+  "original_author_id": 0,
+  "title": "Title T-1",
+  "body": "<!-- subspace:task:T-1 -->\n> **Managed by Subspace, read-only.**\n",
+  "ref": "",
+  "assets": [],
+  "labels": [
+   {
+    "id": 164,
+    "name": "status/ready",
+    "exclusive": false,
+    "is_archived": false,
+    "color": "cccccc",
+    "description": "",
+    "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/164"
+   },
+   {
+    "id": 163,
+    "name": "subspace",
+    "exclusive": false,
+    "is_archived": false,
+    "color": "cccccc",
+    "description": "",
+    "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/163"
+   }
+  ],
+  "milestone": null,
+  "assignee": null,
+  "assignees": null,
+  "state": "open",
+  "is_locked": false,
+  "comments": 0,
+  "created_at": "2026-11-21T07:02:38Z",
+  "updated_at": "2026-11-21T07:02:38Z",
+  "closed_at": null,
+  "due_date": null,
+  "pull_request": null,
+  "repository": {
+   "id": 43,
+   "name": "mir5a4e8c",
+   "owner": "alice",
+   "full_name": "alice/mir5a4e8c"
+  },
+  "pin_order": 0
+ },
+ "search_right_after_create": {
+  "headers": {
+   "X-Total-Count": "0"
+  },
+  "body": []
+ },
+ "search_settled": {
+  "headers": {
+   "X-Total-Count": "1"
+  },
+  "body": [
+   {
+    "id": 349,
+    "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/issues/1",
+    "html_url": "https://forge.test/alice/mir5a4e8c/issues/1",
+    "number": 1,
+    "user": {
+     "id": 1,
+     "login": "alice",
+     "login_name": "",
+     "source_id": 0,
+     "full_name": "",
+     "email": "alice@example.invalid",
+     "avatar_url": "https://forge.test/avatars/fb361da078ff3a4abf129eeb1beb5dd0",
+     "html_url": "https://forge.test/alice",
+     "language": "",
+     "is_admin": true,
+     "last_login": "1970-01-01T00:00:00Z",
+     "created": "2026-11-21T06:52:58Z",
+     "restricted": false,
+     "active": true,
+     "prohibit_login": false,
+     "location": "",
+     "pronouns": "",
+     "website": "",
+     "description": "",
+     "visibility": "public",
+     "followers_count": 0,
+     "following_count": 0,
+     "starred_repos_count": 0,
+     "username": "alice"
+    },
+    "original_author": "",
+    "original_author_id": 0,
+    "title": "Title T-1",
+    "body": "<!-- subspace:task:T-1 -->\n> **Managed by Subspace, read-only.**\n",
+    "ref": "",
+    "assets": [],
+    "labels": [
+     {
+      "id": 164,
+      "name": "status/ready",
+      "exclusive": false,
+      "is_archived": false,
+      "color": "cccccc",
+      "description": "",
+      "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/164"
+     },
+     {
+      "id": 163,
+      "name": "subspace",
+      "exclusive": false,
+      "is_archived": false,
+      "color": "cccccc",
+      "description": "",
+      "url": "https://forge.test/api/v1/repos/alice/mir5a4e8c/labels/163"
+     }
+    ],
+    "milestone": null,
+    "assignee": null,
+    "assignees": null,
+    "state": "open",
+    "is_locked": false,
+    "comments": 0,
+    "created_at": "2026-11-21T07:02:38Z",
+    "updated_at": "2026-11-21T07:02:38Z",
+    "closed_at": null,
+    "due_date": null,
+    "pull_request": null,
+    "repository": {
+     "id": 43,
+     "name": "mir5a4e8c",
+     "owner": "alice",
+     "full_name": "alice/mir5a4e8c"
+    },
+    "pin_order": 0
+   }
+  ]
+ }
+}

@@ -145,17 +145,16 @@ func initSchema(wdb *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
 	}
 	bin := BinarySchema()
 	act, err := store.CheckSchema(stored, bin, o)
-	if err != nil || act == store.SchemaCurrent {
-		return false, err
-	}
-	if act == store.SchemaReadOnly {
-		return true, nil
+	if err != nil || act == store.SchemaReadOnly {
+		return act == store.SchemaReadOnly, err
 	}
 	if err := migrate(t); err != nil {
 		return false, err
 	}
-	if err := writeSchemaVersion(t, bin); err != nil {
-		return false, err
+	if act == store.SchemaMigrate {
+		if err := writeSchemaVersion(t, bin); err != nil {
+			return false, err
+		}
 	}
 	return false, t.Commit()
 }

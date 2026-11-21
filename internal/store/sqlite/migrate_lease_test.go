@@ -29,7 +29,7 @@ func TestOpenAddsLeaseExpiriesToExistingTasks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := old.Exec(`ALTER TABLE tasks DROP COLUMN lease_expiries; DROP TABLE schema_version`); err != nil {
+	if _, err := old.Exec(`ALTER TABLE tasks DROP COLUMN lease_expiries`); err != nil {
 		t.Fatal(err)
 	}
 	if err := old.Close(); err != nil {

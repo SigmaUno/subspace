@@ -2,6 +2,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"sync"
@@ -152,5 +153,28 @@ func TestRevokedAgentLosesItsPushStream(t *testing.T) {
 	}
 	if n := pushStreams(s.Push); n != 0 {
 		t.Fatalf("%d push streams left for a revoked agent", n)
+	}
+}
+
+func TestPushWatcherForgetsFinishedTasksAndRevokedAgents(t *testing.T) {
+	w := &PushWatcher{Push: NewPush()}
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	w.Activate(ctx, events.NewHub())
+	agent := "w1"
+	for i := range 200 {
+		id := fmt.Sprintf("T-%d", i)
+		final := model.StatusDone
+		if i%2 == 1 {
+			final = model.StatusCancelled
+		}
+		for _, st := range []string{model.StatusAssigned, model.StatusInProgress, final} {
+			w.handle(ctx, events.Event{Type: "task.updated", Data: &model.Task{ID: id, Status: st, Assignee: &agent}})
+		}
+		w.handle(ctx, events.Event{Type: "agent.updated", Data: &model.Agent{ID: fmt.Sprintf("a%d", i), Status: model.AgentActive}})
+		w.handle(ctx, events.Event{Type: "agent.updated", Data: &model.Agent{ID: fmt.Sprintf("a%d", i), Status: model.AgentRevoked}})
+	}
+	if len(w.tasks) != 0 || len(w.agents) != 0 {
+		t.Fatalf("tracking %d finished tasks and %d revoked agents", len(w.tasks), len(w.agents))
 	}
 }

@@ -774,7 +774,7 @@ func (b *Board) Reopen(ctx context.Context, id, to, note string) (*model.Task, e
 		if to == model.StatusAssigned && t.Assignee == nil {
 			return model.BadRequest("task has no assignee")
 		}
-		if t.Status == model.StatusNeedsOwner {
+		if t.Status == model.StatusNeedsOwner || t.ReviewRounds >= MaxReviewRounds {
 			t.ReviewRounds = 0
 		}
 		t.BlockedReason = nil

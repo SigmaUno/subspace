@@ -5,18 +5,24 @@ import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
+import { ImportBrief } from "./brief-import";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { VirtualList } from "./virtual";
 
 export function BriefsView({ revision }: { revision: number }) {
   const [creating, setCreating] = useState(false);
+  const [importing, setImporting] = useState(false);
   const { data, error } = useResource<{ briefs: Brief[] }>("briefs?limit=1000", revision);
   const form = useSubmit();
   const router = useRouter();
 
   return (
     <>
-      <div className="heading"><h1>Briefs</h1><button className="primary" onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button></div>
+      <div className="heading"><h1>Briefs</h1><div className="actions">
+        <button onClick={() => setImporting(!importing)}>{importing ? "Close import" : "Import brief"}</button>
+        <button className="primary" onClick={() => setCreating(!creating)}>{creating ? "Close form" : "New brief"}</button>
+      </div></div>
+      {importing && <ImportBrief />}
       {creating && (
         <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
           const brief = await api<Brief>("briefs", "POST", {

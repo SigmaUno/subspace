@@ -119,6 +119,48 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
 | GET | `/api/v1/briefs/{id}/architecture` | → `{"brief_id","nodes":[{"id":"C-1","brief_id","name","description","paths":[],"depends_on":["C-2"],"owners":[{"agent_id","role","agent_status","task_ids":[]}],"status":{"counts":{status:n},"total","progress_avg","blocked","stale","last_activity"}}],"edges":[{"from":"C-1","to":"C-2"}]}` |
 | PUT | `/api/v1/briefs/{id}/components` | `{"components":[{"name","description","paths":[],"depends_on":["<component name>"]}]}` → `{"components":[Component]}`. Replaces the plan; ids `C-<n>` follow list order. 400 on an empty plan, duplicate names, unknown/self/cyclic dependencies or paths that are absolute or escape the repository. |
+| POST | `/api/v1/briefs/import?dry_run=` | Brief document as the raw body (`text/markdown`), or `{"markdown":"..."}` with `Content-Type: application/json` → `{"brief":Brief,"components":[Component]}` (201). With `dry_run=true` nothing is created → `{"preview":BriefPreview}` (200). The whole document is validated before the brief and its component plan are created. 400 with the error position, 413 `too_large` above 1 MiB. |
+| GET | `/api/v1/brief-templates` | → `{"templates":[BriefTemplate]}` sorted by id: `bugfix`, `docs-free-chore`, `feature`, `performance`, `refactor`, `security-audit`. |
+| GET | `/api/v1/brief-templates/{id}/render?<variable>=<value>` | → `{"id":"...","markdown":"..."}`, a brief document ready for import. 400 listing missing variables, or when a frontmatter variable has a line break or control character; 404 for an unknown id. |
+
+A brief document is markdown with a frontmatter block between two `---` lines; the text after the closing line is the brief body.
+
+```markdown
+---
+title: "Webhooks: PR status sync"       # required
+repos: [SigmaUno/subspace]
+max_cost_eur: 120
+max_parallel_agents: 8                  # 0 or absent = 10
+allowed_providers: [anthropic, openai]  # [] or absent = all
+cross_review: true                      # absent = true
+task_budget:
+  max_minutes: 120
+  max_cost_eur: 10
+components:                             # optional; same rules as PUT components
+  - name: store
+    paths: [internal/store]
+  - name: webhook
+    description: signed PR event handler
+    paths:
+      - internal/webhook
+    depends_on: [store]
+---
+Markdown body for the leader.
+```
+
+The frontmatter is a strict YAML subset: block mappings and lists indented with spaces, `[a, b]` lists of scalars, plain, `"double"` (escapes `\" \\ \/ \n \t`) and `'single'` quoted scalars, `#` comments. Tabs, control characters, flow mappings, nested `[ ]`, block scalars, anchors, aliases, tags, duplicate or unknown keys, plain values containing `": "`, quoted numbers or booleans, more than 1000 list items or nesting deeper than 6 levels are rejected. Numbers are non-negative; booleans are `true`/`false`. `task_budget` is appended to the stored body as a `## Task budget defaults` section. Parse errors add the 1-based position to the error body: `{"error":{"code":"bad_request","message":"line 4, column 1: duplicate key \"title\" (first defined on line 2)","line":4,"column":1}}`; component plan errors point at the `components` key.
+
+```jsonc
+// BriefPreview
+{"title":"...","body":"...","repos":[],"max_cost_eur":0,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,
+ "task_budget":{"max_minutes":120,"max_cost_eur":10},   // null when absent
+ "components":[{"name","description","paths":[],"depends_on":[]}]}
+
+// BriefTemplate
+{"id":"feature","title":"Feature","variables":["title","repo","goal","acceptance"],"markdown":"---\ntitle: \"{{title}}\"\n..."}
+```
+
+Template variables are `{{name}}` placeholders. Values substituted into the frontmatter are escaped for double-quoted strings.
 
 ### Plans
 | Method | Path | Body → Response |

@@ -271,6 +271,42 @@ func TestStatusResolvesTheInProgressTask(t *testing.T) {
 	}
 }
 
+func TestNotifyMapsCodexEvents(t *testing.T) {
+	r := newRig(t)
+	r.vars["SUBSPACE_TASK_ID"] = r.taskID
+
+	r.ok("", "notify", `{"type":"agent-turn-complete","turn-id":"t1","last-assistant-message":"done"}`)
+	if got := strings.Join(r.tap.tools(), ","); got != "heartbeat,update_status" {
+		t.Fatalf("tools = %s", got)
+	}
+	if got := r.tap.last(); got.args["task_id"] != r.taskID || got.args["status"] != "in_progress" {
+		t.Fatalf("status call = %+v", got)
+	}
+	if th := r.thread("task", r.taskID); !strings.Contains(th, "Codex finished responding") || strings.Contains(th, "done") {
+		t.Fatalf("task thread:\n%s", th)
+	}
+
+	r.clock.advance(2 * time.Minute)
+	before := r.tap.count()
+	r.ok("", "notify", `{"type":"approval-requested"}`)
+	r.ok("", "notify", "not json")
+	if got := r.tap.tools()[before:]; strings.Join(got, ",") != "heartbeat" {
+		t.Fatalf("non-turn events called %v", got)
+	}
+}
+
+func TestLogTakesTextAfterDoubleDash(t *testing.T) {
+	r := newRig(t)
+	r.ok("", "log", "-task", r.taskID, "--", "-- [bash] ok\nsecond line")
+	var texts []string
+	for _, l := range r.output() {
+		texts = append(texts, l["text"].(string))
+	}
+	if want := "-- [bash] ok|second line"; strings.Join(texts, "|") != want {
+		t.Fatalf("output lines = %q want %q", texts, want)
+	}
+}
+
 func TestThrottles(t *testing.T) {
 	r := newRig(t)
 	payload := bashPayload("ls", "a\n", "")

@@ -9,6 +9,7 @@ import (
 	"io"
 	"log/slog"
 	"net/http"
+	"strconv"
 	"sync"
 	"time"
 
@@ -154,18 +155,24 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	rw := &recorder{header: http.Header{}, code: http.StatusOK}
 	h.next.ServeHTTP(rw, r)
-	if result := storable(rw); result != nil {
-		now := h.opts.Now()
-		rec := &Record{Tool: req.Params.Name, ArgsHash: sum, Result: result, ExpiresAt: now.Add(TTL)}
-		if err := h.opts.Store.PutIdempotency(context.WithoutCancel(ctx), agent.ID, key, rec, now); err != nil {
-			h.opts.Log.Error("idempotency store", "err", err)
-		}
-	}
+	result := storable(rw)
 	for k, v := range rw.header {
 		w.Header()[k] = v
 	}
+	if result != nil {
+		w.Header().Set("Content-Length", strconv.Itoa(rw.body.Len()))
+	}
 	w.WriteHeader(rw.code)
 	_, _ = w.Write(rw.body.Bytes())
+	if result == nil {
+		return
+	}
+	_ = http.NewResponseController(w).Flush()
+	now := h.opts.Now()
+	rec = &Record{Tool: req.Params.Name, ArgsHash: sum, Result: result, ExpiresAt: now.Add(TTL)}
+	if err := h.opts.Store.PutIdempotency(context.WithoutCancel(ctx), agent.ID, key, rec, now); err != nil {
+		h.opts.Log.Error("idempotency store", "err", err)
+	}
 }
 
 func (h *handler) agent(r *http.Request) *model.Agent {

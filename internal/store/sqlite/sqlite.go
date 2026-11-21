@@ -43,6 +43,8 @@ type Store struct {
 	quit  chan struct{}
 	wg    sync.WaitGroup
 	once  sync.Once
+
+	idem idemQueue
 }
 
 var _ store.Store = (*Store)(nil)

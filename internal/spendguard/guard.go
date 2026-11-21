@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/decisions"
@@ -15,9 +16,10 @@ import (
 )
 
 const (
-	limitsKey = "spendguard.limits"
-	stateKey  = "spendguard.state"
-	bucket    = time.Minute
+	limitsKey    = "spendguard.limits"
+	stateKey     = "spendguard.state"
+	bucket       = time.Minute
+	persistEvery = 2 * time.Second
 )
 
 type TaskCost struct {
@@ -78,13 +80,15 @@ type View struct {
 }
 
 type Guard struct {
-	o      Options
-	evalMu sync.Mutex
-	mu     sync.Mutex
-	limits Limits
-	st     state
-	usage  []Entry
-	dirty  bool
+	o       Options
+	evalMu  sync.Mutex
+	pending atomic.Bool
+	saved   time.Time
+	mu      sync.Mutex
+	limits  Limits
+	st      state
+	usage   []Entry
+	dirty   bool
 }
 
 func New(ctx context.Context, o Options) (*Guard, error) {
@@ -257,6 +261,10 @@ func windowKey(s Status) string {
 }
 
 func (g *Guard) evaluate(ctx context.Context) error {
+	return g.evaluateOpt(ctx, true)
+}
+
+func (g *Guard) evaluateOpt(ctx context.Context, force bool) error {
 	now := g.o.Now()
 	g.mu.Lock()
 	g.prune(now)
@@ -301,8 +309,14 @@ func (g *Guard) evaluate(ctx context.Context) error {
 	case paused && why == PauseReason && !exceeded:
 		err = g.o.Control.ResumeAll(ctx)
 	}
+	if !force && len(warn) == 0 && len(trip) == 0 && now.Sub(g.saved) < persistEvery && !now.Before(g.saved) {
+		return err
+	}
 	if perr := g.persist(ctx); err == nil {
 		err = perr
+	}
+	if err == nil {
+		g.saved = now
 	}
 	return err
 }
@@ -395,7 +409,13 @@ func (g *Guard) CheckTask(ctx context.Context, id string) error {
 	if err != nil || !g.Observe(t) {
 		return err
 	}
-	return g.Evaluate(ctx)
+	if !g.pending.CompareAndSwap(false, true) {
+		return nil
+	}
+	g.evalMu.Lock()
+	defer g.evalMu.Unlock()
+	g.pending.Store(false)
+	return g.evaluateOpt(ctx, false)
 }
 
 func (g *Guard) sweep(ctx context.Context) {

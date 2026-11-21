@@ -987,6 +987,11 @@ func (b *Board) recordExpiry(agentID string) bool {
 	cutoff := now.Add(-b.o.FlapWindow)
 	b.mu.Lock()
 	defer b.mu.Unlock()
+	for id, ts := range b.expiries {
+		if !ts[0].After(cutoff) {
+			delete(b.expiries, id)
+		}
+	}
 	recent := []time.Time{now}
 	for _, at := range b.expiries[agentID] {
 		if at.After(cutoff) {

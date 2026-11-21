@@ -91,7 +91,7 @@ func (g *Guard) agentLeak(ctx context.Context, src board.LeakSource, value strin
 	if a == nil {
 		return false
 	}
-	id, err := g.o.Board.RevokeLeaked(ctx, a.ID, src, func(tx store.Tx) (string, error) {
+	id, err := g.o.Board.RevokeLeaked(ctx, a.ID, auth.Hash(value), src, func(tx store.Tx) (string, error) {
 		return g.record(tx, KindAgent, a.ID, src)
 	})
 	if err != nil {

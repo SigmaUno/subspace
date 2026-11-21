@@ -72,7 +72,7 @@ func messageChannel(kind string) string {
 	return ChannelMessage
 }
 
-func (b *Board) RevokeLeaked(ctx context.Context, id string, src LeakSource, record func(tx store.Tx) (string, error)) (string, error) {
+func (b *Board) RevokeLeaked(ctx context.Context, id, tokenHash string, src LeakSource, record func(tx store.Tx) (string, error)) (string, error) {
 	sys := model.Actor{ID: "system", Role: "system"}
 	var leakID string
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -81,7 +81,7 @@ func (b *Board) RevokeLeaked(ctx context.Context, id string, src LeakSource, rec
 		if err != nil {
 			return model.NotFound("agent %s not found", id)
 		}
-		if a.Status == model.AgentRevoked {
+		if a.Status == model.AgentRevoked || a.TokenHash != tokenHash {
 			return nil
 		}
 		before := a.Status

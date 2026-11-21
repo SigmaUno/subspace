@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"math"
 	"net/http"
 
@@ -16,10 +17,7 @@ func mountHelpRequests(d Deps) {
 	svc := helpreq.New(d.Store, d.Board)
 	mcp.BindHelp(d.Board, svc)
 	detach := decisions.Attach(d.Store, svc)
-	go func() {
-		<-d.Ctx.Done()
-		detach()
-	}()
+	context.AfterFunc(d.Ctx, detach)
 	d.API.Mount(d.Mux, "GET /api/v1/help-requests", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
 		f := helpreq.Filter{Status: q.Get("status"), BriefID: q.Get("brief_id"), TaskID: q.Get("task_id")}

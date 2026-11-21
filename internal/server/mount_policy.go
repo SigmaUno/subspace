@@ -65,10 +65,7 @@ func mountPolicy(d Deps) {
 		d.API.Mount(d.Mux, route, h)
 	}
 	detach := decisions.Attach(d.Store, svc.DecisionSource())
-	go func() {
-		<-d.Ctx.Done()
-		detach()
-	}()
+	context.AfterFunc(d.Ctx, detach)
 	d.Leader.Go(d.Ctx, func(ctx context.Context) {
 		svc.Run(ctx, envDuration(d.Log, "SUBSPACE_POLICY_SWEEP", policy.DefaultSweep))
 	})

@@ -90,11 +90,6 @@ type Service struct {
 	mu sync.Mutex
 }
 
-type realTicker struct{ t *time.Ticker }
-
-func (r realTicker) C() <-chan time.Time { return r.t.C }
-func (r realTicker) Stop()               { r.t.Stop() }
-
 func NewService(o Options) (*Service, error) {
 	if o.Remote == nil || o.Store == nil || o.Backups == nil {
 		return nil, errors.New("offsite: Remote, Store and Backups are required")
@@ -112,7 +107,7 @@ func NewService(o Options) (*Service, error) {
 		o.Now = func() time.Time { return time.Now().UTC() }
 	}
 	if o.NewTicker == nil {
-		o.NewTicker = func(d time.Duration) backup.Ticker { return realTicker{time.NewTicker(d)} }
+		o.NewTicker = backup.NewTicker
 	}
 	if o.Log == nil {
 		o.Log = slog.Default()

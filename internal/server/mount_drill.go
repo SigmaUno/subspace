@@ -85,10 +85,7 @@ func mountDrill(d Deps) {
 	d.API.Mount(d.Mux, "GET /api/v1/drills", h)
 	d.API.Mount(d.Mux, "POST /api/v1/drills", h)
 	detach := decisions.Attach(d.Store, svc)
-	go func() {
-		<-d.Ctx.Done()
-		detach()
-	}()
+	context.AfterFunc(d.Ctx, detach)
 	if opts.Unsupported == "" {
 		d.Leader.Go(d.Ctx, svc.Run)
 	}

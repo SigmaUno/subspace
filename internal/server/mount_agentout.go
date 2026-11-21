@@ -47,10 +47,9 @@ func mountAgentOutput(d Deps) {
 	d.API.Mount(d.Mux, "GET /api/v1/agents/{id}/output", svc.OutputHandler())
 	d.API.Mount(d.Mux, "GET /api/v1/agent-output", svc.LatestHandler())
 	agentOutputs.Store(d.Mux, svc)
-	go func() {
-		<-d.Ctx.Done()
+	context.AfterFunc(d.Ctx, func() {
 		agentOutputs.Delete(d.Mux)
-	}()
+	})
 }
 
 func wrapAgentOutput(next http.Handler, d Deps) http.Handler {

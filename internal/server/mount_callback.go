@@ -59,10 +59,9 @@ func mountCallbacks(d Deps) {
 	}
 	callbackRegistrars.Store(d.Mux, &callback.Registrar{Policy: policy, Store: targets, OwnerToken: d.Cfg.OwnerToken, Log: d.Log, Activated: activate})
 	go disp.Run(d.Ctx)
-	go func() {
-		<-d.Ctx.Done()
+	context.AfterFunc(d.Ctx, func() {
 		callbackRegistrars.Delete(d.Mux)
-	}()
+	})
 }
 
 func callbackDuration(d Deps, env string) time.Duration {

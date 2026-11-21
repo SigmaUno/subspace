@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 
 	"github.com/SigmaUno/subspace/internal/decisions"
@@ -25,9 +26,6 @@ func init() {
 		d.API.Mount(d.Mux, "GET /api/v1/insights", h)
 		d.API.Mount(d.Mux, "GET /api/v1/agents/{id}/insights", h)
 		detach := decisions.Attach(d.Store, svc)
-		go func() {
-			<-d.Ctx.Done()
-			detach()
-		}()
+		context.AfterFunc(d.Ctx, detach)
 	})
 }

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/leakguard"
 	"github.com/SigmaUno/subspace/internal/tokens"
@@ -16,9 +17,6 @@ func init() {
 		d.Board.SetLeakScanner(g.Scan)
 		d.API.Mount(d.Mux, "POST /api/v1/token-leaks/{id}/reissue", leakguard.Handler(g))
 		detach := decisions.Attach(d.Store, g)
-		go func() {
-			<-d.Ctx.Done()
-			detach()
-		}()
+		context.AfterFunc(d.Ctx, detach)
 	})
 }

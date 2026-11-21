@@ -4,15 +4,14 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/fsx"
 )
 
 type Kind string
@@ -74,10 +73,6 @@ func segmentName(k Kind, seq int64) string {
 }
 
 func writeSegment(dir, name string, rows []row) (int64, string, error) {
-	path := filepath.Join(dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return 0, "", err
-	}
 	var buf bytes.Buffer
 	zw := gzip.NewWriter(&buf)
 	enc := json.NewEncoder(zw)
@@ -89,41 +84,16 @@ func writeSegment(dir, name string, rows []row) (int64, string, error) {
 	if err := zw.Close(); err != nil {
 		return 0, "", err
 	}
-	sum := sha256.Sum256(buf.Bytes())
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".segment-*")
-	if err != nil {
+	if err := fsx.WriteAtomic(filepath.Join(dir, filepath.FromSlash(name)), buf.Bytes()); err != nil {
 		return 0, "", err
 	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(buf.Bytes()); err != nil {
-		_ = tmp.Close()
-		return 0, "", err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return 0, "", err
-	}
-	if err := tmp.Close(); err != nil {
-		return 0, "", err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return 0, "", err
-	}
-	if d, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return int64(buf.Len()), hex.EncodeToString(sum[:]), nil
+	return int64(buf.Len()), fsx.SHA256Hex(buf.Bytes()), nil
 }
 
 func readSegment(dir string, seg Segment) ([]row, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(seg.File))) //nolint:gosec // manifest path under the archive dir
+	raw, err := fsx.ReadVerified(filepath.Join(dir, filepath.FromSlash(seg.File)), seg.SHA256, seg.Bytes)
 	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(raw)
-	if got := hex.EncodeToString(sum[:]); got != seg.SHA256 || int64(len(raw)) != seg.Bytes {
-		return nil, fmt.Errorf("segment %s: sha256 %s does not match manifest %s", seg.File, got, seg.SHA256)
+		return nil, fmt.Errorf("segment %s: %w", seg.File, err)
 	}
 	zr, err := gzip.NewReader(bytes.NewReader(raw))
 	if err != nil {

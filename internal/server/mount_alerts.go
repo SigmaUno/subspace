@@ -30,10 +30,7 @@ func init() {
 		d.reloadable("alerts", alerts.ReloadKeys, eng)
 		d.API.Mount(d.Mux, "GET /api/v1/alerts", alerts.Handler(eng))
 		detach := decisions.Attach(d.Store, eng)
-		go func() {
-			<-d.Ctx.Done()
-			detach()
-		}()
+		context.AfterFunc(d.Ctx, detach)
 		if th.Interval > 0 {
 			d.Leader.Go(d.Ctx, func(ctx context.Context) {
 				tk := time.NewTicker(th.Interval)

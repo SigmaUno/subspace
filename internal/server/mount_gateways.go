@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"path/filepath"
 	"strings"
 
@@ -50,8 +51,5 @@ func mountGateways(d Deps) {
 	h := svc.Handler()
 	d.API.Mount(d.Mux, "/api/v1/gateways", h)
 	d.API.Mount(d.Mux, "/api/v1/gateways/", h)
-	go func() {
-		<-d.Ctx.Done()
-		svc.Close()
-	}()
+	context.AfterFunc(d.Ctx, svc.Close)
 }

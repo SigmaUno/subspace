@@ -32,6 +32,8 @@ type Ticker interface {
 	Stop()
 }
 
+func NewTicker(d time.Duration) Ticker { return realTicker{time.NewTicker(d)} }
+
 type realTicker struct{ t *time.Ticker }
 
 func (r realTicker) C() <-chan time.Time { return r.t.C }
@@ -101,7 +103,7 @@ func New(cfg Config) (*Scheduler, error) {
 		cfg.Now = time.Now
 	}
 	if cfg.NewTicker == nil {
-		cfg.NewTicker = func(d time.Duration) Ticker { return realTicker{time.NewTicker(d)} }
+		cfg.NewTicker = NewTicker
 	}
 	log := cfg.Logger
 	if log == nil {

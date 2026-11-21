@@ -102,8 +102,7 @@ func mountTranscripts(d Deps) {
 	d.API.Mount(d.Mux, "GET /api/v1/tasks/{id}/transcript", h)
 	d.API.Mount(d.Mux, "GET /api/v1/tasks/{id}/transcript/download", h)
 	transcriptServices.Store(d.Mux, svc)
-	go func() {
-		<-d.Ctx.Done()
+	context.AfterFunc(d.Ctx, func() {
 		transcriptServices.Delete(d.Mux)
-	}()
+	})
 }

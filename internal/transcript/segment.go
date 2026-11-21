@@ -4,14 +4,13 @@ import (
 	"bufio"
 	"bytes"
 	"compress/gzip"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"fmt"
-	"os"
 	"path/filepath"
 	"regexp"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/fsx"
 )
 
 var taskIDRe = regexp.MustCompile(`^T-[0-9]+$`)
@@ -44,49 +43,17 @@ func encode(entries []Entry) (raw int64, gz []byte, sum string, err error) {
 	for _, e := range entries {
 		raw += int64(len(e.Text))
 	}
-	h := sha256.Sum256(buf.Bytes())
-	return raw, buf.Bytes(), hex.EncodeToString(h[:]), nil
+	return raw, buf.Bytes(), fsx.SHA256Hex(buf.Bytes()), nil
 }
 
 func writeFile(dir, name string, data []byte) error {
-	path := filepath.Join(dir, filepath.FromSlash(name))
-	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
-		return err
-	}
-	tmp, err := os.CreateTemp(filepath.Dir(path), ".segment-*")
-	if err != nil {
-		return err
-	}
-	defer func() { _ = os.Remove(tmp.Name()) }()
-	if _, err := tmp.Write(data); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Sync(); err != nil {
-		_ = tmp.Close()
-		return err
-	}
-	if err := tmp.Close(); err != nil {
-		return err
-	}
-	if err := os.Rename(tmp.Name(), path); err != nil {
-		return err
-	}
-	if d, err := os.Open(filepath.Dir(path)); err == nil {
-		_ = d.Sync()
-		_ = d.Close()
-	}
-	return nil
+	return fsx.WriteAtomic(filepath.Join(dir, filepath.FromSlash(name)), data)
 }
 
 func readFile(dir string, seg Segment) ([]byte, error) {
-	raw, err := os.ReadFile(filepath.Join(dir, filepath.FromSlash(seg.File))) //nolint:gosec // manifest path under the transcript dir
+	raw, err := fsx.ReadVerified(filepath.Join(dir, filepath.FromSlash(seg.File)), seg.SHA256, seg.Bytes)
 	if err != nil {
-		return nil, err
-	}
-	sum := sha256.Sum256(raw)
-	if got := hex.EncodeToString(sum[:]); got != seg.SHA256 || int64(len(raw)) != seg.Bytes {
-		return nil, fmt.Errorf("transcript segment %s: sha256 %s does not match manifest %s", seg.File, got, seg.SHA256)
+		return nil, fmt.Errorf("transcript segment %s: %w", seg.File, err)
 	}
 	return raw, nil
 }

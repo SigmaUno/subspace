@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"sync"
 
@@ -29,9 +30,8 @@ func mountQuota(d Deps) {
 	d.API.Mount(d.Mux, "POST /api/v1/agents/quota-bulk", h)
 	detach := decisions.Attach(d.Store, svc)
 	quotaServices.Store(d.Mux, svc)
-	go func() {
-		<-d.Ctx.Done()
+	context.AfterFunc(d.Ctx, func() {
 		detach()
 		quotaServices.Delete(d.Mux)
-	}()
+	})
 }

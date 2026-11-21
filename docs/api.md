@@ -735,11 +735,14 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
 | get_brief, list_briefs, propose_plan, create_task, create_task_from_template, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
+| get_forecast, get_report, search, agent_stats, list_decisions, list_spawns, get_components | ✓ | | | |
 | list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
 | request_help, suggest_split | | ✓ | ✓ | ✓ |
 | report_blocker | | ✓ | ✓ | |
 | list_help_requests, accept_split | ✓ | | | |
 | report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
+
+The leader information tools (`get_forecast` … `get_components`) are read-only and exempt from loop protection. Every list they return is cut at 200 items and flagged with `"truncated":true`.
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
 
@@ -803,6 +806,14 @@ All tools return an object; `task` = Task object above.
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
 - `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `get_forecast {"brief_id"}` → `{"forecast":Forecast}`, the same object as `GET /api/v1/briefs/{id}/forecast`. 404 `not_found` for an unknown brief.
+- `get_report {"brief_id"}` → `{"report":Report,"truncated":bool}`, the same object as `GET /api/v1/briefs/{id}/report`; `tasks`, `outliers` and `throughput.hourly` are cut at 200 items.
+- `search {"query","kind?":"task|message|agent|brief","limit?":1-100}` → `{"results":[{"kind","id","field","snippet","at"}],"truncated":bool}`, the same results as `GET /api/v1/search/`. `query` is required, at most 200 characters; `limit` defaults to 20.
+- `agent_stats {"agent_id?"}` → `{"agents":[AgentStats],"truncated":bool}`, the same objects as `GET /api/v1/agent-stats` (best `score` first, then id) or, with `agent_id`, `GET /api/v1/agents/{id}/stats`; 404 `not_found` for an unknown `agent_id`.
+- `list_decisions {}` → `{"decisions":[{"id","kind","title","brief_id?","task_id?","agent_id?"}],"truncated":bool}`: the owner inbox (see Decisions) without summaries, links and actions, in inbox order.
+- `list_spawns {"brief_id?"}` → `{"spawns":[Spawn],"truncated":bool}`; a failed spawn's `error` is replaced by a generic message.
+- `get_components {"brief_id"}` → `{"components":[Component],"truncated":bool}`. 404 `not_found` for an unknown brief.
 
 ### Handoff context
 `get_task` and `claim_task` add a `context` object when the caller is the task's assignee, the task is `assigned`, `changes_requested` or `in_progress`, and it has a history: an earlier claim (for example after lease expiry or release), a reassignment, or at least one review round. Nobody else (leader, reviewer, owner) receives it, and it is absent on a task that has never been worked on.

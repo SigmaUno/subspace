@@ -9,6 +9,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/breaker"
+	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/mcp"
@@ -27,8 +28,9 @@ type Deps struct {
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
 
-	Registry *mcp.Registry
-	Breakers *breaker.Set
+	Registry   *mcp.Registry
+	Breakers   *breaker.Set
+	Components components.Store
 }
 
 var extraMounts []func(Deps)

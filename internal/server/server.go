@@ -158,7 +158,8 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "/api/v1/conversations", router.Handler())
 	rest.Mount(mux, "/api/v1/conversations/", router.Handler())
 
-	comps := components.NewService(components.NewMemory(), componentSource{b, st}, nil)
+	compStore := components.NewMemory()
+	comps := components.NewService(compStore, componentSource{b, st}, nil)
 	rest.Mount(mux, "GET /api/v1/briefs/{id}/architecture", components.Handler(comps))
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
@@ -179,7 +180,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
-		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log))}
+		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore}
 	for _, m := range extraMounts {
 		m(deps)
 	}

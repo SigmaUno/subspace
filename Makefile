@@ -1,5 +1,6 @@
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report release-dist release-dry clean
 .PHONY: all build test vet lint fmt gen-ts run loadtest loadtest-short loadtest-1000 loadtest-report clean
+.PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 
 GO ?= go
 BIN := bin
@@ -35,6 +36,16 @@ gen-ts:
 
 run: build
 	SUBSPACE_OWNER_TOKEN=$${SUBSPACE_OWNER_TOKEN:-dev-owner-token} SUBSPACE_DB=$${SUBSPACE_DB:-./data/subspace.db} SUBSPACE_ADDR=$${SUBSPACE_ADDR:-:8080} $(BIN)/subspace
+
+SEED ?= 1
+SEED_URL ?= http://localhost:8080
+DEMO_FLAGS ?=
+
+seed:
+	$(GO) run ./cmd/subspace-seed -url $(SEED_URL) -seed $(SEED) $(DEMO_FLAGS)
+
+demo:
+	$(GO) run ./cmd/subspace-seed -demo -seed $(SEED) $(DEMO_FLAGS)
 
 # 300 simulated agents against an in-process server over real HTTP MCP.
 loadtest:

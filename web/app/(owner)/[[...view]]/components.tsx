@@ -1,12 +1,29 @@
 "use client";
 
-import { createContext, useContext } from "react";
+import { createContext, useContext, useEffect, useRef } from "react";
 
 export const Clock = createContext(0);
 
 export function Feedback({ error, loading }: { error?: string; loading?: boolean }) {
   if (error) return <p className="error" role="alert">{error}</p>;
   return loading ? <p className="muted" role="status">Loading…</p> : null;
+}
+
+export function LoadMore({ hasMore, loading, onMore }: { hasMore: boolean; loading: boolean; onMore: () => void }) {
+  const sentinel = useRef<HTMLDivElement>(null);
+  const latest = useRef(onMore);
+  useEffect(() => { latest.current = onMore; });
+  useEffect(() => {
+    const node = sentinel.current;
+    if (!node || !hasMore) return;
+    const observer = new IntersectionObserver((entries) => {
+      if (entries.some((entry) => entry.isIntersecting)) latest.current();
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [hasMore, loading]);
+  if (!hasMore) return null;
+  return <div ref={sentinel} className="muted" role="status">{loading ? "Loading…" : "Scroll for more"}</div>;
 }
 
 export function staleAt(time: string | null, now: number, expires?: string | null) {

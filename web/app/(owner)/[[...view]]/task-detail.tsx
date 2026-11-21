@@ -2,12 +2,10 @@
 
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { api, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
-import type {
-  AuditEvent, AuditList, TaskDetail, TaskList, TaskMessages, TimelineEntry,
-} from "../../../lib/task-detail-types";
+import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, value } from "../../../lib/client";
+import type { AuditEvent, TaskDetail, TaskList, TimelineEntry } from "../../../lib/task-detail-types";
 import { statuses, type Message } from "../../../lib/types";
-import { Feedback } from "./components";
+import { Feedback, LoadMore } from "./components";
 import { useLive } from "./live";
 
 const statusNames = new Map<string, string>(statuses);
@@ -125,15 +123,15 @@ export function TaskDetailPage({ id }: { id: string }) {
   const briefID = task.data?.brief_id;
   const siblings = useResource<TaskList>(
     briefID ? `tasks?${new URLSearchParams({ brief_id: briefID, limit: "1000" })}` : null, revisions.board);
-  const audit = useResource<AuditList>(
-    `audit?${new URLSearchParams({ task_id: id, limit: "1000" })}`, revisions.board + revisions.thread);
-  const messages = useResource<TaskMessages>(`threads/task/${path}/messages?limit=1000`, revisions.thread);
+  const audit = usePagedResource<AuditEvent>(
+    `audit?${new URLSearchParams({ task_id: id })}`, "events", revisions.board + revisions.thread);
+  const messages = usePagedResource<Message>(`threads/task/${path}/messages`, "messages", revisions.thread, 200);
   const reply = useSubmit();
 
   const current = task.data;
   const known = new Map(siblings.data?.tasks?.map((item) => [item.id, item]));
-  const log = messages.data?.messages ?? [];
-  const entries = timeline(audit.data?.events ?? [], log);
+  const log = messages.items;
+  const entries = timeline(audit.items, log);
   const pr = safeURL(current?.pr_url);
 
   function changed(updated: TaskDetail) {
@@ -211,8 +209,8 @@ export function TaskDetailPage({ id }: { id: string }) {
 
         <section className="panel stack">
           <h2>Timeline</h2>
-          <Feedback error={audit.error} loading={!audit.data && !audit.error} />
-          {audit.data && !entries.length && <p className="empty">No activity yet.</p>}
+          <Feedback error={audit.error} loading={!audit.loaded && !audit.error} />
+          {audit.loaded && !entries.length && <p className="empty">No activity yet.</p>}
           <div className="messages">
             {entries.map((entry) => (
               <article key={entry.key}>
@@ -222,13 +220,14 @@ export function TaskDetailPage({ id }: { id: string }) {
                 {entry.detail && <p className="preserve">{entry.detail}</p>}
               </article>
             ))}
+            <LoadMore hasMore={audit.hasMore} loading={audit.loading} onMore={audit.loadMore} />
           </div>
         </section>
 
         <section className="panel stack">
           <h2>Thread</h2>
-          <Feedback error={messages.error} loading={!messages.data && !messages.error} />
-          {messages.data && !log.length && <p className="empty">No messages yet.</p>}
+          <Feedback error={messages.error} loading={!messages.loaded && !messages.error} />
+          {messages.loaded && !log.length && <p className="empty">No messages yet.</p>}
           <div className="messages" role="log" aria-label="Messages">
             {log.map((message) => (
               <article key={message.id}>
@@ -238,6 +237,7 @@ export function TaskDetailPage({ id }: { id: string }) {
                 <p className="preserve">{message.body}</p>
               </article>
             ))}
+            <LoadMore hasMore={messages.hasMore} loading={messages.loading} onMore={messages.loadMore} />
           </div>
           <form className="stack" onSubmit={(event) => reply.submit(event, async (fields, element) => {
             const body = value(fields, "body");

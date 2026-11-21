@@ -2,17 +2,16 @@
 
 import Link from "next/link";
 import { useEffect, useState } from "react";
-import { api, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
-import type { AuditEvent, AuditList } from "../../../lib/agent-detail-types";
+import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, value } from "../../../lib/client";
+import type { AuditEvent } from "../../../lib/agent-detail-types";
 import type { Agent, Connect, Message, Registration, Task } from "../../../lib/types";
 import type { UsageSummary } from "../../../lib/usage-types";
-import { Clock, Feedback, Heartbeat } from "./components";
+import { Clock, Feedback, Heartbeat, LoadMore } from "./components";
 import { useLive } from "./live";
 import { Secret } from "./operations";
 
 const dayMs = 86_400_000;
 const days = 30;
-const auditShown = 100;
 const finished = ["done", "cancelled"];
 
 const usd = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
@@ -34,19 +33,20 @@ function ConnectPanel({ connect, rotated, dismiss }: { connect: Connect; rotated
 
 function AgentThread({ id, revision }: { id: string; revision: number }) {
   const path = `threads/agent/${encodeURIComponent(id)}/messages`;
-  const messages = useResource<{ messages: Message[] | null }>(`${path}?limit=1000`, revision);
+  const messages = usePagedResource<Message>(path, "messages", revision, 200);
   const form = useSubmit();
-  const items = messages.data?.messages ?? [];
+  const items = messages.items;
   return <section className="panel stack">
     <h2>Thread</h2>
-    <Feedback error={messages.error} loading={!messages.data} />
-    {messages.data && !items.length && <p className="empty">No messages yet.</p>}
+    <Feedback error={messages.error} loading={!messages.loaded} />
+    {messages.loaded && !items.length && <p className="empty">No messages yet.</p>}
     {!!items.length && <div className="messages" role="log" aria-label="Agent thread" tabIndex={0}>
       {items.map((message) => <article key={message.id}>
         <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
           <time dateTime={message.created_at}>{stamp(message.created_at)}</time></div>
         <p className="preserve">{message.body}</p>
       </article>)}
+      <LoadMore hasMore={messages.hasMore} loading={messages.loading} onMore={messages.loadMore} />
     </div>}
     <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");
@@ -127,12 +127,12 @@ const summarize = (state: Record<string, unknown> | null) =>
   state ? Object.entries(state).map(([key, entry]) => `${key}: ${typeof entry === "string" ? entry : JSON.stringify(entry)}`).join(", ") : "—";
 
 function AuditTrail({ id, revision }: { id: string; revision: number }) {
-  const audit = useResource<AuditList>(`audit?${new URLSearchParams({ agent_id: id, limit: "1000" })}`, revision);
-  const events: AuditEvent[] = (audit.data?.events ?? []).slice(-auditShown).reverse();
+  const audit = usePagedResource<AuditEvent>(`audit?${new URLSearchParams({ agent_id: id })}`, "events", revision);
+  const events = audit.items;
   return <section className="stack">
     <h2>Audit trail</h2>
-    <Feedback error={audit.error} loading={!audit.data} />
-    {audit.data && !events.length && <p className="empty">No audit events.</p>}
+    <Feedback error={audit.error} loading={!audit.loaded} />
+    {audit.loaded && !events.length && <p className="empty">No audit events.</p>}
     {!!events.length && <div className="table-wrap">
       <table>
         <thead><tr><th>Time</th><th>Tool</th><th>Task</th><th>Before</th><th>After</th><th>Note</th></tr></thead>
@@ -146,6 +146,7 @@ function AuditTrail({ id, revision }: { id: string; revision: number }) {
         </tr>)}</tbody>
       </table>
     </div>}
+    <LoadMore hasMore={audit.hasMore} loading={audit.loading} onMore={audit.loadMore} />
   </section>;
 }
 

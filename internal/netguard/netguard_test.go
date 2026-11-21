@@ -162,6 +162,8 @@ func TestCheckURL(t *testing.T) {
 		"http://169.254.169.254/latest/meta-data": false,
 		"not a url": false,
 		"https://hooks.example.com/" + strings.Repeat("a", MaxURLLen): false,
+		"https://hooks.example.com/" + strings.Repeat("a", 2048-26):   true,
+		"https://hooks.example.com/" + strings.Repeat("a", 2049-26):   false,
 	}
 	for raw, ok := range cases {
 		if _, err := g.CheckURL(raw); (err == nil) != ok {
@@ -415,5 +417,49 @@ func TestParsePrefixes(t *testing.T) {
 	}
 	if _, err := ParsePrefixes("10.0.0.0/8,nope"); err == nil {
 		t.Fatal("invalid entry accepted")
+	}
+}
+
+type deadlineResolver struct {
+	addrs       []netip.Addr
+	err         error
+	hasDeadline bool
+}
+
+func (r *deadlineResolver) LookupNetIP(ctx context.Context, _, _ string) ([]netip.Addr, error) {
+	_, r.hasDeadline = ctx.Deadline()
+	return r.addrs, r.err
+}
+
+func TestResolveLookupErrorsAndTimeout(t *testing.T) {
+	down := errors.New("dns down")
+	r := &deadlineResolver{err: down}
+	g := &Guard{Resolver: r}
+	if _, err := g.Resolve(context.Background(), "a.test"); !errors.Is(err, down) {
+		t.Fatalf("lookup error = %v", err)
+	}
+	if r.hasDeadline {
+		t.Fatal("deadline applied without LookupTimeout")
+	}
+	g.LookupTimeout = time.Minute
+	r.err, r.addrs = nil, []netip.Addr{}
+	ips, err := g.Resolve(context.Background(), "a.test")
+	if err == nil || errors.Is(err, ErrBlocked) || ips != nil {
+		t.Fatalf("empty answer = %v, %v", ips, err)
+	}
+	if !r.hasDeadline {
+		t.Fatal("LookupTimeout not applied")
+	}
+	if _, err := g.DialContext(context.Background(), "tcp", "no-port"); err == nil || !strings.Contains(err.Error(), "missing port") {
+		t.Fatalf("bad addr = %v", err)
+	}
+}
+
+func TestTransportHandshakeTimeout(t *testing.T) {
+	if got := (&Guard{}).Transport().TLSHandshakeTimeout; got != 10*time.Second {
+		t.Fatalf("default = %v", got)
+	}
+	if got := (&Guard{DialTimeout: 3 * time.Second}).Transport().TLSHandshakeTimeout; got != 3*time.Second {
+		t.Fatalf("custom = %v", got)
 	}
 }

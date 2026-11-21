@@ -44,7 +44,7 @@ func (h *Handler) list(w http.ResponseWriter, _ *http.Request) {
 func (h *Handler) create(w http.ResponseWriter, r *http.Request) {
 	var req createReq
 	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		fail(w, model.BadRequest("invalid JSON: %v", err))
+		fail(w, model.BadRequest("invalid JSON body"))
 		return
 	}
 	j := &Job{

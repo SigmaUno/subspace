@@ -1,0 +1,10 @@
+go test fuzz v1
+uint8(1)
+uint8(6)
+uint8(1)
+string("")
+string("ask_owner")
+string("1")
+string("")
+string("")
+[]byte("{\"task_id\":\"T-1\",\"question\":\"q\",\"options\":[\"a\",\"b\"]}")

@@ -1,0 +1,10 @@
+go test fuzz v1
+uint8(1)
+uint8(6)
+uint8(1)
+string("")
+string("put_artifact")
+string("1")
+string("")
+string("")
+[]byte("{\"scope\":\"task:T-1\",\"name\":\"a.txt\",\"content_base64\":\"aGVsbG8=\",\"content_type\":\"text/plain\"}")

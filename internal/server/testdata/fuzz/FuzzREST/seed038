@@ -1,0 +1,12 @@
+go test fuzz v1
+uint8(1)
+uint8(21)
+uint8(1)
+uint8(0)
+string("T-2")
+string("")
+string("")
+string("")
+string("")
+bool(false)
+[]byte("{\"status\":\"ready\"}")

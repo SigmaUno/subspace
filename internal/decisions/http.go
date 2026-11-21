@@ -63,7 +63,7 @@ func (h *handler) act(w http.ResponseWriter, r *http.Request) {
 		Action string `json:"action"`
 	}
 	if err := json.Unmarshal(raw, &in); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON: %v", err))
+		h.fail(w, model.BadRequest("invalid JSON body"))
 		return
 	}
 	if in.Action == "" {

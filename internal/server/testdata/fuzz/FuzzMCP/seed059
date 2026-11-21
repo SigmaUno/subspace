@@ -1,0 +1,10 @@
+go test fuzz v1
+uint8(1)
+uint8(5)
+uint8(1)
+string("")
+string("update_task")
+string("1")
+string("")
+string("")
+[]byte("{\"task_id\":\"T-2\",\"title\":\"x\",\"status\":\"ready\",\"budget\":{\"max_minutes\":-1}}")

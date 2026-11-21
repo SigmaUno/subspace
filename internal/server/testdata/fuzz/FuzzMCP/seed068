@@ -1,0 +1,10 @@
+go test fuzz v1
+uint8(1)
+uint8(5)
+uint8(1)
+string("")
+string("request_spawn")
+string("1")
+string("")
+string("")
+[]byte("{\"brief_id\":\"B-1\",\"worker_kind\":\"other\",\"model\":\"m\",\"n\":1}")

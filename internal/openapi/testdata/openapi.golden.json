@@ -1361,6 +1361,29 @@
         ],
         "type": "object"
       },
+      "Backups": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "latest_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "count",
+          "latest_at",
+          "latest_verified"
+        ],
+        "type": "object"
+      },
       "BoardView": {
         "properties": {
           "brief": {
@@ -3998,6 +4021,48 @@
         "required": [
           "action",
           "status"
+        ],
+        "type": "object"
+      },
+      "Info": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backups": {
+            "$ref": "#/components/schemas/Backups"
+          },
+          "db_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "wal_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "backend",
+          "backups",
+          "db_bytes",
+          "started_at",
+          "uptime_seconds",
+          "version",
+          "wal_bytes"
         ],
         "type": "object"
       },
@@ -8659,6 +8724,31 @@
         "summary": "Perform the action of a one-time action link",
         "tags": [
           "action-links"
+        ]
+      }
+    },
+    "/api/v1/about": {
+      "get": {
+        "operationId": "getAbout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Info"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Version, uptime, database size and backup state",
+        "tags": [
+          "about"
         ]
       }
     },
@@ -16695,6 +16785,9 @@
     }
   ],
   "tags": [
+    {
+      "name": "about"
+    },
     {
       "name": "action-links"
     },

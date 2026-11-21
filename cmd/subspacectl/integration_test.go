@@ -392,6 +392,14 @@ func TestBackupsAndAudit(t *testing.T) {
 	if out := h.text("--json", "audit", "export"); out != exported {
 		t.Fatal("--json changed NDJSON output")
 	}
+	shared := filepath.Join(t.TempDir(), "shared.ndjson")
+	if err := os.WriteFile(shared, nil, 0o644); err != nil { //nolint:gosec
+		t.Fatal(err)
+	}
+	h.object("audit", "export", "--out", shared)
+	if fi, err := os.Stat(shared); err != nil || fi.Mode().Perm() != 0o600 {
+		t.Fatalf("export written into a readable file: %v %v", fi.Mode(), err)
+	}
 }
 
 func TestArtifacts(t *testing.T) {

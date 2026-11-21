@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"database/sql/driver"
+	"encoding/binary"
 	"encoding/hex"
 	"fmt"
 	"strings"
@@ -138,8 +139,21 @@ func (l *PGLock) Release() {
 	l.drop()
 }
 
+const (
+	keyLockQuery   = `hashtext(current_schema() || ':' || $2)`
+	keyLockPollMin = 2 * time.Millisecond
+	keyLockPollMax = 50 * time.Millisecond
+)
+
 type KeyLocker struct {
-	db *sql.DB
+	db     *sql.DB
+	shards []*lockSession
+}
+
+type lockSession struct {
+	mu   sync.Mutex
+	conn *sql.Conn
+	gen  uint64
 }
 
 func NewKeyLocker(dsn string, conns int) (*KeyLocker, error) {
@@ -149,31 +163,88 @@ func NewKeyLocker(dsn string, conns int) (*KeyLocker, error) {
 	}
 	db.SetMaxOpenConns(conns)
 	db.SetMaxIdleConns(conns)
-	db.SetConnMaxIdleTime(time.Minute)
-	return &KeyLocker{db: db}, nil
+	k := &KeyLocker{db: db, shards: make([]*lockSession, max(conns, 1))}
+	for i := range k.shards {
+		k.shards[i] = &lockSession{}
+	}
+	return k, nil
 }
 
 func (k *KeyLocker) Lock(ctx context.Context, key string) (func(), error) {
-	c, err := k.db.Conn(ctx)
-	if err != nil {
-		return nil, err
-	}
-	const q = `hashtext(current_schema() || ':' || $2)`
 	sum := sha256.Sum256([]byte(key))
 	key = hex.EncodeToString(sum[:])
-	if _, err := c.ExecContext(ctx, `SELECT pg_advisory_lock($1, `+q+`)`, keySpace, key); err != nil {
-		_ = c.Raw(func(any) error { return driver.ErrBadConn })
-		_ = c.Close()
-		return nil, err
-	}
-	return func() {
-		ctx, cancel := context.WithTimeout(context.Background(), closeWithin)
-		defer cancel()
-		if _, err := c.ExecContext(ctx, `SELECT pg_advisory_unlock($1, `+q+`)`, keySpace, key); err != nil {
-			_ = c.Raw(func(any) error { return driver.ErrBadConn })
+	s := k.shards[binary.BigEndian.Uint64(sum[:8])%uint64(len(k.shards))]
+	wait := keyLockPollMin
+	for {
+		gen, ok, err := s.try(ctx, k.db, key)
+		if err != nil {
+			return nil, err
 		}
-		_ = c.Close()
-	}, nil
+		if ok {
+			return func() { s.unlock(gen, key) }, nil
+		}
+		t := time.NewTimer(wait)
+		select {
+		case <-ctx.Done():
+			t.Stop()
+			return nil, ctx.Err()
+		case <-t.C:
+		}
+		wait = min(2*wait, keyLockPollMax)
+	}
 }
 
-func (k *KeyLocker) Close() error { return k.db.Close() }
+func (s *lockSession) try(ctx context.Context, db *sql.DB, key string) (uint64, bool, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil {
+		c, err := db.Conn(ctx)
+		if err != nil {
+			return 0, false, err
+		}
+		s.conn = c
+		s.gen++
+	}
+	qctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), closeWithin)
+	defer cancel()
+	var ok bool
+	if err := s.conn.QueryRowContext(qctx, `SELECT pg_try_advisory_lock($1, `+keyLockQuery+`)`, keySpace, key).Scan(&ok); err != nil {
+		s.drop()
+		return 0, false, err
+	}
+	return s.gen, ok, nil
+}
+
+func (s *lockSession) unlock(gen uint64, key string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.conn == nil || s.gen != gen {
+		return
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), closeWithin)
+	defer cancel()
+	if _, err := s.conn.ExecContext(ctx, `SELECT pg_advisory_unlock($1, `+keyLockQuery+`)`, keySpace, key); err != nil {
+		s.drop()
+	}
+}
+
+func (s *lockSession) drop() {
+	if s.conn == nil {
+		return
+	}
+	_ = s.conn.Raw(func(any) error { return driver.ErrBadConn })
+	_ = s.conn.Close()
+	s.conn = nil
+}
+
+func (k *KeyLocker) Close() error {
+	for _, s := range k.shards {
+		s.mu.Lock()
+		if s.conn != nil {
+			_ = s.conn.Close()
+			s.conn = nil
+		}
+		s.mu.Unlock()
+	}
+	return k.db.Close()
+}

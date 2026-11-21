@@ -105,11 +105,9 @@ func main() {
 		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), ConfigFile: os.Getenv("SUBSPACE_CONFIG_FILE"), Log: log, LogPipe: pipe,
 		DrainDelay: dur("SUBSPACE_DRAIN_DELAY", "0s"), SchemaReadOnly: boolean("SUBSPACE_SCHEMA_READONLY"),
 	}
-	if os.Getenv("SUBSPACE_SPAWNER") == "docker" {
-		if cfg.Spawner, err = spawner.New("docker", os.Getenv); err != nil {
-			log.Error("docker spawner", "err", err)
-			os.Exit(2)
-		}
+	if cfg.Spawner, err = spawner.New(os.Getenv("SUBSPACE_SPAWNER"), os.Getenv); err != nil {
+		log.Error("spawner", "err", err)
+		os.Exit(2)
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

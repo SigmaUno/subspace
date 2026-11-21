@@ -5,9 +5,9 @@ the server changes, this file changes in the same PR.
 
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current on the instance that received the heartbeat and at most one flush interval behind on other instances (see High availability).
 
 ## 1. Auth
@@ -136,7 +136,33 @@ Briefs, plans, tasks, agents, questions, spawns, thread messages and audit event
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
 | GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. With Postgres the file is a JSON-lines dump of every table, verified by parsing it; backups need `SUBSPACE_BACKUP_DIR` and answer 400 without it. |
 | GET | `/api/v1/about` | → `{"version","started_at","uptime_seconds","backend":"sqlite","db_bytes":12345,"wal_bytes":0,"backups":{"count":3,"latest_at":"...","latest_verified":true}}`. `backend` is `sqlite` or `postgres`; `db_bytes` and `wal_bytes` are `null` with Postgres or when the file is missing; `latest_at` is `null` and `latest_verified` false without backups. |
+| GET | `/api/v1/drills?limit=` | → `{"drills":[Drill]}`, newest first; `limit` default 100, max 1000 (400 otherwise). See Restore drills. |
+| POST | `/api/v1/drills` | `{}` → Drill (201, also when the drill failed: read `status`). Runs a restore drill of the newest backup now. 409 `conflict` while another drill runs. |
 | POST | `/api/v1/reload` | `{}` → `{"applied":["SUBSPACE_RATE_MCP"],"ignored":[{"key":"SUBSPACE_DB","reason":"requires restart"}]}`. Re-reads `SUBSPACE_CONFIG_FILE` and the capacity file and applies them without a restart, see Configuration reload. 400 `bad_request` with `error.errors` (a list of messages) when anything is invalid; nothing is applied then. |
+
+### Restore drills
+The leader restores the newest backup into a temporary database in the data dir (`SUBSPACE_DATA_DIR`, else the database directory) every `SUBSPACE_DRILL_EVERY` (default `24h`, `0` = no scheduled drills; `POST /api/v1/drills` still works) and records the result in the `restore_drills` table. A drill runs these checks in order and stops at the first failure; the temporary copy is always deleted (last check `cleanup`, a failed removal fails the drill).
+
+| check | passes when |
+|---|---|
+| `restore` | a backup exists and its file was copied completely |
+| `integrity_check` | `PRAGMA integrity_check` on the copy is `ok` |
+| `schema` | the copy opens with the current code, the migrations run, and every table and column of the registered schema exists afterwards (the detail says how many migrations were needed) |
+| `audit_chain` | the audit hash chain of the copy verifies |
+| `row_counts` | per table (`briefs plans tasks agents messages questions spawns audit`) the copy has no more rows than the live database and at least `live × 0.5 − 50` rows, so rows added after the backup are tolerated |
+| `boot` | a throwaway board service on the copy serves the state counts and the board of its first brief |
+
+```jsonc
+// Drill
+{"id":"D-3","status":"ok",                      // ok|failed|unsupported
+ "trigger":"schedule",                          // schedule|manual
+ "backup":"subspace-20261121T030000Z.db","backup_bytes":524288,
+ "error":"",                                    // "<check>: <message>" of the failing check, or the reason for unsupported
+ "checks":[{"name":"restore","status":"ok","detail":"..."}],   // status: ok|failed
+ "started_at":"...","finished_at":"..."}
+```
+
+A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing.
 
 ### Configuration reload
 `SUBSPACE_CONFIG_FILE` names a JSON object whose keys are environment variable names. Its values overlay the process environment at start and on every reload: a value is a string, number or boolean, a list of those (joined with `,`, e.g. `["10.0.0.0/8","192.168.0.0/16"]` for a CIDR list), or `null` for an empty value. A reload runs on `SIGHUP` and on `POST /api/v1/reload` (owner scope). The file is at most 1 MiB.

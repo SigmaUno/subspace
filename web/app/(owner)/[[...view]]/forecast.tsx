@@ -1,6 +1,7 @@
 "use client";
 
 import { money, optionalResource, useResource } from "../../../lib/client";
+import { forecastMinutes } from "../../../lib/duration";
 import { ResourceState } from "./states";
 
 interface Range { p10: number; p50: number; p90: number }
@@ -17,13 +18,6 @@ interface ForecastData {
 
 const percent = new Intl.NumberFormat("en", { style: "percent", maximumFractionDigits: 0 });
 const rate = new Intl.NumberFormat("en", { maximumFractionDigits: 2 });
-
-function duration(minutes: number) {
-  const rounded = Math.round(minutes);
-  if (rounded < 60) return `${rounded}m`;
-  const hours = Math.floor(rounded / 60);
-  return hours < 48 ? `${hours}h ${rounded % 60}m` : `${Math.round(hours / 24)}d`;
-}
 
 function when(time: string) {
   return new Date(time).toLocaleString([], { dateStyle: "short", timeStyle: "short" });
@@ -61,11 +55,11 @@ export function ForecastPanel({ briefID, revision }: { briefID: string; revision
         <div className="panel"><span>Projected cost</span><strong>{money(forecast.cost_eur.projected.p50)}</strong>
           <span className="meta">{money(forecast.cost_eur.projected.p10)} – {money(forecast.cost_eur.projected.p90)}</span></div>
         <div className="panel"><span>Time remaining</span>
-          <strong>{forecast.tasks.remaining ? duration(forecast.schedule.remaining_minutes.p50) : "Done"}</strong>
-          {forecast.tasks.remaining > 0 && <span className="meta">{duration(forecast.schedule.remaining_minutes.p10)} – {duration(forecast.schedule.remaining_minutes.p90)}</span>}</div>
+          <strong>{forecast.tasks.remaining ? forecastMinutes(forecast.schedule.remaining_minutes.p50) : "Done"}</strong>
+          {forecast.tasks.remaining > 0 && <span className="meta">{forecastMinutes(forecast.schedule.remaining_minutes.p10)} – {forecastMinutes(forecast.schedule.remaining_minutes.p90)}</span>}</div>
         <div className="panel"><span>Burn rate</span><strong>{money(forecast.burn.eur_per_hour)}/h</strong>
           <span className="meta">{rate.format(forecast.burn.tasks_per_hour)} tasks/h
-            {forecast.burn.runway_hours !== null && ` · ${duration(forecast.burn.runway_hours * 60)} runway`}</span></div>
+            {forecast.burn.runway_hours !== null && ` · ${forecastMinutes(forecast.burn.runway_hours * 60)} runway`}</span></div>
         <div className={`panel ${forecast.cost_eur.exceed_probability >= 0.5 ? "needs-attention" : ""}`}><span>Budget overrun risk</span>
           <strong>{forecast.cost_eur.budget > 0 ? percent.format(forecast.cost_eur.exceed_probability) : "No budget"}</strong></div>
       </div>

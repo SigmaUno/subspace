@@ -311,7 +311,7 @@ func save(path string, data []byte, p *printer, extra map[string]any) error {
 		_, err := p.w.Write(data)
 		return err
 	}
-	if err := os.WriteFile(path, data, 0o600); err != nil {
+	if err := writePrivate(path, data); err != nil {
 		return fmt.Errorf("write %s: %w", path, err)
 	}
 	out := map[string]any{"path": path, "bytes": len(data)}
@@ -319,6 +319,24 @@ func save(path string, data []byte, p *printer, extra map[string]any) error {
 		out[k] = v
 	}
 	return p.value(out)
+}
+
+func writePrivate(path string, data []byte) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) //nolint:gosec
+	if err != nil {
+		return err
+	}
+	if fi, err := f.Stat(); err == nil && fi.Mode().IsRegular() {
+		if err := f.Chmod(0o600); err != nil {
+			_ = f.Close()
+			return err
+		}
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
 }
 
 type options struct {

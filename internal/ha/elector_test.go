@@ -164,3 +164,55 @@ func TestLeadRunsOnlyDuringTerms(t *testing.T) {
 	cancel()
 	<-done
 }
+
+type stallLock struct {
+	simLock
+	stall  bool
+	renews int
+}
+
+func (l *stallLock) Renew(ctx context.Context) error {
+	l.renews++
+	if l.stall {
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	return l.simLock.Renew(ctx)
+}
+
+func TestStalledLeaderStopsBeforePostgresCanReleaseItsLock(t *testing.T) {
+	db := &simDB{down: map[string]bool{}}
+	lock := &stallLock{simLock: simLock{db: db, id: "a"}}
+	ttl := 5 * time.Second
+	e := New(Options{ID: "a", Lock: lock, Interval: time.Second, TTL: ttl})
+	now := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	e.clock = func() time.Time { return now }
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	started := make(chan context.Context, 1)
+	go e.Lead(ctx, func(run context.Context) { started <- run; <-run.Done() })
+
+	e.step(ctx)
+	run := <-started
+	now = now.Add(time.Second)
+	lastRenew := now
+	e.step(ctx)
+	if !e.IsLeader() || lock.renews != 1 {
+		t.Fatalf("leader %v after %d renews", e.IsLeader(), lock.renews)
+	}
+
+	lock.stall = true
+	now = lastRenew.Add(ttl)
+	if e.IsLeader() || e.Status().Leader {
+		t.Fatal("still leader once idle_session_timeout may have released the lock")
+	}
+	e.step(ctx)
+	if lock.renews != 1 {
+		t.Fatalf("renewed an expired lease (%d renews)", lock.renews)
+	}
+	select {
+	case <-run.Done():
+	case <-time.After(2 * time.Second):
+		t.Fatal("leader work kept running after the lease expired")
+	}
+}

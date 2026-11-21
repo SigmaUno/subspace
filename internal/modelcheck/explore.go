@@ -12,6 +12,7 @@ import (
 type Divergence struct {
 	Path     []Action
 	Action   Action
+	Retry    bool
 	WantCode string
 	GotCode  string
 	Want     Obs
@@ -24,9 +25,14 @@ func (d *Divergence) Error() string {
 	for i, a := range d.Path {
 		fmt.Fprintf(&b, "  %2d. %s\n", i+1, a)
 	}
-	fmt.Fprintf(&b, "  >>  %s: error code model=%q board=%q\n", d.Action, d.WantCode, d.GotCode)
-	if d.Want.Paused != d.Got.Paused {
-		fmt.Fprintf(&b, "  paused: model=%v board=%v\n", d.Want.Paused, d.Got.Paused)
+	retry := ""
+	if d.Retry {
+		retry = " retried with the same idempotency key"
+	}
+	fmt.Fprintf(&b, "  >>  %s%s: error code model=%q board=%q\n", d.Action, retry, d.WantCode, d.GotCode)
+	if d.Want.Paused != d.Got.Paused || d.Want.Closed != d.Got.Closed || d.Want.AgentPaused != d.Got.AgentPaused {
+		fmt.Fprintf(&b, "  paused=%v closed=%v agents paused=%v; board paused=%v closed=%v agents paused=%v\n",
+			d.Want.Paused, d.Want.Closed, d.Want.AgentPaused, d.Got.Paused, d.Got.Closed, d.Got.AgentPaused)
 	}
 	for i := range d.Want.Tasks {
 		if d.Want.Tasks[i] != d.Got.Tasks[i] {
@@ -46,11 +52,35 @@ func step(ctx context.Context, sys *System, s State, a Action, path []Action) (S
 	if got != want || obs != next.Observe() {
 		return next, &Divergence{Path: slices.Clone(path), Action: a, WantCode: want, GotCode: got, Want: next.Observe(), Got: obs}
 	}
+	if !a.Kind.idempotent() || next == s {
+		return next, nil
+	}
+	again, same, err := sys.Retry(ctx)
+	if err != nil {
+		return next, err
+	}
+	if obs, err = sys.Observe(ctx); err != nil {
+		return next, err
+	}
+	if again != want || !same || obs != next.Observe() {
+		if again == want && !same {
+			again += " (different result body)"
+		}
+		return next, &Divergence{Path: slices.Clone(path), Action: a, Retry: true, WantCode: want, GotCode: again, Want: next.Observe(), Got: obs}
+	}
 	return next, nil
 }
 
 func (tp *Template) Run(ctx context.Context, path []Action) (State, error) {
-	sys, err := tp.Start()
+	return tp.runOn(ctx, tp.Start, path)
+}
+
+func (tp *Template) RunFlapping(ctx context.Context, path []Action) (State, error) {
+	return tp.runOn(ctx, tp.StartFlapping, path)
+}
+
+func (tp *Template) runOn(ctx context.Context, start func() (*System, error), path []Action) (State, error) {
+	sys, err := start()
 	if err != nil {
 		return State{}, err
 	}
@@ -59,7 +89,7 @@ func (tp *Template) Run(ctx context.Context, path []Action) (State, error) {
 }
 
 func run(ctx context.Context, sys *System, path []Action) (State, error) {
-	s := Initial()
+	s := Initial(sys.flap)
 	for i, a := range path {
 		var err error
 		if s, err = step(ctx, sys, s, a, path[:i]); err != nil {

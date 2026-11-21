@@ -1,3 +1,5 @@
+import type { CSSProperties } from "react";
+
 export interface AnsiStyle {
   fg?: string;
   bg?: string;
@@ -111,4 +113,18 @@ export function parseAnsi(line: string): AnsiSegment[] {
 
 export function plainText(line: string): string {
   return parseAnsi(line).map((segment) => segment.text).join("");
+}
+
+export function ansiCss(style: AnsiStyle): CSSProperties {
+  const fg = style.inverse ? style.bg ?? "var(--terminal-bg)" : style.fg;
+  const bg = style.inverse ? style.fg ?? "var(--terminal-fg)" : style.bg;
+  const decoration = [style.underline && "underline", style.strike && "line-through"].filter(Boolean).join(" ");
+  return {
+    color: fg,
+    backgroundColor: bg,
+    fontWeight: style.bold ? 700 : undefined,
+    opacity: style.dim ? 0.7 : undefined,
+    fontStyle: style.italic ? "italic" : undefined,
+    textDecoration: decoration || undefined,
+  };
 }

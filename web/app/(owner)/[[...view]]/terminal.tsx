@@ -1,33 +1,16 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNode, type UIEvent } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "../../../lib/client";
 import type { AgentOutput, LatestOutput, OutputChunk, OutputLine } from "../../../lib/output-types";
-import { parseAnsi, plainText, type AnsiStyle } from "./ansi";
+import { ansiCss, parseAnsi, plainText } from "../../../lib/ansi";
+import { atEnd, freshLines, matchLines, mergeLatest, newest, retain, rowHeight, viewHeight, visibleRange } from "../../../lib/terminal";
 import "./terminal.css";
 import { EmptyState, ResourceState } from "./states";
 
-const rowHeight = 18;
-const viewHeight = 360;
-const overscan = 12;
-const retained = 5000;
 const pageSize = 1000;
 const tileSize = 12;
-
-function css(style: AnsiStyle): CSSProperties {
-  const fg = style.inverse ? style.bg ?? "var(--terminal-bg)" : style.fg;
-  const bg = style.inverse ? style.fg ?? "var(--terminal-fg)" : style.bg;
-  const decoration = [style.underline && "underline", style.strike && "line-through"].filter(Boolean).join(" ");
-  return {
-    color: fg,
-    backgroundColor: bg,
-    fontWeight: style.bold ? 700 : undefined,
-    opacity: style.dim ? 0.7 : undefined,
-    fontStyle: style.italic ? "italic" : undefined,
-    textDecoration: decoration || undefined,
-  };
-}
 
 function highlight(text: string, query: string): ReactNode {
   const lower = text.toLowerCase();
@@ -45,7 +28,7 @@ function highlight(text: string, query: string): ReactNode {
 
 function Styled({ text, query = "" }: { text: string; query?: string }) {
   return <>{parseAnsi(text).map((segment, index) =>
-    <span key={index} style={css(segment.style)}>{highlight(segment.text, query)}</span>)}</>;
+    <span key={index} style={ansiCss(segment.style)}>{highlight(segment.text, query)}</span>)}</>;
 }
 
 function TerminalLine({ line, query }: { line: OutputLine; query: string }) {
@@ -77,13 +60,10 @@ function TerminalView({ agent, taskID }: { agent: string; taskID?: string }) {
     const paint = () => {
       frame = undefined;
       const batch = pending.splice(0);
-      setLines((current) => {
-        const next = current.concat(batch);
-        return next.length > retained ? next.slice(next.length - retained) : next;
-      });
+      setLines((current) => retain(current, batch));
     };
     const add = (incoming: OutputLine[]) => {
-      const fresh = incoming.filter((line) => line.seq > last && (!taskID || line.task_id === taskID));
+      const fresh = freshLines(incoming, last, taskID);
       if (!fresh.length) return;
       last = fresh[fresh.length - 1].seq;
       pending.push(...fresh);
@@ -132,7 +112,7 @@ function TerminalView({ agent, taskID }: { agent: string; taskID?: string }) {
   }, [agent, taskID]);
 
   const query = search.trim().toLowerCase();
-  const shown = useMemo(() => query ? lines.filter((line) => plainText(line.text).toLowerCase().includes(query)) : lines, [lines, query]);
+  const shown = useMemo(() => matchLines(lines, query), [lines, query]);
 
   useEffect(() => {
     const element = box.current;
@@ -142,8 +122,8 @@ function TerminalView({ agent, taskID }: { agent: string; taskID?: string }) {
   function onScroll(event: UIEvent<HTMLDivElement>) {
     const element = event.currentTarget;
     setScrollTop(element.scrollTop);
-    const atEnd = element.scrollHeight - element.scrollTop - element.clientHeight < rowHeight * 2;
-    if (atEnd !== follow) setFollow(atEnd);
+    const bottom = atEnd(element.scrollHeight, element.scrollTop, element.clientHeight);
+    if (bottom !== follow) setFollow(bottom);
   }
 
   async function copy() {
@@ -156,8 +136,7 @@ function TerminalView({ agent, taskID }: { agent: string; taskID?: string }) {
     }
   }
 
-  const start = Math.max(0, Math.floor(scrollTop / rowHeight) - overscan);
-  const end = Math.min(shown.length, Math.ceil((scrollTop + viewHeight) / rowHeight) + overscan);
+  const { start, end } = visibleRange(scrollTop, shown.length);
 
   return <section className="panel stack" aria-label={`Live output of ${agent}`}>
     <div className="heading">
@@ -188,9 +167,6 @@ export function AgentTerminal({ agent, taskID }: { agent: string; taskID?: strin
   return <TerminalView key={`${agent}\u0000${taskID ?? ""}`} agent={agent} taskID={taskID} />;
 }
 
-const newest = (a: LatestOutput, b: LatestOutput) =>
-  Date.parse(b.updated_at) - Date.parse(a.updated_at) || a.agent_id.localeCompare(b.agent_id);
-
 export function OutputTile() {
   const [agents, setAgents] = useState<LatestOutput[]>([]);
   const [loaded, setLoaded] = useState(false);
@@ -209,11 +185,7 @@ export function OutputTile() {
       frame = undefined;
       const updates = [...pending.values()];
       pending.clear();
-      setAgents((current) => {
-        const byAgent = new Map(current.map((entry) => [entry.agent_id, entry]));
-        updates.forEach((entry) => byAgent.set(entry.agent_id, { ...entry, lines: (byAgent.get(entry.agent_id)?.lines ?? 0) + entry.lines }));
-        return [...byAgent.values()].sort(newest);
-      });
+      setAgents((current) => mergeLatest(current, updates));
     };
     load();
     const timer = setInterval(load, 30_000);

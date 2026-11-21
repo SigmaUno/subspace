@@ -9,6 +9,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -130,6 +131,9 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		}
 		if rules != nil {
 			in.Budget = rules.ApplyDefaults(in.Budget)
+			if err := playbookTaskCheck(a, br.Playbook, rules, lintTasks([]TaskInput{in})[0]); err != nil {
+				return err
+			}
 		}
 		deps := in.DependsOn
 		in.DependsOn = nil
@@ -200,6 +204,20 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			}
 			t.Budget = *p.Budget
 		}
+		if p.AcceptanceCriteria != nil || p.Budget != nil {
+			br, err := unscoped(tx).GetBrief(t.BriefID)
+			if err != nil {
+				return err
+			}
+			rules, err := b.rulesFor(tx, br.Playbook)
+			if err != nil {
+				return err
+			}
+			lt := planlint.Task{Title: t.Title, Spec: t.Spec, AcceptanceCriteria: t.AcceptanceCriteria, Role: t.Role, Budget: t.Budget}
+			if err := playbookTaskCheck(a, br.Playbook, rules, lt); err != nil {
+				return err
+			}
+		}
 		t.UpdatedAt = b.now()
 		if p.Status != nil {
 			switch *p.Status {
@@ -247,6 +265,16 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 		return w.audit(tx, a, "update_task", t.ID, nil, map[string]any{"title": t.Title}, "")
 	})
 	return out, err
+}
+
+func playbookTaskCheck(a model.Actor, playbook string, rules *planlint.Rules, t planlint.Task) error {
+	if rules == nil || a.Role != model.RoleLeader {
+		return nil
+	}
+	if errs, _ := planlint.Split(planlint.LintPlaybookTask(t, rules)); len(errs) > 0 {
+		return model.BadRequest("task rejected by playbook %s: %s", playbook, planlint.Format(errs))
+	}
+	return nil
 }
 
 const leaderBlock = "blocked by leader"

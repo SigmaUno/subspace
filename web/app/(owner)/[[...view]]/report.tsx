@@ -2,71 +2,12 @@
 
 import Link from "next/link";
 import { money, label, useResource } from "../../../lib/client";
-import type { BriefReport, TaskReport } from "../../../lib/report-types";
+import type { BriefReport } from "../../../lib/report-types";
+import { reportDuration } from "../../../lib/duration";
+import { entries, markdown, segments } from "../../../lib/report-format";
 import { useLive } from "./live";
 import { PageShell } from "./shell";
 import { EmptyState, ResourceState } from "./states";
-
-const closed = new Set(["done", "cancelled"]);
-
-function duration(seconds: number) {
-  if (seconds < 60) return `${Math.round(seconds)}s`;
-  const minutes = Math.round(seconds / 60);
-  if (minutes < 60) return `${minutes}m`;
-  const hours = Math.floor(minutes / 60);
-  return hours < 48 ? `${hours}h ${minutes % 60}m` : `${Math.floor(hours / 24)}d ${hours % 24}h`;
-}
-
-function entries(values: Record<string, number> | null) {
-  return Object.entries(values ?? {}).sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]));
-}
-
-function markdown(report: BriefReport) {
-  const lines = [
-    `# ${report.brief_id} — ${report.title}`,
-    "",
-    `Generated ${report.generated_at}`,
-    "",
-    "## Tasks",
-    "",
-    "| Task | Title | Status | Agent | Queue | Work | Review | Blocked | Rounds | Cost € |",
-    "|---|---|---|---|--:|--:|--:|--:|--:|--:|",
-    ...(report.tasks ?? []).map((task) => `| ${task.id} | ${task.title.replaceAll("|", "\\|")} | ${task.status} | ${task.assignee || "unassigned"} | ` +
-      `${duration(task.queue_seconds)} | ${duration(task.work_seconds)} | ${duration(task.review_seconds)} | ${duration(task.blocked_seconds)} | ` +
-      `${task.review_rounds} | ${task.cost_eur.toFixed(2)} |`),
-    "",
-    "## Cost",
-    "",
-    `Total: ${report.cost.total_eur.toFixed(2)} €`,
-    "",
-    ...entries(report.cost.by_provider).map(([name, amount]) => `- ${name}: ${amount.toFixed(2)} €`),
-    "",
-    "## Flow",
-    "",
-    `- Blocked time: ${duration(report.blocked_seconds)}`,
-    `- Done: ${report.throughput.done} in ${report.throughput.window_hours.toFixed(2)} h (${report.throughput.per_hour.toFixed(2)} per hour)`,
-  ];
-  const path = report.critical_path.task_ids ?? [];
-  if (path.length) lines.push(`- Critical path: ${path.join(" → ")} (${duration(report.critical_path.seconds)})`);
-  return lines.join("\n") + "\n";
-}
-
-type Segment = { status: string; from: number; to: number };
-
-function segments(task: TaskReport, generated: number): Segment[] {
-  const out: Segment[] = [];
-  const steps = task.timeline ?? [];
-  let status = steps[0]?.from ?? task.status;
-  let since = Date.parse(task.created_at);
-  for (const step of steps) {
-    const at = Date.parse(step.at);
-    out.push({ status, from: since, to: at });
-    status = step.to;
-    since = at;
-  }
-  if (!closed.has(status)) out.push({ status, from: since, to: Math.max(since, task.done_at ? Date.parse(task.done_at) : generated) });
-  return out.filter((segment) => segment.to > segment.from);
-}
 
 const gantt = { width: 960, left: 64, right: 16, top: 8, row: 26, axis: 28 };
 
@@ -94,7 +35,7 @@ function Gantt({ report }: { report: BriefReport }) {
             style={hot ? { fill: "var(--warn)", fontWeight: 700 } : undefined}>{task.id}</text>
           {parts.map((part) => <rect key={`${part.status}-${part.from}`} data-status={part.status} style={{ fill: "var(--s-fg)", opacity: .85 }}
             x={x(part.from)} y={y + 5} width={Math.max(1, x(part.to) - x(part.from))} height={gantt.row - 10} rx={2}>
-            <title>{task.id} {task.title} · {label(part.status)} · {duration((part.to - part.from) / 1000)}</title>
+            <title>{task.id} {task.title} · {label(part.status)} · {reportDuration((part.to - part.from) / 1000)}</title>
           </rect>)}
         </g>;
       })}
@@ -180,9 +121,9 @@ export function ReportPage({ id }: { id: string }) {
         <Tile name="Tasks" value={String(data.total)} note={entries(data.counts).map(([status, count]) => `${count} ${label(status)}`).join(" · ")} />
         <Tile name="Done" value={`${done} / ${data.total}`} />
         <Tile name="Cost" value={money(data.cost.total_eur)} />
-        <Tile name="Blocked time" value={duration(data.blocked_seconds)} hot={data.blocked_seconds > 0} />
+        <Tile name="Blocked time" value={reportDuration(data.blocked_seconds)} hot={data.blocked_seconds > 0} />
         <Tile name="Throughput" value={`${data.throughput.per_hour.toFixed(2)} / h`} note={`${data.throughput.done} done in ${data.throughput.window_hours.toFixed(1)} h`} />
-        <Tile name="Critical path" value={duration(data.critical_path.seconds)} note={path.join(" → ") || undefined} />
+        <Tile name="Critical path" value={reportDuration(data.critical_path.seconds)} note={path.join(" → ") || undefined} />
       </div>
 
       <section className="panel stack">

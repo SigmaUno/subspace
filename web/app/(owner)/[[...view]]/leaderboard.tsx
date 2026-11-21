@@ -3,16 +3,10 @@
 import Link from "next/link";
 import { useResource } from "../../../lib/client";
 import type { AgentStats, AgentTrendPoint } from "../../../lib/agent-stats-types";
+import { agentDuration } from "../../../lib/duration";
 import { EmptyState, ResourceState } from "./states";
 
 const size = { width: 84, height: 24, pad: 3 };
-
-function duration(seconds: number) {
-  if (!seconds) return "—";
-  if (seconds < 90) return `${Math.round(seconds)}s`;
-  if (seconds < 5400) return `${Math.round(seconds / 60)}m`;
-  return `${(seconds / 3600).toFixed(1)}h`;
-}
 
 function Trend({ trend, agent }: { trend: AgentTrendPoint[]; agent: string }) {
   const high = Math.max(...trend.map((point) => point.completed), 1);
@@ -46,7 +40,7 @@ export function Leaderboard({ revision }: { revision: number }) {
               <div className="meta">{row.role} · {row.provider}</div></th>
             <td>{row.score.toFixed(2)}</td>
             <td>{row.tasks_completed}</td>
-            <td>{duration(row.avg_duration_seconds)} / {duration(row.p90_duration_seconds)}</td>
+            <td>{agentDuration(row.avg_duration_seconds)} / {agentDuration(row.p90_duration_seconds)}</td>
             <td>{row.review_rounds_per_task.toFixed(2)}</td>
             <td>{row.first_pass_approval_rate === null ? "—" : `${Math.round(row.first_pass_approval_rate * 100)}%`}</td>
             <td className={row.blocked + row.expired ? "stale" : undefined}>{row.blocked} / {row.expired}</td>

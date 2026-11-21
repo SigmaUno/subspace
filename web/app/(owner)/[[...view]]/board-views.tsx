@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useMemo, useState, useSyncExternalStore, type FormEvent } from "react";
+import { parseList, parseViews, removeView, saveView, toggleItem } from "../../../lib/saved-views";
 import type { Component } from "../../../lib/swarm";
-import { emptyQuery, formatQuery, none, parseQuery, statusGroups, type BoardQuery } from "./board-query";
+import { emptyQuery, formatQuery, none, parseQuery, statusGroups, type BoardQuery } from "../../../lib/board-query";
 import "./board-views.css";
 
 const viewsKey = "subspace.board.views";
@@ -10,11 +11,6 @@ const densityKey = "subspace.board.density";
 const collapsedKey = "subspace.board.collapsed";
 
 export type Density = "comfortable" | "compact";
-
-export interface SavedView {
-  name: string;
-  query: string;
-}
 
 const storageListeners = new Set<() => void>();
 
@@ -47,33 +43,13 @@ function useStored(key: string) {
   return useSyncExternalStore(subscribeStored, () => readStored(key), () => null);
 }
 
-function parseList(raw: string | null): string[] {
-  try {
-    const value: unknown = JSON.parse(raw ?? "[]");
-    return Array.isArray(value) ? value.filter((item): item is string => typeof item === "string") : [];
-  } catch {
-    return [];
-  }
-}
-
-function parseViews(raw: string | null): SavedView[] {
-  try {
-    const value: unknown = JSON.parse(raw ?? "[]");
-    if (!Array.isArray(value)) return [];
-    return value.filter((item): item is SavedView => typeof item?.name === "string" && typeof item?.query === "string");
-  } catch {
-    return [];
-  }
-}
-
 export function useBoardPrefs() {
   const density: Density = useStored(densityKey) === "compact" ? "compact" : "comfortable";
   const collapsedRaw = useStored(collapsedKey);
   const collapsed = useMemo(() => new Set(parseList(collapsedRaw)), [collapsedRaw]);
   const setDensity = useCallback((next: Density) => writeStored(densityKey, next), []);
   const toggleCollapsed = useCallback((status: string) => {
-    const next = collapsed.has(status) ? [...collapsed].filter((item) => item !== status) : [...collapsed, status];
-    writeStored(collapsedKey, JSON.stringify(next));
+    writeStored(collapsedKey, JSON.stringify(toggleItem(collapsed, status)));
   }, [collapsed]);
   return { density, setDensity, collapsed, toggleCollapsed };
 }
@@ -94,13 +70,13 @@ function SavedViews({ query, onApply }: { query: BoardQuery; onApply: (query: Bo
     event.preventDefault();
     const trimmed = name.trim();
     if (!trimmed) return;
-    writeStored(viewsKey, JSON.stringify([...views.filter((view) => view.name !== trimmed), { name: trimmed, query: formatQuery(query) }]));
+    writeStored(viewsKey, JSON.stringify(saveView(views, trimmed, formatQuery(query))));
     setSelected(trimmed);
     setName("");
   }
 
   function remove() {
-    writeStored(viewsKey, JSON.stringify(views.filter((view) => view.name !== selected)));
+    writeStored(viewsKey, JSON.stringify(removeView(views, selected)));
     setSelected("");
   }
 

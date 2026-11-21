@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, label, money, optionalResource, useResource } from "../../../lib/client";
 import type { Agent, Board, Brief, Capacity, Message, Task, Thread } from "../../../lib/types";
 import type { Component } from "../../../lib/swarm";
+import { elapsedMinutes } from "../../../lib/duration";
 import { ActivityFeed } from "./activity-feed";
 import { Architecture } from "./architecture";
 import { AutopilotPanel } from "./autopilot";
@@ -22,12 +23,6 @@ import { EmptyState, ResourceState } from "./states";
 
 const emptyComponents: Component[] = [];
 const emptyAgents: Agent[] = [];
-
-function elapsed(minutes: number) {
-  const rounded = Math.floor(minutes);
-  const hours = Math.floor(rounded / 60);
-  return hours ? `${hours}h ${rounded % 60}m` : `${rounded}m`;
-}
 
 async function loadLatest(path: string, signal: AbortSignal) {
   let latest: Message | undefined;
@@ -62,7 +57,7 @@ const AgentRow = memo(function AgentRow({ agent, task, agentMessage, taskMessage
     <div>{task ? <button className="text-button ellipsis" type="button" title={task.title}
       onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button> : <span className="meta">No current task</span>}
       <div className="meta">{task
-        ? <><span className="pill" data-status={task.status}>{label(task.status)}</span> {task.progress_pct}% · {elapsed(task.minutes_used)}</>
+        ? <><span className="pill" data-status={task.status}>{label(task.status)}</span> {task.progress_pct}% · {elapsedMinutes(task.minutes_used)}</>
         : `${agent.role} · ${agent.status}`}</div>
     </div>
     <div><Heartbeat time={heartbeat} watch={agent.status === "active"} expires={task?.lease_expires_at} />

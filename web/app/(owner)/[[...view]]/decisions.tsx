@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import { useEffect, useId, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, optionalResource, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import type { Decision } from "../../../lib/swarm";
 import type { Thread } from "../../../lib/types";
@@ -23,6 +23,7 @@ function DecisionCard({ item, acting, next, openThread }: {
   openThread: (thread: Thread) => void;
 }) {
   const { busy, error, submit } = useSubmit();
+  const formID = useId();
   const form = useRef<HTMLFormElement>(null);
   const response = useRef<HTMLTextAreaElement>(null);
   const rejectButton = useRef<HTMLButtonElement>(null);
@@ -90,18 +91,18 @@ function DecisionCard({ item, acting, next, openThread }: {
     </div>
     {!!item.options?.length && <div className="actions">{item.options.map((option) =>
       <button type="button" key={option} onClick={() => { setText(option); response.current?.focus(); }}>{option}</button>)}</div>}
-    <form className="stack" ref={form} onSubmit={decide}>
+    <form id={formID} className="stack" ref={form} onSubmit={decide}>
       <label>{question ? "Answer" : allowReject ? "Note or rejection reason" : "Note"}
         <textarea name="response" rows={2} ref={response} value={text}
           onChange={(event) => setText(event.target.value)} required={question} />
       </label>
       <Feedback error={error} />
-      <div className="actions">
-        <button type="submit" className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
-        {allowReject && <button type="submit" className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
-        <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>
-      </div>
     </form>
+    <div className="actions decision-bar">
+      <button type="submit" form={formID} className="primary" disabled={busy}>{primary} <kbd>A</kbd></button>
+      {allowReject && <button type="submit" form={formID} className="danger" value="reject" ref={rejectButton} disabled={busy}>Reject <kbd>R</kbd></button>}
+      <button type="button" onClick={() => next(item.id)} disabled={busy}>Skip <kbd>S</kbd></button>
+    </div>
   </article>;
 }
 

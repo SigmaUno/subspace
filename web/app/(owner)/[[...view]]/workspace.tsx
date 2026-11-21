@@ -37,6 +37,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
   }, []);
   const [thread, setThread] = useState<Thread | null>(null);
   const [inboxOpen, setInboxOpen] = useState(section === "swarm");
+  const [moreOpen, setMoreOpen] = useState(false);
   const { revisions, recent, connected } = useLive("all");
   const state = useResource<Control>("state", revisions.control);
   const decisions = useResource("decisions", revisions.decisions, optionalResource<DecisionFeed>);
@@ -83,6 +84,13 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "files", name: "Files", href: "/files" },
     { id: "audit", name: "Audit", href: "/audit" },
   ];
+  const tabs = ["swarm", "briefs", "agents"];
+  const more = [
+    ...nav.filter((item) => !tabs.includes(item.id)),
+    { id: "plans", name: "Plans", href: "/plans" },
+    { id: "questions", name: "Questions", href: "/questions" },
+  ];
+  const leave = () => { setInboxOpen(false); setMoreOpen(false); };
 
   return (
     <Clock.Provider value={now}>
@@ -97,13 +105,13 @@ export function Workspace({ section, briefID, architecture }: { section: string;
         </nav>
         <div className="top-actions">
           <span className={`connection ${connected ? "online" : ""}`} role="status">{connected ? "Live" : "Reconnecting"}</span>
-          <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
+          <button type="button" className="desktop-only" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
             Decisions <span className="nav-count">{decisionCount}</span>
           </button>
           <button className={state.data?.paused ? "primary" : "danger"} onClick={togglePause} disabled={pending || !state.data}>
             {state.data?.paused ? "Resume all" : "Pause all"}
           </button>
-          <button onClick={signOut}>Sign out</button>
+          <button className="desktop-only" onClick={signOut}>Sign out</button>
         </div>
       </header>
       <main className={`workspace ${section === "swarm" ? "wide" : ""}`}>
@@ -127,6 +135,25 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}
         </div>
       </main>
+      <nav className="tabbar" aria-label="Primary">
+        <button type="button" aria-pressed={inboxOpen} onClick={() => { setMoreOpen(false); setInboxOpen(!inboxOpen); window.scrollTo({ top: 0 }); }}>
+          Inbox<span className="nav-count">{decisionCount}</span>
+        </button>
+        {nav.filter((item) => tabs.includes(item.id)).map((item) => (
+          <Link key={item.id} href={item.href} aria-current={section === item.id && !inboxOpen ? "page" : undefined} onClick={leave}>
+            {item.name}
+          </Link>
+        ))}
+        <button type="button" aria-expanded={moreOpen} aria-current={!tabs.includes(section) && !inboxOpen ? "page" : undefined} onClick={() => setMoreOpen(!moreOpen)}>
+          More
+        </button>
+      </nav>
+      {moreOpen && <div className="more-sheet" role="dialog" aria-label="More">
+        {more.map((item) => (
+          <Link key={item.id} href={item.href} aria-current={section === item.id ? "page" : undefined} onClick={leave}>{item.name}</Link>
+        ))}
+        <button type="button" onClick={signOut}>Sign out</button>
+      </div>}
       {thread && <ThreadPanel key={`${thread.kind}:${thread.id}`} thread={thread} revision={revisions.thread} top={topbarHeight} close={() => setThread(null)} />}
       <CommandPalette />
     </Clock.Provider>

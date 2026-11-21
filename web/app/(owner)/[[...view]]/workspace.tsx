@@ -91,6 +91,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "files", name: "Files", href: "/files" },
     { id: "audit", name: "Audit", href: "/audit" },
     { id: "settings", name: "Settings", href: "/settings" },
+    { id: "logs", name: "Logs", href: "/logs" },
   ];
   const tabs = ["swarm", "briefs", "agents"];
   const more = [

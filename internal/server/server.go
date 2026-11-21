@@ -25,6 +25,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/spawner"
@@ -52,6 +53,7 @@ type Config struct {
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
 	Log             *slog.Logger
+	LogPipe         *logpipe.Pipeline
 }
 
 type Server struct {
@@ -73,6 +75,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	}
 	if cfg.Log == nil {
 		cfg.Log = slog.Default()
+	}
+	if cfg.LogPipe == nil {
+		cfg.LogPipe = logpipe.Wrap(cfg.Log.Handler(), logpipe.DefaultCapacity)
+		cfg.Log = cfg.LogPipe.Logger()
 	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = "/data/subspace.db"

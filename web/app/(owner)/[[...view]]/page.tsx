@@ -8,6 +8,7 @@ import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
 import { KnowledgePage } from "./knowledge";
+import { LogsPage } from "./logs";
 import { PromptsPage } from "./prompts";
 import { ReplayPage } from "./replay";
 import { ReportPage } from "./report";
@@ -28,6 +29,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
 function content(view: string[]) {
   const [root, id, subview] = view;
   if (root === "audit" && view.length === 1) return <AuditPage />;
+  if (root === "logs" && view.length === 1) return <LogsPage />;
   if (root === "prompts" && view.length === 1) return <PromptsPage />;
   if (root === "hillclimb" && view.length === 1) return <HillclimbPage />;
   if (root === "mergequeue" && view.length === 1) return <MergeQueuePage />;

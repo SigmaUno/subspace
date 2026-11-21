@@ -250,3 +250,27 @@ func TestSSEResyncAndBadID(t *testing.T) {
 		}
 	}
 }
+
+func TestSSEResyncAfterRestartWithLargerLastID(t *testing.T) {
+	for _, published := range []int{0, 3} {
+		h := NewHub()
+		for i := 0; i < published; i++ {
+			h.Publish([]string{"board"}, "task.updated", i)
+		}
+		srv := httptest.NewServer(NewSSEHandler(h, nil, time.Hour))
+		defer srv.Close()
+
+		ch, stop := open(t, srv, "?topics=board&last_event_id=40")
+		hello := next(t, ch)
+		resync := next(t, ch)
+		want := strconv.Itoa(published)
+		if hello.event != "hello" || hello.id != want || resync.event != "resync" || resync.id != want {
+			t.Fatalf("published %d: hello %+v resync %+v", published, hello, resync)
+		}
+		h.Publish([]string{"board"}, "task.updated", nil)
+		if f := next(t, ch); f.event != "task.updated" || f.id != strconv.Itoa(published+1) {
+			t.Fatalf("published %d: live after resync %+v", published, f)
+		}
+		stop()
+	}
+}

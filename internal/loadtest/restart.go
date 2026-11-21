@@ -101,8 +101,10 @@ func restart(ctx context.Context, r *runner) ([]Invariant, SSEReport, error) {
 		ids[i] = t.ID
 	}
 	invs := []Invariant{
-		check("SSE clients reconnected after the restart", sse.Connected >= 2*int64(sse.Subscribers) && sse.Duplicates == 0,
-			"%d connections for %d clients, %d duplicates", sse.Connected, sse.Subscribers, sse.Duplicates),
+		check("SSE clients reconnected after the restart", sse.Connected >= 2*int64(sse.Subscribers),
+			"%d connections for %d clients", sse.Connected, sse.Subscribers),
+		check("each client resynced once, with no duplicate or stale events", sse.Resyncs == int64(sse.Subscribers) && sse.Duplicates == 0 && sse.Overlap == 0,
+			"%d resyncs for %d clients, %d duplicates, %d events at or below the hello seq", sse.Resyncs, sse.Subscribers, sse.Duplicates, sse.Overlap),
 		check("server restarted mid-run", res.err == nil && res.doneBefore > 0 && res.doneBefore < total,
 			"after %d of %d tasks done, down for %s, %d calls retried (err %v)", res.doneBefore, total, res.downtime.Round(time.Millisecond), r.retry.retries.Load(), res.err),
 		check("acknowledged completions survived the restart", res.doneAfter >= int(res.doneBefore), "%d done acknowledged, %d after restart", res.doneBefore, res.doneAfter),

@@ -187,3 +187,46 @@ func TestSSEReplayHonorsTopics(t *testing.T) {
 		}
 	}
 }
+
+func TestSSEClientOfPreviousProcessGetsOneResyncThenOnlyNewEvents(t *testing.T) {
+	before := servertest.New(t)
+	for n := 0; n < 30; n++ {
+		before.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": n})
+	}
+	var lastID string
+	old := dialSSE(t, before, "topics=board", "0", false)
+	for f := old.next(t); ; f = old.next(t) {
+		if f.event == "probe.updated" {
+			lastID = f.id
+		}
+		if f.event == "probe.updated" && payloadN(t, f) == 29 {
+			break
+		}
+	}
+	old.cancel()
+	oldID, _ := strconv.Atoi(lastID)
+
+	after := servertest.New(t)
+	after.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": 1000})
+	c := dialSSE(t, after, "topics=board", lastID, true)
+	defer c.cancel()
+	hello := c.next(t)
+	resync := c.next(t)
+	if hello.event != "hello" || resync.event != "resync" || resync.id != hello.id {
+		t.Fatalf("hello %+v resync %+v", hello, resync)
+	}
+	if id, _ := strconv.Atoi(resync.id); id >= oldID {
+		t.Fatalf("restarted sequence %d should be below the client's %d", id, oldID)
+	}
+
+	after.Srv.Hub.Publish([]string{"board"}, "probe.updated", map[string]int{"n": 1001})
+	f := c.next(t)
+	if f.event != "probe.updated" || payloadN(t, f) != 1001 {
+		t.Fatalf("frame after resync %+v", f)
+	}
+	select {
+	case extra := <-c.frames:
+		t.Fatalf("unexpected extra frame %+v", extra)
+	case <-time.After(100 * time.Millisecond):
+	}
+}

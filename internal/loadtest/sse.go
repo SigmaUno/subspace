@@ -29,6 +29,7 @@ type SSEReport struct {
 	LagP99ms      float64 `json:"lag_p99_ms"`
 	LagMaxms      float64 `json:"lag_max_ms"`
 	Reconnects    int64   `json:"reconnects,omitempty"`
+	Resyncs       int64   `json:"resyncs,omitempty"`
 	Overlap       int64   `json:"overlap,omitempty"`
 	Duplicates    int64   `json:"duplicates,omitempty"`
 }
@@ -41,6 +42,7 @@ type sseFleet struct {
 	persist bool
 
 	reconnects    atomic.Int64
+	resyncs       atomic.Int64
 	overlap       atomic.Int64
 	duplicates    atomic.Int64
 	lag           Histogram
@@ -143,11 +145,16 @@ func (f *sseFleet) track(ev client.Event, last, hello *int64) {
 	if err != nil {
 		return
 	}
-	if ev.Name == "hello" {
+	switch ev.Name {
+	case "hello":
 		if id < *last {
 			*last = 0
 		}
 		*hello = id
+		return
+	case "resync":
+		f.resyncs.Add(1)
+		*last, *hello = id, id
 		return
 	}
 	if id <= *last {
@@ -191,5 +198,5 @@ func (f *sseFleet) Report() SSEReport {
 	return SSEReport{Subscribers: f.n, Connected: f.connected.Load(), ConnectErrors: f.connectErrors.Load(),
 		StreamErrors: f.streamErrors.Load(), Events: f.events.Load(), LaggedEvents: f.lagged.Load(), Dropped: f.dropped.Load(),
 		LagP50ms: ms(f.lag.Quantile(0.5)), LagP95ms: ms(f.lag.Quantile(0.95)), LagP99ms: ms(f.lag.Quantile(0.99)), LagMaxms: ms(f.lag.Max()),
-		Reconnects: f.reconnects.Load(), Overlap: f.overlap.Load(), Duplicates: f.duplicates.Load()}
+		Reconnects: f.reconnects.Load(), Resyncs: f.resyncs.Load(), Overlap: f.overlap.Load(), Duplicates: f.duplicates.Load()}
 }

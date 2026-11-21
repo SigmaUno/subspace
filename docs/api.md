@@ -162,7 +162,7 @@ The leader restores the newest backup into a temporary database in the data dir 
  "started_at":"...","finished_at":"..."}
 ```
 
-A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing.
+A failed drill raises an `alert.raised` notification (`alert:restore_drill`, priority 5, delivered by the notification sinks) and an owner decision of kind `alert` (`drill:<id>`) that stays until a later drill passes; the pass publishes `alert.resolved`. Every drill appends a `restore_drill` audit event (actor `system`; a manual run also records `token=<id>` in the note). With Postgres the backup scheduler writes JSON-lines dumps, not `pg_dump` files, so a drill is recorded as `unsupported` with that reason and raises nothing. Setting `SUBSPACE_DRILL_EVERY` to a positive duration with a Postgres `SUBSPACE_DB` refuses to start.
 
 ### Configuration reload
 `SUBSPACE_CONFIG_FILE` names a JSON object whose keys are environment variable names. Its values overlay the process environment at start and on every reload: a value is a string, number or boolean, a list of those (joined with `,`, e.g. `["10.0.0.0/8","192.168.0.0/16"]` for a CIDR list), or `null` for an empty value. A reload runs on `SIGHUP` and on `POST /api/v1/reload` (owner scope). The file is at most 1 MiB.

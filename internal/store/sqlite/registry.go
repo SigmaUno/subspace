@@ -17,3 +17,11 @@ func ExtensionTables() []string {
 	}
 	return out
 }
+
+func ExtensionColumns() []string {
+	out := make([]string, 0, len(extraColumns))
+	for _, c := range extraColumns {
+		out = append(out, c.table+"."+c.column)
+	}
+	return out
+}

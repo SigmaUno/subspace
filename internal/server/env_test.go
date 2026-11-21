@@ -18,6 +18,8 @@ type env struct {
 	t   *testing.T
 	ts  *httptest.Server
 	srv *Server
+
+	cancel context.CancelFunc
 }
 
 func newEnv(t *testing.T) *env {

@@ -257,7 +257,8 @@ func TestRetryBackoffUsesInjectedClockAndJitter(t *testing.T) {
 	if got := h.clock.durations(); !slices.Equal(got, want) {
 		t.Fatalf("timers %v want %v", got, want)
 	}
-	if st := h.svc.Stats(); st.Sent != 1 || st.Failed != 0 {
+	eventually(t, "sent counter", func() bool { return h.svc.Stats().Sent == 1 })
+	if st := h.svc.Stats(); st.Failed != 0 {
 		t.Fatalf("stats %+v", st)
 	}
 }

@@ -872,6 +872,32 @@ export function getTokens(
   return r.request("GET", "/api/v1/tokens", { response: "json" });
 }
 
+export function getUsageCapacity(
+  r: Requester,
+): Promise<T.LiveCapacity> {
+  return r.request("GET", "/api/v1/usage/capacity", { response: "json" });
+}
+
+export function getUsageProviders(
+  r: Requester,
+): Promise<{ providers: T.ProviderStatus[] | null }> {
+  return r.request("GET", "/api/v1/usage/providers", { response: "json" });
+}
+
+export function getUsageSeries(
+  r: Requester,
+  args?: { query?: { from?: string; to?: string; bucket?: string; group_by?: string; brief_id?: string; agent_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<T.UsageSeriesResponse> {
+  return r.request("GET", "/api/v1/usage/series", { ...args, response: "json" });
+}
+
+export function getUsageSummary(
+  r: Requester,
+  args?: { query?: { from?: string; to?: string; group_by?: string; brief_id?: string; agent_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<T.UsageSummary> {
+  return r.request("GET", "/api/v1/usage/summary", { ...args, response: "json" });
+}
+
 export function getWebhooksOut(
   r: Requester,
 ): Promise<{ webhooks: T.WebhookSubscription[] | null }> {

@@ -1282,6 +1282,14 @@ export interface List {
   gateways: Gateway[] | null;
 }
 
+export interface LiveCapacity {
+  agents_in_use: number;
+  credits_remaining_usd: number | null;
+  global_max_agents: number;
+  limits: CapacityLimit[] | null;
+  models: ModelCapacity[] | null;
+}
+
 export interface LogLevel {
   level: string;
 }
@@ -1324,6 +1332,15 @@ export interface Message {
   kind: string;
   thread_id: string;
   thread_kind: string;
+}
+
+export interface ModelCapacity {
+  in_use: number;
+  limited_by: string;
+  model: string;
+  provider: string;
+  requests_1m: number;
+  spawnable: number;
 }
 
 export interface Note {
@@ -1563,6 +1580,20 @@ export interface ProposedTask {
   role: string;
   spec: string;
   title: string;
+}
+
+export interface ProviderStatus {
+  concurrency_headroom: number;
+  in_use: number;
+  last_rate_limited_at: string | null;
+  max_concurrency: number;
+  provider: string;
+  rate_limited_1h: number;
+  rate_limited_5m: number;
+  requests_1m: number;
+  requests_per_min: number;
+  rpm_headroom: number;
+  status: string;
 }
 
 export interface PushSubscription {
@@ -2309,6 +2340,77 @@ export interface TranscriptPage {
   next_since: number;
   segments: number;
   task_id: string;
+}
+
+export interface UsageBriefBudget {
+  brief_id: string;
+  budget_eur: number;
+  budget_usd: number;
+  remaining_usd: number | null;
+  spent_usd: number;
+  status: string;
+  title: string;
+}
+
+export interface UsageCredits {
+  remaining_usd: number | null;
+  spent_usd: number;
+  total_usd: number | null;
+}
+
+export interface UsageGroup {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  key: string;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+export interface UsagePoint {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  ts: string;
+}
+
+export interface UsageSeries {
+  key: string;
+  points: UsagePoint[] | null;
+}
+
+export interface UsageSeriesResponse {
+  bucket: string;
+  from: string;
+  group_by: string;
+  series: UsageSeries[] | null;
+  to: string;
+}
+
+export interface UsageSummary {
+  briefs: UsageBriefBudget[] | null;
+  credits: UsageCredits;
+  from: string;
+  group_by: string;
+  groups: UsageGroup[] | null;
+  to: string;
+  totals: UsageTotals;
+}
+
+export interface UsageTotals {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
 }
 
 export interface Version {

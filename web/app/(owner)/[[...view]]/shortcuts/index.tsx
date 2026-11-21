@@ -2,6 +2,7 @@
 
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
+import { trapTab } from "../shared/ui";
 
 const destinations: Record<string, { href: string; action: string }> = {
   b: { href: "/briefs", action: "Go to briefs" },
@@ -82,12 +83,13 @@ export function KeyboardShortcuts() {
     if (!help) return;
     const returnFocus = document.activeElement;
     dialog.current?.focus();
-    function onEscape(event: KeyboardEvent) {
+    function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") setHelp(false);
+      else trapTab(event, dialog.current);
     }
-    window.addEventListener("keydown", onEscape);
+    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("keydown", onKey);
       if (returnFocus instanceof HTMLElement) returnFocus.focus();
     };
   }, [help]);

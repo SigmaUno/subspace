@@ -84,7 +84,7 @@ export function MergeQueuePage() {
     <section className="panel stack">
       <h2>Approved tasks</h2>
       {approved.data && !tasks.length && <EmptyState>No approved tasks waiting for the queue.</EmptyState>}
-      {!!tasks.length && <div className="table-wrap">
+      {!!tasks.length && <div className="table-wrap" role="region" aria-label="Approved tasks" tabIndex={0}>
         <table>
           <thead><tr><th>Task</th><th>Repo</th><th>Branch</th><th>PR</th><th>Queue</th></tr></thead>
           <tbody>{tasks.map((task) => (
@@ -103,7 +103,7 @@ export function MergeQueuePage() {
     <section className="panel stack">
       <h2>Candidates</h2>
       {candidates.data && !queue.length && <EmptyState>The queue is empty.</EmptyState>}
-      {!!queue.length && <div className="table-wrap">
+      {!!queue.length && <div className="table-wrap" role="region" aria-label="Candidates" tabIndex={0}>
         <table>
           <thead><tr><th>Candidate</th><th>Repo</th><th>Rebase</th><th>State</th><th>Updated</th></tr></thead>
           <tbody>{queue.map((item) => (

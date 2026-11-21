@@ -51,7 +51,7 @@ function DailyCost({ points }: { points: UsagePoint[] }) {
 
 function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
   if (!groups.length) return <EmptyState>No usage recorded in this period.</EmptyState>;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Cost breakdown" tabIndex={0}>
     <table>
       <thead><tr><th>{name}</th><th>Cost</th><th>Requests</th><th>Tokens in</th><th>Tokens out</th><th>Cached</th><th>Rate limited</th></tr></thead>
       <tbody>{groups.map((group) => (
@@ -71,7 +71,7 @@ function CostTable({ groups, name }: { groups: UsageGroup[]; name: string }) {
 
 function BudgetBurn({ briefs }: { briefs: BriefBudget[] }) {
   if (!briefs.length) return <EmptyState>No briefs.</EmptyState>;
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Budget burn" tabIndex={0}>
     <table>
       <thead><tr><th>Brief</th><th>Status</th><th>Budget</th><th>Spent</th><th>Burn</th></tr></thead>
       <tbody>{briefs.map((brief) => {

@@ -157,7 +157,7 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
     <ResourceState error={bots.error} loading={!bots.data} retry={bots.refresh} rows={5} />
     {bots.data && !items.length && <EmptyState>No bots registered.</EmptyState>}
-    {!!items.length && <div className="table-wrap">
+    {!!items.length && <div className="table-wrap" role="region" aria-label="Bots" tabIndex={0}>
       <table>
         <thead><tr>
           <th>Bot</th><th>Role</th><th>Kind</th><th>Model / provider</th><th>Status</th>

@@ -112,7 +112,7 @@ export function RepositoriesView() {
     <Feedback error={error} />
     <ResourceState error={repos.error} loading={repos.data === undefined} retry={repos.refresh} rows={3} />
     {repos.data && !list.length && <EmptyState>No repositories registered. Any repository is accepted.</EmptyState>}
-    {!!list.length && <div className="table-wrap">
+    {!!list.length && <div className="table-wrap" role="region" aria-label="Repositories" tabIndex={0}>
       <table>
         <thead><tr><th>Repository</th><th>Host</th><th>Branches</th><th>Merge queue</th><th>Actions</th></tr></thead>
         <tbody>{list.map((repo) => (

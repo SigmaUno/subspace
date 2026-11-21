@@ -84,7 +84,7 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
     {log.data !== undefined && <section className="panel stack">
       <h2>Version history</h2>
       {!versions.length && <EmptyState>No versions yet.</EmptyState>}
-      {!!versions.length && <div className="table-wrap">
+      {!!versions.length && <div className="table-wrap" role="region" aria-label="Version history" tabIndex={0}>
         <table>
           <thead><tr><th>Version</th><th>Author</th><th>Message</th><th>Saved</th><th><span className="meta">Action</span></th></tr></thead>
           <tbody>{versions.map((item) => (

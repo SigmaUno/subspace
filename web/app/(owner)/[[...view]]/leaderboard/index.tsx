@@ -29,7 +29,7 @@ export function Leaderboard({ revision }: { revision: number }) {
     <h2 id="leaderboard-title">Leaderboard</h2>
     <ResourceState error={stats.error} loading={!stats.data} retry={stats.refresh} rows={3} />
     {stats.data && !rows.length && <EmptyState>No agent statistics yet.</EmptyState>}
-    {!!rows.length && <div className="table-wrap">
+    {!!rows.length && <div className="table-wrap" role="region" aria-label="Leaderboard" tabIndex={0}>
       <table>
         <thead><tr><th>#</th><th>Agent</th><th>Score</th><th>Done</th><th>Avg / p90</th><th>Rounds</th><th>First pass</th>
           <th>Blocked / expired</th><th>Cost / task</th><th>Tokens / task</th><th>7 days</th></tr></thead>

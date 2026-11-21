@@ -26,7 +26,7 @@ export function BreakersPanel({ list, refresh }: { list: BreakerList; refresh: (
     <div className="heading"><h2>Provider breakers</h2></div>
     <p className="meta">An open breaker stops new spawns and autopilot assignments for that provider and model. Running agents continue.</p>
     {!breakers.length && <EmptyState>No provider has reported usage yet.</EmptyState>}
-    {!!breakers.length && <div className="table-wrap">
+    {!!breakers.length && <div className="table-wrap" role="region" aria-label="Provider breakers" tabIndex={0}>
       <table>
         <thead><tr><th>Provider</th><th>Model</th><th>State</th><th>Error rate</th><th>Errors</th><th>Opened</th><th><span className="meta">Action</span></th></tr></thead>
         <tbody>{breakers.map((breaker) => <tr key={`${breaker.provider}:${breaker.model}`}>

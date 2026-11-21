@@ -34,11 +34,11 @@ const Scene = memo(function Scene({ layout, tasks, criticalNodes, criticalEdges,
       const progress = task.status === "done" ? 100 : Math.max(0, Math.min(100, task.progress_pct));
       const owner = task.assignee ?? "unassigned";
       return <Link key={node.id} href={`/tasks/${encodeURIComponent(node.id)}`} prefetch={false} draggable={false}
-        aria-label={`${node.id} ${task.title}, ${label(task.status)}, ${progress}%, ${owner}`}
+        aria-label={detail === 2 ? undefined : `${node.id}${detail === 1 ? "" : ` ${task.title}`}, ${label(task.status)}, ${progress}%, ${owner}`}
+        aria-description={detail === 2 ? `${task.title}, ${label(task.status)}, ${progress}%, ${owner}` : undefined}
         onClick={(event) => { if (dragged()) event.preventDefault(); }}>
         <g className={`dag-node${criticalNodes.has(node.id) ? " hot" : ""}`} data-status={task.status}
           transform={`translate(${node.x} ${node.y})`}>
-          <title>{node.id} {task.title} · {label(task.status)} · {progress}% · {owner}</title>
           <rect className="dag-box" width={defaultOptions.nodeWidth} height={defaultOptions.nodeHeight} rx={8} />
           {detail > 0 && <g transform={`translate(24 ${middle}) rotate(-90)`}>
             <circle className="dag-ring-track" r={ringRadius} />

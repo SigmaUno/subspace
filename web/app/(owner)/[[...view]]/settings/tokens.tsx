@@ -64,7 +64,7 @@ export function TokensPanel({ list, refresh }: { list: TokenList; refresh: () =>
       <div className="actions"><button type="button" onClick={() => setCreated(undefined)}>Dismiss secret</button></div>
     </div>}
     {!tokens.length && <EmptyState>No owner API tokens.</EmptyState>}
-    {!!tokens.length && <div className="table-wrap">
+    {!!tokens.length && <div className="table-wrap" role="region" aria-label="API tokens" tabIndex={0}>
       <table>
         <thead><tr><th>Name</th><th>Scope</th><th>State</th><th>Created</th><th>Expires</th><th>Last used</th><th><span className="meta">Action</span></th></tr></thead>
         <tbody>{tokens.map((token) => {

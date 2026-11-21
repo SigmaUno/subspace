@@ -131,7 +131,7 @@ export function ReplayPage({ id }: { id: string }) {
       <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))", gap: ".8rem" }}>
         <section className="panel stack">
           <h2>Agents</h2>
-          {view.agents?.length ? <ul className="replay-events">
+          {view.agents?.length ? <ul className="replay-events" tabIndex={0} aria-label="Agents">
             {view.agents.map((agent) => <li key={agent.id}>
               <strong>{agent.id}</strong> <span className="meta">{agent.role || "agent"} · {agent.events} events</span>
               <div className="meta">
@@ -143,7 +143,7 @@ export function ReplayPage({ id }: { id: string }) {
         </section>
         <section className="panel stack">
           <h2>Key events</h2>
-          {recent.length ? <ul className="replay-events">
+          {recent.length ? <ul className="replay-events" tabIndex={0} aria-label="Key events">
             {recent.map((key) => <li key={`${key.audit_id}-${key.task_id}`}>
               <button type="button" onClick={() => seek(nearest(points, key.audit_id))} aria-current={point?.audit_id === key.audit_id ? "step" : undefined}>
                 <time dateTime={key.at}>{stamp(key.at)}</time> · {describe(key)}

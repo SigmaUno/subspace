@@ -7,7 +7,7 @@ import { EmptyState } from "../shared/states";
 const severityClass = { warning: "paused", critical: "revoked" } as const;
 
 function AlertRows({ alerts }: { alerts: Alert[] }) {
-  return <div className="table-wrap">
+  return <div className="table-wrap" role="region" aria-label="Alerts" tabIndex={0}>
     <table>
       <thead><tr><th>Alert</th><th>Severity</th><th>Summary</th><th>Raised</th><th>Resolved</th></tr></thead>
       <tbody>{alerts.map((alert) => <tr key={`${alert.id}:${alert.raised_at}`}>

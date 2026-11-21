@@ -4,7 +4,7 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api, useResource, useSubmit } from "../../../../lib/client";
 import type { Incident, IncidentEnded, IncidentList, IncidentStarted } from "../../../../lib/incident-types";
 import { Feedback } from "../shared/components";
-import { useConfirm, useToast } from "../shared/ui";
+import { trapTab, useConfirm, useToast } from "../shared/ui";
 import "./incident.css";
 import { agentRoles } from "../../../../lib/types";
 
@@ -23,7 +23,7 @@ function effect(id: string, role: string, provider: string) {
     case "pause_all": return "All leases are revoked and claims and spawns are blocked until the incident ends.";
     case "revoke_agents": {
       const scope = [role && `role ${role}`, provider && `provider ${provider}`].filter(Boolean).join(" and ");
-      return `${scope ? `Agents with ${scope}` : "Every agent"} lose their token immediately and release their leases. This cannot be undone.`;
+      return `${scope ? `Agents with ${scope} lose their tokens immediately and release their leases` : "Every agent loses its token immediately and releases its leases"}. This cannot be undone.`;
     }
     case "rotate_leader_tokens": return "Every active leader gets a new token, shown once below. The old tokens stop working.";
     case "snapshot": return "Briefs, agents and tasks are written to the server's data directory.";
@@ -98,12 +98,13 @@ function IncidentDialog({ active, close }: { active?: Incident; close: () => voi
   useEffect(() => {
     const returnFocus = document.activeElement;
     dialog.current?.focus();
-    function onEscape(event: KeyboardEvent) {
+    function onKey(event: KeyboardEvent) {
       if (event.key === "Escape") onClose.current();
+      else trapTab(event, dialog.current);
     }
-    window.addEventListener("keydown", onEscape);
+    window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("keydown", onEscape);
+      window.removeEventListener("keydown", onKey);
       if (returnFocus instanceof HTMLElement) returnFocus.focus();
     };
   }, []);
@@ -146,7 +147,7 @@ function IncidentDialog({ active, close }: { active?: Incident; close: () => voi
           <legend>Effects</legend>
           {options.map((option) => <label key={option.id} className="incident-choice">
             <input type="checkbox" checked={actions.includes(option.id)} onChange={(event) => toggle(option.id, event.target.checked)} />
-            <strong>{option.name}</strong> <span className="meta">{effect(option.id, role, provider.trim())}</span>
+            <strong>{option.name}</strong><span className="meta">{effect(option.id, role, provider.trim())}</span>
           </label>)}
         </fieldset>
         {revoking && <div className="actions">

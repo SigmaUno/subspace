@@ -81,7 +81,7 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
     {registered && <RegistrationResults items={registered} dismiss={() => setRegistered(null)} />}
     <ResourceState error={agents.error} loading={!agents.data} retry={agents.refresh} rows={5} />
     {agents.data && !agents.data.agents?.length && <EmptyState>No agents registered.</EmptyState>}
-    {!!agents.data?.agents?.length && <div className="table-wrap">
+    {!!agents.data?.agents?.length && <div className="table-wrap" role="region" aria-label="Agents" tabIndex={0}>
       <div className="registry-table">
         <div className="registry-row selectable registry-head"><SelectAll ids={agents.data.agents.map((agent) => agent.id)} bulk={bulk} name="agents" /><span>Agent</span><span>Role</span><span>Kind / model</span><span>Status</span><span>Current task</span><span>Load</span><span>Last heartbeat</span></div>
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (

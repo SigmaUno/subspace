@@ -390,6 +390,19 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 |---|---|---|
 | GET | `/api/v1/search/?q=&kind=&limit=` | → `{"results":[{"kind":"task","id":"T-1","field":"title","snippet":"...«match»...","at":"..."}]}`. `q` is required, at most 200 characters; `kind` is `task`, `message`, `agent` or `brief`; `limit` default 20, max 100. Message ids are the numeric message id. Other methods return 405. |
 
+### Timeseries
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/timeseries?metric=&bucket=&since=&brief_id=` | → Series. `metric` is required: `tasks_done`, `tasks_created`, `cost_eur`, `active_agents`, `tokens` or `review_rounds`. `bucket` is `5m`, `1h` (default) or `1d`. `since` is an RFC 3339 timestamp (default: 24h for `5m`, 7d for `1h`, 30d for `1d`). `brief_id` limits the series to one brief (404 if unknown). 400 for an unknown metric or bucket, a malformed `since` or one in the future. |
+
+```jsonc
+// Series
+{"metric":"tasks_done","bucket":"1h","since":"2026-11-20T00:00:00Z","until":"2026-11-21T01:00:00Z",   // until is exclusive
+ "points":[{"t":"2026-11-20T00:00:00Z","v":2}]}                                                       // one point per bucket, zero when empty
+```
+
+Buckets are aligned to UTC multiples of the bucket size. A series has at most 2000 buckets: an earlier `since` is moved forward so the series ends with the bucket containing now. Metrics: `tasks_done` counts audit events that moved a task to `done`; `tasks_created` counts tasks by `created_at`; `review_rounds` counts `review` events that requested changes; `active_agents` counts distinct non-owner agents with audit events; `cost_eur` sums increases of a task's `cost_used` reported by `update_status`; `tokens` sums input and output tokens of stored usage records.
+
 ### Notifications
 | Method | Path | Body → Response |
 |---|---|---|

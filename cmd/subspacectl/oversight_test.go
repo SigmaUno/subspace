@@ -111,3 +111,48 @@ func TestTokenLeakReissueUnknown(t *testing.T) {
 	h.fails(exitNotFound, "token-leaks", "reissue", "TL-404")
 	h.fails(exitUsage, "token-leaks", "reissue", "../x")
 }
+
+func TestInstructionHistoryAndRollback(t *testing.T) {
+	h := newHarness(t)
+	h.object("instructions", "set", "--kind", "rules", "--text", "Be brief.", "--message", "first")
+	h.object("instructions", "set", "--kind", "rules", "--text", "Be very brief.", "--message", "second")
+
+	if versions := list(t, h.object("instructions", "versions", "--kind", "rules"), "versions"); len(versions) != 2 {
+		t.Fatalf("versions = %v", versions)
+	}
+	if text := h.object("instructions", "get", "--kind", "rules", "--version", "1")["text"]; text != "Be brief." {
+		t.Fatalf("version 1 = %v", text)
+	}
+	if lines := list(t, h.object("instructions", "diff", "--kind", "rules", "--from", "1", "--to", "2"), "lines"); len(lines) == 0 {
+		t.Fatal("empty diff")
+	}
+	rolled := h.object("instructions", "rollback", "--kind", "rules", "--to", "1", "--message", "revert")
+	if rolled["text"] != "Be brief." || rolled["version"] != float64(3) {
+		t.Fatalf("rollback = %v", rolled)
+	}
+	h.fails(exitUsage, "instructions", "diff", "--kind", "rules", "--from", "1")
+	h.fails(exitUsage, "instructions", "rollback", "--kind", "rules")
+	h.fails(exitNotFound, "instructions", "get", "--kind", "rules", "--version", "9")
+}
+
+func TestActionLinksTimeseriesAndHillclimb(t *testing.T) {
+	h := newHarness(t)
+	lead := h.env.Register("rex", "leader", "other")
+	brief := h.brief("Links")
+	h.plan(lead, brief, "One")
+
+	h.fails(exitConflict, "action-links", "create", "--decision", "plan:P-1", "--action", "approve", "--ttl", "1h")
+	h.fails(exitUsage, "action-links", "create", "--decision", "nope", "--action", "approve")
+	h.fails(exitUsage, "action-links", "create", "--decision", "plan:P-1")
+
+	if series := h.object("timeseries", "--metric", "tasks_created", "--bucket", "1h"); series["metric"] != "tasks_created" {
+		t.Fatalf("series = %v", series)
+	}
+	h.fails(exitUsage, "timeseries", "--metric", "loud", "--bucket", "1h")
+	h.fails(exitUsage, "timeseries", "--metric", "tasks_done")
+
+	if jobs := list(t, h.object("hillclimb", "list"), "jobs"); len(jobs) != 0 {
+		t.Fatalf("jobs = %v", jobs)
+	}
+	h.fails(exitNotFound, "hillclimb", "series", "H-404")
+}

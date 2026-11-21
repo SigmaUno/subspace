@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 )
 
@@ -74,4 +75,49 @@ var logLevelCommands = table{
 
 var tokenLeakCommands = table{
 	"reissue": idCall("token-leaks reissue", http.MethodPost, "token-leaks/%s/reissue", struct{}{}),
+}
+
+var actionLinkCommands = table{
+	"create": func(args []string, _ io.Reader) (command, error) {
+		set := flags("action-links create")
+		decision := set.String("decision", "", "decision ID such as plan:P-1 or q:Q-1")
+		action := set.String("action", "", "action the link performs")
+		option := set.Int("option", 0, "option index for answers")
+		ttl := set.String("ttl", "", "link lifetime such as 24h")
+		if err := parseFlags(set, args, 0, 0); err != nil {
+			return nil, err
+		}
+		if _, err := matching(validDecision, "decision", *decision); err != nil {
+			return nil, err
+		}
+		if *action == "" {
+			return nil, errors.New("action-links create requires --action")
+		}
+		body := map[string]any{"decision_id": *decision, "action": *action, "option": *option}
+		if *ttl != "" {
+			body["ttl"] = *ttl
+		}
+		return call(request{method: http.MethodPost, path: "action-links", body: body}), nil
+	},
+}
+
+var hillclimbCommands = table{
+	"list":   listing("hillclimb list", "hillclimb/jobs", 1000),
+	"create": jsonBody("hillclimb create", http.MethodPost, "hillclimb/jobs", false),
+	"series": byID("hillclimb series", "hillclimb/jobs/%s/series"),
+}
+
+func parseTimeseries(args []string, _ io.Reader) (command, error) {
+	set := flags("timeseries")
+	metric := set.String("metric", "", "tasks_done, tasks_created, cost_eur, active_agents, tokens or review_rounds")
+	bucket := set.String("bucket", "", "5m, 1h or 1d")
+	since := set.String("since", "", "RFC 3339 start time")
+	brief := set.String("brief-id", "", "limit to one brief")
+	if err := parseFlags(set, args, 0, 0); err != nil {
+		return nil, err
+	}
+	if *metric == "" || *bucket == "" {
+		return nil, errors.New("timeseries requires --metric and --bucket")
+	}
+	return get("timeseries", setIf(url.Values{"metric": {*metric}, "bucket": {*bucket}}, "since", *since, "brief_id", *brief)), nil
 }

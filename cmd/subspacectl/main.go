@@ -125,7 +125,8 @@ Commands:
   artifacts upload --scope agent:ID|task:ID|project:ID --file FILE [--name N] [--content-type T]
   artifacts download ARTIFACT_ID --out FILE
   artifacts delete ARTIFACT_ID
-  instructions get [--scope global|project:ID --kind rules|style|templates | --project ID]
+  instructions get [--scope global|project:ID --kind rules|style|templates [--version N] | --project ID]
+  instructions versions|diff|rollback --kind KIND [--scope S] (--from N --to N | --to N [--message M])
   instructions set --kind KIND (--text TEXT | --text-file FILE) [--scope global] [--message M]
   prompts list [--tag TAG]
   prompts show PROMPT_ID
@@ -195,6 +196,9 @@ Commands:
   threads post agent|task|brief ID (--body TEXT | --body-file FILE)
   log-level get|set --level debug|info|warn|error
   token-leaks reissue LEAK_ID
+  action-links create --decision ID --action A [--option N] [--ttl 24h]
+  hillclimb list|series JOB_ID|create --file FILE
+  timeseries --metric M --bucket 5m|1h|1d [--since TIME] [--brief-id ID]
   state
   about
   me
@@ -374,6 +378,9 @@ func registry() map[string]entry {
 		"threads":        {parse: grouped("threads", threadCommands), subs: names(threadCommands)},
 		"log-level":      {parse: grouped("log-level", logLevelCommands), subs: names(logLevelCommands)},
 		"token-leaks":    {parse: grouped("token-leaks", tokenLeakCommands), subs: names(tokenLeakCommands)},
+		"action-links":   {parse: grouped("action-links", actionLinkCommands), subs: names(actionLinkCommands)},
+		"hillclimb":      {parse: grouped("hillclimb", hillclimbCommands), subs: names(hillclimbCommands)},
+		"timeseries":     {parse: parseTimeseries},
 	}
 }
 

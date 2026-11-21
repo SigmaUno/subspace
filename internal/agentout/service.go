@@ -21,6 +21,8 @@ const (
 	DefaultLimit = 500
 	MaxLimit     = 2000
 	replay       = 1000
+	IdleTTL      = 15 * time.Minute
+	pruneEvery   = time.Minute
 )
 
 var streams = map[string]bool{"stdout": true, "stderr": true, "note": true}
@@ -80,28 +82,52 @@ func (s *Service) Buffer() *Buffer { return s.buf }
 
 func (s *Service) Hub() events.Hub { return s.hub }
 
+func (s *Service) persists() bool { return s.cfg.Persist > 0 && s.st != nil }
+
 func (s *Service) Run(ctx context.Context) {
-	if s.cfg.Persist <= 0 || s.st == nil {
-		return
-	}
 	every := s.cfg.FlushEvery
 	if every <= 0 {
 		every = 2 * time.Second
 	}
 	t := time.NewTicker(every)
 	defer t.Stop()
+	pruned := s.cfg.Now()
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			s.flush(ctx)
+			if s.persists() {
+				s.flush(ctx)
+			}
+			if now := s.cfg.Now(); now.Sub(pruned) >= pruneEvery {
+				s.prune(ctx, now)
+				pruned = now
+			}
 		}
 	}
 }
 
+func (s *Service) prune(ctx context.Context, now time.Time) {
+	active, err := s.dir.Active(ctx)
+	if err != nil {
+		return
+	}
+	live := make(map[string]bool, len(active))
+	for _, id := range active {
+		live[id] = true
+	}
+	gone := s.buf.prune(func(id string) bool { return live[id] }, now.Add(-IdleTTL))
+	if len(gone) == 0 || !s.persists() {
+		return
+	}
+	if err := forget(ctx, s.st, gone); err != nil && ctx.Err() == nil {
+		s.cfg.Log.Warn("agent output: dropping idle tails failed", "err", err)
+	}
+}
+
 func (s *Service) Restore(ctx context.Context) error {
-	if s.cfg.Persist <= 0 || s.st == nil {
+	if !s.persists() {
 		return nil
 	}
 	lines, err := load(ctx, s.st)

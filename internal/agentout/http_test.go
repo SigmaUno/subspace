@@ -6,9 +6,11 @@ import (
 	"encoding/json"
 	"net/http"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/agentout"
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 )
@@ -304,5 +306,47 @@ func TestOutputTailSurvivesRestart(t *testing.T) {
 	}
 	if res := b.Must(w, "log_output", map[string]any{"stream": "stdout", "text": "six"}); res["seq"] != 6.0 {
 		t.Fatalf("seq after restart: %v", res)
+	}
+}
+
+func TestIdleTailOfRevokedAgentIsDropped(t *testing.T) {
+	t.Setenv("SUBSPACE_OUTPUT_PERSIST", "5")
+	var offset atomic.Int64
+	cfg := server.Config{PublicURL: "http://sub.test", DBPath: servertest.DB(t),
+		FlushEvery: 20 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Hour,
+		Now: func() time.Time { return time.Now().UTC().Add(time.Duration(offset.Load())) }}
+	a := servertest.Start(t, cfg)
+	gone := a.Register("w1", "worker", "claude-code")
+	kept := a.Register("w2", "worker", "claude-code")
+	for _, tok := range []string{gone, kept} {
+		a.Must(tok, "log_output", map[string]any{"stream": "stdout", "text": "one\ntwo"})
+	}
+	if code, out := a.REST("POST", "/api/v1/agents/w1/revoke", map[string]any{"reason": "done"}); code != 200 {
+		t.Fatalf("revoke: %d %v", code, out)
+	}
+	time.Sleep(200 * time.Millisecond)
+	offset.Store(int64(agentout.IdleTTL + 2*time.Minute))
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		_, out := a.REST("GET", "/api/v1/agents/w1/output", nil)
+		if len(lines(t, out)) == 0 {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("revoked agent tail kept: %v", out)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+	if _, out := a.REST("GET", "/api/v1/agents/w2/output", nil); len(lines(t, out)) != 2 {
+		t.Fatalf("active agent tail dropped: %v", out)
+	}
+
+	b := servertest.Start(t, cfg)
+	if _, out := b.REST("GET", "/api/v1/agents/w1/output", nil); len(lines(t, out)) != 0 {
+		t.Fatalf("revoked agent tail restored after restart: %v", out)
+	}
+	if _, out := b.REST("GET", "/api/v1/agents/w2/output", nil); len(lines(t, out)) != 2 {
+		t.Fatalf("active agent tail lost after restart: %v", out)
 	}
 }

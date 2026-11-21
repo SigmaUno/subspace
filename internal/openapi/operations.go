@@ -38,6 +38,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
 	"github.com/SigmaUno/subspace/internal/tokens"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
 
 const (
@@ -203,6 +204,7 @@ var operations = []Op{
 
 	get("/api/v1/search/", "Full-text search over tasks, messages, agents and briefs", list[search.Result]("results")).Q("q! kind limit:integer"),
 	get("/api/v1/timeseries", "Metric time series", timeseries.Series{}).Q("metric! bucket since brief_id"),
+	get("/api/v1/costs", "Cost and token breakdown by brief, task, component, agent, kind, model, provider, role or day", usage.CostBreakdown{}).Q("group_by split_by since until brief_id"),
 	get("/api/v1/notify/status", "Notification sink status", NotifyStatus{}),
 	post("/api/v1/notify/test", "Send one test notification through every sink", Free{}, list[notify.SinkResult]("results")),
 	get("/api/v1/digest/preview", "Preview the digest of a recent window", digest.Preview{}).Q("window"),

@@ -21,7 +21,8 @@ func init() {
 		d.API.Mount(d.Mux, "GET /api/v1/breakers", h)
 		d.API.Mount(d.Mux, "POST /api/v1/breakers/{provider}/reset", h)
 
-		svc := usage.New(breakerUsageStore{usage.NewMemStore(), d.Breakers}, usage.Config{})
+		svc := usage.New(breakerUsageStore{usage.NewPersisted(d.Store, 1), d.Breakers}, usage.Config{})
+		svc.Attrib = usage.StoreAttributor(d.Store)
 		svc.BriefOf = func(ctx context.Context, taskID string) (id string, err error) {
 			err = d.Store.View(ctx, func(tx store.Tx) error {
 				t, e := tx.GetTask(taskID)

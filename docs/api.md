@@ -606,6 +606,21 @@ Requests never follow redirects (a 3xx counts as a failure) and ignore proxy set
 
 The feed turns audit events and `system` thread messages into short sentences (`rex proposed plan P-3 with 14 tasks`, `owner approved plan P-3`). Every audited tool has a sentence template; an unknown tool falls back to `<actor> used <tool>`. Texts are whitespace-collapsed, cut and redacted for tokens and secrets. `brief_id` comes from the task, plan or brief the event belongs to; agent-thread messages and owner-wide events (`pause_all`, `set_limits`, ...) have none. New items are pushed as `activity.new` on topic `activity` (see SSE), polled from the database about every 500 ms.
 
+### Costs
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/costs?group_by=&split_by=&since=&until=&brief_id=` | → CostBreakdown. `group_by` is `brief` (default), `task`, `component`, `agent`, `kind`, `model`, `provider`, `role` or `day`; `split_by` takes the same values, must differ from `group_by` and adds a `split` list to every group. `since` and `until` are RFC 3339 (`since` defaults to 30 days before `until`, `until` to now). 400 for an unknown dimension, a malformed or reversed window, 404 for an unknown `brief_id`. |
+
+```jsonc
+// CostBreakdown
+{"group_by":"day","split_by":"provider","brief_id":"B-1","since":"...","until":"...",   // split_by and brief_id only when given
+ "total":{"requests":4,"tokens_in":231,"tokens_out":65,"cache_read":0,"cache_write":0,"cost_eur":5.75},
+ "groups":[{"key":"2026-11-21","requests":4,"tokens_in":231,"tokens_out":65,"cache_read":0,"cache_write":0,"cost_eur":5.75,
+            "split":[{"key":"anthropic","requests":2,"tokens_in":110,"tokens_out":55,"cache_read":0,"cache_write":0,"cost_eur":3.5}]}]}
+```
+
+Every completed `report_usage` request (and every usage record collected from agent sessions) is stored in the `cost_records` table with its brief, task, component, agent, agent kind, agent role, provider and model. Brief and component come from the task, kind and role from the reporting agent. Rate-limit reports carry no cost and are not stored; a repeated `request_id` replaces its record. Costs are in EUR, converted from the record's USD cost at the configured rate. An empty `key` groups records without that attribute. Groups are ordered by cost, descending (`day` ascending by date, UTC), then key. The viewer scope may read it.
+
 ### Reports & architecture
 | Method | Path | Body → Response |
 |---|---|---|
@@ -625,7 +640,11 @@ The feed turns audit events and `system` thread messages into short sentences (`
  "blocked_seconds":0,
  "throughput":{"done":3,"window_hours":2.5,"per_hour":1.2,"hourly":[{"hour":"...","done":2}]},
  "critical_path":{"task_ids":["T-1","T-2"],"seconds":3600},
- "outliers":[{"task_id":"T-3","metric":"work_seconds","value":9000,"threshold":3000}]}
+ "outliers":[{"task_id":"T-3","metric":"work_seconds","value":9000,"threshold":3000}],
+ "efficiency":{"done_tasks":3,"merged_tasks":3,"cost_per_done_task":0.13,"cost_per_merged_task":0.13,   // ratios are null without a denominator
+               "accepted_lines":120,"cost_per_accepted_line":0.0033,                                  // null without PR line stats
+               "review_overhead_eur":0.1,"review_overhead_pct":25,"cancelled_eur":0,"reworked_eur":0.2,"wasted_eur":0.2,
+               "cost_by_status":{"done":0.4}}}
 
 // Component
 {"id":"C-1","brief_id":"B-1","name":"api","description":"...","paths":["internal/api"],"depends_on":["C-2"]}
@@ -1148,7 +1167,7 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Usage and provider health** (all roles; never loop-protected)
-- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are held in memory.
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
 
 <<<<<<< HEAD

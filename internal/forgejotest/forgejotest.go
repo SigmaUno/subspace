@@ -310,3 +310,8 @@ func (r *Repo) CommitFile(t testing.TB, dir, file, content string) string {
 	r.Git(t, dir, "commit", "-q", "-m", "add "+file)
 	return r.Git(t, dir, "rev-parse", "HEAD")
 }
+
+func (r *Repo) AllowManualMerge(t testing.TB) {
+	t.Helper()
+	r.I.Do(t, "", http.MethodPatch, r.path(""), map[string]any{"allow_manual_merge": true}, nil)
+}

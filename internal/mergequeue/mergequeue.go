@@ -64,6 +64,10 @@ type Gate interface {
 	Approved(ctx context.Context, c Candidate) (bool, error)
 }
 
+type Finisher interface {
+	Merged(ctx context.Context, repo string, pr int, sha string) error
+}
+
 type Tasks interface {
 	RequestChanges(ctx context.Context, taskID, reason string) error
 }
@@ -76,6 +80,7 @@ type Config struct {
 	Notifier Notifier
 	Gate     Gate
 	Tasks    Tasks
+	Finisher Finisher
 	Trains   TrainStore
 	Deps     Deps
 	Checks   Checks
@@ -280,8 +285,21 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 	c.MergedSHA = sha
 	return errors.Join(
 		q.save(ctx, c, StateMerged),
-		q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d rebased onto %s, `%s` passed, merged (fast-forward) as %s.", c.PR, c.Base, verify, short(sha))),
+		q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d rebased onto %s, `%s` passed, merged (fast-forward) as %s.", c.PR, c.Base, verify, short(sha))+q.finish(ctx, c, sha)),
 	)
+}
+
+func (q *Queue) finish(ctx context.Context, c *Candidate, sha string) string {
+	if q.cfg.Finisher == nil {
+		return ""
+	}
+	err := q.cfg.Finisher.Merged(context.WithoutCancel(ctx), c.Repo, c.PR, sha)
+	if err == nil {
+		return ""
+	}
+	msg := redactCredentials(err.Error())
+	q.cfg.Logger.Warn("mergequeue: pull request not marked merged", "repo", c.Repo, "pr", c.PR, "err", msg)
+	return fmt.Sprintf("\n\nWarning: the pull request could not be marked merged on the host: %s", msg)
 }
 
 func (q *Queue) ensureRepo(ctx context.Context, dir string, rc RepoConfig, log *strings.Builder) error {

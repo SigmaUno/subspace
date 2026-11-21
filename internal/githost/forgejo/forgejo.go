@@ -166,6 +166,50 @@ func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githos
 	return nil
 }
 
+// MarkMerged records a pull request whose commits were already pushed to its base branch as merged.
+// The repository must allow the manually-merged merge style.
+func (c *Client) MarkMerged(ctx context.Context, repo string, number int64, sha string) error {
+	pr, err := c.GetPR(ctx, repo, number)
+	if err != nil {
+		return err
+	}
+	if pr.Merged {
+		return nil
+	}
+	body, err := json.Marshal(map[string]string{"Do": "manually-merged", "MergeCommitID": sha})
+	if err != nil {
+		return err
+	}
+	owner, name, _ := strings.Cut(repo, "/")
+	endpoint := fmt.Sprintf("%s/api/v1/repos/%s/%s/pulls/%d/merge", c.baseURL, url.PathEscape(owner), url.PathEscape(name), number)
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, endpoint, bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", "application/json")
+	if c.token != "" {
+		req.Header.Set("Authorization", "token "+c.token)
+	}
+	resp, err := c.http.Do(req)
+	if err != nil {
+		return fmt.Errorf("forgejo: mark merged: %w", err)
+	}
+	defer func() { _ = resp.Body.Close() }()
+	msg, _ := netguard.ReadBody(resp.Body, 1024)
+	switch {
+	case resp.StatusCode == http.StatusNotFound:
+		return fmt.Errorf("%w: %s#%d", githost.ErrNotFound, repo, number)
+	case resp.StatusCode != http.StatusOK:
+		var detail struct {
+			Message string `json:"message"`
+		}
+		_ = json.Unmarshal(msg, &detail)
+		return fmt.Errorf("forgejo: mark %s#%d merged: status %d: %s", repo, number, resp.StatusCode, strings.TrimSpace(detail.Message))
+	}
+	return nil
+}
+
 func (c *Client) ParsePRURL(prURL string) (string, int64, error) { return githost.ParsePRURL(prURL) }
 
 func (c *Client) VerifyWebhook(secret string, body []byte, signatureHeader string) bool {

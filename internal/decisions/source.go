@@ -15,10 +15,10 @@ func (s StoreSource) Snapshot(ctx context.Context) (*Snapshot, error) {
 	var out Snapshot
 	err := s.Store.View(ctx, func(tx store.Tx) error {
 		var err error
-		if out.Questions, err = tx.ListQuestions("open"); err != nil {
+		if out.Questions, err = tx.ListQuestions(store.QuestionFilter{Status: "open"}); err != nil {
 			return err
 		}
-		if out.Plans, err = tx.ListPlans("", model.PlanProposed); err != nil {
+		if out.Plans, err = tx.ListPlans(store.PlanFilter{Status: model.PlanProposed}); err != nil {
 			return err
 		}
 		for _, p := range out.Plans {

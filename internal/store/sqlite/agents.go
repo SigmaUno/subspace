@@ -149,6 +149,10 @@ func (t *tx) ListAgents(f store.AgentFilter) ([]*model.Agent, error) {
 		where = append(where, "a.status = ?")
 		args = append(args, f.Status)
 	}
+	if f.AfterID != "" {
+		where = append(where, "a.id > ?")
+		args = append(args, f.AfterID)
+	}
 	if len(where) > 0 {
 		q += " WHERE " + strings.Join(where, " AND ")
 	}

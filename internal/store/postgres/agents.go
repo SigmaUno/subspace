@@ -68,6 +68,9 @@ func (t *tx) ListAgents(f store.AgentFilter) ([]*model.Agent, error) {
 	var a args
 	a.eq("a.role", f.Role)
 	a.eq("a.status", f.Status)
+	if f.AfterID != "" {
+		a.where = append(a.where, "a.id > "+a.add(f.AfterID))
+	}
 	limit := f.Limit
 	if limit <= 0 {
 		limit = agentDefaultLimit

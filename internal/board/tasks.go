@@ -74,23 +74,13 @@ func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.T
 
 type TaskQuery struct {
 	BriefID, Status, Assignee, Role string
+	Cursor                          string
 	Limit                           int
 }
 
 func (b *Board) ListTasks(ctx context.Context, q TaskQuery) ([]*model.Task, error) {
-	f := store.TaskFilter{BriefID: q.BriefID, Assignee: q.Assignee, Role: q.Role, Limit: q.Limit}
-	if q.Status != "" {
-		f.Status = strings.Split(q.Status, ",")
-	}
-	var out []*model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
-		ts, err := tx.ListTasks(f)
-		for _, t := range ts {
-			out = append(out, b.overlay(t))
-		}
-		return err
-	})
-	return nz(out), err
+	p, err := b.ListTasksPage(ctx, q)
+	return p.Items, err
 }
 
 func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []string) ([]*model.Task, error) {

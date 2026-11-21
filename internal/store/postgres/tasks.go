@@ -111,6 +111,7 @@ func (t *tx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {
 	if len(f.Status) > 0 {
 		a.where = append(a.where, "status = ANY("+a.add(f.Status)+")")
 	}
+	a.after(f.AfterID)
 	limit := f.Limit
 	if limit <= 0 {
 		limit = taskDefaultLimit

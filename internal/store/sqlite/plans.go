@@ -86,18 +86,27 @@ func (t *tx) UpdatePlan(p *model.Plan) error {
 	return nil
 }
 
-func (t *tx) ListPlans(briefID, status string) ([]*model.Plan, error) {
+func (t *tx) ListPlans(f store.PlanFilter) ([]*model.Plan, error) {
 	q := `SELECT ` + planCols + ` FROM plans WHERE 1=1`
 	var args []any
-	if briefID != "" {
+	if f.BriefID != "" {
 		q += ` AND brief_id=?`
-		args = append(args, briefID)
+		args = append(args, f.BriefID)
 	}
-	if status != "" {
+	if f.Status != "" {
 		q += ` AND status=?`
-		args = append(args, status)
+		args = append(args, f.Status)
+	}
+	if f.AfterID != "" {
+		c, a := afterCreatedClause("plans", f.AfterID)
+		q += ` AND ` + c
+		args = append(args, a...)
 	}
 	q += ` ORDER BY created_at, id`
+	if f.Limit > 0 {
+		q += ` LIMIT ?`
+		args = append(args, f.Limit)
+	}
 	rows, err := t.q.QueryContext(t.ctx, q, args...)
 	if err != nil {
 		return nil, err

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"path/filepath"
 	"slices"
+	"strings"
 	"sync"
 	"testing"
 	"time"
@@ -409,5 +410,94 @@ func TestOwnerStop(t *testing.T) {
 	audit, err := s.b.ListAudit(s.ctx, store.AuditFilter{Tool: "stop_spawn"})
 	if err != nil || len(audit) != 1 || audit[0].Role != model.RoleOwner {
 		t.Fatalf("audit: %v %v", audit, err)
+	}
+}
+
+type nudgeSpawner struct {
+	*fakeSpawner
+	sent []string
+	err  error
+}
+
+func (n *nudgeSpawner) Nudge(_ context.Context, id, text string) error {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	if n.err != nil {
+		return n.err
+	}
+	n.sent = append(n.sent, id+": "+text)
+	return nil
+}
+
+func (n *nudgeSpawner) nudges() []string {
+	n.mu.Lock()
+	defer n.mu.Unlock()
+	return slices.Clone(n.sent)
+}
+
+func TestNudgeConnectedAgentWhenWorkIsAssigned(t *testing.T) {
+	s := newSim(t, lifecycle.Config{ConnectTimeout: time.Hour, IdleTTL: time.Hour, NudgeText: "wake up"})
+	ns := &nudgeSpawner{fakeSpawner: s.sp}
+	s.r = lifecycle.New(lifecycle.Options{Config: s.cfg, Board: s.b, Store: records{s.st}, Spawner: ns, Now: s.clk.Now})
+	bid := s.brief()
+	sps := s.spawn(bid, 2)
+	live, silent := sps[0], sps[1]
+	s.b.Touch(live.AgentID)
+
+	s.tick()
+	if got := ns.nudges(); len(got) != 0 {
+		t.Fatalf("nudged without work: %v", got)
+	}
+
+	s.assignTask(bid, live.AgentID)
+	s.assignTask(bid, silent.AgentID)
+	s.tick()
+	want := []string{live.AgentID + ": wake up"}
+	if got := ns.nudges(); !slices.Equal(got, want) {
+		t.Fatalf("nudges %v, want %v", got, want)
+	}
+
+	s.clk.advance(time.Minute)
+	s.tick()
+	s.tick()
+	if got := ns.nudges(); !slices.Equal(got, want) {
+		t.Fatalf("nudge repeated: %v", got)
+	}
+	s.want(live.ID, "spawned", "active", "")
+}
+
+func TestNudgeFailureIsRetriedAndPausedIsSkipped(t *testing.T) {
+	s := newSim(t, lifecycle.Config{ConnectTimeout: time.Hour, IdleTTL: time.Hour})
+	ns := &nudgeSpawner{fakeSpawner: s.sp, err: errors.New("host unreachable")}
+	s.r = lifecycle.New(lifecycle.Options{Config: s.cfg, Board: s.b, Store: records{s.st}, Spawner: ns, Now: s.clk.Now})
+	bid := s.brief()
+	sp := s.spawn(bid, 1)[0]
+	s.b.Touch(sp.AgentID)
+	s.assignTask(bid, sp.AgentID)
+
+	s.tick()
+	s.tick()
+	if got := ns.nudges(); len(got) != 0 {
+		t.Fatalf("nudges %v", got)
+	}
+
+	if err := s.b.PauseAll(s.ctx, "x"); err != nil {
+		t.Fatal(err)
+	}
+	ns.mu.Lock()
+	ns.err = nil
+	ns.mu.Unlock()
+	s.tick()
+	if got := ns.nudges(); len(got) != 0 {
+		t.Fatalf("nudged while paused: %v", got)
+	}
+
+	if err := s.b.ResumeAll(s.ctx); err != nil {
+		t.Fatal(err)
+	}
+	s.tick()
+	s.tick()
+	if got := ns.nudges(); len(got) != 1 || !strings.HasPrefix(got[0], sp.AgentID+": "+lifecycle.DefaultNudgeText) {
+		t.Fatalf("nudges %v", got)
 	}
 }

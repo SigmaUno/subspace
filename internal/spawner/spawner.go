@@ -27,6 +27,10 @@ type Request struct {
 	Env      map[string]string
 }
 
+type Nudger interface {
+	Nudge(ctx context.Context, agentID, text string) error
+}
+
 type Spawner interface {
 	Name() string
 	Spawn(ctx context.Context, r Request) error

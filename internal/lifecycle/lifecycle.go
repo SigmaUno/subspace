@@ -18,6 +18,7 @@ const (
 	DefaultConnectTimeout = 5 * time.Minute
 	DefaultIdleTTL        = 15 * time.Minute
 	DefaultInterval       = 30 * time.Second
+	DefaultNudgeText      = "Work has been assigned to you on Subspace. Call list_my_tasks and follow get_instructions."
 
 	ReasonConnectTimeout = "connect_timeout"
 	ReasonIdle           = "idle"
@@ -57,6 +58,7 @@ type Config struct {
 	IdleTTL        time.Duration
 	PauseGrace     time.Duration
 	Interval       time.Duration
+	NudgeText      string
 }
 
 type Options struct {
@@ -84,6 +86,7 @@ type Reaper struct {
 	o        Options
 	mu       sync.Mutex
 	pausedAt time.Time
+	nudged   map[string]bool
 }
 
 func New(o Options) *Reaper {
@@ -96,7 +99,10 @@ func New(o Options) *Reaper {
 	if o.Interval <= 0 {
 		o.Interval = DefaultInterval
 	}
-	return &Reaper{o: o}
+	if o.NudgeText == "" {
+		o.NudgeText = DefaultNudgeText
+	}
+	return &Reaper{o: o, nudged: map[string]bool{}}
 }
 
 func (r *Reaper) Run(ctx context.Context) {
@@ -161,11 +167,22 @@ func (r *Reaper) Tick(ctx context.Context) error {
 		return err
 	}
 	busy := map[string]bool{}
+	working := map[string]bool{}
+	waiting := map[string][]string{}
 	for _, t := range ts {
 		for _, id := range []*string{t.Assignee, t.Reviewer} {
 			if id != nil {
 				busy[*id] = true
 			}
+		}
+		if t.Assignee == nil {
+			continue
+		}
+		switch t.Status {
+		case model.StatusInProgress:
+			working[*t.Assignee] = true
+		case model.StatusAssigned, model.StatusChangesRequested:
+			waiting[*t.Assignee] = append(waiting[*t.Assignee], t.ID+"/"+t.Status)
 		}
 	}
 	closed, err := r.o.Board.ListBriefs(ctx, "closed")
@@ -185,6 +202,7 @@ func (r *Reaper) Tick(ctx context.Context) error {
 		r.pausedAt = now
 	}
 	pauseStop := paused && r.o.PauseGrace > 0 && now.Sub(r.pausedAt) >= r.o.PauseGrace
+	keep := map[string]bool{}
 
 	var errs []error
 	for _, sp := range s.spawns {
@@ -211,12 +229,45 @@ func (r *Reaper) Tick(ctx context.Context) error {
 			}
 		default:
 			err = r.observe(ctx, sp, rec, a, busy[a.ID], now)
+			if err == nil && !paused && a.Status == model.AgentActive && !working[a.ID] {
+				r.nudge(ctx, a.ID, waiting[a.ID], keep)
+			}
 		}
 		if err != nil {
 			errs = append(errs, err)
 		}
 	}
+	for k := range r.nudged {
+		if !keep[k] {
+			delete(r.nudged, k)
+		}
+	}
 	return errors.Join(errs...)
+}
+
+func (r *Reaper) nudge(ctx context.Context, agentID string, tasks []string, keep map[string]bool) {
+	n, ok := r.o.Spawner.(spawner.Nudger)
+	if !ok || len(tasks) == 0 {
+		return
+	}
+	fresh := false
+	for _, t := range tasks {
+		k := agentID + "/" + t
+		keep[k] = r.nudged[k]
+		fresh = fresh || !r.nudged[k]
+	}
+	if !fresh {
+		return
+	}
+	err := n.Nudge(ctx, agentID, r.o.NudgeText)
+	if err != nil && !errors.Is(err, spawner.ErrNotImplemented) {
+		r.o.Log.Warn("spawn nudge", "agent", agentID, "err", err)
+		return
+	}
+	for _, t := range tasks {
+		k := agentID + "/" + t
+		r.nudged[k], keep[k] = true, true
+	}
 }
 
 func (r *Reaper) observe(ctx context.Context, sp *model.Spawn, rec Record, a *model.Agent, busy bool, now time.Time) error {

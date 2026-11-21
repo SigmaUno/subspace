@@ -297,6 +297,7 @@ func TestListToolsMatchesRoles(t *testing.T) {
 		var want []string
 		reg := mcp.DefaultRegistry()
 		mcp.RegisterTaskTemplates(reg, nil, prompts.New(""))
+		mcp.RegisterPrompts(reg, prompts.New(""))
 		for _, tl := range reg.List(role) {
 			want = append(want, tl.Name)
 		}

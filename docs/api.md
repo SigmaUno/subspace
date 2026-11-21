@@ -1205,6 +1205,8 @@ An announcement without `brief_id` applies to every non-revoked agent. With `bri
 
 Built-in templates are embedded; `.md` files in `SUBSPACE_PROMPTS_DIR` override or extend them by id.
 
+Leaders read the same library with the MCP tools `list_prompts {"tag?":""}` → `{"prompts":[{"id","title","tags","variables"}]}` and `render_prompt {"id","vars":{}}` → `{"id","text"}` (every variable required; `bad_request` lists the missing ones). Both are read-only and leader only.
+
 ### Task templates
 A prompt library entry with `kind: task` is a task template: the leader tool `create_task_from_template` renders it into a task.
 
@@ -1765,7 +1767,7 @@ Every resource is at most 256 KiB. Markdown is cut at that size with a `[truncat
 | add_knowledge, add_note, ask_owner, get_artifact, get_instructions, get_knowledge, get_task, heartbeat, list_artifacts, list_my_tasks, log_output, post_message, put_artifact, read_thread, report_provider_error, report_usage, search_knowledge, update_status, whoami | ✓ | ✓ | ✓ | ✓ |
 | request_help, suggest_split | | ✓ | ✓ | ✓ |
 | claim_task, release_task, report_blocker, submit | | ✓ | ✓ | |
-| accept_split, agent_stats, assign, board, capacity, create_task, create_task_from_template, get_brief, get_components, get_forecast, get_report, list_agents, list_briefs, list_decisions, list_help_requests, list_spawns, pin_knowledge, propose_plan, reassign, request_spawn, search, supersede_knowledge, update_task | ✓ | | | |
+| accept_split, agent_stats, assign, board, capacity, create_task, create_task_from_template, get_brief, get_components, get_forecast, get_report, list_agents, list_briefs, list_decisions, list_help_requests, list_prompts, list_spawns, pin_knowledge, propose_plan, reassign, render_prompt, request_spawn, search, supersede_knowledge, update_task | ✓ | | | |
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
 

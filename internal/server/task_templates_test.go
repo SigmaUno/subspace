@@ -100,3 +100,48 @@ func TestCreateTaskFromTemplateOverMCP(t *testing.T) {
 		t.Fatal("create_task_from_template missing from the leader's tools/list")
 	}
 }
+
+func TestLeaderPromptLibraryOverMCP(t *testing.T) {
+	dir := t.TempDir()
+	custom := "---\nid: owner-prompt\ntitle: Owner prompt\ntags: [house]\nvariables: [thing]\n---\nImprove {{thing}} carefully.\n"
+	if err := os.WriteFile(filepath.Join(dir, "owner.md"), []byte(custom), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	e := servertest.Start(t, server.Config{PublicURL: "http://sub.test", PromptsDir: dir,
+		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute})
+	lead := e.Register("rex", "leader", "other")
+	worker := e.Register("w1", "worker", "claude-code")
+
+	ids := func(out map[string]any) []string {
+		var got []string
+		for _, x := range out["prompts"].([]any) {
+			got = append(got, x.(map[string]any)["id"].(string))
+		}
+		return got
+	}
+	all := ids(e.Must(lead, "list_prompts", map[string]any{}))
+	for _, id := range []string{"make-10x-faster", "believe-in-yourself-8h", "differential-test-close-gaps", "owner-prompt"} {
+		if !slices.Contains(all, id) {
+			t.Fatalf("list_prompts misses %s: %v", id, all)
+		}
+	}
+	if got := ids(e.Must(lead, "list_prompts", map[string]any{"tag": "house"})); !slices.Equal(got, []string{"owner-prompt"}) {
+		t.Fatalf("tag filter: %v", got)
+	}
+
+	out := e.Must(lead, "render_prompt", map[string]any{"id": "owner-prompt", "vars": map[string]any{"thing": "the sweeper"}})
+	if out["text"] != "Improve the sweeper carefully." {
+		t.Fatalf("render: %v", out)
+	}
+	res, isErr := e.Call(lead, "render_prompt", map[string]any{"id": "owner-prompt"})
+	if !isErr || !strings.Contains(res["error"].(map[string]any)["message"].(string), "missing variables: thing") {
+		t.Fatalf("missing variable: %v", res)
+	}
+	res, isErr = e.Call(lead, "render_prompt", map[string]any{"id": "nope"})
+	if !isErr || res["error"].(map[string]any)["code"] != "not_found" {
+		t.Fatalf("unknown prompt: %v", res)
+	}
+
+	e.MustFail(worker, "list_prompts", map[string]any{}, "")
+	e.MustFail(worker, "render_prompt", map[string]any{"id": "owner-prompt", "vars": map[string]any{"thing": "x"}}, "")
+}

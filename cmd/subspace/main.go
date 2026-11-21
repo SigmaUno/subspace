@@ -59,7 +59,7 @@ func count(k string, def int) int {
 
 func main() {
 	if len(os.Args) > 1 {
-		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore, "audit-verify": runAuditVerify}[os.Args[1]]; ok {
+		if run, ok := map[string]func([]string, io.Writer) error{"backup": runBackup, "restore": runRestore, "audit-verify": runAuditVerify, "export": runExport, "import": runImport}[os.Args[1]]; ok {
 			if err := run(os.Args[2:], os.Stdout); err != nil {
 				fmt.Fprintln(os.Stderr, "error:", err)
 				os.Exit(1)

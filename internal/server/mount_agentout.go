@@ -35,6 +35,9 @@ func mountAgentOutput(d Deps) {
 		cfg.FlushEvery = d.Cfg.FlushEvery
 	}
 	cfg.Now, cfg.Log = d.Cfg.Now, d.Log
+	cfg.Scan = func(ctx context.Context, a model.Actor, text string) string {
+		return d.Board.Scan(ctx, a, board.ChannelOutput, text)
+	}
 	svc := agentout.New(d.Store, outputDirectory{d.Board}, cfg)
 	if err := svc.Restore(d.Ctx); err != nil {
 		d.Log.Warn("agent output: loading persisted tail failed", "err", err)

@@ -21,6 +21,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/insights"
 	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/knowledge"
+	"github.com/SigmaUno/subspace/internal/leakguard"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -135,5 +136,6 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[replay.Transition]():      "ReplayTransition",
 	reflect.TypeFor[tokens.CreateInput]():     "APITokenInput",
 	reflect.TypeFor[tokens.Created]():         "APITokenCreated",
+	reflect.TypeFor[leakguard.Reissued]():     "TokenLeakReissued",
 	reflect.TypeFor[tokens.Token]():           "APIToken",
 }

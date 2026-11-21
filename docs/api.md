@@ -24,6 +24,8 @@ Agent tokens are 32 random bytes, base64url, prefixed `ssp_`. Only SHA-256 hashe
 
 Managed API tokens are 32 random bytes, base64url, prefixed `ssu_`, stored as SHA-256 hashes and returned once on create. Scope `owner` may call every `/api/v1` endpoint. Scope `viewer` may only use `GET`/`HEAD` (including SSE and mounted read endpoints) and never `/api/v1/tokens`; anything else is 403 `forbidden`. This is enforced centrally before any handler runs. Revoked or expired tokens are 401. Every state-changing owner action records the acting token id in the audit `note` as `token=<id>` (`token=root` for the env token), followed by `; <note>` when the action has its own note. `last_used_at` is written at most once per minute per token.
 
+A `/api/v1` request body with a JSON, text or empty content type that contains an agent or API token (`ssp_` or `ssu_` followed by 43 base64url characters) is rejected with 400 `bad_request` before any handler runs, so tokens never reach the charter, notes, reasons or any other stored text. Other bodies (artifact uploads) are not inspected.
+
 Optional network allowlists (unset = unrestricted): `SUBSPACE_OWNER_ALLOW_CIDRS` limits `/api/v1/*`, `SUBSPACE_AGENT_ALLOW_CIDRS` limits `/mcp`. Entries are CIDRs or bare addresses, comma-separated. A request from another address gets 403 `forbidden`. `/healthz` is always open. The client address is the TCP peer, unless the peer is inside `SUBSPACE_TRUSTED_PROXIES` (CIDRs or addresses, default none). Then the rightmost `X-Forwarded-For` entry that is not a trusted proxy is used, and a malformed entry fails closed. A malformed allowlist denies that surface entirely.
 
 Errors (REST): HTTP status + body
@@ -1119,7 +1121,7 @@ Library files stay backwards compatible: the added front matter keys are optiona
 Jobs and attempts are stored in the database. Attempts are recorded by the MCP `measure` tool, which exists only when `SUBSPACE_HILLCLIMB_WORKDIR` is set; without it jobs stay `running` with no attempts. The runner fetches the branch into a fresh git worktree under that directory and runs `metric_cmd` with `/bin/sh -c`, using only repos listed in `SUBSPACE_HILLCLIMB_REPOS` (JSON object `{"<repo>":"<git url>"}`). Other settings: `SUBSPACE_HILLCLIMB_TIMEOUT` (default `10m`), `SUBSPACE_HILLCLIMB_MAX_OUTPUT` (bytes, default 1 MiB), `SUBSPACE_HILLCLIMB_ENV` (comma list of extra env names passed through; `PATH`, `LANG`, `LC_ALL`, `TZ` always are), `SUBSPACE_HILLCLIMB_RLIMIT_CPU` (seconds), `SUBSPACE_HILLCLIMB_RLIMIT_MEM` (bytes), `SUBSPACE_HILLCLIMB_RLIMIT_NOFILE`. A timeout, an exceeded output cap, a symlink escaping the worktree or a non-zero exit records a failed attempt (`value` null).
 
 ### Artifacts
-Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools.
+Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools. Secrets in file names are masked before the name is stored.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -1287,7 +1289,7 @@ A digest is a short plain-text summary sent through the notification sinks (`kin
 Each variable is its own rule with its own window, which runs from the previous slot of that rule (or from the last evaluation) to now, at most 8 days. A time that does not exist on a daylight-saving day fires right after the gap; an ambiguous time fires once, at its first occurrence. A rule is skipped when nothing changed since its last digest: no tasks done, created or blocked, no cost or tokens, and the same pending decisions, risks, flapping agents and merge-ready PRs. A change to an empty state is sent once. The first evaluation after a fresh start only records the slot, and a missed slot is sent once on the next start. Rule state is kept in the key-value table (`digest.state.daily`, `digest.state.weekly`). Invalid values disable the digest and are logged.
 
 ### Logs
-Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner scope. The server keeps the last 2000 log lines in memory, redacted through the secret masker (tokens, keys and credential-looking values; attributes whose key contains `token`, `secret`, `password`, `authorization`, `cookie`, `api_key` or `credential` are always masked).
+Readable with an owner or `viewer` token; `PUT /api/v1/log-level` needs owner scope. The server keeps the last 2000 log lines in memory, redacted through the secret masker (tokens, keys and credential-looking values; attributes whose key contains `token`, `secret`, `password`, `authorization`, `cookie`, `api_key` or `credential` are always masked). Lines written to stderr are masked the same way.
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -1556,8 +1558,8 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Usage and provider health** (all roles; never loop-protected)
-- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
-- `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). `provider` must match `[a-z0-9][a-z0-9._-]{0,62}` and `model` `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, and neither may look like a secret (400). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
+- `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's. Explicit values follow the `report_usage` rules (400 otherwise).
 
 **Knowledge** (see Knowledge; every result carries `notice`)
 - `add_knowledge {"brief_id?","kind","title","body","tags?":["..."],"supersedes?"}` → `{"notice","entry":KnowledgeEntry}`. `brief_id` defaults to the brief of the caller's current task. Non-leader agents may only write to briefs of tasks where they are assignee or reviewer; `supersedes` is leader only (`forbidden` otherwise). Rate limited per agent (burst 10, then 6 per minute; `rate_limited`). Status `pending` while moderation is on.

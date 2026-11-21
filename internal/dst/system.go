@@ -45,6 +45,16 @@ const (
 	OpRelease        Kind = "release_task"
 	OpReview         Kind = "review"
 	OpAskOwner       Kind = "ask_owner"
+	OpCancel         Kind = "cancel"
+	OpReportTests    Kind = "report_tests"
+	OpEnqueue        Kind = "mq_enqueue"
+	OpMergeTick      Kind = "mq_tick"
+	OpAutopilotTick  Kind = "autopilot_tick"
+	OpWebhook        Kind = "webhook"
+	OpWebhookRace    Kind = "webhook_race"
+	OpInstrSave      Kind = "instructions_save"
+	OpInstrRollback  Kind = "instructions_rollback"
+	OpSearch         Kind = "search"
 )
 
 type Op struct {
@@ -56,6 +66,9 @@ type Op struct {
 	Pct     int
 	Cost    float64
 	Approve bool
+	N       int
+	Text    string
+	Forged  bool
 }
 
 func (o Op) String() string {
@@ -77,22 +90,35 @@ func (o Op) String() string {
 		fmt.Fprintf(&b, " pct=%d cost=%.2f", o.Pct, o.Cost)
 	case OpReview:
 		fmt.Fprintf(&b, " approve=%t", o.Approve)
+	case OpReportTests:
+		fmt.Fprintf(&b, " failed=%d", o.N)
+	case OpWebhook:
+		fmt.Fprintf(&b, " forged=%t", o.Forged)
+	case OpInstrSave:
+		fmt.Fprintf(&b, " text=%q", o.Text)
+	case OpInstrRollback:
+		fmt.Fprintf(&b, " to=%d", o.N)
+	case OpSearch:
+		fmt.Fprintf(&b, " q=%q", o.Text)
 	}
 	return b.String()
 }
 
 func (o Op) Mutating() bool {
 	switch o.Kind {
-	case OpAdvance, OpSweep, OpFlush, OpHeartbeat:
+	case OpAdvance, OpSweep, OpFlush, OpHeartbeat, OpEnqueue, OpMergeTick, OpAutopilotTick, OpWebhook, OpWebhookRace, OpSearch:
 		return false
 	}
 	return true
 }
 
 type Result struct {
-	Err    error
-	Lease  *time.Time
-	Paused bool
+	Err     error
+	Lease   *time.Time
+	Paused  bool
+	Hits    []string
+	Actions int
+	Spawned int
 }
 
 func (r Result) Code() string {
@@ -117,15 +143,19 @@ type TaskSpec struct {
 }
 
 type World struct {
-	Lease       time.Duration
-	BriefCost   float64
-	MaxParallel int
-	Leader      string
-	Agents      []AgentSpec
-	Tasks       []TaskSpec
+	Seed             int64
+	Server           *ServerWorld
+	AllowedProviders []string
+	Lease            time.Duration
+	BriefCost        float64
+	MaxParallel      int
+	Leader           string
+	Agents           []AgentSpec
+	Tasks            []TaskSpec
 }
 
 type Setup struct {
+	BriefID string
 	PlanID  string
 	TaskIDs []string
 }
@@ -136,12 +166,23 @@ type State struct {
 	Tasks  []*model.Task
 	Briefs []*model.Brief
 	Audit  []*model.AuditEvent
+	Agents []*model.Agent
+	Server *ServerState
 }
 
 func (s *State) Task(id string) *model.Task {
 	for _, t := range s.Tasks {
 		if t.ID == id {
 			return t
+		}
+	}
+	return nil
+}
+
+func (s *State) Agent(id string) *model.Agent {
+	for _, a := range s.Agents {
+		if a.ID == id {
+			return a
 		}
 	}
 	return nil

@@ -47,7 +47,16 @@ func (o *Outcome) WriteTrace(w io.Writer) {
 
 type Runner struct {
 	Factory Factory
+	World   func(seed int64) World
 	Dir     string
+}
+
+type Settler interface {
+	Settle()
+}
+
+func ServerRunner(dir string) *Runner {
+	return &Runner{Factory: NewServerSystem, World: NewServerWorld, Dir: dir}
 }
 
 func (r *Runner) Run(ctx context.Context, seed int64, steps int) (*Outcome, error) {
@@ -68,7 +77,11 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 			err = rerr
 		}
 	}()
-	w := NewWorld(seed)
+	world := r.World
+	if world == nil {
+		world = NewWorld
+	}
+	w := world(seed)
 	clock := NewClock(Epoch)
 	sys, err := r.Factory(dir, clock, w.Lease)
 	if err != nil {
@@ -114,6 +127,14 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 		}
 		pre = post
 	}
+	if st, ok := sys.(Settler); ok {
+		st.Settle()
+		post, err := sys.Snapshot(ctx)
+		if err != nil {
+			return nil, err
+		}
+		out.Violation = chk.Final(post)
+	}
 	return out, nil
 }
 
@@ -141,6 +162,26 @@ func (r *Runner) Shrink(ctx context.Context, o *Outcome, budget int) (*Outcome, 
 		}
 		if !removed {
 			chunk /= 2
+		}
+	}
+	return r.shrinkDurations(ctx, best, budget)
+}
+
+func (r *Runner) shrinkDurations(ctx context.Context, best *Outcome, budget int) (*Outcome, error) {
+	inv := best.Violation.Invariant
+	for i := 0; i < len(best.Steps) && budget > 0; i++ {
+		for best.Steps[i].Op.Kind == OpAdvance && best.Steps[i].Op.Dur > time.Second && budget > 0 {
+			ops := best.Ops()
+			ops[i].Dur = (ops[i].Dur / 2).Truncate(time.Second)
+			budget--
+			got, err := r.Replay(ctx, best.Seed, ops)
+			if err != nil {
+				return nil, err
+			}
+			if !got.Failed() || got.Violation.Invariant != inv || len(got.Steps) <= i {
+				break
+			}
+			best = got
 		}
 	}
 	return best, nil

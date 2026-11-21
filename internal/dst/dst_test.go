@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 )
@@ -12,6 +13,10 @@ const regressionsFile = "../../testdata/dst/regressions.txt"
 
 func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	t.Helper()
+	mode := ModeBoard
+	if r.World != nil {
+		mode = ModeServer
+	}
 	ctx := context.Background()
 	o, err := r.Run(ctx, seed, steps)
 	if err != nil {
@@ -25,7 +30,7 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	}
 	var b strings.Builder
 	o.WriteTrace(&b)
-	t.Fatalf("seed %d: %s\nreplay: go run ./cmd/subspace-dst -seeds 1 -start %d -steps %d\n%s", seed, o.Violation, seed, steps, b.String())
+	t.Fatalf("seed %d: %s\nreplay: go run ./cmd/subspace-dst -mode %s -seeds 1 -start %d -steps %d\n%s", seed, o.Violation, mode, seed, steps, b.String())
 }
 
 func TestSimulation(t *testing.T) {
@@ -42,33 +47,91 @@ func TestSimulation(t *testing.T) {
 	}
 }
 
+func TestServerSimulation(t *testing.T) {
+	seeds, steps := 6, 400
+	if testing.Short() {
+		seeds, steps = 4, 300
+	}
+	r := ServerRunner(t.TempDir())
+	for seed := int64(1); seed <= int64(seeds); seed++ {
+		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+			t.Parallel()
+			runSeed(t, r, seed, steps)
+		})
+	}
+}
+
 func TestRegressions(t *testing.T) {
 	regs, err := LoadRegressions(regressionsFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r := &Runner{Factory: NewBoardSystem, Dir: t.TempDir()}
+	runners := map[string]*Runner{
+		ModeBoard:  {Factory: NewBoardSystem, Dir: t.TempDir()},
+		ModeServer: ServerRunner(t.TempDir()),
+	}
 	for _, reg := range regs {
-		t.Run(fmt.Sprint(reg.Seed), func(t *testing.T) {
+		t.Run(fmt.Sprintf("%s/%d", reg.Mode, reg.Seed), func(t *testing.T) {
 			t.Parallel()
-			runSeed(t, r, reg.Seed, reg.Steps)
+			runSeed(t, runners[reg.Mode], reg.Seed, reg.Steps)
 		})
 	}
 }
 
 func TestDeterministic(t *testing.T) {
-	r := &Runner{Factory: NewBoardSystem, Dir: t.TempDir()}
-	trace := func() string {
-		o, err := r.Run(context.Background(), 7, 300)
-		if err != nil {
-			t.Fatal(err)
-		}
-		var b strings.Builder
-		o.WriteTrace(&b)
-		return b.String()
+	for mode, r := range map[string]*Runner{ModeBoard: {Factory: NewBoardSystem, Dir: t.TempDir()}, ModeServer: ServerRunner(t.TempDir())} {
+		t.Run(mode, func(t *testing.T) {
+			t.Parallel()
+			var traces [2]string
+			var wg sync.WaitGroup
+			for i := range traces {
+				wg.Go(func() {
+					o, err := r.Run(context.Background(), 7, 300)
+					if err != nil {
+						t.Error(err)
+						return
+					}
+					var b strings.Builder
+					o.WriteTrace(&b)
+					traces[i] = b.String()
+				})
+			}
+			wg.Wait()
+			if traces[0] != traces[1] {
+				t.Fatalf("seed 7 is not reproducible:\n%s\n---\n%s", traces[0], traces[1])
+			}
+		})
 	}
-	if a, b := trace(), trace(); a != b {
-		t.Fatalf("seed 7 is not reproducible:\n%s\n---\n%s", a, b)
+}
+
+func TestDetectsMergeWithoutGate(t *testing.T) {
+	t.Parallel()
+	r := ServerRunner(t.TempDir())
+	r.Factory = NewServerFactory(ServerOptions{AutoApprove: true})
+	outs := make([]*Outcome, 4)
+	var wg sync.WaitGroup
+	for i := range outs {
+		wg.Go(func() {
+			o, err := r.Run(context.Background(), int64(i+1), 400)
+			if err != nil {
+				t.Error(err)
+			}
+			outs[i] = o
+		})
+	}
+	wg.Wait()
+	found := false
+	for _, o := range outs {
+		if o == nil || !o.Failed() {
+			continue
+		}
+		if o.Violation.Invariant != InvMerge {
+			t.Fatalf("seed %d: got %s, want %s", o.Seed, o.Violation, InvMerge)
+		}
+		found = true
+	}
+	if !found {
+		t.Fatalf("no seed detected %s", InvMerge)
 	}
 }
 

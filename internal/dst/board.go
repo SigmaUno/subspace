@@ -6,6 +6,7 @@ import (
 	"log/slog"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
@@ -22,15 +23,17 @@ type BoardSystem struct {
 }
 
 func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, error) {
+	return newBoardSystem(dir, clock, board.Options{Lease: lease})
+}
+
+func newBoardSystem(dir string, clock *Clock, o board.Options) (*BoardSystem, error) {
 	st, err := sqlite.Open(filepath.Join(dir, "dst.db"))
 	if err != nil {
 		return nil, err
 	}
-	b, err := board.New(context.Background(), st, board.Options{
-		Lease: lease,
-		Now:   clock.Now,
-		Log:   slog.New(slog.NewTextHandler(io.Discard, nil)),
-	})
+	o.Now = clock.Now
+	o.Log = discard
+	b, err := board.New(context.Background(), st, o)
 	if err != nil {
 		_ = st.Close()
 		return nil, err
@@ -38,14 +41,22 @@ func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, erro
 	return &BoardSystem{st: st, b: b, clock: clock, roles: map[string]string{}}, nil
 }
 
+var discard = slog.New(slog.NewTextHandler(io.Discard, nil))
+
 func (s *BoardSystem) actor(id string) model.Actor {
 	return model.Actor{ID: id, Role: s.roles[id]}
 }
 
+func prURL(taskID string) string {
+	return "https://git.example/" + simRepo + "/pull/" + strings.TrimPrefix(taskID, "T-")
+}
+
+const simRepo = "sim/repo"
+
 func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	var out Setup
-	br, err := s.b.CreateBrief(ctx, board.BriefInput{Title: "dst", Body: "simulated brief", Repos: []string{"sim/repo"},
-		MaxCostEUR: w.BriefCost, MaxParallel: w.MaxParallel})
+	br, err := s.b.CreateBrief(ctx, board.BriefInput{Title: "dst", Body: "simulated brief", Repos: []string{simRepo},
+		MaxCostEUR: w.BriefCost, MaxParallel: w.MaxParallel, AllowedProviders: w.AllowedProviders})
 	if err != nil {
 		return out, err
 	}
@@ -58,14 +69,14 @@ func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	}
 	in := board.PlanInput{BriefID: br.ID}
 	for _, t := range w.Tasks {
-		in.Tasks = append(in.Tasks, board.TaskInput{Ref: t.Ref, Title: "task " + t.Ref, Spec: "spec " + t.Ref, Repo: "sim/repo",
+		in.Tasks = append(in.Tasks, board.TaskInput{Ref: t.Ref, Title: "task " + t.Ref, Spec: "spec " + t.Ref, Repo: simRepo,
 			Role: t.Role, DependsOn: t.DependsOn, Budget: t.Budget})
 	}
 	p, err := s.b.ProposePlan(ctx, s.actor(w.Leader), in)
 	if err != nil {
 		return out, err
 	}
-	out.PlanID = p.ID
+	out.PlanID, out.BriefID = p.ID, br.ID
 	for _, t := range p.Tasks {
 		out.TaskIDs = append(out.TaskIDs, t.ID)
 	}
@@ -116,7 +127,7 @@ func (s *BoardSystem) Do(ctx context.Context, op Op) Result {
 	case OpBlock:
 		_, err = s.b.UpdateStatus(ctx, a, board.StatusInput{TaskID: op.Task, Status: model.StatusBlocked, Note: "stuck"})
 	case OpSubmit:
-		_, err = s.b.Submit(ctx, a, board.SubmitInput{TaskID: op.Task, PRURL: "https://git.example/pr/" + op.Task, Summary: "done"})
+		_, err = s.b.Submit(ctx, a, board.SubmitInput{TaskID: op.Task, PRURL: prURL(op.Task), Summary: "done"})
 	case OpRelease:
 		_, err = s.b.ReleaseTask(ctx, a, op.Task, "dst")
 	case OpReview:
@@ -127,6 +138,10 @@ func (s *BoardSystem) Do(ctx context.Context, op Op) Result {
 		_, err = s.b.Review(ctx, a, op.Task, verdict, comments)
 	case OpAskOwner:
 		_, err = s.b.AskOwner(ctx, a, op.Task, "which way?", []string{"a", "b"})
+	case OpCancel:
+		_, err = s.b.Cancel(ctx, op.Task, "dst")
+	case OpReportTests:
+		_, err = s.b.ReportTests(ctx, a, op.Task, 10, op.N, "")
 	}
 	return Result{Err: err}
 }
@@ -144,6 +159,12 @@ func (s *BoardSystem) Snapshot(ctx context.Context) (*State, error) {
 	}
 	if out.Audit, err = s.b.ListAudit(ctx, store.AuditFilter{Limit: 1 << 30}); err != nil {
 		return nil, err
+	}
+	if out.Agents, err = s.b.ListAgents(ctx, "", ""); err != nil {
+		return nil, err
+	}
+	for _, a := range out.Agents {
+		s.roles[a.ID] = a.Role
 	}
 	return out, nil
 }

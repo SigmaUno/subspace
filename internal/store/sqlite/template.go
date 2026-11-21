@@ -30,7 +30,7 @@ func EnableTemplate() error {
 		if templateErr = s.Close(); templateErr != nil {
 			return
 		}
-		db, err := os.ReadFile(path)
+		db, err := os.ReadFile(path) //nolint:gosec // path is inside a private temp dir
 		if err != nil {
 			templateErr = err
 			return
@@ -45,7 +45,7 @@ func seedFromTemplate(path string) bool {
 	if db == nil {
 		return false
 	}
-	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600)
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_EXCL, 0o600) //nolint:gosec // path is the caller's database path
 	if err != nil {
 		return false
 	}

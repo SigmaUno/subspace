@@ -166,7 +166,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.BackupDir != "" {
 		backups, err = backup.New(backup.Config{
 			Dir: cfg.BackupDir, Interval: cfg.BackupInterval, Keep: cfg.BackupKeep,
-			Run: st.Backup, Verify: backupVerifier(cfg.DBPath), Logger: cfg.Log,
+			Run: st.Backup, Verify: backupVerifier(cfg.DBPath), Logger: cfg.Log, Now: cfg.Now,
 		})
 		if err != nil {
 			cl.close()

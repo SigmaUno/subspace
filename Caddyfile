@@ -1,18 +1,53 @@
+{
+	servers {
+		timeouts {
+			read_header 10s
+			read_body 30s
+			idle 2m
+		}
+	}
+}
+
 {$SUBSPACE_DOMAIN::80} {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		X-Frame-Options DENY
+		Referrer-Policy same-origin
+		-Server
+	}
+
+	request_body {
+		max_size 4MiB
+	}
+
 	@agent path /mcp* /healthz
 	handle @agent {
 		reverse_proxy subspace-server:8080 {
 			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
 		}
 	}
 
 	handle /api/v1/events {
 		reverse_proxy subspace-web:3000 {
 			flush_interval -1
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
 		}
 	}
 
 	handle {
-		reverse_proxy subspace-web:3000
+		reverse_proxy subspace-web:3000 {
+			transport http {
+				dial_timeout 5s
+				response_header_timeout 60s
+			}
+		}
 	}
 }

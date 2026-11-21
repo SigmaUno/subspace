@@ -5,7 +5,7 @@ the server changes, this file changes in the same PR.
 
 - Base URL: `SUBSPACE_PUBLIC_URL` (e.g. `https://subspace.example.com`). Local default `http://localhost:8080`.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current.
 
 ## 1. Auth
@@ -123,6 +123,26 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | GET/PUT | `/api/v1/charter` | `{"text":"..."}` ↔ `{"text":"...","updated_at":"..."}`. Charter text is appended to the built-in instructions returned by `get_instructions`. |
 | POST | `/api/v1/backup` | `{}` → `{"path":"/data/subspace/backups/subspace-20261120T210405Z.db","bytes":12345}` (`VACUUM INTO`, then `PRAGMA integrity_check` on the produced file; a failing file is deleted). 409 if a backup for the same second exists. |
 | GET | `/api/v1/backups` | → `{"backups":[{"name","path","bytes","verified":true,"created_at","age_seconds"}]}`, newest first. `verified` is the result of `integrity_check` on the file. Retention (`SUBSPACE_BACKUP_KEEP`) prunes older files after each successful backup. |
+
+### Organization spend limits
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/limits` | → Limits |
+| PUT | `/api/v1/limits` | `{"daily_cost_eur":10,"weekly_cost_eur":50}` → Limits. Replaces both caps (`0` or absent = off); 400 on a negative cap or an unknown field. Appends a `set_limits` audit event and re-evaluates immediately. |
+
+```jsonc
+// Limits
+{"daily_cost_eur":10,"weekly_cost_eur":50,"org_budget_paused":false,   // org_budget_paused: pause_all with reason org_budget is active
+ "windows":[{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning",   // off|ok|warning|exceeded
+             "starts_at":"2026-11-21T00:00:00Z","resets_at":"2026-11-22T00:00:00Z",
+             "projected_exhaustion_at":"2026-11-21T20:10:00Z"},                                // null when unknown or after resets_at
+            {"window":"weekly","cap_eur":50,"spent_eur":8.2,"percent":16.4,"level":"ok",
+             "starts_at":"2026-11-16T00:00:00Z","resets_at":"2026-11-23T00:00:00Z","projected_exhaustion_at":null}]}
+```
+
+The guard covers all briefs. Windows are UTC calendar windows: the day from 00:00, the week from Monday 00:00. Spend in a window is the larger of the usage records (converted to EUR) and the task `cost_used` increases first seen in it, so reported spend is not counted twice. It is evaluated every 10s and after every `update_status` call.
+
+At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budget:org-weekly`) and one `spend.warning` event, delivered by the notification sinks. At 100% it calls pause_all once per window and cap with reason `org_budget`: claims and spawns are refused (423 `paused`). The pause lifts when the window resets or a raised cap puts all windows under 100%, but only while the pause reason is still `org_budget`; an owner pause is never lifted. Resuming manually keeps the guard from pausing again in the same window with the same cap. The caps and the ledger are stored in the key-value table.
 
 ### Briefs
 | Method | Path | Body → Response |
@@ -287,6 +307,26 @@ When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board
 | GET | `/api/v1/questions?status=open` | → `{"questions":[Question]}` |
 | POST | `/api/v1/questions/{id}/answer` | `{"answer":"..."}` → Question. Posts an `answer` message to the task and agent threads. |
 
+### Help requests
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/help-requests?status=&brief_id=&task_id=&limit=` | → `{"help_requests":[HelpRequest]}` newest first. `status` is `open` (default), `accepted`, `superseded`, `closed` or `all`; `limit` default and max 1000, 400 if not a positive integer. |
+
+```jsonc
+// HelpRequest
+{"id":"HR-1","type":"help",                  // help|blocker|split
+ "kind":"unclear_spec",                      // help: unclear_spec|missing_access|conflicting_requirements|too_big|dependency_issue; blocker: "blocker"; split: "too_big"
+ "task_id":"T-3","brief_id":"B-1","agent_id":"claude-1","role":"worker",
+ "needs":"",                                 // blocker only: leader|owner
+ "details":"...",                            // help text, blocker reason, or a summary of the proposed tasks
+ "proposed_tasks":[],                        // split only: [{"ref","title","spec","acceptance_criteria":[],"repo","depends_on":[],"role","budget":{},"priority","component_id"}]
+ "status":"open",                            // open|accepted|superseded|closed
+ "created_tasks":[],                         // split accepted: ids of the tasks created
+ "created_at":"..."}
+```
+
+A request is `open` while it still applies: `help` and `split` while the task is not `done` or `cancelled`, `blocker` while the task is `blocked` or `needs_owner`; otherwise `closed`. Created by the MCP tools `request_help`, `report_blocker` and `suggest_split`, each audited under its tool name.
+
 ### Threads
 Thread key `{kind}/{id}` with kind `agent|task|brief`.
 | Method | Path | Body → Response |
@@ -371,6 +411,8 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 // Decision
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry
 {"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|merge-ready
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|budget
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|help
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
@@ -378,6 +420,7 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status). Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `help:<help request id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40, help 0) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -386,6 +429,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
+| `help` | `skip` | – (an open `help` request; the agent's details are the summary) |
 | `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
@@ -419,6 +463,22 @@ A send appends one owner `message` to the agent thread of each recipient. `agent
 ```
 
 Built-in templates are embedded; `.md` files in `SUBSPACE_PROMPTS_DIR` override or extend them by id.
+
+### Task templates
+A prompt library entry with `kind: task` is a task template: the leader tool `create_task_from_template` renders it into a task.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/task-templates` | → `{"templates":[Template]}` sorted by id, only entries with `kind: task`: `add-feature-with-tests`, `fix-bug-with-regression-test`, `perf-hillclimb-task`, `refactor-keep-behavior`, `security-fix`, `write-integration-tests`. |
+
+Library files stay backwards compatible: the added front matter keys are optional and only valid with `kind: task`. Task templates add `kind`, `task_title` (required, may use `{{variable}}`), `role` (`worker` default, or `tester`), `budget_minutes`, `budget_cost_eur` (plain non-negative numbers) and `acceptance_criteria` (a block list of `- ` lines, at most 20 items of at most 500 characters, plain or `"double"` quoted). New keys may appear once, tabs in list indentation, empty items, control characters and list items outside `acceptance_criteria` are rejected, and every `{{variable}}` used in the title, body or criteria must be declared in `variables`.
+
+```jsonc
+// Template (task template fields are omitted for plain prompts)
+{"id":"fix-bug-with-regression-test","title":"Fix a bug with a regression test","tags":["task-template","bugfix"],
+ "variables":["bug","symptom","area"],"body":"...","kind":"task","task_title":"Fix {{bug}}","role":"worker",
+ "budget":{"max_minutes":120,"max_cost_eur":5},"acceptance_criteria":["..."]}
+```
 
 ### Hillclimb
 | Method | Path | Body → Response |
@@ -566,6 +626,7 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `plan.proposed` / `plan.approved` / `plan.rejected` | Plan | plans, brief:* |
 | `spawn.updated` | Spawn | agents, brief:* |
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
+| `spend.warning` | `{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning","starts_at":"..."}` | control |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
@@ -586,7 +647,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter.
 
 ### Idempotency keys
-`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
+`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
 - A retry with the same key, tool and arguments returns the stored result (with the new JSON-RPC `id`) and the header `Idempotent-Replayed: true`; the call is not applied again. Concurrent duplicates wait for the first call.
 - The same key with another tool or other arguments → tool error `idempotency_conflict`.
 - Results with tool error codes `internal`, `agent_paused` and `rate_limited` are not stored, so a retry runs the call again.
@@ -602,8 +663,11 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | claim_task, release_task, submit | | ✓ | ✓ | |
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
-| get_brief, list_briefs, propose_plan, create_task, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
+| get_brief, list_briefs, propose_plan, create_task, create_task_from_template, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
 | list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
+| request_help, suggest_split | | ✓ | ✓ | ✓ |
+| report_blocker | | ✓ | ✓ | |
+| list_help_requests, accept_split | ✓ | | | |
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
 
@@ -636,6 +700,11 @@ All tools return an object; `task` = Task object above.
 **Tester**
 - `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`. Requires an `in_progress` task of mine (409 otherwise).
 
+**Worker feedback** (`request_help`, `suggest_split`: worker, tester, reviewer on tasks they can see; `report_blocker`: worker, tester). All three are rate limited by the loop guard like every non-read-only tool.
+- `request_help {"task_id","kind":"unclear_spec|missing_access|conflicting_requirements|too_big|dependency_issue","details"}` → `{"request":HelpRequest}`. Posts a structured message to the task and brief threads and adds an owner `help` decision; the task status is unchanged. 409 for a `done` or `cancelled` task.
+- `report_blocker {"task_id","reason","needs":"leader|owner"}` → `{"request":HelpRequest}`. Blocks the task exactly like `update_status` `blocked` (same checks: my `in_progress` task, `blocked_reason` `blocked by agent: <reason>`), records the structured need, posts to the task and brief threads and, for `needs` `leader`, to every active leader's agent thread.
+- `suggest_split {"task_id","proposed_tasks":[{"ref?","title","spec","acceptance_criteria?","repo?","depends_on?","role?","budget?","priority?","component_id?"}]}` → `{"request":HelpRequest}`. 2 to 20 tasks; `repo` defaults to the task's repo; `depends_on` names a `ref` of another proposed task or an existing task of the brief that does not depend on the task being split; cycles are rejected. A new proposal supersedes the open one for the same task. Posts to the task and brief threads.
+
 **Hill-climb** (worker and tester; listed only when `SUBSPACE_HILLCLIMB_WORKDIR` is set, see Hillclimb)
 - `measure {"job_id","branch"}` → `{"attempt":{"id","job_id","agent_id","branch","value","status":"ok|failed","measured_at","log"},"metric","loss","best","job_status","stop_reason","remaining_attempts"}`. `loss` is the metric negated for `max` jobs; `remaining_attempts` is null for an unlimited budget; `metric` is the last number printed by `metric_cmd`. Requires an `in_progress` task of mine in the job's brief and repo whose branch is `branch` or a prefix of it followed by `-`, within task and brief budgets (`budget_exceeded`), and Subspace not paused; otherwise `not_assigned`. 409 `conflict` on a stopped job, `budget_exceeded` when the job has no attempts left, 403 for a repo outside `SUBSPACE_HILLCLIMB_REPOS`.
 
@@ -645,9 +714,13 @@ All tools return an object; `task` = Task object above.
 
 **Leader**
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
+- `list_help_requests {"status?":"open|accepted|superseded|closed|all","brief_id?","task_id?","limit?":1-1000}` → `{"requests":[HelpRequest]}` (help requests, blockers and split proposals, newest first; default `open`)
+- `accept_split {"request_id"}` → `{"request":HelpRequest,"tasks":[Task],"original":Task,"rewired":["T-9"]}`. Creates the proposed tasks like `create_task` (ready or backlog), roots depend on the original's dependencies, tasks that depended on the original are re-pointed at the new tasks nothing else in the split depends on (`rewired`), then cancels the original. 409 if the proposal is not `open` or the task is `done`/`cancelled`. On a failure the created tasks are cancelled and the proposal stays open.
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
 - `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval). Tasks blocked for `budget_exceeded` or `poison_task` can only be unblocked by the owner (403, also for `reassign`). `budget` may only add or lower limits; raising or removing one is owner-only (403). `depends_on` follows the same rules as the owner PATCH (400 on unknown, self, cancelled, foreign-brief or cyclic dependencies); `create_task` checks `depends_on` the same way.
+- `create_task_from_template {"brief_id","template_id","vars":{"<variable>":"<value>"},"repo","depends_on?":["T-1"],"priority?":int}` → `{"task":Task}`. Renders a task template (see Task templates) into the task's title, spec, `acceptance_criteria`, `role` and `budget`, then creates it like `create_task` (status `ready` if the brief has an approved plan, else `backlog`). 400 `bad_request` when a declared variable is missing or blank (`task template X: missing variables: a, b (declared: ...)`), a variable is not declared, a value exceeds 4000 bytes (16000 in total) or contains a control character other than newline and tab, or the rendered title is empty or longer than 200 characters or the spec longer than 20000; 404 for an unknown template, listing the available ids.
+- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`

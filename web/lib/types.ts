@@ -1,3 +1,5 @@
+import type { CapacityLimit } from "./generated-types";
+
 export const statuses = [
   ["backlog", "Backlog"], ["ready", "Ready"], ["assigned", "Assigned"],
   ["in_progress", "In progress"], ["submitted", "Submitted"], ["in_review", "In review"],
@@ -117,14 +119,7 @@ export interface Control {
   version: string;
 }
 
-export interface CapacityLimit {
-  provider: string;
-  model: string;
-  max_concurrency: number;
-  requests_per_min: number;
-  in_use: number;
-  available: number;
-}
+export type { CapacityLimit };
 
 export interface Capacity {
   global_max_agents: number;

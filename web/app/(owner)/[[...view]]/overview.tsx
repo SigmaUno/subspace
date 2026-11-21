@@ -177,7 +177,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
           {architecture ? <Architecture components={components} tasks={taskList} loading={componentFeed.data === undefined}
             error={componentFeed.error} openThread={openThread} openChat={setChat} /> : <>
             <ForecastPanel briefID={id} revision={revisions.board} />
-            <Kanban board={board.data!} agents={agents} openThread={openThread} />
+            <Kanban board={board.data!} agents={agents} revision={revisions.board} openThread={openThread} />
             <Workload agents={agents} tasks={taskList} recent={recent} openThread={openThread} openChat={setChat} />
             <AutopilotPanel revision={revisions.board} spawnRevision={revisions.agents} />
             <div className="project-detail-grid">

@@ -1,32 +1,13 @@
-export interface UsageTotals {
-  requests: number;
-  tokens_in: number;
-  tokens_out: number;
-  cache_read: number;
-  cache_write: number;
-  cost_usd: number;
-  rate_limited: number;
-}
+import type {
+  UsageBriefBudget,
+  UsageCredits,
+  UsageGroup,
+  UsagePoint,
+  UsageTotals,
+} from "./generated-types";
 
-export interface UsageGroup extends UsageTotals {
-  key: string;
-}
-
-export interface UsageCredits {
-  total_usd: number | null;
-  spent_usd: number;
-  remaining_usd: number | null;
-}
-
-export interface BriefBudget {
-  brief_id: string;
-  title: string;
-  status: string;
-  budget_eur: number;
-  budget_usd: number;
-  spent_usd: number;
-  remaining_usd: number | null;
-}
+export type { UsageCredits, UsageGroup, UsagePoint, UsageTotals };
+export type BriefBudget = UsageBriefBudget;
 
 export interface UsageSummary {
   from: string;
@@ -36,10 +17,6 @@ export interface UsageSummary {
   groups: UsageGroup[];
   credits: UsageCredits;
   briefs: BriefBudget[];
-}
-
-export interface UsagePoint extends UsageTotals {
-  ts: string;
 }
 
 export interface UsageSeries {
@@ -67,4 +44,22 @@ export interface ProviderStatus {
   concurrency_headroom: number;
   requests_per_min: number;
   rpm_headroom: number;
+}
+
+export interface SpendWindow {
+  window: "daily" | "weekly";
+  cap_eur: number;
+  spent_eur: number;
+  percent: number;
+  level: "off" | "ok" | "warning" | "exceeded";
+  starts_at: string;
+  resets_at: string;
+  projected_exhaustion_at: string | null;
+}
+
+export interface SpendLimits {
+  daily_cost_eur: number;
+  weekly_cost_eur: number;
+  org_budget_paused: boolean;
+  windows: SpendWindow[];
 }

@@ -7,6 +7,7 @@ import type {
   BriefBudget, ProviderStatus, UsageGroup, UsagePoint, UsageSeriesResponse, UsageSummary,
 } from "../../../lib/usage-types";
 import { Clock } from "./components";
+import { OrgBudget } from "./org-budget";
 import { EmptyState, ResourceState, Skeleton } from "./states";
 
 const groupings = [
@@ -142,6 +143,8 @@ export function UsageView({ revision }: { revision: number }) {
       </div>}
     </div>
     <ResourceState error={summary.error || series.error || providers.error} loading={!summary.data || !providers.data} retry={retry} rows={4} />
+
+    <OrgBudget revision={revision} />
 
     <section className="stack">
       <h2>Provider availability</h2>

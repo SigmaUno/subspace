@@ -12,6 +12,7 @@ export type Revisions = Record<Scope, number>;
 
 const eventScopes = {
   "task.created": ["board", "decisions"],
+  "task.pr": ["board", "decisions"],
   "agent.updated": ["agents", "capacity"],
   "spawn.updated": ["agents", "capacity"],
   "question.created": ["questions", "control", "decisions"],

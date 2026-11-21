@@ -9,8 +9,10 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/client"
+	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/usage"
 )
 
@@ -142,6 +144,18 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		t.Fatalf("released %+v", rel)
 	}
 	_ = must(tm.worker.ClaimTask(ctx, impl))
+	if h := must(tm.worker.RequestHelp(ctx, impl, "unclear_spec", "which db?")); h.Type != helpreq.TypeHelp || h.Status != helpreq.StatusOpen {
+		t.Fatalf("help %+v", h)
+	}
+	if b := must(tm.worker.ReportBlocker(ctx, impl, "waiting for access", helpreq.NeedsLeader)); b.Needs != helpreq.NeedsLeader {
+		t.Fatalf("blocker %+v", b)
+	}
+	if bt := must(tm.leader.GetTask(ctx, impl)); bt.Status != model.StatusBlocked {
+		t.Fatalf("blocked task %+v", bt)
+	}
+	unblock := model.StatusReady
+	_ = must(tm.leader.UpdateTask(ctx, impl, board.TaskPatch{Status: &unblock}))
+	_ = must(tm.worker.ClaimTask(ctx, impl))
 	sub := must(tm.worker.Submit(ctx, board.SubmitInput{TaskID: impl, PRURL: "https://example.invalid/pr/1", Summary: "done"}))
 	if sub.Status != model.StatusSubmitted || sub.PRURL == nil {
 		t.Fatalf("submitted %+v", sub)
@@ -154,6 +168,21 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 	}
 	_ = must(tm.tester.Submit(ctx, board.SubmitInput{TaskID: tests, Summary: "tested"}))
 
+	big := must(tm.leader.CreateTask(ctx, taskInput(br.ID, "big")))
+	_ = must(tm.leader.Assign(ctx, big.ID, "wally", ""))
+	split := must(tm.worker.SuggestSplit(ctx, big.ID, []helpreq.Proposed{
+		{Ref: "a", Title: "big part a", Spec: "first half"},
+		{Ref: "b", Title: "big part b", Spec: "second half", DependsOn: []string{"a"}},
+	}))
+	if open := must(tm.leader.ListHelpRequests(ctx, helpreq.Filter{TaskID: big.ID})); len(open) != 1 || open[0].ID != split.ID {
+		t.Fatalf("open requests %+v", open)
+	}
+	accepted := must(tm.leader.AcceptSplit(ctx, split.ID))
+	if len(accepted.Tasks) != 2 || accepted.Original.Status != model.StatusCancelled || accepted.Request.Status != helpreq.StatusAccepted {
+		t.Fatalf("accepted %+v", accepted)
+	}
+	_ = must(tm.tester.RequestHelp(ctx, tests, "dependency_issue", "needs fixtures"))
+
 	reviews := must(tm.reviewer.ListReviews(ctx))
 	if !slices.ContainsFunc(reviews, func(x *model.Task) bool { return x.ID == impl }) {
 		t.Fatalf("reviews %+v", reviews)
@@ -162,6 +191,8 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 	if rv.Status != model.StatusApproved {
 		t.Fatalf("review %+v", rv)
 	}
+	_ = must(tm.reviewer.RequestHelp(ctx, impl, "conflicting_requirements", "spec and tests disagree"))
+	_ = must(tm.reviewer.SuggestSplit(ctx, impl, []helpreq.Proposed{{Title: "x", Spec: "x"}, {Title: "y", Spec: "y"}}))
 	if d := must(e.owner.MarkDone(ctx, impl, "merged")); d.Status != model.StatusDone {
 		t.Fatalf("done %+v", d)
 	}
@@ -223,7 +254,9 @@ func TestListToolsMatchesRoles(t *testing.T) {
 			}
 		}
 		var want []string
-		for _, tl := range mcp.DefaultRegistry().List(role) {
+		reg := mcp.DefaultRegistry()
+		mcp.RegisterTaskTemplates(reg, nil, prompts.New(""))
+		for _, tl := range reg.List(role) {
 			want = append(want, tl.Name)
 		}
 		if !slices.Equal(names, want) {

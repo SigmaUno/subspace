@@ -9,6 +9,7 @@ import type {
 import { statuses, type Message } from "../../../lib/types";
 import { Feedback } from "./components";
 import { useLive } from "./live";
+import { PRBadges, usePR } from "./pr-status";
 
 const statusNames = new Map<string, string>(statuses);
 const settled = ["done", "cancelled"];
@@ -128,6 +129,7 @@ export function TaskDetailPage({ id }: { id: string }) {
   const audit = useResource<AuditList>(
     `audit?${new URLSearchParams({ task_id: id, limit: "1000" })}`, revisions.board + revisions.thread);
   const messages = useResource<TaskMessages>(`threads/task/${path}/messages?limit=1000`, revisions.thread);
+  const prStatus = usePR(id, revisions.board);
   const reply = useSubmit();
 
   const current = task.data;
@@ -173,7 +175,9 @@ export function TaskDetailPage({ id }: { id: string }) {
             <Fact name="Review rounds">{current.review_rounds}</Fact>
             <Fact name="Repository">{current.repo}</Fact>
             <Fact name="Branch">{current.branch || "—"}</Fact>
-            <Fact name="Pull request">{pr ? <a href={pr} target="_blank" rel="noreferrer">Open pull request</a> : "No PR"}</Fact>
+            <Fact name="Pull request">{prStatus.data
+              ? <PRBadges pr={prStatus.data} />
+              : pr ? <a href={pr} target="_blank" rel="noreferrer">Open pull request</a> : "No PR"}</Fact>
             <Fact name="Tests">{current.tests
               ? <>{current.tests.passed} passed · {current.tests.failed} failed{current.tests.reported_at && <> · <time dateTime={current.tests.reported_at}>{stamp(current.tests.reported_at)}</time></>}</>
               : "Not reported"}</Fact>

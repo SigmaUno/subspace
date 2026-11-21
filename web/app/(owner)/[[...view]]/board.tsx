@@ -4,10 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useContext, useState } from "react";
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../lib/client";
+import type { PRStatus } from "../../../lib/pr-types";
 import { statuses, type Agent, type Board, type Brief, type Task, type Thread } from "../../../lib/types";
 import { ImportBrief } from "./brief-import";
 import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { PRBadges, usePRs } from "./pr-status";
 import { EmptyState, ResourceState } from "./states";
 import { VirtualList } from "./virtual";
 
@@ -65,8 +67,8 @@ export function BriefsView({ revision }: { revision: number }) {
   );
 }
 
-function TaskCard({ task, agent, agents, bulk, openThread }: {
-  task: Task; agent?: Agent; agents: Agent[]; bulk: Bulk; openThread: (thread: Thread) => void;
+function TaskCard({ task, agent, agents, bulk, pr: prStatus, openThread }: {
+  task: Task; agent?: Agent; agents: Agent[]; bulk: Bulk; pr?: PRStatus; openThread: (thread: Thread) => void;
 }) {
   const pr = safeURL(task.pr_url);
   const now = useContext(Clock);
@@ -87,23 +89,27 @@ function TaskCard({ task, agent, agents, bulk, openThread }: {
       <Heartbeat time={task.last_heartbeat_at} watch={task.status === "in_progress"} expires={task.lease_expires_at} />
       <div className="meta">{money(task.cost_used)} / {money(task.budget.max_cost_eur)} · {task.minutes_used} / {task.budget.max_minutes} min</div>
       {task.blocked_reason && <span className="stale">{label(task.blocked_reason)}</span>}
-      {pr && <a href={pr} target="_blank" rel="noreferrer">Open pull request</a>}
+      {prStatus ? <PRBadges pr={prStatus} /> : pr && <a href={pr} target="_blank" rel="noreferrer">Open pull request</a>}
       <QuickMenu taskID={task.id} agents={agents} bulk={bulk} />
     </article>
   );
 }
 
-export function Kanban({ board, agents, openThread }: {
-  board: Board; agents: Agent[]; openThread: (thread: Thread) => void;
+export function Kanban({ board, agents, revision, openThread }: {
+  board: Board; agents: Agent[]; revision: number; openThread: (thread: Thread) => void;
 }) {
   const [filter, setFilter] = useState("");
   const [statusFilter, setStatus] = useState("");
+  const [mergeReady, setMergeReady] = useState(false);
+  const prs = usePRs(revision, board.brief.id);
   const bulk = useBulk();
   const byID = new Map(agents.map((agent) => [agent.id, agent]));
   const visibleStatuses = statusFilter ? statuses.filter(([status]) => status === statusFilter) : statuses;
   const needle = filter.toLowerCase().trim();
-  const visible = visibleStatuses.flatMap(([status]) => (board.columns[status] ?? []).filter((task) =>
-    !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))));
+  const matches = (task: Task) =>
+    (!needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle))) &&
+    (!mergeReady || !!prs.byTask.get(task.id)?.merge_ready);
+  const visible = visibleStatuses.flatMap(([status]) => (board.columns[status] ?? []).filter(matches));
 
   return <section className="stack">
     <div className="heading">
@@ -116,16 +122,18 @@ export function Kanban({ board, agents, openThread }: {
           <option value="">All statuses</option>
           {statuses.map(([status, name]) => <option key={status} value={status}>{name}</option>)}
         </select>
+        {prs.supported && <label className="inline">
+          <input type="checkbox" checked={mergeReady} onChange={(event) => setMergeReady(event.target.checked)} /> Merge ready
+        </label>}
       </div>
     </div>
     <section className="board" aria-label="Kanban board" tabIndex={0}>
       {visibleStatuses.map(([status, name]) => {
-        const tasks = (board.columns[status] ?? []).filter((task) =>
-          !needle || [task.title, task.id, task.assignee, task.repo].some((field) => field?.toLowerCase().includes(needle)));
+        const tasks = (board.columns[status] ?? []).filter(matches);
         return <section className="column" aria-label={name} key={status} data-status={status}>
           <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
           <VirtualList items={tasks} name={`${name} tasks`} estimate={207} className="column-list"
-            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} agents={agents} bulk={bulk} openThread={openThread} />} />
+            render={(task) => <TaskCard task={task} agent={byID.get(task.assignee || "")} agents={agents} bulk={bulk} pr={prs.byTask.get(task.id)} openThread={openThread} />} />
         </section>;
       })}
     </section>

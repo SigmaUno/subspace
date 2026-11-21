@@ -27,7 +27,7 @@ const (
 var tools = map[string]bool{
 	"claim_task": true, "release_task": true, "submit": true, "review": true, "update_status": true,
 	"report_tests": true, "ask_owner": true, "post_message": true, "add_note": true, "assign": true,
-	"reassign": true, "propose_plan": true, "create_task": true, "request_spawn": true,
+	"reassign": true, "propose_plan": true, "create_task": true, "create_task_from_template": true, "request_spawn": true,
 }
 
 var transient = map[string]bool{"internal": true, "agent_paused": true, "rate_limited": true}

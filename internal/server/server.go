@@ -159,6 +159,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest.Mount(mux, "PUT /api/v1/briefs/{id}/components", components.Handler(comps))
 
 	lib := prompts.New(cfg.PromptsDir)
+	mcp.RegisterTaskTemplates(reg, b, lib)
 	rest.Mount(mux, "/api/v1/prompts", lib.Handler())
 	rest.Mount(mux, "/api/v1/prompts/", lib.Handler())
 

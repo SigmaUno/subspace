@@ -127,3 +127,12 @@ internal/forecast/forecast.go	start = max(start, free[k])	swap arguments start a
 internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 100001
 internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 99999
 internal/forecast/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound
+internal/incident/http.go	if err := dec.Decode(v); err != nil && (!optional || !errors.Is(err, io.EOF)) {	swap arguments err and io.EOF
+internal/incident/incident.go	merged := sortedActions(append(slices.Clone(active.Actions), req.Actions...))	swap arguments slices.Clone(active.Actions) and req.Actions
+internal/incident/incident.go	if slices.Equal(merged, active.Actions) {	swap arguments merged and active.Actions
+internal/incident/snapshot.go	err = tmp.Sync()	remove error assignment
+internal/drill/drill.go	o.Log = o.Log.With("component", "drill")	swap arguments "component" and "drill"
+internal/drill/drill.go	err = dst.Sync()	remove error assignment
+internal/drill/drill.go	return 0, err	change constant 0 to 1
+internal/drill/http.go	if err := dec.Decode(&req); err != nil && !errors.Is(err, io.EOF) {	swap arguments err and io.EOF
+internal/drill/store.go	rs, err := s.List(ctx, 1)	change constant 1 to 2

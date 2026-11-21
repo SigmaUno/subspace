@@ -84,6 +84,16 @@ func (b *Board) Capacity(ctx context.Context) (*CapacityView, error) {
 	return v, err
 }
 
+func (b *Board) CapacityUsage(ctx context.Context) (capacity.Config, capacity.Usage, error) {
+	cfg := b.capConfig()
+	var u capacity.Usage
+	err := b.read(ctx, func(tx store.Tx) (err error) {
+		u, _, err = b.usage(tx)
+		return
+	})
+	return cfg, u, err
+}
+
 func (b *Board) SetCapacity(ctx context.Context, cfg capacity.Config) (*CapacityView, error) {
 	if err := cfg.Validate(); err != nil {
 		return nil, model.BadRequest("%v", err)

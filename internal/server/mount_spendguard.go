@@ -37,10 +37,12 @@ func init() {
 
 func mountSpendGuard(d Deps) {
 	g, err := spendguard.New(d.Ctx, spendguard.Options{
-		Tasks:   spendTasks{d.Store},
-		Control: d.Board,
-		KV:      spendKV{d.Store},
-		Pub:     d.Hub,
+		Tasks:    spendTasks{d.Store},
+		Usage:    d.Usage,
+		EURToUSD: d.UsageSetup.EURToUSD,
+		Control:  d.Board,
+		KV:       spendKV{d.Store},
+		Pub:      d.Hub,
 		Audit: func(ctx context.Context, before, after spendguard.Limits) error {
 			return d.Store.Atomic(ctx, func(tx store.Tx) error {
 				return tx.InsertAudit(&model.AuditEvent{

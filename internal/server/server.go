@@ -35,6 +35,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/trace"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
 
 const traceShutdown = 5 * time.Second
@@ -271,8 +272,14 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
+	usageCfg, err := usageConfigFromEnv(env)
+	if err != nil {
+		cl.close()
+		_ = st.Close()
+		return nil, err
+	}
 	var closers []func()
-	deps := Deps{Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
+	deps := Deps{Usage: usage.NewPersisted(st, usageCfg.EURToUSD), UsageSetup: usageCfg, Ctx: ctx, OnClose: func(f func()) { closers = append(closers, f) }, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
 		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)

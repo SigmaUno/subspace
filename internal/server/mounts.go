@@ -18,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
 
 type Deps struct {
@@ -38,6 +39,8 @@ type Deps struct {
 	MCP        *mcp.Server
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
+	Usage      *usage.Persisted
+	UsageSetup usageSetup
 	Components components.Store
 	LocalHub   events.Hub
 	Leader     *ha.Elector

@@ -5253,6 +5253,48 @@
         ],
         "type": "object"
       },
+      "LiveCapacity": {
+        "properties": {
+          "agents_in_use": {
+            "type": "integer"
+          },
+          "credits_remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "global_max_agents": {
+            "type": "integer"
+          },
+          "limits": {
+            "items": {
+              "$ref": "#/components/schemas/CapacityLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "models": {
+            "items": {
+              "$ref": "#/components/schemas/ModelCapacity"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "agents_in_use",
+          "credits_remaining_usd",
+          "global_max_agents",
+          "limits",
+          "models"
+        ],
+        "type": "object"
+      },
       "LogLevel": {
         "properties": {
           "level": {
@@ -5402,6 +5444,37 @@
           "kind",
           "thread_id",
           "thread_kind"
+        ],
+        "type": "object"
+      },
+      "ModelCapacity": {
+        "properties": {
+          "in_use": {
+            "type": "integer"
+          },
+          "limited_by": {
+            "type": "string"
+          },
+          "model": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "requests_1m": {
+            "type": "integer"
+          },
+          "spawnable": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "in_use",
+          "limited_by",
+          "model",
+          "provider",
+          "requests_1m",
+          "spawnable"
         ],
         "type": "object"
       },
@@ -6463,6 +6536,61 @@
           "role",
           "spec",
           "title"
+        ],
+        "type": "object"
+      },
+      "ProviderStatus": {
+        "properties": {
+          "concurrency_headroom": {
+            "type": "integer"
+          },
+          "in_use": {
+            "type": "integer"
+          },
+          "last_rate_limited_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_concurrency": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "rate_limited_1h": {
+            "type": "integer"
+          },
+          "rate_limited_5m": {
+            "type": "integer"
+          },
+          "requests_1m": {
+            "type": "integer"
+          },
+          "requests_per_min": {
+            "type": "integer"
+          },
+          "rpm_headroom": {
+            "type": "integer"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "concurrency_headroom",
+          "in_use",
+          "last_rate_limited_at",
+          "max_concurrency",
+          "provider",
+          "rate_limited_1h",
+          "rate_limited_5m",
+          "requests_1m",
+          "requests_per_min",
+          "rpm_headroom",
+          "status"
         ],
         "type": "object"
       },
@@ -9624,6 +9752,288 @@
           "next_since",
           "segments",
           "task_id"
+        ],
+        "type": "object"
+      },
+      "UsageBriefBudget": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "budget_eur": {
+            "type": "number"
+          },
+          "budget_usd": {
+            "type": "number"
+          },
+          "remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spent_usd": {
+            "type": "number"
+          },
+          "status": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "budget_eur",
+          "budget_usd",
+          "remaining_usd",
+          "spent_usd",
+          "status",
+          "title"
+        ],
+        "type": "object"
+      },
+      "UsageCredits": {
+        "properties": {
+          "remaining_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "spent_usd": {
+            "type": "number"
+          },
+          "total_usd": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "remaining_usd",
+          "spent_usd",
+          "total_usd"
+        ],
+        "type": "object"
+      },
+      "UsageGroup": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "key",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
+      "UsagePoint": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "UsageSeries": {
+        "properties": {
+          "key": {
+            "type": "string"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/UsagePoint"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "key",
+          "points"
+        ],
+        "type": "object"
+      },
+      "UsageSeriesResponse": {
+        "properties": {
+          "bucket": {
+            "type": "string"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "series": {
+            "items": {
+              "$ref": "#/components/schemas/UsageSeries"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bucket",
+          "from",
+          "group_by",
+          "series",
+          "to"
+        ],
+        "type": "object"
+      },
+      "UsageSummary": {
+        "properties": {
+          "briefs": {
+            "items": {
+              "$ref": "#/components/schemas/UsageBriefBudget"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "credits": {
+            "$ref": "#/components/schemas/UsageCredits"
+          },
+          "from": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/UsageGroup"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "to": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "totals": {
+            "$ref": "#/components/schemas/UsageTotals"
+          }
+        },
+        "required": [
+          "briefs",
+          "credits",
+          "from",
+          "group_by",
+          "groups",
+          "to",
+          "totals"
+        ],
+        "type": "object"
+      },
+      "UsageTotals": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_usd": {
+            "type": "number"
+          },
+          "rate_limited": {
+            "type": "integer"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_usd",
+          "rate_limited",
+          "requests",
+          "tokens_in",
+          "tokens_out"
         ],
         "type": "object"
       },
@@ -18509,6 +18919,255 @@
         ]
       }
     },
+    "/api/v1/usage/capacity": {
+      "get": {
+        "operationId": "getUsageCapacity",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LiveCapacity"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Live capacity: how many more agents can be spawned now per provider and model",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/providers": {
+      "get": {
+        "operationId": "getUsageProviders",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "providers": {
+                      "items": {
+                        "$ref": "#/components/schemas/ProviderStatus"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "providers"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Provider availability: rate limits, concurrency and request headroom",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/series": {
+      "get": {
+        "operationId": "getUsageSeries",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "bucket",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSeriesResponse"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Token usage and USD cost over time in minute, hour or day buckets",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
+    "/api/v1/usage/summary": {
+      "get": {
+        "operationId": "getUsageSummary",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "from",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "to",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "group_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "agent_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "provider",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "model",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "source",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UsageSummary"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Token usage and USD cost grouped by agent, task, brief, model, provider or source, with credits and brief budget burn",
+        "tags": [
+          "usage"
+        ]
+      }
+    },
     "/api/v1/webhooks-out": {
       "get": {
         "operationId": "getWebhooksOut",
@@ -19154,6 +19813,9 @@
     },
     {
       "name": "tokens"
+    },
+    {
+      "name": "usage"
     },
     {
       "name": "webhooks-out"

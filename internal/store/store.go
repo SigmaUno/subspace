@@ -18,13 +18,40 @@ type TaskFilter struct {
 	Assignee string
 	Reviewer string
 	Role     string
+	AfterID  string
 	Limit    int
 }
 
 type AgentFilter struct {
-	Role   string
-	Status string
-	Limit  int
+	Role    string
+	Status  string
+	AfterID string
+	Limit   int
+}
+
+type BriefFilter struct {
+	Status  string
+	AfterID string
+	Limit   int
+}
+
+type PlanFilter struct {
+	BriefID string
+	Status  string
+	AfterID string
+	Limit   int
+}
+
+type QuestionFilter struct {
+	Status  string
+	AfterID string
+	Limit   int
+}
+
+type SpawnFilter struct {
+	BriefID string
+	AfterID string
+	Limit   int
 }
 
 type AuditFilter struct {
@@ -41,12 +68,12 @@ type Tx interface {
 	InsertBrief(b *model.Brief) error
 	GetBrief(id string) (*model.Brief, error)
 	UpdateBrief(b *model.Brief) error
-	ListBriefs(status string) ([]*model.Brief, error)
+	ListBriefs(f BriefFilter) ([]*model.Brief, error)
 
 	InsertPlan(p *model.Plan) error
 	GetPlan(id string) (*model.Plan, error)
 	UpdatePlan(p *model.Plan) error
-	ListPlans(briefID, status string) ([]*model.Plan, error)
+	ListPlans(f PlanFilter) ([]*model.Plan, error)
 
 	InsertTask(t *model.Task) error
 	GetTask(id string) (*model.Task, error)
@@ -71,7 +98,7 @@ type Tx interface {
 	InsertQuestion(q *model.Question) error
 	GetQuestion(id string) (*model.Question, error)
 	UpdateQuestion(q *model.Question) error
-	ListQuestions(status string) ([]*model.Question, error)
+	ListQuestions(f QuestionFilter) ([]*model.Question, error)
 
 	InsertAudit(e *model.AuditEvent) error
 	ListAudit(f AuditFilter) ([]*model.AuditEvent, error)
@@ -80,7 +107,7 @@ type Tx interface {
 
 	InsertSpawn(s *model.Spawn) error
 	UpdateSpawn(s *model.Spawn) error
-	ListSpawns(briefID string) ([]*model.Spawn, error)
+	ListSpawns(f SpawnFilter) ([]*model.Spawn, error)
 
 	GetKV(key string) (string, bool, error)
 	SetKV(key, value string) error

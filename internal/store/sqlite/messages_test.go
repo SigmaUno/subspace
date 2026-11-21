@@ -157,15 +157,15 @@ func TestQuestions(t *testing.T) {
 		if !reflect.DeepEqual(g, full) {
 			t.Fatalf("after update: %+v", g)
 		}
-		all, _ := tx.ListQuestions("")
+		all, _ := tx.ListQuestions(store.QuestionFilter{})
 		if len(all) != 3 || all[0].ID != "Q-3" || all[1].ID != "Q-1" || all[2].ID != "Q-2" {
 			t.Fatalf("all order: %+v", all)
 		}
-		open, _ := tx.ListQuestions("open")
+		open, _ := tx.ListQuestions(store.QuestionFilter{Status: "open"})
 		if len(open) != 2 || open[0].ID != "Q-3" || open[1].ID != "Q-2" {
 			t.Fatalf("open: %+v", open)
 		}
-		answered, _ := tx.ListQuestions("answered")
+		answered, _ := tx.ListQuestions(store.QuestionFilter{Status: "answered"})
 		if len(answered) != 1 || answered[0].ID != "Q-1" {
 			t.Fatalf("answered: %+v", answered)
 		}

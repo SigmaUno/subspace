@@ -17,7 +17,21 @@ const taskCols = `id, brief_id, plan_id, title, spec, acceptance, repo, branch, 
   status, progress_pct, last_heartbeat_at, lease_expires_at, claimed_at, pr_url, max_minutes, max_cost_eur,
   cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, priority, component_id, lease_expiries`
 
-const taskOrder = ` ORDER BY priority DESC, CAST(SUBSTR(id, INSTR(id, '-') + 1) AS INTEGER), id`
+const idNum = `CAST(SUBSTR(id, INSTR(id, '-') + 1) AS INTEGER)`
+
+const taskOrder = ` ORDER BY priority DESC, ` + idNum + `, id`
+
+func afterCreatedClause(table, afterID string) (string, []any) {
+	at := `(SELECT created_at FROM ` + table + ` WHERE id=?)`
+	return `(created_at > ` + at + ` OR (created_at = ` + at + ` AND id > ?))`, []any{afterID, afterID, afterID}
+}
+
+func afterCreatedNumClause(table, afterID string) (string, []any) {
+	n := store.IDNum(afterID)
+	at := `(SELECT created_at FROM ` + table + ` WHERE id=?)`
+	return `(created_at > ` + at + ` OR (created_at = ` + at + ` AND (` + idNum + ` > ? OR (` + idNum + ` = ? AND id > ?))))`,
+		[]any{afterID, afterID, n, n, afterID}
+}
 
 func taskMs(tm time.Time) int64 {
 	if tm.IsZero() {
@@ -217,6 +231,11 @@ func (t *tx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {
 		for _, s := range f.Status {
 			args = append(args, s)
 		}
+	}
+	if f.AfterID != "" {
+		n := store.IDNum(f.AfterID)
+		where = append(where, `(priority < (SELECT priority FROM tasks WHERE id=?) OR (priority = (SELECT priority FROM tasks WHERE id=?) AND (`+idNum+` > ? OR (`+idNum+` = ? AND id > ?))))`)
+		args = append(args, f.AfterID, f.AfterID, n, n, f.AfterID)
 	}
 	q := `SELECT ` + taskCols + ` FROM tasks`
 	if len(where) > 0 {

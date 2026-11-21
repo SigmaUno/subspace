@@ -110,19 +110,8 @@ func (b *Board) ReadThread(ctx context.Context, a model.Actor, thread string, si
 }
 
 func (b *Board) readRef(ctx context.Context, a model.Actor, ref threads.Ref, since int64, limit int) ([]*model.Message, error) {
-	if limit > MaxPage {
-		limit = MaxPage
-	}
-	var out []*model.Message
-	err := b.read(ctx, func(tx store.Tx) error {
-		if err := canAccessThread(tx, a, ref); err != nil {
-			return err
-		}
-		ms, err := tx.ListMessages(ref.Kind, ref.ID, since, limit)
-		out = ms
-		return err
-	})
-	return nz(out), err
+	p, err := b.readRefPage(ctx, a, ref, "", since, limit)
+	return p.Items, err
 }
 
 func (b *Board) OwnerThread(ctx context.Context, kind, id string, since int64, limit int) ([]*model.Message, error) {
@@ -180,9 +169,8 @@ func (b *Board) AskOwner(ctx context.Context, a model.Actor, taskID, question st
 }
 
 func (b *Board) ListQuestions(ctx context.Context, status string) ([]*model.Question, error) {
-	var out []*model.Question
-	err := b.read(ctx, func(tx store.Tx) (e error) { out, e = tx.ListQuestions(status); return })
-	return nz(out), err
+	p, err := b.ListQuestionsPage(ctx, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) Answer(ctx context.Context, id, answer string) (*model.Question, error) {

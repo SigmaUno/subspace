@@ -180,15 +180,8 @@ func (b *Board) registerMany(ctx context.Context, ins []AgentInput) ([]*Register
 }
 
 func (b *Board) ListAgents(ctx context.Context, role, status string) ([]*model.Agent, error) {
-	var out []*model.Agent
-	err := b.read(ctx, func(tx store.Tx) error {
-		as, err := tx.ListAgents(store.AgentFilter{Role: role, Status: status, Limit: 100000})
-		for _, a := range as {
-			out = append(out, b.overlayAgent(a))
-		}
-		return err
-	})
-	return nz(out), err
+	p, err := b.ListAgentsPage(ctx, role, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) GetAgent(ctx context.Context, id string) (*model.Agent, error) {

@@ -156,7 +156,7 @@ func (s *sim) tick() {
 
 func (s *sim) get(id string) lifecycle.Spawn {
 	s.t.Helper()
-	sps, err := s.r.List(s.ctx, "")
+	sps, _, err := s.r.List(s.ctx, "", "", 0)
 	if err != nil {
 		s.t.Fatal(err)
 	}

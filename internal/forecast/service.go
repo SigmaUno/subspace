@@ -108,7 +108,7 @@ func (s StoreSource) Snapshot(ctx context.Context, briefID string) (Snapshot, er
 func (s StoreSource) OpenBriefs(ctx context.Context) ([]string, error) {
 	var ids []string
 	err := s.Store.View(ctx, func(tx store.Tx) error {
-		bs, err := tx.ListBriefs("open")
+		bs, err := tx.ListBriefs(store.BriefFilter{Status: "open"})
 		for _, b := range bs {
 			ids = append(ids, b.ID)
 		}

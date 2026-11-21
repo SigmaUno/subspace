@@ -42,11 +42,11 @@ func (b *Board) State(ctx context.Context) (*StateInfo, error) {
 		if err != nil {
 			return err
 		}
-		qs, err := tx.ListQuestions("open")
+		qs, err := tx.ListQuestions(store.QuestionFilter{Status: "open"})
 		if err != nil {
 			return err
 		}
-		ps, err := tx.ListPlans("", model.PlanProposed)
+		ps, err := tx.ListPlans(store.PlanFilter{Status: model.PlanProposed})
 		if err != nil {
 			return err
 		}
@@ -190,21 +190,8 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 }
 
 func (b *Board) ListBriefs(ctx context.Context, status string) ([]*model.Brief, error) {
-	var out []*model.Brief
-	err := b.read(ctx, func(tx store.Tx) error {
-		bs, err := tx.ListBriefs(status)
-		if err != nil {
-			return err
-		}
-		for _, br := range bs {
-			if br.CostUsed, err = tx.BriefCost(br.ID); err != nil {
-				return err
-			}
-		}
-		out = bs
-		return nil
-	})
-	return nz(out), err
+	p, err := b.ListBriefsPage(ctx, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
@@ -399,7 +386,7 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if len(errs) > 0 {
 			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
 		}
-		old, err := tx.ListPlans(br.ID, model.PlanProposed)
+		old, err := tx.ListPlans(store.PlanFilter{BriefID: br.ID, Status: model.PlanProposed})
 		if err != nil {
 			return err
 		}
@@ -500,21 +487,8 @@ func (b *Board) loadPlan(tx store.Tx, id string) (*model.Plan, error) {
 }
 
 func (b *Board) ListPlans(ctx context.Context, briefID, status string) ([]*model.Plan, error) {
-	var out []*model.Plan
-	err := b.read(ctx, func(tx store.Tx) error {
-		ps, err := tx.ListPlans(briefID, status)
-		if err != nil {
-			return err
-		}
-		for _, p := range ps {
-			if p, err = b.loadPlan(tx, p.ID); err != nil {
-				return err
-			}
-			out = append(out, p)
-		}
-		return nil
-	})
-	return nz(out), err
+	p, err := b.ListPlansPage(ctx, briefID, status, "", 0)
+	return p.Items, err
 }
 
 func (b *Board) GetPlan(ctx context.Context, id string) (*model.Plan, error) {

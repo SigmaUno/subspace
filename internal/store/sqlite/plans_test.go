@@ -61,23 +61,23 @@ func TestPlansRoundTrip(t *testing.T) {
 			t.Fatalf("missing: got %v", err)
 		}
 
-		all, err := tx.ListPlans("", "")
+		all, err := tx.ListPlans(store.PlanFilter{BriefID: ""})
 		if err != nil || len(all) != 3 || all[0].ID != "P-1" || all[2].ID != "P-3" {
 			t.Fatalf("list all: %v %v", all, err)
 		}
-		b1, _ := tx.ListPlans("B-1", "")
+		b1, _ := tx.ListPlans(store.PlanFilter{BriefID: "B-1"})
 		if len(b1) != 2 {
 			t.Fatalf("list brief: %d", len(b1))
 		}
-		prop, _ := tx.ListPlans("", model.PlanProposed)
+		prop, _ := tx.ListPlans(store.PlanFilter{Status: model.PlanProposed})
 		if len(prop) != 2 {
 			t.Fatalf("list status: %d", len(prop))
 		}
-		both, _ := tx.ListPlans("B-1", model.PlanApproved)
+		both, _ := tx.ListPlans(store.PlanFilter{BriefID: "B-1", Status: model.PlanApproved})
 		if len(both) != 1 || both[0].ID != "P-2" {
 			t.Fatalf("list both: %v", both)
 		}
-		none, err := tx.ListPlans("B-9", "")
+		none, err := tx.ListPlans(store.PlanFilter{BriefID: "B-9"})
 		if err != nil || len(none) != 0 {
 			t.Fatalf("list none: %v %v", none, err)
 		}

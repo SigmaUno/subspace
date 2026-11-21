@@ -343,16 +343,30 @@ func (r *Reaper) stop(ctx context.Context, sp *model.Spawn, rec Record, a *model
 	return rec, nil
 }
 
-func (r *Reaper) List(ctx context.Context, briefID string) ([]Spawn, error) {
-	s, err := r.load(ctx, briefID)
+func (r *Reaper) List(ctx context.Context, briefID, cursor string, limit int) ([]Spawn, string, error) {
+	page, err := r.o.Board.ListSpawnsPage(ctx, briefID, cursor, limit)
 	if err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	out := make([]Spawn, len(s.spawns))
-	for i, sp := range s.spawns {
-		out[i] = view(sp, s.record(sp.ID), s.agents[sp.AgentID])
+	recs, err := r.o.Store.Records(ctx)
+	if err != nil {
+		return nil, "", err
 	}
-	return out, nil
+	as, err := r.o.Board.ListAgents(ctx, "", "")
+	if err != nil {
+		return nil, "", err
+	}
+	agents := make(map[string]*model.Agent, len(as))
+	for _, a := range as {
+		agents[a.ID] = a
+	}
+	out := make([]Spawn, len(page.Items))
+	for i, sp := range page.Items {
+		rec := recs[sp.ID]
+		rec.SpawnID = sp.ID
+		out[i] = view(sp, rec, agents[sp.AgentID])
+	}
+	return out, page.Next, nil
 }
 
 func view(sp *model.Spawn, rec Record, a *model.Agent) Spawn {

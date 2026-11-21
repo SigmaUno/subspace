@@ -23,6 +23,23 @@ func init() {
 
 		svc := usage.New(breakerUsageStore{usage.NewPersisted(d.Store, 1), d.Breakers}, usage.Config{})
 		svc.Attrib = usage.StoreAttributor(d.Store)
+		svc.Allow = func(ctx context.Context, a model.Actor, taskID, briefID string) error {
+			if taskID != "" {
+				t, err := d.Board.GetTask(ctx, a, taskID)
+				if err != nil {
+					return err
+				}
+				if briefID != "" && briefID != t.BriefID {
+					return model.BadRequest("brief_id %s does not match the brief of task %s", briefID, taskID)
+				}
+				return nil
+			}
+			ok, err := d.Board.BriefVisible(ctx, a, briefID)
+			if err == nil && !ok {
+				err = model.NotFound("not found")
+			}
+			return err
+		}
 		svc.BriefOf = func(ctx context.Context, taskID string) (id string, err error) {
 			err = d.Store.View(ctx, func(tx store.Tx) error {
 				t, e := tx.GetTask(taskID)

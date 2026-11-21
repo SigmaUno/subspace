@@ -1355,7 +1355,7 @@ All tools return an object; `task` = Task object above.
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
 
 **Usage and provider health** (all roles; never loop-protected)
-- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). A `task_id` must be a task the caller can see (`not_found` otherwise, like `get_task`), a `brief_id` must be visible to the caller and, with `task_id`, match its brief (400). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are kept in memory and completed requests are also stored for `GET /api/v1/costs`.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
 
 <<<<<<< HEAD

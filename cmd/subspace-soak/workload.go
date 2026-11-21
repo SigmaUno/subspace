@@ -348,6 +348,7 @@ func (h *harness) leaderLoop(ctx context.Context, m *client.MCP, r *rand.Rand) {
 				h.propose(ctx, m, b.ID, r)
 			case "approved":
 				if cols, err := m.Board(ctx, b.ID); err == nil {
+					h.noteTasks(cols)
 					h.lead(ctx, m, b.ID, cols, r)
 				}
 			}

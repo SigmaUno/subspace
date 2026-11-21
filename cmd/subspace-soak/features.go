@@ -344,7 +344,11 @@ func (h *harness) stream(ctx context.Context, s *streamer, r *mrand.Rand) {
 		if r.IntN(20) == 0 {
 			seq--
 		}
-		if _, err := s.m.LogOutput(sctx, agentout.Input{Stream: streams[r.IntN(len(streams))], Text: b.String(), Seq: &seq}); err == nil {
+		in := agentout.Input{Stream: streams[r.IntN(len(streams))], Text: b.String(), Seq: &seq}
+		if r.IntN(2) == 0 {
+			in.TaskID = h.recentTask(r)
+		}
+		if _, err := s.m.LogOutput(sctx, in); err == nil {
 			h.count("log_output")
 		}
 	}
@@ -363,6 +367,26 @@ func (h *harness) stream(ctx context.Context, s *streamer, r *mrand.Rand) {
 	if _, err := h.owner.RevokeAgent(lctx, s.a.id, "stream ended"); err == nil {
 		h.count("streamer_revoke")
 	}
+}
+
+func (h *harness) noteTasks(cols map[string][]*model.Task) {
+	var ids []string
+	for _, st := range []string{model.StatusInProgress, model.StatusSubmitted, model.StatusInReview, model.StatusAssigned} {
+		for _, t := range cols[st] {
+			ids = append(ids, t.ID)
+		}
+	}
+	if len(ids) > 0 {
+		h.tasks.Store(&ids)
+	}
+}
+
+func (h *harness) recentTask(r *mrand.Rand) string {
+	p := h.tasks.Load()
+	if p == nil || len(*p) == 0 {
+		return ""
+	}
+	return (*p)[r.IntN(len(*p))]
 }
 
 type featureState struct {
@@ -384,6 +408,35 @@ func (h *harness) featureSetup(ctx context.Context, fs *featureState) {
 	}
 	for i := range hookPaths {
 		h.ensureHook(ctx, fs, i)
+	}
+	pol := map[string]any{"name": "soak guard rails", "enabled": true, "rules": []any{
+		map[string]any{"id": "hot-claims", "when": map[string]any{"actions": []string{"claim_task"}, "match": "task.priority >= 2"},
+			"then": map[string]any{"effect": "warn", "message": "high priority claim"}},
+		map[string]any{"id": "task-seven", "when": map[string]any{"actions": []string{"assign"}, "match": `has_suffix(task.title, "task 7")`},
+			"then": map[string]any{"effect": "require_owner_approval", "timeout": "2m", "message": "task 7 needs the owner"}},
+	}}
+	if err := h.post(ctx, "create_policy", "/api/v1/policies", "", pol, nil); err == nil {
+		h.count("create_policy")
+	}
+}
+
+func (h *harness) policyHolds(ctx context.Context, r *mrand.Rand) {
+	var out struct {
+		Holds []struct {
+			ID string `json:"id"`
+		} `json:"holds"`
+	}
+	if err := h.owner.Do(ctx, "policy_holds", http.MethodGet, "/api/v1/policy-holds?status=pending&limit=20", nil, &out); err != nil {
+		return
+	}
+	for _, ph := range out.Holds {
+		verb := "approve"
+		if r.IntN(3) == 0 {
+			verb = "reject"
+		}
+		if err := h.post(ctx, "policy_hold_"+verb, "/api/v1/policy-holds/"+ph.ID+"/"+verb, "", map[string]any{"note": "soak"}, nil); err == nil {
+			h.count("policy_hold_" + verb)
+		}
 	}
 }
 
@@ -446,6 +499,7 @@ func (h *harness) featureStep(ctx context.Context, fs *featureState, r *mrand.Ra
 	case 7:
 		h.drillCheck(ctx, r)
 	case 8:
+		h.policyHolds(ctx, r)
 		_ = h.owner.Do(ctx, "list_schedules", http.MethodGet, "/api/v1/schedules", nil, nil)
 		_ = h.owner.Do(ctx, "autopilot_status", http.MethodGet, "/api/v1/autopilot", nil, nil)
 	default:

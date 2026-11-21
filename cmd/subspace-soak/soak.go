@@ -125,6 +125,7 @@ type harness struct {
 	checker  *checker
 	fakes    *fakes
 	streamMu sync.Mutex
+	tasks    atomic.Pointer[[]string]
 	seq      atomic.Int64
 
 	mu         sync.Mutex

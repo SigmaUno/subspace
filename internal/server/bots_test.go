@@ -16,6 +16,7 @@ type stopSpawner struct {
 	mu      sync.Mutex
 	spawned []string
 	stopped []string
+	status  map[string]spawner.Status
 }
 
 func (*stopSpawner) Name() string { return "test" }
@@ -32,6 +33,15 @@ func (s *stopSpawner) Stop(_ context.Context, id string) error {
 	defer s.mu.Unlock()
 	s.stopped = append(s.stopped, id)
 	return nil
+}
+
+func (s *stopSpawner) Status(_ context.Context, id string) (spawner.Status, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if st, ok := s.status[id]; ok {
+		return st, nil
+	}
+	return spawner.StatusRunning, nil
 }
 
 func newBotsEnv(t *testing.T, sp spawner.Spawner) *env {

@@ -64,6 +64,10 @@ func (h *HC) Spawn(ctx context.Context, r Request) error {
 	return nil
 }
 
+func (*HC) Stop(context.Context, string) error { return ErrNotImplemented }
+
+func (*HC) Status(context.Context, string) (Status, error) { return StatusUnknown, ErrNotImplemented }
+
 func hcEnv(r Request) ([]string, error) {
 	m := map[string]string{}
 	for k, v := range r.Env {

@@ -147,6 +147,20 @@ func (d Docker) Stop(ctx context.Context, agentID string) error {
 	return nil
 }
 
+func (d Docker) Status(ctx context.Context, agentID string) (Status, error) {
+	if d.client == nil {
+		return StatusUnknown, ErrNotImplemented
+	}
+	list, err := d.list(ctx, LabelAgent+"="+agentID)
+	if err != nil {
+		return StatusUnknown, err
+	}
+	if len(list) == 0 {
+		return StatusExited, nil
+	}
+	return StatusRunning, nil
+}
+
 func (d Docker) List(ctx context.Context) ([]Container, error) {
 	if d.client == nil {
 		return nil, ErrNotImplemented

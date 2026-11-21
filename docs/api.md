@@ -89,7 +89,13 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 
 // Spawn
 {"id":"S-1","brief_id":"B-1","agent_id":"claude-b1-1","kind":"claude-code","model":"...","provider":"anthropic",
- "status":"spawned","spawner":"hc","error":null,"requested_by":"rex","created_at":"..."}   // requested|spawned|failed
+ "status":"spawned","spawner":"hc","error":null,"requested_by":"rex","created_at":"..."}   // requested|spawned|failed|stopped
+
+// SpawnLifecycle: a Spawn plus these fields (GET /api/v1/spawns, POST /api/v1/spawns/{id}/stop)
+{"lifecycle":"idle","connected_at":"...","idle_since":"...","stopped_at":null,"stop_reason":null,
+ "process":"running","process_checked_at":"..."}
+// lifecycle: pending|connecting|active|idle|stopped|failed ; process: running|exited|unknown
+// stop_reason: connect_timeout|idle|brief_closed|paused|agent_revoked|exited|owner
 
 // Connect info (owner REST; shown in UI)
 {"agent_id":"claude-1","join_line":"Join Subspace at https://s.example.com as claude-1. Call get_instructions and follow them.",
@@ -220,7 +226,18 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 |---|---|---|
 | GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12,"paused":false}` |
 | PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
-| GET | `/api/v1/spawns?brief_id=` | → `{"spawns":[Spawn]}` |
+| GET | `/api/v1/spawns?brief_id=` | → `{"spawns":[SpawnLifecycle]}` |
+| POST | `/api/v1/spawns/{id}/stop` | `{}` → SpawnLifecycle. Revokes the agent, asks the spawner to stop the process and marks the spawn `stopped` (`stop_reason` `owner`). 404 unknown spawn, 409 if the spawn is not `spawned`, 500 if the spawner fails to stop it (the agent stays revoked and the reaper retries). |
+
+A reaper checks `spawned` spawns every `SUBSPACE_SPAWN_REAP_INTERVAL` (default `30s`). Stopping a spawn always revokes its agent, asks the spawner to stop the process and writes a `stop_spawn` audit event and a `spawn.updated` event.
+- No heartbeat or tool call within `SUBSPACE_SPAWN_CONNECT_TIMEOUT` (default `5m`) of the spawn: the spawn becomes `failed` (`connect_timeout`).
+- Connected but without assigned work (no task as assignee or reviewer in `assigned`, `in_progress`, `blocked`, `submitted`, `in_review`, `changes_requested` or `needs_owner`) for `SUBSPACE_SPAWN_IDLE_TTL` (default `15m`): `stopped` (`idle`).
+- Brief closed: every spawn of the brief is `stopped` (`brief_closed`).
+- `pause_all` lasting `SUBSPACE_SPAWN_PAUSE_GRACE` (default off): every spawn is `stopped` (`paused`).
+- Agent revoked by other means: `stopped` (`agent_revoked`).
+- On server start the spawner's status is asked for every `spawned` spawn: `exited` ones are `stopped` (`exited`), the others record `process`.
+
+Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`.
 
 ### Audit
 | Method | Path | Body → Response |

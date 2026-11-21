@@ -134,6 +134,12 @@ func (failingSpawner) Spawn(context.Context, spawner.Request) error {
 	return errors.New("spawner hc: ssh: connect to host build-07.internal port 22: /home/ops/.ssh/id_ed25519 denied")
 }
 
+func (failingSpawner) Stop(context.Context, string) error { return spawner.ErrNotImplemented }
+
+func (failingSpawner) Status(context.Context, string) (spawner.Status, error) {
+	return spawner.StatusUnknown, spawner.ErrNotImplemented
+}
+
 func TestSpawnFailureDetailsHiddenFromLeader(t *testing.T) {
 	e := newEnvCfg(t, Config{Spawner: failingSpawner{}})
 	lead := e.register("rex", "leader", "other")

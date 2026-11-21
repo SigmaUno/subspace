@@ -24,6 +24,10 @@ func (n Noop) Spawn(ctx context.Context, r Request) error {
 	return nil
 }
 
+func (Noop) Stop(context.Context, string) error { return ErrNotImplemented }
+
+func (Noop) Status(context.Context, string) (Status, error) { return StatusUnknown, nil }
+
 func redacted(token string) string {
 	if token == "" {
 		return ""

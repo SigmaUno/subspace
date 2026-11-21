@@ -12,6 +12,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -262,12 +263,15 @@ func (h *botsHandler) kill(w http.ResponseWriter, r *http.Request) {
 	}
 	stopped := false
 	if h.stop != nil {
-		if err := h.stop.Stop(r.Context(), id); err != nil {
+		switch err := h.stop.Stop(r.Context(), id); {
+		case errors.Is(err, spawner.ErrNotImplemented):
+		case err != nil:
 			h.log.Error("bot stop failed", "bot", id, "err", err)
 			h.fail(w, model.Errf("internal", "bot %s paused but stop failed", id))
 			return
+		default:
+			stopped = true
 		}
-		stopped = true
 	}
 	h.write(w, http.StatusOK, map[string]any{"bot": h.live(a), "stopped": stopped})
 }

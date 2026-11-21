@@ -67,6 +67,7 @@ export interface Brief {
   plan_status: string;
   leader_id: string | null;
   quality_gates: QualityGates;
+  playbook: string;
   created_at: string;
 }
 
@@ -91,6 +92,7 @@ export interface BriefPreview {
   allowed_providers: string[] | null;
   cross_review: boolean;
   leader_id: string | null;
+  playbook: string;
   task_budget: BriefTaskBudget | null;
   quality_gates: QualityGates | null;
   components: BriefComponentSpec[] | null;
@@ -384,6 +386,36 @@ export interface PlanFinding {
   rule: string;
   task?: string;
   message: string;
+}
+
+export interface Playbook {
+  name: string;
+  description: string;
+  builtin: boolean;
+  coverage: string;
+  required_tasks: PlaybookRequiredTask[] | null;
+  criteria_rules: PlaybookCriteriaRule[] | null;
+  allowed_sizes: string[] | null;
+  default_task_budget: TaskBudget;
+  brief_cost_multiplier: number;
+  cross_review: boolean;
+  instructions: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PlaybookCriteriaRule {
+  name: string;
+  pattern: string;
+  role: string;
+  severity: string;
+}
+
+export interface PlaybookRequiredTask {
+  name: string;
+  pattern: string;
+  role: string;
+  severity: string;
 }
 
 export interface Prompt {

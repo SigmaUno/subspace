@@ -167,6 +167,7 @@ type BriefInput struct {
 	CrossReview      *bool               `json:"cross_review"`
 	LeaderID         string              `json:"leader_id,omitempty"`
 	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
+	Playbook         string              `json:"playbook,omitempty"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -197,18 +198,34 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 				return err
 			}
 		}
+		rules, err := b.briefRules(tx, in.Playbook)
+		if err != nil {
+			return err
+		}
+		crossReview := in.CrossReview == nil || *in.CrossReview
+		maxCost := in.MaxCostEUR
+		if rules != nil {
+			if rules.CrossReview && !crossReview {
+				return model.BadRequest("playbook %s requires cross_review", in.Playbook)
+			}
+			maxCost = rules.ScaleCost(maxCost)
+		}
 		id, err := tx.NextID("B")
 		if err != nil {
 			return err
 		}
 		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
-			Budget:           model.BriefBudget{MaxCostEUR: in.MaxCostEUR, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, QualityGates: gates, CreatedAt: b.now()}
+			Budget:           model.BriefBudget{MaxCostEUR: maxCost, MaxParallelAgent: in.MaxParallel},
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
 		out = br
-		return w.audit(tx, model.Owner, "create_brief", "", nil, map[string]any{"brief_id": id}, in.Title)
+		after := map[string]any{"brief_id": id}
+		if in.Playbook != "" {
+			after["playbook"] = in.Playbook
+		}
+		return w.audit(tx, model.Owner, "create_brief", "", nil, after, in.Title)
 	})
 	return out, err
 }
@@ -257,6 +274,15 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 			br.AllowedProviders = nz(*p.AllowedProviders)
 		}
 		if p.CrossReview != nil {
+			if !*p.CrossReview {
+				rules, err := b.rulesFor(tx, br.Playbook)
+				if err != nil {
+					return err
+				}
+				if rules != nil && rules.CrossReview {
+					return model.Conflict("playbook %s requires cross_review", br.Playbook)
+				}
+			}
 			br.CrossReview = *p.CrossReview
 		}
 		if p.AutoDoneOnMerge != nil {
@@ -400,8 +426,16 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 		if br.Status != "open" {
 			return model.Conflict("brief %s is closed", br.ID)
 		}
-		errs, warns := planlint.Split(planlint.Lint(*br, lintTasks(in.Tasks)))
+		rules, err := b.rulesFor(tx, br.Playbook)
+		if err != nil {
+			return err
+		}
+		in.Tasks = withDefaultBudgets(rules, in.Tasks)
+		errs, warns := planlint.Split(planlint.LintPlaybook(*br, lintTasks(in.Tasks), rules))
 		if len(errs) > 0 {
+			if rules != nil {
+				return model.BadRequest("plan rejected by lint (playbook %s): %s", br.Playbook, planlint.Format(errs))
+			}
 			return model.BadRequest("plan rejected by lint: %s", planlint.Format(errs))
 		}
 		old, err := tx.ListPlans(store.PlanFilter{BriefID: br.ID, Status: model.PlanProposed})

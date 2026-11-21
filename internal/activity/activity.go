@@ -11,6 +11,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/redact"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -37,6 +38,7 @@ type Item struct {
 	Severity string    `json:"severity"`
 	Icon     string    `json:"icon"`
 	BriefID  string    `json:"brief_id,omitempty"`
+	TraceID  string    `json:"trace_id,omitempty"`
 }
 
 var placeholder = regexp.MustCompile(`\{([\w.]+)(?:\?([^}|]*)(?:\|([^}]*))?)?\}`)
@@ -46,8 +48,11 @@ func FromAudit(e *model.AuditEvent) Item {
 	if e.TaskID != nil {
 		f.task = *e.TaskID
 	}
+	var traceID string
 	if e.Note != nil {
-		f.note = clip(redact.String(stripTokenID(*e.Note)), maxNote)
+		note, id := splitTrace(*e.Note)
+		traceID = id
+		f.note = clip(redact.String(stripTokenID(note)), maxNote)
 	}
 	r, ok := rules[e.Tool]
 	if !ok {
@@ -70,6 +75,7 @@ func FromAudit(e *model.AuditEvent) Item {
 		Targets:  f.targets(),
 		Severity: severity(r, f),
 		Icon:     r.icon,
+		TraceID:  traceID,
 	}
 }
 
@@ -275,6 +281,19 @@ func prNumber(note string) string {
 		return ""
 	}
 	return n
+}
+
+func splitTrace(note string) (string, string) {
+	const tag = "trace="
+	i := len(note) - len(tag) - 32
+	if i < 0 || note[i:i+len(tag)] != tag || (i > 0 && !strings.HasSuffix(note[:i], "; ")) {
+		return note, ""
+	}
+	id := note[i+len(tag):]
+	if _, ok := trace.ParseID(id); !ok {
+		return note, ""
+	}
+	return strings.TrimSuffix(note[:i], "; "), id
 }
 
 func stripTokenID(note string) string {

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/metrics"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -77,6 +78,9 @@ func AccessLog(next http.Handler, o AccessOptions) http.Handler {
 			slog.Duration("duration", now().Sub(start)),
 			slog.Int64("bytes", cw.bytes),
 			slog.String("request_id", id),
+		}
+		if tid := trace.TraceID(r.Context()); tid != "" {
+			attrs = append(attrs, slog.String("trace_id", tid))
 		}
 		if agent != "" {
 			attrs = append(attrs, slog.String("agent", agent))

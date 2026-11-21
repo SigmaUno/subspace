@@ -15,6 +15,7 @@ import (
 	"github.com/jackc/pgx/v5"
 
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const (
@@ -48,6 +49,7 @@ type wireEvent struct {
 	Topics []string        `json:"t"`
 	Type   string          `json:"y"`
 	Data   json.RawMessage `json:"d"`
+	Trace  string          `json:"tr,omitempty"`
 }
 
 type wire struct {
@@ -83,14 +85,22 @@ func NewBridge(o BridgeOptions) *Bridge {
 }
 
 func (b *Bridge) Publish(topics []string, typ string, data any) {
-	b.o.Local.Publish(topics, typ, data)
+	b.PublishTrace(topics, typ, data, trace.SpanContext{})
+}
+
+func (b *Bridge) PublishTrace(topics []string, typ string, data any, tc trace.SpanContext) {
+	events.PublishTrace(b.o.Local, topics, typ, data, tc)
 	raw, err := json.Marshal(data)
 	if err != nil {
 		b.o.Log.Warn("ha bridge: event not encodable", "type", typ, "err", err)
 		return
 	}
+	w := wireEvent{Topics: topics, Type: typ, Data: raw}
+	if tc.Valid() {
+		w.Trace = tc.Traceparent()
+	}
 	select {
-	case b.out <- wireEvent{Topics: topics, Type: typ, Data: raw}:
+	case b.out <- w:
 	default:
 		b.dropped.Add(1)
 	}
@@ -220,7 +230,8 @@ func (b *Bridge) receive(ctx context.Context, c *pgx.Conn, payload string) {
 	for _, ev := range w.Events {
 		data := b.o.Decode(ev.Type, ev.Data)
 		b.remote.Add(1)
-		b.o.Local.Publish(ev.Topics, ev.Type, data)
+		tc, _ := trace.Parse(ev.Trace)
+		events.PublishTrace(b.o.Local, ev.Topics, ev.Type, data, tc)
 		if b.o.OnRemote != nil {
 			b.o.OnRemote(ev.Topics, ev.Type, data)
 		}

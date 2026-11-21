@@ -10,10 +10,12 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	_ "modernc.org/sqlite"
 
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const maxBatch = 128
@@ -178,6 +180,7 @@ func (s *Store) writer() {
 }
 
 func (s *Store) runBatch(first *wreq) {
+	start := time.Now()
 	ctx := context.Background()
 	t, err := s.wdb.BeginTx(ctx, nil)
 	if err != nil {
@@ -191,6 +194,11 @@ func (s *Store) runBatch(first *wreq) {
 		batch = append(batch, batchOp{r: r, err: s.runOp(ctx, q, r)})
 	}
 	cerr := t.Commit()
+	var tb trace.Batch
+	for i := range batch {
+		tb.Add(batch[i].r.ctx)
+	}
+	tb.End("store.commit", start, cerr, trace.Int("db.batch.size", len(batch)))
 	for i := range batch {
 		op := &batch[i]
 		if op.err == nil {
@@ -224,7 +232,7 @@ func (s *Store) runOp(ctx context.Context, q *writeQ, r *wreq) error {
 	if _, err := q.ExecContext(ctx, "SAVEPOINT op"); err != nil {
 		return err
 	}
-	if err := safeRun(r.fn, &tx{q: q, ctx: ctx}); err != nil {
+	if err := safeRun(r.fn, &tx{q: q, ctx: ctx, trace: trace.Recorded(r.ctx)}); err != nil {
 		_, _ = q.ExecContext(ctx, "ROLLBACK TO op")
 		_, _ = q.ExecContext(ctx, "RELEASE op")
 		return err

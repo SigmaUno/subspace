@@ -19,8 +19,9 @@ type querier interface {
 }
 
 type tx struct {
-	q   querier
-	ctx context.Context
+	q     querier
+	ctx   context.Context
+	trace string
 }
 
 var _ store.Tx = (*tx)(nil)

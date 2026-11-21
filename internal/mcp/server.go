@@ -19,6 +19,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/trace"
 )
 
 const ProtocolVersion = "2025-06-18"
@@ -267,7 +268,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		resp.Result = map[string]any{"tools": tools}
 	case "tools/call":
-		resp.Result, resp.Error = s.call(r.Context(), agent, req.Params)
+		resp.Result, resp.Error = s.call(trace.Adopt(r.Context(), r.Header), agent, req.Params)
 	case "prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list":
 		resp.Result, resp.Error = s.surface(r.Context(), actor, req.Method, req.Params)
 	case "resources/subscribe", "resources/unsubscribe":
@@ -287,6 +288,10 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`
+		Meta      struct {
+			Traceparent string `json:"traceparent"`
+			Tracestate  string `json:"tracestate"`
+		} `json:"_meta"`
 	}
 	if err := json.Unmarshal(params, &p); err != nil || p.Name == "" {
 		return nil, &rpcErr{-32602, "invalid params"}
@@ -295,6 +300,8 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 	if !ok {
 		return nil, &rpcErr{-32601, "tool not available for role"}
 	}
+	ctx, span := s.toolSpan(ctx, p.Name, a, p.Meta.Traceparent, p.Meta.Tracestate)
+	defer span.End()
 	if s.Hooks != nil {
 		s.Hooks.Touch(a.ID)
 	}
@@ -321,6 +328,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
 		}
 		s.Registry.fail(a, t.Name, e.Code, e.Message, p.Arguments)
+		span.Fail(e.Code)
 		body := errBody(e.Code, e.Message, t.Name)
 		if e.Details != nil {
 			body["error"].(map[string]any)["details"] = e.Details
@@ -328,6 +336,20 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		return toolResult(body, true), nil
 	}
 	return toolResult(res, false), nil
+}
+
+func (s *Server) toolSpan(ctx context.Context, tool string, a model.Actor, traceparent, tracestate string) (context.Context, *trace.Span) {
+	remote, ok := trace.Parse(traceparent)
+	if !ok && !trace.From(ctx).Sampled() {
+		return ctx, nil
+	}
+	attrs := []trace.Attr{trace.String("mcp.method.name", "tools/call"), trace.String("gen_ai.tool.name", tool), trace.String("subspace.agent", a.ID), trace.String("subspace.role", a.Role)}
+	name := "tools/call " + tool
+	if ok {
+		remote.State = trace.State(tracestate)
+		return trace.StartRemote(ctx, remote, name, trace.KindServer, attrs...)
+	}
+	return trace.Start(ctx, name, trace.KindServer, attrs...)
 }
 
 func schemaArgs(schema map[string]any, raw json.RawMessage) json.RawMessage {

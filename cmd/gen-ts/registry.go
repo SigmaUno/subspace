@@ -13,6 +13,8 @@ import (
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/planlint"
+	"github.com/SigmaUno/subspace/internal/playbooks"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/search"
@@ -58,6 +60,9 @@ var registry = []entry{
 	{"Message", model.Message{}},
 	{"Plan", model.Plan{}},
 	{"PlanFinding", model.PlanFinding{}},
+	{"Playbook", playbooks.Playbook{}},
+	{"PlaybookCriteriaRule", planlint.CriteriaRule{}},
+	{"PlaybookRequiredTask", planlint.RequiredTask{}},
 	{"Prompt", prompts.Template{}},
 	{"ProviderStatus", usage.ProviderStatus{}},
 	{"Question", model.Question{}},

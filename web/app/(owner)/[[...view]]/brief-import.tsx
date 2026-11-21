@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, money, useResource, useSubmit, value } from "../../../lib/client";
 import type { BriefImport, BriefPreview, BriefTemplate, RenderedBriefTemplate } from "../../../lib/brief-import-types";
 import { Feedback } from "./components";
+import { PlaybookPicker, usePlaybooks } from "./playbooks";
 
 type Check = { text: string; preview?: BriefPreview; error?: string };
 
@@ -32,6 +33,16 @@ function TemplateForm({ template, fill }: { template: BriefTemplate; fill: (mark
   </form>;
 }
 
+function withPlaybook(markdown: string, name: string) {
+  if (!name) return markdown;
+  const lines = markdown.split("\n");
+  if (lines[0].trim() !== "---") return markdown;
+  const end = lines.findIndex((line, index) => index > 0 && line.trim() === "---");
+  if (end < 0) return markdown;
+  const head = lines.slice(1, end).filter((line) => !/^playbook\s*:/.test(line));
+  return ["---", `playbook: ${name}`, ...head, ...lines.slice(end)].join("\n");
+}
+
 function Preview({ preview }: { preview: BriefPreview }) {
   return <div className="stack">
     <h3>{preview.title}</h3>
@@ -39,6 +50,7 @@ function Preview({ preview }: { preview: BriefPreview }) {
     <span className="meta">
       {money(preview.max_cost_eur)} · {preview.max_parallel_agents} parallel agents · {preview.allowed_providers.join(", ") || "All providers"} · Cross review {preview.cross_review ? "on" : "off"}
     </span>
+    {preview.playbook && <span className="meta">Playbook {preview.playbook}</span>}
     {preview.task_budget && <span className="meta">
       Task defaults: {preview.task_budget.max_minutes} min · {money(preview.task_budget.max_cost_eur)}
     </span>}
@@ -58,22 +70,25 @@ export function ImportBrief() {
   const templates = useResource<{ templates: BriefTemplate[] }>("brief-templates", 0);
   const [templateID, setTemplateID] = useState("");
   const [markdown, setMarkdown] = useState("");
+  const [playbook, setPlaybook] = useState("");
+  const playbooks = usePlaybooks();
   const [check, setCheck] = useState<Check>({ text: "" });
   const create = useSubmit();
   const template = templates.data?.templates.find((entry) => entry.id === templateID);
+  const source = withPlaybook(markdown, playbook);
 
   useEffect(() => {
-    if (!markdown.trim()) return;
+    if (!source.trim()) return;
     const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api<{ preview: BriefPreview }>("briefs/import?dry_run=true", "POST", { markdown }, controller.signal)
-        .then((result) => setCheck({ text: markdown, preview: result.preview }))
-        .catch((cause: Error) => { if (!controller.signal.aborted) setCheck({ text: markdown, error: cause.message }); });
+      api<{ preview: BriefPreview }>("briefs/import?dry_run=true", "POST", { markdown: source }, controller.signal)
+        .then((result) => setCheck({ text: source, preview: result.preview }))
+        .catch((cause: Error) => { if (!controller.signal.aborted) setCheck({ text: source, error: cause.message }); });
     }, 300);
     return () => { window.clearTimeout(timer); controller.abort(); };
-  }, [markdown]);
+  }, [source]);
 
-  const current = markdown.trim() && check.text === markdown ? check : null;
+  const current = markdown.trim() && check.text === source ? check : null;
 
   return <section className="panel stack">
     <h2>Import brief</h2>
@@ -84,9 +99,10 @@ export function ImportBrief() {
       </select>
     </label>
     <Feedback error={templates.error} />
+    {!!playbooks.list.length && <PlaybookPicker playbooks={playbooks.list} selected={playbook} onChange={setPlaybook} />}
     {template && <TemplateForm key={template.id} template={template} fill={setMarkdown} />}
     <form className="stack" onSubmit={(event) => create.submit(event, async () => {
-      const result = await api<BriefImport>("briefs/import", "POST", { markdown });
+      const result = await api<BriefImport>("briefs/import", "POST", { markdown: source });
       router.push(`/briefs/${encodeURIComponent(result.brief.id)}`);
     })}>
       <label>Brief document

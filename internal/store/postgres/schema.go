@@ -10,6 +10,7 @@ CREATE TABLE IF NOT EXISTS briefs (
   plan_status TEXT NOT NULL, created_at BIGINT NOT NULL, cross_review BOOLEAN NOT NULL DEFAULT TRUE
 );
 ALTER TABLE briefs ADD COLUMN IF NOT EXISTS cross_review BOOLEAN NOT NULL DEFAULT TRUE;
+ALTER TABLE briefs ADD COLUMN IF NOT EXISTS auto_done_on_merge BOOLEAN NOT NULL DEFAULT FALSE;
 CREATE INDEX IF NOT EXISTS briefs_status ON briefs(status, created_at);
 
 CREATE TABLE IF NOT EXISTS plans (
@@ -32,6 +33,8 @@ CREATE TABLE IF NOT EXISTS tasks (
   blocked_reason TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
 ALTER TABLE tasks ADD COLUMN IF NOT EXISTS lease_expiries INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS priority INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tasks ADD COLUMN IF NOT EXISTS component_id TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS tasks_brief ON tasks(brief_id, status);
 CREATE INDEX IF NOT EXISTS tasks_assignee ON tasks(assignee, status);
 CREATE INDEX IF NOT EXISTS tasks_reviewer ON tasks(reviewer, status);

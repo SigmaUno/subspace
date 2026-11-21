@@ -9,11 +9,11 @@ const taskDefaultLimit = 1000
 
 const taskCols = `id, brief_id, plan_id, title, spec, acceptance, repo, branch, role, assignee, reviewer, depends_on,
   status, progress_pct, last_heartbeat_at, lease_expires_at, claimed_at, pr_url, max_minutes, max_cost_eur,
-  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, lease_expiries`
+  cost_used, minutes_used, review_rounds, tests_passed, tests_failed, tests_at, blocked_reason, created_at, updated_at, lease_expiries, priority, component_id`
 
 const idNum = `COALESCE(substring(id from '^[^-]*-([0-9]{1,18})')::bigint, 0)`
 
-const taskOrder = ` ORDER BY ` + idNum + `, id`
+const taskOrder = ` ORDER BY priority DESC, ` + idNum + `, id`
 
 func taskArgs(x *model.Task) ([]any, error) {
 	acc, err := toJSON(x.AcceptanceCriteria)
@@ -34,23 +34,23 @@ func taskArgs(x *model.Task) ([]any, error) {
 		x.Status, x.ProgressPct, msPtr(x.LastHeartbeatAt), msPtr(x.LeaseExpiresAt), msPtr(x.ClaimedAt),
 		str(x.PRURL), x.Budget.MaxMinutes, x.Budget.MaxCostEUR,
 		x.CostUsed, x.MinutesUsed, x.ReviewRounds, passed, failed, at,
-		str(x.BlockedReason), ms(x.CreatedAt), ms(x.UpdatedAt), x.LeaseExpiries,
+		str(x.BlockedReason), ms(x.CreatedAt), ms(x.UpdatedAt), x.LeaseExpiries, x.Priority, str(x.ComponentID),
 	}, nil
 }
 
 func scanTask(r scanner) (*model.Task, error) {
 	var (
-		x                            model.Task
-		acc, deps                    []byte
-		assignee, reviewer, pr, br   string
-		hb, lease, claimed, at, c, u int64
-		passed, failed               int
+		x                              model.Task
+		acc, deps                      []byte
+		assignee, reviewer, pr, br, cm string
+		hb, lease, claimed, at, c, u   int64
+		passed, failed                 int
 	)
 	err := r.Scan(&x.ID, &x.BriefID, &x.PlanID, &x.Title, &x.Spec, &acc, &x.Repo, &x.Branch, &x.Role,
 		&assignee, &reviewer, &deps,
 		&x.Status, &x.ProgressPct, &hb, &lease, &claimed, &pr, &x.Budget.MaxMinutes, &x.Budget.MaxCostEUR,
 		&x.CostUsed, &x.MinutesUsed, &x.ReviewRounds, &passed, &failed, &at,
-		&br, &c, &u, &x.LeaseExpiries)
+		&br, &c, &u, &x.LeaseExpiries, &x.Priority, &cm)
 	if err != nil {
 		return nil, err
 	}
@@ -64,6 +64,7 @@ func scanTask(r scanner) (*model.Task, error) {
 	x.Reviewer = strPtr(reviewer)
 	x.PRURL = strPtr(pr)
 	x.BlockedReason = strPtr(br)
+	x.ComponentID = strPtr(cm)
 	x.LastHeartbeatAt = fromMSPtr(hb)
 	x.LeaseExpiresAt = fromMSPtr(lease)
 	x.ClaimedAt = fromMSPtr(claimed)
@@ -81,7 +82,7 @@ func (t *tx) InsertTask(x *model.Task) error {
 		return err
 	}
 	return t.exec(`INSERT INTO tasks(`+taskCols+`) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,
-  $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30)`, a...)
+  $16,$17,$18,$19,$20,$21,$22,$23,$24,$25,$26,$27,$28,$29,$30,$31,$32)`, a...)
 }
 
 func (t *tx) GetTask(id string) (*model.Task, error) {
@@ -98,7 +99,7 @@ func (t *tx) UpdateTask(x *model.Task) error {
   role=$9, assignee=$10, reviewer=$11, depends_on=$12, status=$13, progress_pct=$14, last_heartbeat_at=$15,
   lease_expires_at=$16, claimed_at=$17, pr_url=$18, max_minutes=$19, max_cost_eur=$20, cost_used=$21,
   minutes_used=$22, review_rounds=$23, tests_passed=$24, tests_failed=$25, tests_at=$26, blocked_reason=$27,
-  created_at=$28, updated_at=$29, lease_expiries=$30 WHERE id=$1`, a...)
+  created_at=$28, updated_at=$29, lease_expiries=$30, priority=$31, component_id=$32 WHERE id=$1`, a...)
 }
 
 func (t *tx) ListTasks(f store.TaskFilter) ([]*model.Task, error) {

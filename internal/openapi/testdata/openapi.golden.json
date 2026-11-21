@@ -1493,6 +1493,9 @@
           "plan_status": {
             "type": "string"
           },
+          "quality_gates": {
+            "$ref": "#/components/schemas/QualityGates"
+          },
           "repos": {
             "items": {
               "type": "string"
@@ -1520,6 +1523,7 @@
           "id",
           "leader_id",
           "plan_status",
+          "quality_gates",
           "repos",
           "status",
           "title"
@@ -1605,6 +1609,16 @@
           "max_parallel_agents": {
             "type": "integer"
           },
+          "quality_gates": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QualityGates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "repos": {
             "items": {
               "type": "string"
@@ -1684,6 +1698,16 @@
               "null"
             ]
           },
+          "quality_gates": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QualityGates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "status": {
             "type": [
               "string",
@@ -1739,6 +1763,16 @@
           "max_parallel_agents": {
             "type": "integer"
           },
+          "quality_gates": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/QualityGates"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "repos": {
             "items": {
               "type": "string"
@@ -1770,6 +1804,7 @@
           "leader_id",
           "max_cost_eur",
           "max_parallel_agents",
+          "quality_gates",
           "repos",
           "task_budget",
           "title"
@@ -1798,6 +1833,9 @@
           },
           "critical_path": {
             "$ref": "#/components/schemas/ReportCriticalPath"
+          },
+          "efficiency": {
+            "$ref": "#/components/schemas/ReportEfficiency"
           },
           "generated_at": {
             "format": "date-time",
@@ -1837,12 +1875,38 @@
           "cost",
           "counts",
           "critical_path",
+          "efficiency",
           "generated_at",
           "outliers",
           "tasks",
           "throughput",
           "title",
           "total"
+        ],
+        "type": "object"
+      },
+      "BriefSpec": {
+        "properties": {
+          "markdown": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "vars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "markdown",
+          "template_id",
+          "vars"
         ],
         "type": "object"
       },
@@ -2300,6 +2364,157 @@
         ],
         "type": "object"
       },
+      "CostBreakdown": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "group_by": {
+            "type": "string"
+          },
+          "groups": {
+            "items": {
+              "$ref": "#/components/schemas/CostGroup"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "since": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "split_by": {
+            "type": "string"
+          },
+          "total": {
+            "$ref": "#/components/schemas/CostTotals"
+          },
+          "until": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "group_by",
+          "groups",
+          "since",
+          "total",
+          "until"
+        ],
+        "type": "object"
+      },
+      "CostGroup": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_eur": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "split": {
+            "items": {
+              "$ref": "#/components/schemas/CostPart"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_eur",
+          "key",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
+      "CostPart": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_eur": {
+            "type": "number"
+          },
+          "key": {
+            "type": "string"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_eur",
+          "key",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
+      "CostTotals": {
+        "properties": {
+          "cache_read": {
+            "type": "integer"
+          },
+          "cache_write": {
+            "type": "integer"
+          },
+          "cost_eur": {
+            "type": "number"
+          },
+          "requests": {
+            "type": "integer"
+          },
+          "tokens_in": {
+            "type": "integer"
+          },
+          "tokens_out": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "cache_read",
+          "cache_write",
+          "cost_eur",
+          "requests",
+          "tokens_in",
+          "tokens_out"
+        ],
+        "type": "object"
+      },
       "Decision": {
         "properties": {
           "actions": {
@@ -2615,6 +2830,95 @@
         ],
         "type": "object"
       },
+      "EndOutcome": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/Failure"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resumed_agents": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "resumed_all": {
+            "type": "boolean"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "actor",
+          "ended_at",
+          "id",
+          "reason",
+          "results",
+          "resumed_all",
+          "started_at"
+        ],
+        "type": "object"
+      },
+      "EndRequest": {
+        "properties": {
+          "note": {
+            "type": "string"
+          },
+          "resume_agents": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "note",
+          "resume_agents"
+        ],
+        "type": "object"
+      },
       "Error": {
         "properties": {
           "error": {
@@ -2647,6 +2951,164 @@
         ],
         "type": "object"
       },
+      "Estimate": {
+        "properties": {
+          "basis": {
+            "items": {
+              "$ref": "#/components/schemas/EstimateLevel"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "confidence": {
+            "type": "string"
+          },
+          "cost_eur": {
+            "$ref": "#/components/schemas/EstimateStat"
+          },
+          "minutes": {
+            "$ref": "#/components/schemas/EstimateStat"
+          },
+          "review_rounds": {
+            "$ref": "#/components/schemas/EstimateStat"
+          },
+          "sufficient": {
+            "type": "boolean"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/EstimateStat"
+          }
+        },
+        "required": [
+          "basis",
+          "confidence",
+          "cost_eur",
+          "minutes",
+          "review_rounds",
+          "sufficient",
+          "tokens"
+        ],
+        "type": "object"
+      },
+      "EstimateLevel": {
+        "properties": {
+          "group": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "samples": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "group",
+          "key",
+          "samples"
+        ],
+        "type": "object"
+      },
+      "EstimateRange": {
+        "properties": {
+          "expected": {
+            "type": "number"
+          },
+          "high": {
+            "type": "number"
+          },
+          "low": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "expected",
+          "high",
+          "low"
+        ],
+        "type": "object"
+      },
+      "EstimateReport": {
+        "properties": {
+          "history": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "sufficient": {
+            "type": "boolean"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskEstimate"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "totals": {
+            "$ref": "#/components/schemas/EstimateTotals"
+          }
+        },
+        "required": [
+          "history",
+          "id",
+          "sufficient",
+          "tasks",
+          "totals"
+        ],
+        "type": "object"
+      },
+      "EstimateStat": {
+        "properties": {
+          "median": {
+            "type": "number"
+          },
+          "p80": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "median",
+          "p80"
+        ],
+        "type": "object"
+      },
+      "EstimateTotals": {
+        "properties": {
+          "cost_eur": {
+            "$ref": "#/components/schemas/EstimateRange"
+          },
+          "critical_path_minutes": {
+            "$ref": "#/components/schemas/EstimateRange"
+          },
+          "estimated": {
+            "type": "integer"
+          },
+          "minutes": {
+            "$ref": "#/components/schemas/EstimateRange"
+          },
+          "tasks": {
+            "type": "integer"
+          },
+          "tokens": {
+            "$ref": "#/components/schemas/EstimateRange"
+          }
+        },
+        "required": [
+          "cost_eur",
+          "critical_path_minutes",
+          "estimated",
+          "minutes",
+          "tasks",
+          "tokens"
+        ],
+        "type": "object"
+      },
       "Expiry": {
         "properties": {
           "expires_in": {
@@ -2655,6 +3117,21 @@
         },
         "required": [
           "expires_in"
+        ],
+        "type": "object"
+      },
+      "Failure": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "error"
         ],
         "type": "object"
       },
@@ -2884,6 +3361,78 @@
           "p10",
           "p50",
           "p90"
+        ],
+        "type": "object"
+      },
+      "GatesReport": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "evaluated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "gates": {
+            "items": {
+              "$ref": "#/components/schemas/GatesResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Override"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "passed": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "evaluated_at",
+          "gates",
+          "override",
+          "passed",
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "GatesResult": {
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "evidence": {
+            "type": "string"
+          },
+          "gate": {
+            "type": "string"
+          },
+          "overridden": {
+            "type": "boolean"
+          },
+          "passed": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "enabled",
+          "evidence",
+          "gate",
+          "overridden",
+          "passed"
         ],
         "type": "object"
       },
@@ -3182,6 +3731,163 @@
             ]
           }
         },
+        "type": "object"
+      },
+      "Incident": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "actor",
+          "ended_at",
+          "id",
+          "reason",
+          "results",
+          "started_at"
+        ],
+        "type": "object"
+      },
+      "IncidentResult": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "agents": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "detail": {
+            "type": "string"
+          },
+          "error": {
+            "type": "string"
+          },
+          "failures": {
+            "items": {
+              "$ref": "#/components/schemas/Failure"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "status"
+        ],
+        "type": "object"
+      },
+      "Input": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "brief": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BriefSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "catch_up": {
+            "type": "string"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_active": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSpec"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "brief",
+          "brief_id",
+          "catch_up",
+          "cron",
+          "enabled",
+          "max_active",
+          "name",
+          "tasks",
+          "timezone"
+        ],
         "type": "object"
       },
       "InsightEvidence": {
@@ -3765,6 +4471,57 @@
         ],
         "type": "object"
       },
+      "Override": {
+        "properties": {
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "by": {
+            "type": "string"
+          },
+          "gates": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "at",
+          "by",
+          "gates",
+          "reason"
+        ],
+        "type": "object"
+      },
+      "OverrideInput": {
+        "properties": {
+          "gates": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "gates",
+          "reason"
+        ],
+        "type": "object"
+      },
       "PRReview": {
         "properties": {
           "state": {
@@ -3892,6 +4649,90 @@
         ],
         "type": "object"
       },
+      "Patch": {
+        "properties": {
+          "action": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brief": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BriefSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brief_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "catch_up": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "cron": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_active": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSpec"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "action",
+          "brief",
+          "brief_id",
+          "catch_up",
+          "cron",
+          "enabled",
+          "max_active",
+          "name",
+          "tasks",
+          "timezone"
+        ],
+        "type": "object"
+      },
       "Paused": {
         "properties": {
           "paused": {
@@ -3992,6 +4833,32 @@
           "message",
           "rule",
           "severity"
+        ],
+        "type": "object"
+      },
+      "Preview": {
+        "properties": {
+          "cron": {
+            "type": "string"
+          },
+          "next": {
+            "items": {
+              "format": "date-time",
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "cron",
+          "next",
+          "timezone"
         ],
         "type": "object"
       },
@@ -4205,6 +5072,45 @@
           "role",
           "spec",
           "title"
+        ],
+        "type": "object"
+      },
+      "QualityGates": {
+        "properties": {
+          "budget": {
+            "type": "boolean"
+          },
+          "checks": {
+            "type": "boolean"
+          },
+          "max_pr_age_hours": {
+            "type": "number"
+          },
+          "min_tests_passed": {
+            "type": "integer"
+          },
+          "questions": {
+            "type": "boolean"
+          },
+          "review": {
+            "type": "boolean"
+          },
+          "scope": {
+            "type": "boolean"
+          },
+          "tests": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "budget",
+          "checks",
+          "max_pr_age_hours",
+          "min_tests_passed",
+          "questions",
+          "review",
+          "scope",
+          "tests"
         ],
         "type": "object"
       },
@@ -4932,6 +5838,76 @@
         ],
         "type": "object"
       },
+      "ReportEfficiency": {
+        "properties": {
+          "accepted_lines": {
+            "type": "integer"
+          },
+          "cancelled_eur": {
+            "type": "number"
+          },
+          "cost_by_status": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "cost_per_accepted_line": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cost_per_done_task": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cost_per_merged_task": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "done_tasks": {
+            "type": "integer"
+          },
+          "merged_tasks": {
+            "type": "integer"
+          },
+          "review_overhead_eur": {
+            "type": "number"
+          },
+          "review_overhead_pct": {
+            "type": "number"
+          },
+          "reworked_eur": {
+            "type": "number"
+          },
+          "wasted_eur": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "accepted_lines",
+          "cancelled_eur",
+          "cost_by_status",
+          "cost_per_accepted_line",
+          "cost_per_done_task",
+          "cost_per_merged_task",
+          "done_tasks",
+          "merged_tasks",
+          "review_overhead_eur",
+          "review_overhead_pct",
+          "reworked_eur",
+          "wasted_eur"
+        ],
+        "type": "object"
+      },
       "ReportOutlier": {
         "properties": {
           "metric": {
@@ -5040,6 +6016,31 @@
         ],
         "type": "object"
       },
+      "Request": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "reason": {
+            "type": "string"
+          },
+          "revoke": {
+            "$ref": "#/components/schemas/Scope"
+          }
+        },
+        "required": [
+          "actions",
+          "reason",
+          "revoke"
+        ],
+        "type": "object"
+      },
       "Result": {
         "properties": {
           "applied": {
@@ -5065,6 +6066,162 @@
           "applied",
           "ignored"
         ],
+        "type": "object"
+      },
+      "Run": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "missed": {
+            "type": "integer"
+          },
+          "schedule_id": {
+            "type": "string"
+          },
+          "scheduled_for": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "task_ids": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "brief_id",
+          "detail",
+          "finished_at",
+          "missed",
+          "schedule_id",
+          "scheduled_for",
+          "started_at",
+          "status",
+          "task_ids"
+        ],
+        "type": "object"
+      },
+      "Schedule": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "brief": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BriefSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "catch_up": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cron": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_run_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "max_active": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "next_run_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tasks": {
+            "items": {
+              "$ref": "#/components/schemas/TaskSpec"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "brief",
+          "brief_id",
+          "catch_up",
+          "created_at",
+          "cron",
+          "enabled",
+          "id",
+          "last_run_at",
+          "max_active",
+          "name",
+          "next_run_at",
+          "tasks",
+          "timezone",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "Scope": {
+        "properties": {
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          }
+        },
         "type": "object"
       },
       "SearchResult": {
@@ -5393,6 +6550,84 @@
         ],
         "type": "object"
       },
+      "StartOutcome": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "actor": {
+            "type": "string"
+          },
+          "ended_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failed": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/IncidentResult"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "skipped": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "succeeded": {
+            "type": "integer"
+          },
+          "tokens": {
+            "items": {
+              "$ref": "#/components/schemas/Connect"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "actions",
+          "actor",
+          "ended_at",
+          "failed",
+          "id",
+          "reason",
+          "results",
+          "started_at",
+          "succeeded"
+        ],
+        "type": "object"
+      },
       "StateInfo": {
         "properties": {
           "counts": {
@@ -5687,6 +6922,39 @@
         ],
         "type": "object"
       },
+      "TaskEstimate": {
+        "properties": {
+          "estimate": {
+            "$ref": "#/components/schemas/Estimate"
+          },
+          "exceeds_budget": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "role": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "estimate",
+          "exceeds_budget",
+          "role",
+          "task_id",
+          "title"
+        ],
+        "type": "object"
+      },
       "TaskInput": {
         "properties": {
           "acceptance_criteria": {
@@ -5879,6 +7147,35 @@
           "timeline",
           "title",
           "work_seconds"
+        ],
+        "type": "object"
+      },
+      "TaskSpec": {
+        "properties": {
+          "priority": {
+            "type": "integer"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "template_id": {
+            "type": "string"
+          },
+          "vars": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "priority",
+          "repo",
+          "template_id",
+          "vars"
         ],
         "type": "object"
       },
@@ -8557,6 +9854,40 @@
         ]
       }
     },
+    "/api/v1/briefs/{id}/estimates": {
+      "get": {
+        "operationId": "getBriefsByIdEstimates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Expected cost and duration of the open tasks of a brief, learned from completed tasks",
+        "tags": [
+          "briefs"
+        ]
+      }
+    },
     "/api/v1/briefs/{id}/forecast": {
       "get": {
         "operationId": "getBriefsByIdForecast",
@@ -9012,6 +10343,67 @@
         ]
       }
     },
+    "/api/v1/costs": {
+      "get": {
+        "operationId": "getCosts",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "group_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "split_by",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "until",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CostBreakdown"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Cost and token breakdown by brief, task, component, agent, kind, model, provider, role or day",
+        "tags": [
+          "costs"
+        ]
+      }
+    },
     "/api/v1/decisions": {
       "get": {
         "operationId": "getDecisions",
@@ -9403,6 +10795,128 @@
         "summary": "Attempts of a hill-climb job",
         "tags": [
           "hillclimb"
+        ]
+      }
+    },
+    "/api/v1/incident": {
+      "get": {
+        "operationId": "getIncident",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "incidents": {
+                      "items": {
+                        "$ref": "#/components/schemas/Incident"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "incidents"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List incidents, newest first",
+        "tags": [
+          "incident"
+        ]
+      },
+      "post": {
+        "operationId": "postIncident",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Request"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StartOutcome"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Declare an incident or add actions to the active one; rotated tokens are shown once",
+        "tags": [
+          "incident"
+        ]
+      }
+    },
+    "/api/v1/incident/{id}/end": {
+      "post": {
+        "operationId": "postIncidentByIdEnd",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/EndRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EndOutcome"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "End an incident: resume all and optionally re-enable paused agents",
+        "tags": [
+          "incident"
         ]
       }
     },
@@ -10851,6 +12365,40 @@
         ]
       }
     },
+    "/api/v1/plans/{id}/estimates": {
+      "get": {
+        "operationId": "getPlansByIdEstimates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EstimateReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Expected cost and duration per task and in total for a plan",
+        "tags": [
+          "plans"
+        ]
+      }
+    },
     "/api/v1/plans/{id}/reject": {
       "post": {
         "operationId": "postPlansByIdReject",
@@ -11318,6 +12866,280 @@
         "summary": "Clear the global pause",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/schedules": {
+      "get": {
+        "operationId": "getSchedules",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "schedules": {
+                      "items": {
+                        "$ref": "#/components/schemas/Schedule"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "schedules"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List schedules with their next run",
+        "tags": [
+          "schedules"
+        ]
+      },
+      "post": {
+        "operationId": "postSchedules",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Input"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedule"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Create a schedule that creates briefs or adds tasks on a cron timetable",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/preview": {
+      "get": {
+        "operationId": "getSchedulesPreview",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "cron",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "timezone",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "count",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Preview"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Next run times of a cron expression in a time zone",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/{id}": {
+      "delete": {
+        "operationId": "deleteSchedulesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete a schedule and its run history",
+        "tags": [
+          "schedules"
+        ]
+      },
+      "get": {
+        "operationId": "getSchedulesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedule"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a schedule",
+        "tags": [
+          "schedules"
+        ]
+      },
+      "patch": {
+        "operationId": "patchSchedulesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Patch"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Schedule"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Edit, enable or disable a schedule",
+        "tags": [
+          "schedules"
+        ]
+      }
+    },
+    "/api/v1/schedules/{id}/runs": {
+      "get": {
+        "operationId": "getSchedulesByIdRuns",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "runs": {
+                      "items": {
+                        "$ref": "#/components/schemas/Run"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "runs"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Runs of a schedule, newest first",
+        "tags": [
+          "schedules"
         ]
       }
     },
@@ -11800,6 +13622,83 @@
           }
         },
         "summary": "Mark an approved task done after merging",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/gates": {
+      "get": {
+        "operationId": "getTasksByIdGates",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatesReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Quality gate results of a task with evidence",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/gates/override": {
+      "post": {
+        "operationId": "postTasksByIdGatesOverride",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OverrideInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GatesReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Override failing quality gates of a task with a reason (audited)",
         "tags": [
           "tasks"
         ]
@@ -12384,6 +14283,9 @@
       "name": "conversations"
     },
     {
+      "name": "costs"
+    },
+    {
       "name": "decisions"
     },
     {
@@ -12397,6 +14299,9 @@
     },
     {
       "name": "hooks"
+    },
+    {
+      "name": "incident"
     },
     {
       "name": "insights"
@@ -12442,6 +14347,9 @@
     },
     {
       "name": "reload"
+    },
+    {
+      "name": "schedules"
     },
     {
       "name": "search"

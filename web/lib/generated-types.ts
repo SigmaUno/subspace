@@ -347,6 +347,11 @@ export interface Prompt {
   tags: string[] | null;
   variables: string[] | null;
   body: string;
+  kind?: string;
+  task_title?: string;
+  role?: string;
+  budget?: TaskBudget;
+  acceptance_criteria?: string[];
 }
 
 export interface ProviderStatus {

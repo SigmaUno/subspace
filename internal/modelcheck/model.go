@@ -130,9 +130,7 @@ func (s State) budget(i int) Budget {
 func (s State) briefCost() int {
 	c := 0
 	for _, t := range s.Tasks {
-		if t.Status != Cancelled {
-			c += t.Cost
-		}
+		c += t.Cost
 	}
 	return c
 }
@@ -311,6 +309,9 @@ func (s *State) apply(a Action) string {
 	case Reassign:
 		switch t.Status {
 		case Ready, Assigned, InProgress, Blocked:
+			if t.Status == Blocked && t.BudgetBlock {
+				return codeForbidden
+			}
 			s.endLease(i)
 			t.Status = Assigned
 		case ChangesRequested:
@@ -419,6 +420,9 @@ func (s *State) apply(a Action) string {
 	case LeaderReady:
 		switch t.Status {
 		case Blocked:
+			if t.BudgetBlock {
+				return codeForbidden
+			}
 			t.Status = s.unblockTo(i)
 		case Ready:
 		case Backlog:

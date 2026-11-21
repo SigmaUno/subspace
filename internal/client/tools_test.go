@@ -11,6 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/client"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/usage"
 )
 
@@ -223,7 +224,9 @@ func TestListToolsMatchesRoles(t *testing.T) {
 			}
 		}
 		var want []string
-		for _, tl := range mcp.DefaultRegistry().List(role) {
+		reg := mcp.DefaultRegistry()
+		mcp.RegisterTaskTemplates(reg, nil, prompts.New(""))
+		for _, tl := range reg.List(role) {
 			want = append(want, tl.Name)
 		}
 		if !slices.Equal(names, want) {

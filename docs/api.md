@@ -424,6 +424,22 @@ A send appends one owner `message` to the agent thread of each recipient. `agent
 
 Built-in templates are embedded; `.md` files in `SUBSPACE_PROMPTS_DIR` override or extend them by id.
 
+### Task templates
+A prompt library entry with `kind: task` is a task template: the leader tool `create_task_from_template` renders it into a task.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/task-templates` | → `{"templates":[Template]}` sorted by id, only entries with `kind: task`: `add-feature-with-tests`, `fix-bug-with-regression-test`, `perf-hillclimb-task`, `refactor-keep-behavior`, `security-fix`, `write-integration-tests`. |
+
+Library files stay backwards compatible: the added front matter keys are optional and only valid with `kind: task`. Task templates add `kind`, `task_title` (required, may use `{{variable}}`), `role` (`worker` default, or `tester`), `budget_minutes`, `budget_cost_eur` (plain non-negative numbers) and `acceptance_criteria` (a block list of `- ` lines, at most 20 items of at most 500 characters, plain or `"double"` quoted). New keys may appear once, tabs in list indentation, empty items, control characters and list items outside `acceptance_criteria` are rejected, and every `{{variable}}` used in the title, body or criteria must be declared in `variables`.
+
+```jsonc
+// Template (task template fields are omitted for plain prompts)
+{"id":"fix-bug-with-regression-test","title":"Fix a bug with a regression test","tags":["task-template","bugfix"],
+ "variables":["bug","symptom","area"],"body":"...","kind":"task","task_title":"Fix {{bug}}","role":"worker",
+ "budget":{"max_minutes":120,"max_cost_eur":5},"acceptance_criteria":["..."]}
+```
+
 ### Hillclimb
 | Method | Path | Body → Response |
 |---|---|---|
@@ -591,7 +607,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter.
 
 ### Idempotency keys
-`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
+`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task`, `create_task_from_template` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
 - A retry with the same key, tool and arguments returns the stored result (with the new JSON-RPC `id`) and the header `Idempotent-Replayed: true`; the call is not applied again. Concurrent duplicates wait for the first call.
 - The same key with another tool or other arguments → tool error `idempotency_conflict`.
 - Results with tool error codes `internal`, `agent_paused` and `rate_limited` are not stored, so a retry runs the call again.
@@ -607,7 +623,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | claim_task, release_task, submit | | ✓ | ✓ | |
 | report_tests | | | ✓ | |
 | list_reviews, review | | | | ✓ |
-| get_brief, list_briefs, propose_plan, create_task, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
+| get_brief, list_briefs, propose_plan, create_task, create_task_from_template, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
 | list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
@@ -653,6 +669,8 @@ All tools return an object; `task` = Task object above.
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.
 - `create_task {"brief_id", ...task fields incl. "priority?", "component_id?"}` → `{"task":Task}` (status `ready` if the brief has an approved plan, else `backlog`)
 - `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval). Tasks blocked for `budget_exceeded` or `poison_task` can only be unblocked by the owner (403, also for `reassign`). `budget` may only add or lower limits; raising or removing one is owner-only (403). `depends_on` follows the same rules as the owner PATCH (400 on unknown, self, cancelled, foreign-brief or cyclic dependencies); `create_task` checks `depends_on` the same way.
+- `create_task_from_template {"brief_id","template_id","vars":{"<variable>":"<value>"},"repo","depends_on?":["T-1"],"priority?":int}` → `{"task":Task}`. Renders a task template (see Task templates) into the task's title, spec, `acceptance_criteria`, `role` and `budget`, then creates it like `create_task` (status `ready` if the brief has an approved plan, else `backlog`). 400 `bad_request` when a declared variable is missing or blank (`task template X: missing variables: a, b (declared: ...)`), a variable is not declared, a value exceeds 4000 bytes (16000 in total) or contains a control character other than newline and tab, or the rendered title is empty or longer than 200 characters or the spec longer than 20000; 404 for an unknown template, listing the available ids.
+- `update_task {"task_id","title?","spec?","acceptance_criteria?","depends_on?","budget?","status?":"blocked|ready|cancelled"}` → `{"task":Task}` (`ready` on a `blocked` task unblocks it: → `assigned` if it has an assignee, else `ready`; `backlog` tasks only become ready through owner plan approval)
 - `assign {"task_id","agent_id","as?":"assignee|reviewer"}` → `{"task":Task}` (`ready → assigned`; reviewer on `submitted` → `in_review`). Checks agent role, `active`, provider allowed by brief; reviewer provider ≠ worker provider.
 - `reassign {"task_id","agent_id","reason?"}` → `{"task":Task}` (releases lease; → `assigned`)
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`

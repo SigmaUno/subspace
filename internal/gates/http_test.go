@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ type fixture struct {
 }
 
 func newFixture(t *testing.T) *fixture {
+	t.Setenv("SUBSPACE_PRSYNC_CONFIG", filepath.Join(t.TempDir(), "absent.json"))
 	e := servertest.New(t)
 	return &fixture{Env: e,
 		lead: e.Register("rex", "leader", "other"),

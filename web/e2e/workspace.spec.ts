@@ -9,7 +9,7 @@ test("owner replies in an agent thread and the agent reads it", async ({ page })
 
   await signIn(page);
   await page.goto("/agents");
-  await page.getByRole("button", { name: worker.id, exact: true }).click();
+  await page.getByRole("listitem").filter({ has: page.getByRole("link", { name: worker.id, exact: true }) }).getByRole("button", { name: "Thread" }).click();
 
   const thread = page.getByRole("complementary", { name: "Thread" });
   await expect(thread.getByText(`agent · ${worker.id}`)).toBeVisible();

@@ -1,8 +1,12 @@
+import { execFile } from "node:child_process";
 import { randomBytes } from "node:crypto";
+import { promisify } from "node:util";
 import { test as base, expect, type Page } from "@playwright/test";
 
 export const apiURL = () => required("E2E_API_URL");
 export const webURL = () => required("E2E_WEB_URL");
+const run = promisify(execFile);
+
 export const ownerToken = () => required("E2E_OWNER_TOKEN");
 
 function required(name: string) {
@@ -31,7 +35,7 @@ export class Agent {
   private session = "";
   private sequence = 0;
 
-  constructor(readonly id: string, private readonly token: string) {}
+  constructor(readonly id: string, readonly token: string) {}
 
   private async post(message: Record<string, unknown>) {
     const headers: Record<string, string> = {
@@ -70,6 +74,21 @@ export class Agent {
   }
 }
 
+export class HelperAgent {
+  constructor(readonly id: string, private readonly token: string) {}
+
+  async call<T = Record<string, unknown>>(tool: string, args: Record<string, unknown> = {}): Promise<T> {
+    const env = { ...process.env, SUBSPACE_URL: apiURL(), SUBSPACE_TOKEN: this.token };
+    try {
+      const { stdout } = await run(required("E2E_HELPER_BIN"), [tool, JSON.stringify(args)], { env, timeout: 25_000 });
+      return JSON.parse(stdout) as T;
+    } catch (error) {
+      const detail = error instanceof Error && "stderr" in error ? String(error.stderr) : String(error);
+      throw new Error(`${this.id} ${tool}: ${detail.trim()}`);
+    }
+  }
+}
+
 export async function register(prefix: string, role: string, kind: string, provider: string) {
   const id = uniqueID(prefix);
   const { connect } = await owner<{ connect: { token: string } }>("agents", "POST", {
@@ -77,6 +96,8 @@ export async function register(prefix: string, role: string, kind: string, provi
   });
   return new Agent(id, connect.token).connect();
 }
+
+export const helperFor = (agent: Agent) => new HelperAgent(agent.id, agent.token);
 
 export type Task = { id: string; title: string; status: string; assignee: string | null };
 export type Plan = { id: string; brief_id: string; status: string; tasks: Task[] };

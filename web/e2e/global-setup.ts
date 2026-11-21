@@ -54,6 +54,9 @@ export default async function globalSetup() {
     execFileSync("go", ["build", "-o", binary, "./cmd/subspace"], { cwd: root, stdio: "inherit" });
   }
 
+  const helper = path.join(temp, "subspace-e2e");
+  execFileSync("go", ["build", "-o", helper, "./cmd/subspace-e2e"], { cwd: root, stdio: "inherit" });
+
   const token = randomBytes(24).toString("hex");
   const [apiPort, webPort] = [await freePort(), await freePort()];
   const api = `http://127.0.0.1:${apiPort}`;
@@ -101,5 +104,6 @@ export default async function globalSetup() {
   process.env.E2E_API_URL = api;
   process.env.E2E_WEB_URL = site;
   process.env.E2E_OWNER_TOKEN = token;
+  process.env.E2E_HELPER_BIN = helper;
   return stop;
 }

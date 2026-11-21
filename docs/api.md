@@ -95,7 +95,9 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
 
 ## 3. REST `/api/v1` (owner token)
 
-List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
+List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000 (the paginated lists below keep their own defaults).
+
+Briefs, plans, tasks, agents, questions, spawns, thread messages and audit events are cursor-paginated: they accept `?cursor=<opaque>&limit=` and add `"next_cursor"` to the response, a string when more rows follow and `null` on the last page. Pass it back as `cursor` with the same filters to get the next page. Pages use keyset ordering (no offset), so rows inserted while paging are never duplicated and rows present from the first page on are never skipped. Without `cursor` and `limit` the response is unchanged: tasks default to 1000 rows, audit and thread messages to 200, the other lists are unbounded. A malformed or foreign cursor returns 400 `bad_request`.
 
 ### Control & state
 | Method | Path | Body → Response |
@@ -110,7 +112,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 | Method | Path | Body → Response |
 |---|---|---|
 | POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true}` → Brief (201). `cross_review` defaults to `true`. |
-| GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
+| GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
 | PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status` → Brief (set_budget) |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
@@ -120,7 +122,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Plans
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/plans?status=proposed&brief_id=` | → `{"plans":[Plan]}` |
+| GET | `/api/v1/plans?status=proposed&brief_id=&cursor=&limit=` | → `{"plans":[Plan],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/plans/{id}` | → Plan |
 | POST | `/api/v1/plans/{id}/approve` | `{"note":""}` → Plan. Tasks `backlog → ready`. 409 if not `proposed`. |
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
@@ -128,7 +130,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Tasks
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=` | → `{"tasks":[Task]}` |
+| GET | `/api/v1/tasks?brief_id=&status=&assignee=&role=&cursor=&limit=` | → `{"tasks":[Task],"next_cursor":null}` ordered by `priority` descending, then id. |
 | GET | `/api/v1/tasks/{id}` | → Task |
 | PATCH | `/api/v1/tasks/{id}` | `{"budget":{"max_minutes","max_cost_eur"}}` → Task (set_budget); unblocks a budget-blocked task if now within budget |
 | POST | `/api/v1/tasks/{id}/done` | `{"note":"merged in #123"}` → Task. Only from `approved` (or `needs_owner`). Sets `done`. |
@@ -138,7 +140,7 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Agents
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/agents?role=&status=` | → `{"agents":[Agent]}` |
+| GET | `/api/v1/agents?role=&status=&cursor=&limit=` | → `{"agents":[Agent],"next_cursor":null}` ordered by id. |
 | GET | `/api/v1/agents/{id}` | → Agent |
 | POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic. |
@@ -150,14 +152,14 @@ List endpoints return `{"<plural>": [...]}`. `limit` default 100, max 1000.
 ### Questions
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/questions?status=open` | → `{"questions":[Question]}` |
+| GET | `/api/v1/questions?status=open&cursor=&limit=` | → `{"questions":[Question],"next_cursor":null}` ordered by `created_at`, then id. |
 | POST | `/api/v1/questions/{id}/answer` | `{"answer":"..."}` → Question. Posts an `answer` message to the task and agent threads. |
 
 ### Threads
 Thread key `{kind}/{id}` with kind `agent|task|brief`.
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/threads/{kind}/{id}/messages?since=<message id>&limit=` | → `{"messages":[Message]}` ascending by id; `since` returns ids > since. |
+| GET | `/api/v1/threads/{kind}/{id}/messages?since=<message id>&cursor=&limit=` | → `{"messages":[Message],"next_cursor":null}` ascending by id; `since` returns ids > since, `cursor` continues after the last message of the previous page. |
 | POST | `/api/v1/threads/{kind}/{id}/messages` | `{"body":"..."}` → Message (author_role `owner`, kind `message`) |
 
 ### Capacity & spawns
@@ -165,12 +167,12 @@ Thread key `{kind}/{id}` with kind `agent|task|brief`.
 |---|---|---|
 | GET | `/api/v1/capacity` | → `{"global_max_agents":300,"limits":[CapacityLimit],"agents_in_use":12,"paused":false}` |
 | PUT | `/api/v1/capacity` | `{"global_max_agents":300,"limits":[{"provider","model","max_concurrency","requests_per_min"}]}` → same as GET (set_capacity; persisted in DB, overrides file) |
-| GET | `/api/v1/spawns?brief_id=` | → `{"spawns":[Spawn]}` |
+| GET | `/api/v1/spawns?brief_id=&cursor=&limit=` | → `{"spawns":[Spawn],"next_cursor":null}` ordered by `created_at`, then id. |
 
 ### Audit
 | Method | Path | Body → Response |
 |---|---|---|
-| GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&limit=` | → `{"events":[AuditEvent]}` ascending; append-only, no write endpoint. |
+| GET | `/api/v1/audit?agent_id=&task_id=&tool=&since=<id>&cursor=&limit=` | → `{"events":[AuditEvent],"next_cursor":null}` ascending by id; `since` returns ids > since, `cursor` continues after the previous page; append-only, no write endpoint. |
 
 ### Reports & architecture
 | Method | Path | Body → Response |

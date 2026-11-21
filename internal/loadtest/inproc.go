@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/server"
@@ -20,11 +21,69 @@ import (
 type InProcess struct {
 	URL        string
 	OwnerToken string
-	stop       func()
+
+	ctx  context.Context
+	dir  string
+	addr string
+	log  *slog.Logger
+	mu   sync.Mutex
+	cur  *instance
+}
+
+type instance struct {
+	srv    *server.Server
+	cancel context.CancelFunc
+	errc   chan error
 }
 
 // Stop shuts the server down and removes its temp directory.
-func (p *InProcess) Stop() { p.stop() }
+func (p *InProcess) Stop() {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.shutdown()
+	_ = os.RemoveAll(p.dir)
+}
+
+func (p *InProcess) Restart() error {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	p.shutdown()
+	return p.start()
+}
+
+func (p *InProcess) shutdown() {
+	i := p.cur
+	if i == nil {
+		return
+	}
+	p.cur = nil
+	i.cancel()
+	select {
+	case err := <-i.errc:
+		if err != nil {
+			p.log.Warn("in-process server stopped", "err", err)
+		}
+	case <-time.After(15 * time.Second):
+	}
+	_ = i.srv.Close()
+}
+
+func (p *InProcess) start() error {
+	sctx, cancel := context.WithCancel(p.ctx)
+	s, err := server.New(sctx, server.Config{Addr: p.addr, DBPath: filepath.Join(p.dir, "subspace.db"), OwnerToken: p.OwnerToken, PublicURL: p.URL, Log: p.log})
+	if err != nil {
+		cancel()
+		return fmt.Errorf("start in-process server: %w", err)
+	}
+	i := &instance{srv: s, cancel: cancel, errc: make(chan error, 1)}
+	go func() { i.errc <- s.Run(sctx) }()
+	p.cur = i
+	if err := waitHealthy(p.ctx, &http.Client{Timeout: 2 * time.Second}, p.URL, 10*time.Second, i.errc); err != nil {
+		p.shutdown()
+		return err
+	}
+	return nil
+}
 
 // StartInProcess starts a server on 127.0.0.1 with a fresh SQLite DB in a temp directory and waits for /healthz.
 func StartInProcess(ctx context.Context, log *slog.Logger) (*InProcess, error) {
@@ -37,47 +96,25 @@ func StartInProcess(ctx context.Context, log *slog.Logger) (*InProcess, error) {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	token := "lt-owner-" + hex.EncodeToString(tb)
 	addr, err := freeAddr()
 	if err != nil {
 		_ = os.RemoveAll(dir)
 		return nil, err
 	}
-	url := "http://" + addr
 	if log == nil {
 		log = slog.New(slog.NewTextHandler(os.Stderr, &slog.HandlerOptions{Level: slog.LevelWarn}))
 	}
-	sctx, cancel := context.WithCancel(ctx)
 	for _, k := range []string{"SUBSPACE_RATE_MCP", "SUBSPACE_RATE_AUTHFAIL"} {
 		if _, ok := os.LookupEnv(k); !ok {
 			_ = os.Setenv(k, "off")
 		}
 	}
-	s, err := server.New(sctx, server.Config{Addr: addr, DBPath: filepath.Join(dir, "subspace.db"), OwnerToken: token, PublicURL: url, Log: log})
-	if err != nil {
-		cancel()
+	p := &InProcess{URL: "http://" + addr, OwnerToken: "lt-owner-" + hex.EncodeToString(tb), ctx: ctx, dir: dir, addr: addr, log: log}
+	if err := p.start(); err != nil {
 		_ = os.RemoveAll(dir)
-		return nil, fmt.Errorf("start in-process server: %w", err)
-	}
-	errc := make(chan error, 1)
-	go func() { errc <- s.Run(sctx) }()
-	stop := func() {
-		cancel()
-		select {
-		case err := <-errc:
-			if err != nil {
-				log.Warn("in-process server stopped", "err", err)
-			}
-		case <-time.After(15 * time.Second):
-		}
-		_ = s.Close()
-		_ = os.RemoveAll(dir)
-	}
-	if err := waitHealthy(ctx, &http.Client{Timeout: 2 * time.Second}, url, 10*time.Second, errc); err != nil {
-		stop()
 		return nil, err
 	}
-	return &InProcess{URL: url, OwnerToken: token, stop: stop}, nil
+	return p, nil
 }
 
 func freeAddr() (string, error) {

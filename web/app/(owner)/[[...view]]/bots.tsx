@@ -5,6 +5,7 @@ import { ApiError, api, useResource, useSubmit, value } from "../../../lib/clien
 import type { Bot, BotAction, BotList, BotRegistration } from "../../../lib/bots-types";
 import type { Thread } from "../../../lib/types";
 import { Feedback, Heartbeat } from "./components";
+import { SpawnsPanel } from "./spawns";
 import { EmptyState, ResourceState } from "./states";
 
 const roles = ["leader", "worker", "tester", "reviewer"];
@@ -170,5 +171,6 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
         ))}</tbody>
       </table>
     </div>}
+    <SpawnsPanel revision={revision} />
   </>;
 }

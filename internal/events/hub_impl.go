@@ -16,6 +16,7 @@ type hub struct {
 	seq    int64
 	topics map[string][]*sub
 	count  int
+	closed bool
 }
 
 type sub struct {
@@ -25,7 +26,7 @@ type sub struct {
 	all     bool
 	mark    int64
 	dropped atomic.Int64
-	once    sync.Once
+	closed  bool
 }
 
 func NewHub() Hub {
@@ -57,11 +58,16 @@ func (h *hub) Subscribe(topics []string) Subscription {
 	}
 	s.all = slices.Contains(s.topics, TopicAll)
 	h.mu.Lock()
+	defer h.mu.Unlock()
+	if h.closed {
+		s.closed = true
+		close(s.ch)
+		return s
+	}
 	for _, t := range s.topics {
 		h.topics[t] = append(h.topics[t], s)
 	}
 	h.count++
-	h.mu.Unlock()
 	return s
 }
 
@@ -108,25 +114,42 @@ func (s *sub) C() <-chan Event { return s.ch }
 func (s *sub) TakeDropped() int { return int(s.dropped.Swap(0)) }
 
 func (s *sub) Close() {
-	s.once.Do(func() {
-		h := s.h
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		for _, t := range s.topics {
-			set := h.topics[t]
-			if i := slices.Index(set, s); i >= 0 {
-				last := len(set) - 1
-				set[i] = set[last]
-				set[last] = nil
-				set = set[:last]
-			}
-			if len(set) == 0 {
-				delete(h.topics, t)
-			} else {
-				h.topics[t] = set
-			}
+	h := s.h
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.removeLocked(s)
+}
+
+func (h *hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for _, set := range h.topics {
+		for _, s := range slices.Clone(set) {
+			h.removeLocked(s)
 		}
-		h.count--
-		close(s.ch)
-	})
+	}
+}
+
+func (h *hub) removeLocked(s *sub) {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	for _, t := range s.topics {
+		set := h.topics[t]
+		if i := slices.Index(set, s); i >= 0 {
+			last := len(set) - 1
+			set[i] = set[last]
+			set[last] = nil
+			set = set[:last]
+		}
+		if len(set) == 0 {
+			delete(h.topics, t)
+		} else {
+			h.topics[t] = set
+		}
+	}
+	h.count--
+	close(s.ch)
 }

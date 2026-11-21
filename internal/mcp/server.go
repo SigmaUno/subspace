@@ -65,6 +65,7 @@ type Server struct {
 	Hooks      Hooks
 	OwnerToken string
 	Now        func() time.Time
+	Sessions   SessionStore
 
 	mu       sync.Mutex
 	sessions map[string]session
@@ -181,7 +182,15 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	sid := r.Header.Get("Mcp-Session-Id")
 	if r.Method == http.MethodDelete {
-		if sid == "" || !s.dropSession(sid, agent.ID) {
+		ok := false
+		if sid != "" {
+			var err error
+			if ok, err = s.closeSession(r.Context(), sid, agent.ID); err != nil {
+				http.Error(w, "internal error", http.StatusInternalServerError)
+				return
+			}
+		}
+		if !ok {
 			http.Error(w, "unknown session", http.StatusNotFound)
 			return
 		}
@@ -198,9 +207,16 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32700, "parse error"}})
 		return
 	}
-	if sid != "" && req.Method != "initialize" && !s.sessionOK(sid, agent.ID) {
-		http.Error(w, "unknown session", http.StatusNotFound)
-		return
+	if sid != "" && req.Method != "initialize" {
+		ok, err := s.checkSession(r.Context(), sid, agent.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		if !ok {
+			http.Error(w, "unknown session", http.StatusNotFound)
+			return
+		}
 	}
 	if len(req.ID) == 0 || req.Method == "" {
 		w.WriteHeader(http.StatusAccepted)
@@ -214,7 +230,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	resp := rpcResp{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
-		w.Header().Set("Mcp-Session-Id", s.newSession(agent.ID))
+		id, err := s.openSession(r.Context(), agent.ID)
+		if err != nil {
+			http.Error(w, "internal error", http.StatusInternalServerError)
+			return
+		}
+		w.Header().Set("Mcp-Session-Id", id)
 		resp.Result = map[string]any{
 			"protocolVersion": ProtocolVersion,
 			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},

@@ -51,6 +51,7 @@ type Options struct {
 	Agents auth.AgentLookup
 	Now    func() time.Time
 	Log    *slog.Logger
+	Lock   func(ctx context.Context, key string) (func(), error)
 }
 
 type handler struct {
@@ -128,6 +129,15 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	unlock := h.lock(agent.ID + "\x00" + key)
 	defer unlock()
 	ctx := r.Context()
+	if h.opts.Lock != nil {
+		release, err := h.opts.Lock(ctx, agent.ID+"\x00"+key)
+		if err != nil {
+			h.opts.Log.Error("idempotency lock", "err", err)
+			writeRPC(w, req.ID, toolError("internal", "internal error"), false)
+			return
+		}
+		defer release()
+	}
 	rec, err := h.opts.Store.GetIdempotency(ctx, agent.ID, key, h.opts.Now())
 	if err != nil {
 		h.opts.Log.Error("idempotency lookup", "err", err)

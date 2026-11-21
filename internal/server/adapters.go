@@ -53,6 +53,14 @@ func (d chatDirectory) Agent(ctx context.Context, id string) (*model.Agent, erro
 
 func (chatDirectory) ByComponent(context.Context, string) ([]string, error) { return nil, nil }
 
+func (d chatDirectory) ByRole(ctx context.Context, role string) ([]string, error) {
+	return liveAgents(ctx, d.b, role)
+}
+
+func (d chatDirectory) All(ctx context.Context) ([]string, error) {
+	return liveAgents(ctx, d.b, "")
+}
+
 func (d chatDirectory) ByBrief(ctx context.Context, id string) ([]string, error) {
 	return d.b.ActiveAgentsOfBrief(ctx, id)
 }

@@ -35,6 +35,25 @@ func (d *fakeDir) ByBrief(_ context.Context, id string) ([]string, error) {
 	return slices.Clone(d.briefs[id]), nil
 }
 
+func (d *fakeDir) ByRole(_ context.Context, role string) ([]string, error) {
+	var ids []string
+	for id, a := range d.agents {
+		if a.Role == role && a.Status != model.AgentRevoked {
+			ids = append(ids, id)
+		}
+	}
+	return ids, nil
+}
+
+func (d *fakeDir) All(ctx context.Context) ([]string, error) {
+	var ids []string
+	for _, role := range []string{model.RoleLeader, model.RoleWorker} {
+		more, _ := d.ByRole(ctx, role)
+		ids = append(ids, more...)
+	}
+	return ids, nil
+}
+
 func (d *fakeDir) Leader(context.Context) (string, error) { return d.leader, nil }
 
 type fakeThreads struct {
@@ -229,11 +248,21 @@ func TestSendTargets(t *testing.T) {
 		t.Fatalf("brief recipients = %v", got)
 	}
 
+	if got := h.send("role:worker", "workers only").Recipients; !slices.Equal(got, []string{"w1", "w2"}) {
+		t.Fatalf("role recipients = %v", got)
+	}
+	if got := h.send("all", "everyone").Recipients; !slices.Equal(got, []string{"rex", "w1", "w2"}) {
+		t.Fatalf("all recipients = %v", got)
+	}
+
 	cases := []struct {
 		name string
 		body any
 		code int
 	}{
+		{"unknown role", chat.Message{To: "role:janitor", Body: "x"}, http.StatusBadRequest},
+		{"role without agents", chat.Message{To: "role:tester", Body: "x"}, http.StatusNotFound},
+		{"role missing", chat.Message{To: "role:", Body: "x"}, http.StatusBadRequest},
 		{"unknown agent", chat.Message{To: "agent:ghost", Body: "x"}, http.StatusNotFound},
 		{"revoked agent", chat.Message{To: "agent:old", Body: "x"}, http.StatusConflict},
 		{"empty component", chat.Message{To: "component:none", Body: "x"}, http.StatusNotFound},
@@ -249,6 +278,9 @@ func TestSendTargets(t *testing.T) {
 	}
 	if code, _ := h.do("GET", "/conversations/C-999", nil); code != http.StatusNotFound {
 		t.Errorf("unknown conversation: status %d", code)
+	}
+	if h.router.Unread("rex") != 3 || h.router.Unread("w1") != 3 {
+		t.Errorf("unread rex=%d w1=%d", h.router.Unread("rex"), h.router.Unread("w1"))
 	}
 	if h.router.Unread("old") != 0 || h.router.Unread("ghost") != 0 {
 		t.Error("rejected messages must not create unread counts")

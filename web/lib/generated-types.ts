@@ -65,6 +65,7 @@ export interface Brief {
   auto_done_on_merge: boolean;
   cost_used: number;
   plan_status: string;
+  leader_id: string | null;
   created_at: string;
 }
 
@@ -88,6 +89,7 @@ export interface BriefPreview {
   max_parallel_agents: number;
   allowed_providers: string[] | null;
   cross_review: boolean;
+  leader_id: string | null;
   task_budget: BriefTaskBudget | null;
   components: BriefComponentSpec[] | null;
 }

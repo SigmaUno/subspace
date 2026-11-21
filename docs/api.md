@@ -41,6 +41,7 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "allowed_providers":["anthropic","openai","deepseek"],   // [] = all
  "cross_review":true,"auto_done_on_merge":false,
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected; cost_used includes cancelled tasks
+ "leader_id":null,                                         // leader agent that owns the brief; null = any leader
  "created_at":"..."}
 
 // Task
@@ -144,11 +145,12 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true}` → Brief (201). `cross_review` defaults to `true`. |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":""}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader. |
 | GET | `/api/v1/briefs?status=` | → `{"briefs":[Brief]}` |
 | GET | `/api/v1/briefs/{id}` | → Brief |
-| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status` → Brief (set_budget) |
+| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id` → Brief (set_budget). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
 | | | `status` is `open` or `closed`. Closing cancels `backlog`/`ready`/`assigned` tasks and moves `in_progress` tasks to `blocked` (`blocked_reason` `brief_closed`, lease released), each with a system message in the task thread; `submitted`, `in_review`, `approved` and every other status stay for the owner to finish. A closed brief rejects claims, spawns, plans and new tasks (409), and its board stays readable. The brief thread gets a system summary (cancelled/blocked counts, tasks per status, cost used). Reopening posts a brief-thread message; tasks cancelled by closing stay cancelled and `brief_closed` tasks stay blocked until unblocked. Setting the current status again changes nothing. Audit events: `close_brief` (one for the brief, one per affected task) and `reopen_brief`. |
+| POST | `/api/v1/briefs/{id}/leader` | `{"agent_id":"rex"}` → Brief. Hands the brief to that leader; `null` or `""` = any leader. 400 without `agent_id` or for an agent that is not a leader, 404 for an unknown brief or agent, 409 for a revoked agent. See Leader scoping. |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
 | GET | `/api/v1/briefs/{id}/architecture` | → `{"brief_id","nodes":[{"id":"C-1","brief_id","name","description","paths":[],"depends_on":["C-2"],"owners":[{"agent_id","role","agent_status","task_ids":[]}],"status":{"counts":{status:n},"total","progress_avg","blocked","stale","last_activity"}}],"edges":[{"from":"C-1","to":"C-2"}]}` |
 | PUT | `/api/v1/briefs/{id}/components` | `{"components":[{"name","description","paths":[],"depends_on":["<component name>"]}]}` → `{"components":[Component]}`. Replaces the plan; ids `C-<n>` follow list order. 400 on an empty plan, duplicate names, unknown/self/cyclic dependencies or paths that are absolute or escape the repository. |
@@ -166,6 +168,7 @@ max_cost_eur: 120
 max_parallel_agents: 8                  # 0 or absent = 10
 allowed_providers: [anthropic, openai]  # [] or absent = all
 cross_review: true                      # absent = true
+leader_id: rex                          # absent = any leader
 task_budget:
   max_minutes: 120
   max_cost_eur: 10
@@ -186,12 +189,16 @@ The frontmatter is a strict YAML subset: block mappings and lists indented with 
 ```jsonc
 // BriefPreview
 {"title":"...","body":"...","repos":[],"max_cost_eur":0,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,
+ "leader_id":null,                                      // null when absent
  "task_budget":{"max_minutes":120,"max_cost_eur":10},   // null when absent
  "components":[{"name","description","paths":[],"depends_on":[]}]}
 
 // BriefTemplate
 {"id":"feature","title":"Feature","variables":["title","repo","goal","acceptance"],"markdown":"---\ntitle: \"{{title}}\"\n..."}
 ```
+
+#### Leader scoping
+A brief with `leader_id` set belongs to that leader; with `null` every leader may work on it. Leader tools (`get_brief`, `list_briefs`, `propose_plan`, `create_task`, `create_task_from_template`, `update_task`, `assign`, `reassign`, `board`, `request_spawn`, `list_help_requests`, `accept_split`, `get_task`, `post_message`, `read_thread`, `add_note`, `ask_owner` and the artifact tools) only see briefs whose `leader_id` is `null` or the caller. Briefs, plans, tasks, task and brief threads, help requests and artifacts of other briefs answer exactly like ids that do not exist (`not_found`, or `forbidden` for artifact scopes), lists leave them out and dependencies on their tasks are unknown. `list_agents` and `capacity` are unaffected. The check runs on every call, so a handoff takes effect immediately: the previous leader loses access, the brief thread gets a `system` message (`Leader of B-1 changed: rex → max`), both leaders get a `system` message in their agent thread and a `set_brief_leader` audit event is written. Setting the current leader again changes nothing. A `report_blocker` with `needs` `leader` only notifies leaders who may see the brief. Autopilot acts as a leader without a brief of its own: it plans only for enabled briefs whose `leader_id` is `null`.
 
 Template variables are `{{name}}` placeholders. Values substituted into the frontmatter are escaped for double-quoted strings.
 
@@ -687,12 +694,12 @@ All tools return an object; `task` = Task object above.
 - `get_instructions {}` → `{"instructions":"<text>","role":"worker","agent_id":"..."}`. The text is the built-in role instructions (for workers of kind `claude-code`, `codex` or `opencode`, followed by short kind tips), then the effective owner instructions (`--- Owner instructions (<version>) ---`, when any are saved, see Instructions), then the charter.
 - `whoami {}` → `{"agent":Agent,"paused":false,"server_time":"..."}`
 - `list_my_tasks {"status?":["in_progress",...]}` → `{"tasks":[Task]}` (tasks where I am assignee or reviewer)
-- `get_task {"task_id"}` → `{"task":Task}` or `{"task":Task,"context":TaskContext}` (own/assigned tasks; leader: any). `context` is only present for the task's assignee, see Handoff context.
+- `get_task {"task_id"}` → `{"task":Task}` or `{"task":Task,"context":TaskContext}` (own/assigned tasks; leader: tasks of briefs it may lead). `context` is only present for the task's assignee, see Handoff context.
 - `heartbeat {"task_id?","note?"}` → `{"ok":true,"paused":false,"lease_expires_at":"..."|null}`. Extends leases of my in_progress tasks (or only `task_id`). Cheap (in-memory, batched).
 - `update_status {"task_id","status":"in_progress|blocked","progress_pct?":0-100,"note?","cost_eur?":number}` → `{"task":Task}`. `cost_eur` is cumulative cost spent (0..1000000; a lower value than the recorded cost is ignored). Exceeding task/brief budget forces `blocked`. Cannot set submitted/approved/done.
 - `add_note {"task_id?","body"}` → `{"message":Message}` (task thread, or own agent thread if no task)
 - `ask_owner {"task_id?","question","options?":["..."]}` → `{"question":Question}`; answer arrives in the task/agent thread (`read_thread`).
-- `post_message {"thread":"task:T-3","body"}` → `{"message":Message}`. `thread` is `agent:<id>` (or `agent:me`), `task:<id>`, `brief:<id>`. Scope: own agent thread; task threads where I am assignee/reviewer; leader additionally every task/brief thread.
+- `post_message {"thread":"task:T-3","body"}` → `{"message":Message}`. `thread` is `agent:<id>` (or `agent:me`), `task:<id>`, `brief:<id>`. Scope: own agent thread; task threads where I am assignee/reviewer; leader additionally every agent thread and the task/brief threads of briefs it may lead.
 - `read_thread {"thread","since?":int,"limit?":int}` → `{"messages":[Message]}`
 
 **Artifacts** (all roles; the same access rules as the owner REST artifacts, limited to scopes the agent can reach: its own agent scope, tasks it holds, and their projects)
@@ -725,7 +732,7 @@ All tools return an object; `task` = Task object above.
 - `review {"task_id","verdict":"approve|changes_requested","comments"}` → `{"task":Task}`. approve → `approved`; changes_requested → `changes_requested` (`review_rounds`+1); at 3 rounds → `needs_owner`.
 
 **Leader**
-- `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s)
+- `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s). Every leader tool is limited to briefs the caller may lead, see Leader scoping.
 - `list_help_requests {"status?":"open|accepted|superseded|closed|all","brief_id?","task_id?","limit?":1-1000}` → `{"requests":[HelpRequest]}` (help requests, blockers and split proposals, newest first; default `open`)
 - `accept_split {"request_id"}` → `{"request":HelpRequest,"tasks":[Task],"original":Task,"rewired":["T-9"]}`. Creates the proposed tasks like `create_task` (ready or backlog), roots depend on the original's dependencies, tasks that depended on the original are re-pointed at the new tasks nothing else in the split depends on (`rewired`), then cancels the original. 409 if the proposal is not `open` or the task is `done`/`cancelled`. On a failure the created tasks are cancelled and the proposal stays open.
 - `propose_plan {"brief_id","note?","tasks":[{"ref?","title","spec","acceptance_criteria":["..."],"repo","depends_on?":["<ref or T-id>"],"role?":"worker|tester","budget?":{"max_minutes","max_cost_eur"},"priority?":int,"component_id?":"C-1"}]}` → `{"plan":Plan}`. `ref` lets tasks depend on each other inside the plan. Supersedes any earlier proposed plan. The plan is linted first: findings with severity `error` (`dependency_cycle`, `unreachable_task`, `duplicate_ref`, `repo_outside_brief`, `spec_size` above 20000 characters) reject it with `bad_request` listing them; findings with severity `warning` (`acceptance_criteria`, `verification`, `spec_size`, `no_tester`, `duplicate_title`, `budget_missing`, `parallelism`) are stored in `Plan.warnings` and shown in the plan's decision summary.

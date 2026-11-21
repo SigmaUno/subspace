@@ -243,6 +243,9 @@ func (s *Service) Get(ctx context.Context, actor model.Actor, id string) (*Artif
 		return nil, err
 	}
 	if err := s.authorize(ctx, actor, sc); err != nil {
+		if actor.Role == model.RoleLeader && model.AsError(err).Code == "forbidden" {
+			return nil, model.NotFound("%s not found", id)
+		}
 		return nil, err
 	}
 	return a, nil

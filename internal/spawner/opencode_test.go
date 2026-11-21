@@ -336,3 +336,21 @@ func TestOpenCodeStopAndStatus(t *testing.T) {
 		t.Fatal("invalid agent id accepted")
 	}
 }
+
+func TestOpenCodeGitCredentialsOnlyInEnvFile(t *testing.T) {
+	const gitToken = "git-credential-for-tests-0123456789"
+	var c execCall
+	o := &OpenCode{Root: "/srv/agents", Exec: fakeExec(&c, errors.New("push failed with "+gitToken))}
+	r := openCodeRequest()
+	r.Env = map[string]string{"SUBSPACE_GIT_TOKEN": gitToken, "GH_TOKEN": gitToken}
+	err := o.Spawn(context.Background(), r)
+	if !strings.Contains(c.stdin, "SUBSPACE_GIT_TOKEN='"+gitToken+"'\n") || !strings.Contains(c.stdin, "GH_TOKEN='"+gitToken+"'\n") {
+		t.Fatalf("stdin %q", c.stdin)
+	}
+	if strings.Contains(c.name+strings.Join(c.args, "\x00"), gitToken) {
+		t.Fatal("git token in argv")
+	}
+	if err == nil {
+		t.Fatal("expected the runner error")
+	}
+}

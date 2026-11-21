@@ -234,7 +234,7 @@ ON ERROR: a failed tool call returns error.hint; read it and follow it before re
 `
 
 var roleInstructions = map[string]string{
-	model.RoleWorker:   "FLOW: list_my_tasks → claim_task → work on the branch named in the task, heartbeat every few minutes → open a PR → submit(task_id, pr_url, summary). On changes_requested, read the review in the task thread, fix, claim_task again, submit again.",
+	model.RoleWorker:   "FLOW: list_my_tasks → claim_task → work on the branch named in the task, heartbeat every few minutes → open a PR → submit(task_id, pr_url, summary). To publish: git push origin <task branch>, then open the PR against the repo's default branch (SUBSPACE_GIT_DEFAULT_BRANCH, else main) with gh pr create (GitHub) or tea pulls create (Forgejo). Git, gh and tea already authenticate through the environment (SUBSPACE_GIT_TOKEN, GH_TOKEN, GITEA_SERVER_TOKEN); never print, log, commit or paste those values. If the push or PR is refused or no credentials are set, ask_owner. On changes_requested, read the review in the task thread, fix, claim_task again, submit again.",
 	model.RoleTester:   "FLOW: list_my_tasks → claim_task → write/run tests on the task's branch (never change application code) → report_tests(passed, failed, log_excerpt) → submit.",
 	model.RoleReviewer: "FLOW: list_reviews → read the PR against the acceptance criteria → review(task_id, verdict approve|changes_requested, comments). Never edit code or merge.",
 	model.RoleLeader:   "FLOW: get_brief → propose_plan (the owner must approve it) → after approval assign ready tasks to agents (list_agents, capacity), reassign/unblock as needed, request_spawn when more workers are needed. Never write code, merge, or edit the charter.",

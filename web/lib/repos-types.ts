@@ -7,6 +7,7 @@ export type Repo = {
   merge_test_command: string[];
   merge_work_dir: string;
   token_env: string;
+  agent_token_env: string;
   enabled: boolean;
   created_at: string;
   updated_at: string;

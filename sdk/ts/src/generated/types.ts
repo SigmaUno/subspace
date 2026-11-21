@@ -1755,6 +1755,7 @@ export interface ReplayTransition {
 }
 
 export interface Repo {
+  agent_token_env: string;
   base_url: string;
   created_at: string;
   default_branch: string;
@@ -1769,6 +1770,7 @@ export interface Repo {
 }
 
 export interface RepoInput {
+  agent_token_env?: string;
   base_url?: string;
   default_branch?: string;
   enabled?: boolean | null;

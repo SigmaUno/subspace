@@ -21,8 +21,8 @@ func TestReposRegistryCommands(t *testing.T) {
 	defer forge.Close()
 
 	added := h.object("repos", "add", "o/r", "--host", "forgejo", "--base-url", forge.URL, "--protect", "main", "--protect", "release/*",
-		"--merge-test", "make test", "--merge-workdir", "/data/mq", "--token-env", "FORGE_TOKEN")
-	if added["name"] != "o/r" || added["enabled"] != true || added["default_branch"] != "main" || added["token_env"] != "FORGE_TOKEN" ||
+		"--merge-test", "make test", "--merge-workdir", "/data/mq", "--token-env", "FORGE_TOKEN", "--agent-token-env", "FORGE_AGENT_TOKEN")
+	if added["name"] != "o/r" || added["enabled"] != true || added["default_branch"] != "main" || added["token_env"] != "FORGE_TOKEN" || added["agent_token_env"] != "FORGE_AGENT_TOKEN" ||
 		len(added["protected_branches"].([]any)) != 2 || len(added["merge_test_command"].([]any)) != 2 {
 		t.Fatalf("add = %v", added)
 	}
@@ -33,7 +33,7 @@ func TestReposRegistryCommands(t *testing.T) {
 
 	updated := h.object("repos", "update", "o/r", "--default-branch", "trunk", "--enabled=false")
 	if updated["default_branch"] != "trunk" || updated["enabled"] != false || updated["base_url"] != forge.URL ||
-		len(updated["protected_branches"].([]any)) != 2 || updated["merge_work_dir"] != "/data/mq" {
+		len(updated["protected_branches"].([]any)) != 2 || updated["merge_work_dir"] != "/data/mq" || updated["agent_token_env"] != "FORGE_AGENT_TOKEN" {
 		t.Fatalf("update must keep the fields it was not given: %v", updated)
 	}
 	cleared := h.object("repos", "update", "o/r", "--merge-test", "", "--enabled=true")

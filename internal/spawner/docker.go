@@ -383,7 +383,7 @@ func (d *Docker) agentEnv(r Request) ([]string, error) {
 		if strings.Contains(v, r.Token) && r.Token != "" {
 			return nil, fmt.Errorf("spawner docker: env %s carries the agent token", k)
 		}
-		if reservedEnv(k) {
+		if reservedEnv(k) && !strings.HasPrefix(k, gitEnvPrefix) {
 			continue
 		}
 		m[k] = v
@@ -415,6 +415,8 @@ func (d *Docker) agentEnv(r Request) ([]string, error) {
 	}
 	return env, nil
 }
+
+const gitEnvPrefix = "SUBSPACE_GIT_"
 
 func reservedEnv(k string) bool {
 	u := strings.ToUpper(k)

@@ -7235,6 +7235,9 @@
       },
       "Repo": {
         "properties": {
+          "agent_token_env": {
+            "type": "string"
+          },
           "base_url": {
             "type": "string"
           },
@@ -7284,6 +7287,7 @@
           }
         },
         "required": [
+          "agent_token_env",
           "base_url",
           "created_at",
           "default_branch",
@@ -7300,6 +7304,9 @@
       },
       "RepoInput": {
         "properties": {
+          "agent_token_env": {
+            "type": "string"
+          },
           "base_url": {
             "type": "string"
           },

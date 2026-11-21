@@ -18,6 +18,7 @@ func mountRepos(d Deps) {
 	}
 	s := &repos.Store{St: d.Store, Now: d.Cfg.Now}
 	d.Board.SetRepoCheck(s.Check)
+	d.Board.SetRepoCredentials(s.AgentCredentials)
 	h := repos.Handler(s, nil, d.Log)
 	d.API.Mount(d.Mux, "/api/v1/repos", h)
 	d.API.Mount(d.Mux, "/api/v1/repos/", h)

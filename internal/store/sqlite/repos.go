@@ -7,4 +7,5 @@ CREATE TABLE IF NOT EXISTS repos (
   protected_branches TEXT NOT NULL DEFAULT '[]', merge_test_command TEXT NOT NULL DEFAULT '[]', merge_work_dir TEXT NOT NULL DEFAULT '',
   token_env TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at INTEGER NOT NULL, updated_at INTEGER NOT NULL
 );`)
+	RegisterExtensionColumn("repos", "agent_token_env", "TEXT NOT NULL DEFAULT ''")
 }

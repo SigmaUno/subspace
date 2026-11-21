@@ -815,3 +815,21 @@ func TestDockerFromEnv(t *testing.T) {
 		}
 	}
 }
+
+func TestDockerPassesGitCredentialsButNotOtherServerEnv(t *testing.T) {
+	d, f := dockerFixture(t, nil)
+	req := testRequest()
+	req.Env = map[string]string{"SUBSPACE_GIT_TOKEN": "git-credential-for-tests-0123456789", "SUBSPACE_TOKEN_FILE": "/etc/shadow", "GH_TOKEN": "gh"}
+	if err := d.Spawn(context.Background(), req); err != nil {
+		t.Fatal(err)
+	}
+	env := f.agentBody(t, req.AgentID).Env
+	for _, want := range []string{"SUBSPACE_GIT_TOKEN=git-credential-for-tests-0123456789", "GH_TOKEN=gh", "SUBSPACE_TOKEN_FILE=" + AgentTokenPath} {
+		if !slices.Contains(env, want) {
+			t.Errorf("env lacks %q: %q", want, env)
+		}
+	}
+	if slices.Contains(env, "SUBSPACE_TOKEN_FILE=/etc/shadow") {
+		t.Fatal("caller overrode a reserved variable")
+	}
+}

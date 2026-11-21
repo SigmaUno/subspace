@@ -13,6 +13,7 @@ PACKAGES=(
   ./internal/reviewsync
   ./internal/mirror
   ./internal/mergequeue
+  ./internal/repos
 )
 
 die() {

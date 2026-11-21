@@ -103,6 +103,9 @@ func (w *writeQ) stmt(ctx context.Context, q string) *sql.Stmt {
 	if st := w.c.get(q); st != nil {
 		return w.tx.StmtContext(ctx, st)
 	}
+	if w.miss == nil {
+		w.miss = map[string]struct{}{}
+	}
 	w.miss[q] = struct{}{}
 	return nil
 }

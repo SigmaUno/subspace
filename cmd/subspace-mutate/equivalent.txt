@@ -92,3 +92,38 @@ internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 10000
 internal/estimate/service.go	agentLimit = 100000	change constant 100000 to 99999
 internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 1001
 internal/estimate/service.go	auditPage  = 1000	change constant 1000 to 999
+internal/forecast/forecast.go	cpStart = max(cpStart, cp[d])	swap arguments cpStart and cp[d]
+internal/forecast/forecast.go	d = max(float64(n.task.Budget.MaxMinutes)-n.usedMin, 0)	swap arguments float64(n.task.Budget.MaxMinutes) - n.usedMin and 0
+internal/forecast/forecast.go	dur[i] = max(lognormal(n.expMin, n.sigmaMin*scale, z), n.usedMin) - n.usedMin	swap arguments lognormal(n.expMin, n.sigmaMin * scale, z) and n.usedMin
+internal/forecast/forecast.go	h := max(budget-s.Brief.CostUsed, 0) / b.EURPerHour	swap arguments budget - s.Brief.CostUsed and 0
+internal/forecast/forecast.go	hours := max(s.Now.Sub(earliest).Hours(), minBurnHours)	swap arguments s.Now.Sub(earliest).Hours() and minBurnHours
+internal/forecast/forecast.go	hours := max(s.Now.Sub(first).Hours(), minBurnHours)	swap arguments s.Now.Sub(first).Hours() and minBurnHours
+internal/forecast/forecast.go	if len(order) < len(nodes) {	replace < with <=
+internal/forecast/forecast.go	if mu <= 0 {	replace <= with <
+internal/forecast/forecast.go	if s.Median <= 0 || s.P80 <= s.Median {	replace <= with <
+internal/forecast/forecast.go	if s.Median <= 0 || s.P80 <= s.Median {	replace || with &&
+internal/forecast/forecast.go	if slots <= 0 || slots > f.Tasks.Remaining {	replace > with >=
+internal/forecast/forecast.go	longest = max(longest, finish[i])	swap arguments longest and finish[i]
+internal/forecast/forecast.go	n.expCost = max(e.CostEUR.Median*math.Exp(sigma*sigma/2), n.usedCost)	swap arguments e.CostEUR.Median * math.Exp(sigma * sigma / 2) and n.usedCost
+internal/forecast/forecast.go	n.expCost = max(n.expCost, n.usedCost)	swap arguments n.expCost and n.usedCost
+internal/forecast/forecast.go	n.expMin = max(e.Minutes.Median*math.Exp(sigma*sigma/2), n.usedMin)	swap arguments e.Minutes.Median * math.Exp(sigma * sigma / 2) and n.usedMin
+internal/forecast/forecast.go	n.expMin = max(n.expMin, n.usedMin)	swap arguments n.expMin and n.usedMin
+internal/forecast/forecast.go	path = max(path, cp[i])	swap arguments path and cp[i]
+internal/forecast/forecast.go	remCost += max(lognormal(n.expCost, n.sigmaEUR*scale, z), n.usedCost) - n.usedCost	swap arguments lognormal(n.expCost, n.sigmaEUR * scale, z) and n.usedCost
+internal/forecast/forecast.go	return 0	change constant 0 to 1
+internal/forecast/forecast.go	return 0, false	change constant 0 to 1
+internal/forecast/forecast.go	return min(max(math.Log(s.P80/s.Median)/z80, minSigma), maxSigma)	swap arguments math.Log(s.P80 / s.Median) / z80 and minSigma
+internal/forecast/forecast.go	return min(max(math.Log(s.P80/s.Median)/z80, minSigma), maxSigma)	swap arguments max(math.Log(s.P80 / s.Median) / z80, minSigma) and maxSigma
+internal/forecast/forecast.go	return min(max(math.Sqrt(ss/float64(len(xs)-1)), minSigma), maxSigma)	swap arguments math.Sqrt(ss / float64(len(xs) - 1)) and minSigma
+internal/forecast/forecast.go	return min(max(math.Sqrt(ss/float64(len(xs)-1)), minSigma), maxSigma)	swap arguments max(math.Sqrt(ss / float64(len(xs) - 1)), minSigma) and maxSigma
+internal/forecast/forecast.go	runs = min(runs, maxRuns)	swap arguments runs and maxRuns
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	change constant 1 to 0
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	change constant 1 to 2
+internal/forecast/forecast.go	slots = max(f.Tasks.Remaining, 1)	swap arguments f.Tasks.Remaining and 1
+internal/forecast/forecast.go	span = max(span, fin[i])	swap arguments span and fin[i]
+internal/forecast/forecast.go	start = max(start, fin[d])	swap arguments start and fin[d]
+internal/forecast/forecast.go	start = max(start, finish[d])	swap arguments start and finish[d]
+internal/forecast/forecast.go	start = max(start, free[k])	swap arguments start and free[k]
+internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 100001
+internal/forecast/service.go	const taskLimit = 100000	change constant 100000 to 99999
+internal/forecast/service.go	if errors.Is(err, store.ErrNotFound) {	swap arguments err and store.ErrNotFound

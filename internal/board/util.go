@@ -62,6 +62,11 @@ type noopSpawner struct{}
 func (noopSpawner) Name() string                                 { return "noop" }
 func (noopSpawner) Spawn(context.Context, spawner.Request) error { return nil }
 
+func exists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
+}
+
 func fileSize(path string) int64 {
 	st, err := os.Stat(path)
 	if err != nil {

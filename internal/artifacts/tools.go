@@ -132,7 +132,7 @@ func decode(raw json.RawMessage, v any) error {
 		return nil
 	}
 	if err := json.Unmarshal(raw, v); err != nil {
-		return model.BadRequest("invalid arguments: %v", err)
+		return model.BadRequest("invalid arguments")
 	}
 	return nil
 }

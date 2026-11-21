@@ -134,7 +134,11 @@ func (b *Board) Backup(ctx context.Context) (string, int64, error) {
 	if b.o.BackupDir == "" {
 		return "", 0, model.BadRequest("backups are not configured")
 	}
-	path := fmt.Sprintf("%s/subspace-%s.db", strings.TrimRight(b.o.BackupDir, "/"), b.now().Format("20060102T150405Z"))
+	base := fmt.Sprintf("%s/subspace-%s", strings.TrimRight(b.o.BackupDir, "/"), b.now().Format("20060102T150405Z"))
+	path := base + ".db"
+	for n := 1; exists(path); n++ {
+		path = fmt.Sprintf("%s-%d.db", base, n)
+	}
 	if err := b.st.Backup(ctx, path); err != nil {
 		return "", 0, err
 	}

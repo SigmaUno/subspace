@@ -51,7 +51,7 @@ func (s *Service) ReportUsage(ctx context.Context, c *mcp.Call) (any, error) {
 	var a reportArgs
 	if len(c.Args) > 0 {
 		if err := json.Unmarshal(c.Args, &a); err != nil {
-			return nil, model.BadRequest("invalid arguments: %v", err)
+			return nil, model.BadRequest("invalid arguments")
 		}
 	}
 	if a.Model == "" {

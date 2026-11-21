@@ -24,7 +24,7 @@ func Handler(svc *Service) http.Handler {
 			Components []Spec `json:"components"`
 		}
 		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxPlanBytes)).Decode(&body); err != nil {
-			writeError(w, model.BadRequest("invalid JSON body: %v", err))
+			writeError(w, model.BadRequest("invalid JSON body"))
 			return
 		}
 		comps, err := svc.SetPlan(r.Context(), r.PathValue("id"), body.Components)

@@ -15,11 +15,11 @@ func (s *Service) Handler() http.Handler {
 			Stats
 		}{s.Enabled(), s.SinkNames(), s.Stats()})
 	})
-	mux.HandleFunc("POST /notify/test", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("POST /notify/test", func(w http.ResponseWriter, _ *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(struct {
 			Results []SinkResult `json:"results"`
-		}{s.SendTest(r.Context())})
+		}{s.SendTest()})
 	})
 	return mux
 }

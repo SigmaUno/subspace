@@ -6,7 +6,10 @@ import (
 	"net/url"
 	"strconv"
 	"sync"
+	"time"
 )
+
+const testTimeout = 15 * time.Second
 
 type SinkResult struct {
 	Sink  string `json:"sink"`
@@ -14,7 +17,9 @@ type SinkResult struct {
 	Error string `json:"error,omitempty"`
 }
 
-func (s *Service) SendTest(ctx context.Context) []SinkResult {
+func (s *Service) SendTest() []SinkResult {
+	ctx, cancel := context.WithTimeout(context.Background(), testTimeout)
+	defer cancel()
 	now := s.cfg.Clock.Now()
 	n := Notification{
 		ID:       "test:" + strconv.FormatInt(now.UnixNano(), 10),

@@ -21,6 +21,7 @@ export const moreNav: { name: string; items: NavItem[] }[] = [
     { id: "audit", name: "Audit", href: "/audit" },
     { id: "logs", name: "Logs", href: "/logs" },
     { id: "hillclimb", name: "Hillclimb", href: "/hillclimb" },
+    { id: "mission", name: "Mission control", href: "/mission" },
   ] },
   { name: "Knowledge", items: [
     { id: "knowledge", name: "Knowledge", href: "/knowledge" },

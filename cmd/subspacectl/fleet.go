@@ -277,7 +277,7 @@ var auditCommands = table{
 		if err := parseFlags(set, args, 0, 0); err != nil {
 			return nil, err
 		}
-		q, err := limited(*limit)
+		q, err := limited(*limit, 1000)
 		if err != nil {
 			return nil, err
 		}

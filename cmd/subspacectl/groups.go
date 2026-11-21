@@ -60,12 +60,10 @@ func matching(re *regexp.Regexp, what, value string) (string, error) {
 	return value, nil
 }
 
-const maxLimit = 1000
-
-func limited(limit int) (url.Values, error) {
+func limited(limit, upper int) (url.Values, error) {
 	q := url.Values{}
-	if limit < 0 || limit > maxLimit {
-		return nil, fmt.Errorf("--limit must be in 1..%d", maxLimit)
+	if limit < 0 || limit > upper {
+		return nil, fmt.Errorf("--limit must be in 1..%d", upper)
 	}
 	if limit > 0 {
 		q.Set("limit", strconv.Itoa(limit))
@@ -165,7 +163,7 @@ var decisionCommands = table{
 		if err := parseFlags(set, args, 0, 0); err != nil {
 			return nil, err
 		}
-		q, err := limited(*limit)
+		q, err := limited(*limit, 1000)
 		if err != nil {
 			return nil, err
 		}
@@ -403,7 +401,7 @@ var taskCommands = table{
 		if err := parseFlags(set, args, 0, 0); err != nil {
 			return nil, err
 		}
-		q, err := limited(*limit)
+		q, err := limited(*limit, 1000)
 		if err != nil {
 			return nil, err
 		}

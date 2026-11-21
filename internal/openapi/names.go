@@ -46,6 +46,7 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[agentstats.Stats]():        "AgentStats",
 	reflect.TypeFor[agentstats.TrendPoint]():   "AgentStatsTrendPoint",
 	reflect.TypeFor[backup.Info]():             "Backup",
+	reflect.TypeFor[backup.Remote]():           "BackupRemote",
 	reflect.TypeFor[breaker.Status]():          "Breaker",
 	reflect.TypeFor[briefs.Doc]():              "BriefPreview",
 	reflect.TypeFor[briefs.Template]():         "BriefTemplate",

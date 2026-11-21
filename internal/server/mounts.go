@@ -8,6 +8,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/components"
@@ -30,6 +31,9 @@ type Deps struct {
 	Mux   *http.ServeMux
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
+
+	Backups *backup.Scheduler
+	Offsite *offsiteSetup
 
 	MCP        *mcp.Server
 	Registry   *mcp.Registry

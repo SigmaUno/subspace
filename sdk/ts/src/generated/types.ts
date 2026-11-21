@@ -331,6 +331,15 @@ export interface Backup {
   created_at: string;
   name: string;
   path: string;
+  remote?: BackupRemote | null;
+  verified: boolean;
+}
+
+export interface BackupRemote {
+  bytes: number;
+  error: string;
+  object: string;
+  uploaded_at: string;
   verified: boolean;
 }
 

@@ -128,6 +128,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
+	off, err := openOffsite(env, cfg.BackupDir)
+	if err != nil {
+		return nil, err
+	}
 	var capCfg capacity.Config
 	if path := env(board.EnvCapacityFile); path != "" {
 		c, err := capacity.Load(path)
@@ -239,7 +243,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
+	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed, Backups: backups, Offsite: off,
 		MCP: m, Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
 		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
 	rl.Register("capacity", board.CapacityReloadKeys, b)

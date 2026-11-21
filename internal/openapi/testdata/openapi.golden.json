@@ -1332,6 +1332,16 @@
           "path": {
             "type": "string"
           },
+          "remote": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BackupRemote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "verified": {
             "type": "boolean"
           }
@@ -1342,6 +1352,34 @@
           "created_at",
           "name",
           "path",
+          "verified"
+        ],
+        "type": "object"
+      },
+      "BackupRemote": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bytes",
+          "error",
+          "object",
+          "uploaded_at",
           "verified"
         ],
         "type": "object"

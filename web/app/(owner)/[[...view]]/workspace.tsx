@@ -8,6 +8,7 @@ import { BotsView } from "./bots";
 import { BriefsView } from "./board";
 import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
+import { Leaderboard } from "./leaderboard";
 import { ThreadPanel } from "./thread";
 import { UsageView } from "./usage";
 import { useLive } from "./live";
@@ -126,6 +127,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
+            {section === "agents" && <Leaderboard revision={revisions.board} />}
             {section === "bots" && <BotsView revision={revisions.agents} openThread={setThread} />}
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}

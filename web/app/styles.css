@@ -199,6 +199,7 @@ progress::-moz-progress-bar { background: var(--action); border-radius: 999px; }
 .hillclimb-chart .target-label { fill: var(--warn); }
 .hillclimb-chart .series { fill: none; stroke: var(--accent); stroke-width: 2; }
 .hillclimb-chart .point { fill: var(--action); }
+.hillclimb-chart.sparkline { width: 5.25rem; }
 .hillclimb-chart .best { fill: none; stroke: var(--green); stroke-width: 2.5; }
 .decision-list { display: grid; gap: .8rem; }
 .decision { display: grid; gap: .65rem; }

@@ -35,19 +35,18 @@ func mountReviewSync(d Deps) {
 	if !on {
 		return
 	}
-	path := os.Getenv("SUBSPACE_PRSYNC_CONFIG")
-	if path == "" {
-		d.Log.Error("review comment sync disabled", "err", "SUBSPACE_PRSYNC_CONFIG is not set")
-		return
-	}
 	st, ok := d.Store.(reviewCommentStore)
 	if !ok {
 		d.Log.Error("review comment sync disabled", "err", "store does not keep review comments")
 		return
 	}
-	cfg, err := prsync.LoadConfig(path, "")
+	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
 	if err != nil {
 		d.Log.Error("review comment sync disabled", "err", err)
+		return
+	}
+	if !ok {
+		d.Log.Error("review comment sync disabled", "err", "no repositories are registered and SUBSPACE_PRSYNC_CONFIG is not set")
 		return
 	}
 	svc, err := reviewsync.New(reviewsync.Options{

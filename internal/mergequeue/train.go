@@ -134,7 +134,7 @@ func (q *Queue) processTrain(ctx context.Context, repo string, rc RepoConfig) (*
 
 func (q *Queue) newRun(rc RepoConfig, t *Train) *trainRun {
 	return &trainRun{q: q, rc: rc, t: t, cands: map[string]*Candidate{}, info: map[string]TaskInfo{},
-		checks: map[string]*CheckStatus{}, dir: filepath.Join(q.cfg.WorkDir, dirName(t.Repo))}
+		checks: map[string]*CheckStatus{}, dir: q.repoDir(t.Repo, rc)}
 }
 
 func (q *Queue) pickTrain(ctx context.Context, repo string, rc RepoConfig) (*trainRun, error) {

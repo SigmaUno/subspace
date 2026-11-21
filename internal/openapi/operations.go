@@ -6,6 +6,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/agentstats"
 	"github.com/SigmaUno/subspace/internal/artifacts"
+	"github.com/SigmaUno/subspace/internal/autopilot"
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/breaker"
@@ -21,6 +22,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/lifecycle"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/profiles"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/prsync"
 	"github.com/SigmaUno/subspace/internal/report"
@@ -101,8 +103,8 @@ var operations = []Op{
 
 	get("/api/v1/agents", "List agents", list[model.Agent]("agents")).Q("role status"),
 	get("/api/v1/agents/{id}", "Get an agent", model.Agent{}),
-	post("/api/v1/agents", "Register an agent; the token is shown once", board.AgentInput{}, board.Registered{}).S(created),
-	post("/api/v1/agents/bulk", "Register many agents; tokens are shown once", board.BulkInput{}, list[board.Registered]("agents")).S(created),
+	post("/api/v1/agents", "Register an agent, optionally from a profile; the token is shown once", AgentRegister{}, board.Registered{}).S(created),
+	post("/api/v1/agents/bulk", "Register many agents, optionally from a profile; tokens are shown once", AgentRegisterBulk{}, list[board.Registered]("agents")).S(created),
 	post("/api/v1/agents/bulk-action", "Apply one action to many agents", BulkRequest{}, BulkResponse{}),
 	get("/api/v1/agents/{id}/connect", "Connection snippets of an agent, without the token", board.Connect{}),
 	post("/api/v1/agents/{id}/rotate-token", "Rotate an agent token; the new token is shown once", Expiry{}, board.Registered{}),
@@ -110,6 +112,12 @@ var operations = []Op{
 	post("/api/v1/agents/{id}/resume", "Clear an agent's pause", Free{}, model.Agent{}),
 	get("/api/v1/agents/{id}/stats", "Performance statistics of an agent", agentstats.Stats{}),
 	get("/api/v1/agent-stats", "Performance statistics of every agent", list[agentstats.Stats]("agents")).Q("role"),
+
+	get("/api/v1/agent-profiles", "List agent profiles", list[profiles.Profile]("profiles")),
+	post("/api/v1/agent-profiles", "Create an agent profile", ProfileInput{}, profiles.Profile{}).S(created),
+	get("/api/v1/agent-profiles/{name}", "Get an agent profile", profiles.Profile{}),
+	put("/api/v1/agent-profiles/{name}", "Replace an agent profile", ProfileInput{}, profiles.Profile{}),
+	del("/api/v1/agent-profiles/{name}", "Delete an agent profile unless autopilot options use it", nil).S(gone),
 
 	get("/api/v1/questions", "List questions", list[model.Question]("questions")).Q("status"),
 	post("/api/v1/questions/{id}/answer", "Answer a question", Answer{}, model.Question{}),
@@ -178,6 +186,7 @@ var operations = []Op{
 
 	get("/api/v1/autopilot", "Autopilot status and per-brief flags", AutopilotView{}),
 	post("/api/v1/autopilot/briefs/{id}", "Enable or disable autopilot for a brief", AutopilotSet{}, AutopilotBrief{}),
+	put("/api/v1/autopilot/briefs/{id}/spawn", "Set the worker kind, model, provider or profile autopilot spawns for a brief", autopilot.SpawnConfig{}, AutopilotBrief{}),
 	get("/api/v1/mergequeue/candidates", "Merge queue candidates", list[mergequeue.Candidate]("candidates")).Q("repo"),
 	get("/api/v1/mergequeue/candidates/{id}", "Get a merge queue candidate", mergequeue.Candidate{}),
 	post("/api/v1/mergequeue/candidates", "Enqueue an approved task's pull request", MergeEnqueue{}, mergequeue.Candidate{}).S(created),

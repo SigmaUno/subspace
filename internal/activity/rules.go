@@ -23,6 +23,10 @@ var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {to
 var rules = map[string]rule{
 	"add_knowledge":         {icon: "book", text: "{actor} added knowledge entry {a.id}{note?: }"},
 	"approve_knowledge":     {icon: "check", text: "{actor} approved knowledge entry {a.id}"},
+	"create_agent_profile":  {icon: "bot", text: "{actor} created agent profile {a.name}"},
+	"delete_agent_profile":  {icon: "bot", severity: SevWarning, text: "{actor} deleted agent profile {b.name}"},
+	"update_agent_profile":  {icon: "bot", text: "{actor} updated agent profile {a.name}"},
+	"set_autopilot_spawn":   {icon: "settings", text: "{actor} changed the autopilot spawn options of {a.brief_id}"},
 	"create_token":          {icon: "key", text: "{actor} created API token {a.id}{note?: }"},
 	"delete_knowledge":      {icon: "x", severity: SevWarning, text: "{actor} deleted knowledge entry {a.id}"},
 	"pin_knowledge":         {icon: "book", text: "{actor} pinned knowledge entry {a.id}"},

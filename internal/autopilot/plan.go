@@ -22,6 +22,7 @@ type SpawnConfig struct {
 	Kind     string `json:"worker_kind"`
 	Model    string `json:"model"`
 	Provider string `json:"provider,omitempty"`
+	Profile  string `json:"profile,omitempty"`
 }
 
 type Snapshot struct {

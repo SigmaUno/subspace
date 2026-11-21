@@ -1,6 +1,7 @@
 package model
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
@@ -136,6 +137,7 @@ type Task struct {
 	DependsOn          []string    `json:"depends_on"`
 	Priority           int         `json:"priority"`
 	ComponentID        *string     `json:"component_id"`
+	Paths              Paths       `json:"paths"`
 	Status             string      `json:"status"`
 	ProgressPct        int         `json:"progress_pct"`
 	LastHeartbeatAt    *time.Time  `json:"last_heartbeat_at"`
@@ -152,6 +154,15 @@ type Task struct {
 	UpdatedAt          time.Time   `json:"updated_at"`
 
 	ClaimedAt *time.Time `json:"-"`
+}
+
+type Paths []string
+
+func (p Paths) MarshalJSON() ([]byte, error) {
+	if p == nil {
+		return []byte("[]"), nil
+	}
+	return json.Marshal([]string(p))
 }
 
 type Plan struct {

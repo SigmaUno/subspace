@@ -92,6 +92,19 @@ func (s *Service) SetPlan(ctx context.Context, briefID string, specs []Spec) ([]
 	return comps, nil
 }
 
+func (s *Service) Paths(ctx context.Context, briefID, componentID string) []string {
+	comps, err := s.store.List(ctx, briefID)
+	if err != nil {
+		return nil
+	}
+	for _, c := range comps {
+		if c.ID == componentID {
+			return c.Paths
+		}
+	}
+	return nil
+}
+
 func (s *Service) Graph(ctx context.Context, briefID string) (*Graph, error) {
 	if _, err := s.src.Brief(ctx, briefID); err != nil {
 		return nil, err

@@ -47,6 +47,7 @@ var (
 		"acceptance_criteria": strs("checkable acceptance criteria"), "repo": str("owner/name of the repo"),
 		"depends_on": strs("task ids or refs"), "role": enum("worker or tester", "worker", "tester"), "budget": taskBudget,
 		"priority": intg("higher runs first, default 0"), "component_id": str("architecture component id, e.g. C-1"),
+		"paths": strs("repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths"),
 	}
 )
 

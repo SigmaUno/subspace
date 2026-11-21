@@ -49,6 +49,8 @@ type Board struct {
 	pausedMu sync.RWMutex
 	paused   bool
 	pauseWhy string
+
+	cc conflictConfig
 }
 
 func New(ctx context.Context, st store.Store, o Options) (*Board, error) {

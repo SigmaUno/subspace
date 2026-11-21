@@ -44,6 +44,7 @@ var scenarios = []struct {
 	{"next id", scenarioNextID},
 	{"concurrent writes", scenarioConcurrent},
 	{"batch isolation", scenarioBatchIsolation},
+	{"keyset pagination", scenarioKeysetPagination},
 }
 
 func ptr[T any](v T) *T { return &v }
@@ -116,21 +117,21 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 		}
 		_, err := tx.GetBrief("B-404")
 		wantErr(t, store.ErrNotFound, err)
-		all, err := tx.ListBriefs("")
+		all, err := tx.ListBriefs(store.BriefFilter{})
 		if err != nil {
 			return err
 		}
 		if len(all) != 3 || all[0].ID != "B-10" || all[1].ID != "B-2" || all[2].ID != "B-1" {
 			t.Fatalf("order: %+v", all)
 		}
-		closed, err := tx.ListBriefs("closed")
+		closed, err := tx.ListBriefs(store.BriefFilter{Status: "closed"})
 		if err != nil {
 			return err
 		}
 		if len(closed) != 2 || closed[0].ID != "B-2" || closed[1].ID != "B-1" {
 			t.Fatalf("closed: %+v", closed)
 		}
-		none, err := tx.ListBriefs("nope")
+		none, err := tx.ListBriefs(store.BriefFilter{Status: "nope"})
 		if err != nil || len(none) != 0 {
 			t.Fatalf("none: %v %v", none, err)
 		}
@@ -180,7 +181,7 @@ func scenarioPlans(t *testing.T, s store.Store) {
 			{"", model.PlanProposed, []string{"P-3"}},
 			{"B-9", "", nil},
 		} {
-			got, err := tx.ListPlans(c.brief, c.status)
+			got, err := tx.ListPlans(store.PlanFilter{BriefID: c.brief, Status: c.status})
 			if err != nil {
 				return err
 			}
@@ -661,7 +662,7 @@ func scenarioQuestions(t *testing.T, s store.Store) {
 		_, err := tx.GetQuestion("Q-404")
 		wantErr(t, store.ErrNotFound, err)
 		for status, want := range map[string][]string{"": {"Q-3", "Q-1", "Q-2"}, "open": {"Q-3", "Q-2"}, "answered": {"Q-1"}} {
-			got, err := tx.ListQuestions(status)
+			got, err := tx.ListQuestions(store.QuestionFilter{Status: status})
 			if err != nil {
 				return err
 			}
@@ -752,17 +753,17 @@ func scenarioSpawnsKV(t *testing.T, s store.Store) {
 		return tx.UpdateSpawn(&model.Spawn{ID: "S-99"})
 	}))
 	read(t, s, func(tx store.Tx) error {
-		all, err := tx.ListSpawns("")
+		all, err := tx.ListSpawns(store.SpawnFilter{})
 		if err != nil {
 			return err
 		}
 		same(t, []*model.Spawn{sp1, sp2, sp10}, all)
-		b1, err := tx.ListSpawns("B-1")
+		b1, err := tx.ListSpawns(store.SpawnFilter{BriefID: "B-1"})
 		if err != nil {
 			return err
 		}
 		same(t, []*model.Spawn{sp1, sp10}, b1)
-		if none, err := tx.ListSpawns("B-none"); err != nil || none == nil || len(none) != 0 {
+		if none, err := tx.ListSpawns(store.SpawnFilter{BriefID: "B-none"}); err != nil || none == nil || len(none) != 0 {
 			t.Fatalf("empty: %#v %v", none, err)
 		}
 		if v, ok, err := tx.GetKV("missing"); err != nil || ok || v != "" {
@@ -1073,7 +1074,7 @@ func scenarioBatchIsolation(t *testing.T, s store.Store) {
 				committed++
 			}
 		}
-		briefs, err := tx.ListBriefs("")
+		briefs, err := tx.ListBriefs(store.BriefFilter{})
 		if err != nil {
 			return err
 		}

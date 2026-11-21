@@ -22,7 +22,7 @@ type Notification struct {
 	TS       time.Time `json:"ts"`
 }
 
-var Topics = []string{"questions", "plans", "control", "board"}
+var Topics = []string{"questions", "plans", "control", "board", "alerts"}
 
 func describe(ev events.Event) (id, sig string, n *Notification) {
 	switch d := ev.Data.(type) {
@@ -38,6 +38,8 @@ func describe(ev events.Event) (id, sig string, n *Notification) {
 		return taskEvent(ev, d)
 	case model.Task:
 		return taskEvent(ev, &d)
+	case Notification:
+		return alertEvent(ev, d)
 	}
 	switch ev.Type {
 	case "control.paused":
@@ -102,6 +104,16 @@ func taskEvent(ev events.Event, t *model.Task) (string, string, *Notification) {
 	}
 	n.Text = fmt.Sprintf("%s: %s", t.ID, truncate(t.Title, maxTitle))
 	return t.ID, t.Status, n
+}
+
+func alertEvent(ev events.Event, n Notification) (string, string, *Notification) {
+	switch ev.Type {
+	case "alert.raised":
+		return n.ID, ev.Type, &n
+	case "alert.resolved":
+		return n.ID, ev.Type, nil
+	}
+	return "", "", nil
 }
 
 func scope(n *Notification) string {

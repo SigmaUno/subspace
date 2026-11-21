@@ -290,7 +290,7 @@ Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners canno
 Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
 
 ### Decisions
-The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes) and active agents whose token expires in less than 24 hours (or already has).
+The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes), active health alerts (see Alerts) and active agents whose token expires in less than 24 hours (or already has).
 
 | Method | Path | Body → Response |
 |---|---|---|
@@ -300,13 +300,13 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 ```jsonc
 // Decision
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|alert
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
 ```
 
-Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `alert:<alert id>`. Priority is the base for the kind (plan 80, alert 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -315,6 +315,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
+| `alert` | `skip` | – (the decision disappears when the alert resolves) |
 | `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
@@ -427,6 +428,37 @@ Versioned owner instructions, appended to every agent's `get_instructions`. Scop
 |---|---|---|
 | GET | `/api/v1/search/?q=&kind=&limit=` | → `{"results":[{"kind":"task","id":"T-1","field":"title","snippet":"...«match»...","at":"..."}]}`. `q` is required, at most 200 characters; `kind` is `task`, `message`, `agent` or `brief`; `limit` default 20, max 100. Message ids are the numeric message id. Other methods return 405. |
 
+### Alerts
+Built-in health rules run every `SUBSPACE_ALERTS_INTERVAL` (default `30s`, `0` or `off` disables them) over a snapshot of the store, the data directory and the SSE streams. A finding raises one alert per key. It stays one alert while the condition holds and resolves on its own when the condition clears. Raising an alert adds an owner decision (`alert:<key>`, see Decisions), publishes `alert.raised` and notifies the configured sinks; resolving removes the decision and publishes `alert.resolved`.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/alerts?status=&limit=` | → `{"alerts":[Alert]}`: active alerts first (oldest raised first), then resolved ones, newest first (the last 100 are kept). `status` is `active` or `resolved`; `limit` default 100, max 1000. 400 on anything else. |
+
+```jsonc
+// Alert
+{"id":"swarm_stalled","severity":"warning",         // warning|critical
+ "title":"Swarm stalled","summary":"3 ready tasks, 2 idle agents of 2, no assignment for 12m0s",
+ "brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // omitted when empty
+ "status":"active","raised_at":"...","resolved_at":null}   // active|resolved
+```
+
+Alerts are held in memory per server process. Every threshold is an env var; a duration or size of `0` (`off` for durations) turns that rule off.
+
+| id | raised when | env (default) |
+|---|---|---|
+| `swarm_stalled` | tasks are `ready`, no worker or tester is active or one is idle, and neither the oldest ready task nor the last `assign`/`reassign` is newer than the limit; not while paused | `SUBSPACE_ALERTS_STALL_AFTER` (`10m`) |
+| `no_progress` | tasks are `in_progress` and no task changed for the limit; not while paused | `SUBSPACE_ALERTS_PROGRESS_AFTER` (`30m`) |
+| `agents_paused` | at least this many agents are `paused` | `SUBSPACE_ALERTS_PAUSED_MAX` (`3`) |
+| `agent_flapping` | at least this many agents are paused for `flapping` | `SUBSPACE_ALERTS_FLAPPING_MAX` (`1`) |
+| `review_stuck` | `submitted` tasks without a reviewer waited longer than the limit | `SUBSPACE_ALERTS_REVIEW_AFTER` (`30m`) |
+| `backup_failing` | automatic backups are on (`SUBSPACE_BACKUP_INTERVAL` above 0) and the newest backup fails `integrity_check` | – |
+| `backup_old` | automatic backups are on and the newest backup (or the server start when there is none) is older than the limit | `SUBSPACE_ALERTS_BACKUP_MAX_AGE` (`48h`) |
+| `disk_low` | free bytes on the data directory's filesystem are below the limit | `SUBSPACE_ALERTS_DISK_MIN_FREE_BYTES` (`1073741824`) |
+| `db_size` | the SQLite file is larger than the limit | `SUBSPACE_ALERTS_DB_MAX_BYTES` (`8589934592`) |
+| `wal_size` | the SQLite `-wal` file is larger than the limit | `SUBSPACE_ALERTS_WAL_MAX_BYTES` (`536870912`) |
+| `sse_lagging` | the share of open event streams that received `lagged` since the last evaluation reaches the limit | `SUBSPACE_ALERTS_SSE_LAGGED_RATIO` (`0.25`) |
+
 ### Notifications
 | Method | Path | Body → Response |
 |---|---|---|
@@ -472,6 +504,8 @@ data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
 On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
+
+`alert.raised` and `alert.resolved` (topic `alerts`, also `all`) carry `{"id":"alert:<alert id>","kind":"alert","title","text","priority","brief_id"?,"task_id"?,"ts"}` and are emitted only by the alert rules.
 
 Slow subscribers have a bounded buffer; when it overflows, oldest events are dropped and a `lagged` event is delivered.
 

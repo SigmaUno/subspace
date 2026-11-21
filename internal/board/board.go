@@ -50,12 +50,13 @@ type Board struct {
 	o   Options
 	log *slog.Logger
 
-	mu     sync.Mutex
-	seen   map[string]time.Time
-	tasks  map[string]hotTask
-	dirtyA map[string]struct{}
-	dirtyT map[string]struct{}
-	capCfg capacity.Config
+	mu      sync.Mutex
+	seen    map[string]time.Time
+	tasks   map[string]hotTask
+	dirtyA  map[string]struct{}
+	dirtyT  map[string]struct{}
+	capCfg  capacity.Config
+	capGate capacity.Gate
 
 	expiries map[string][]time.Time
 

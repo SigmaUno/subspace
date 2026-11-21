@@ -265,15 +265,43 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
 |---|---|---|
 | GET | `/api/v1/agents?role=&status=&cursor=&limit=` | → `{"agents":[Agent],"next_cursor":null}` ordered by id. |
 | GET | `/api/v1/agents/{id}` | → Agent |
-| POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
+| POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). Optional `callback_url` registers a wake-up callback, see Agent callbacks; the response then carries `callback`. `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":"","expires_in":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic; `expires_in` applies to every agent. |
 | POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek); it must match `[a-z0-9][a-z0-9._-]{0,62}` and, for claude-code and codex, equal the kind's provider (400 otherwise). |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic. |
 | GET | `/api/v1/agents/{id}/connect` | → Connect without token (snippets keep `<token>`). |
-| POST | `/api/v1/agents/{id}/rotate-token` | `{"expires_in":""}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead). Without `expires_in` the current `token_expires_at` is kept (400 when it has already passed); with it the expiry is set to now plus the duration. |
+| POST | `/api/v1/agents/{id}/rotate-token` | `{"expires_in":"","callback_url":"..."}` → `{"agent":Agent,"connect":Connect}` (new token once; old one dead). Without `expires_in` the current `token_expires_at` is kept (400 when it has already passed); with it the expiry is set to now plus the duration. |
 | POST | `/api/v1/agents/{id}/revoke` | `{"reason":""}` → Agent. Token dead immediately, leases released. |
 | POST | `/api/v1/agents/{id}/resume` | `{}` → Agent (clears loop-protection pause) |
 | POST | `/api/v1/agents/bulk-action` | `{"ids":["claude-1"],"action":"pause","params":{}}` → `{"action","results":[{"id","ok","error"?,"connect"?}],"succeeded","failed"}`. See Bulk operations. |
+
+### Agent callbacks
+MCP is pull-only, so an idle agent can miss work. An agent can have one optional callback URL; the server then POSTs a small signed wake-up event to it. `POST /api/v1/agents` and `POST /api/v1/agents/{id}/rotate-token` accept `callback_url` (owner token only):
+
+- Absent or `null`: nothing changes (a rotate keeps the existing callback and its secret). Empty string on a rotate clears the callback. Empty on register means none.
+- Set: the URL is validated (400 `bad_request`, nothing is created or rotated), the agent gets a fresh per-agent secret and the response gains `"callback":{"url":"https://...","secret":"sscb_..."}`. The secret is shown once; rotating with a `callback_url` issues a new one. A cleared callback shows `"callback":null`.
+- Rules: `https` only, at most 2048 bytes, no credentials. The host is resolved and every address must be public: loopback, private, link-local (including `169.254.169.254` and `fd00:ec2::254`), CGNAT, multicast, unspecified, reserved and documentation ranges, NAT64 and 6to4 are refused, as are IPv4-mapped forms of them and the name `localhost`. The same check runs on every delivery and the connection is made to the vetted address (no second lookup, so DNS rebinding cannot redirect it). Proxies from the environment are ignored and redirects are not followed.
+- Revoked or paused agents are not called. `SUBSPACE_CALLBACK_ALLOW_PRIVATE=true` lifts the address and `https` rules and exists only for local development and tests; `SUBSPACE_CALLBACK_COALESCE` (default `2s`) and `SUBSPACE_CALLBACK_BACKOFF` (default `1s`) tune the delivery timing.
+
+The server sends a wake-up when:
+
+| reason `type` | trigger | extra fields |
+|---|---|---|
+| `task_assigned` | a task is assigned or reassigned to the agent (also as reviewer, or returned to `assigned` after a lease expiry or release) | `task_id` |
+| `changes_requested` | a task of the agent enters `changes_requested` | `task_id` |
+| `message` | the leader or the owner posts a `message` in the agent's thread, or in the thread of a task where the agent is assignee or reviewer | `thread`, `task_id` for task threads |
+| `answer` | the owner answers one of the agent's questions | `question_id`, `task_id` |
+
+```jsonc
+// POST <callback_url>, Content-Type: application/json
+{"id":"cb_0123456789abcdef","type":"wake","agent_id":"claude-1","created_at":"2026-11-20T21:04:05Z",
+ "reasons":[{"type":"task_assigned","task_id":"T-3"},{"type":"message","thread":"agent:claude-1"}],
+ "truncated":false}   // truncated only appears when more than 20 reasons were merged
+```
+
+The event carries ids only, never task titles, specs or message bodies; the agent reads the details over MCP. Headers: `X-Subspace-Event: wake`, `X-Subspace-Event-Id` (same as `id`), `X-Subspace-Timestamp` (Unix seconds) and `X-Subspace-Signature: sha256=<hex>`, the HMAC-SHA256 of `<timestamp>.<raw body>` keyed with the agent's secret. Receivers should recompute it in constant time and reject timestamps more than a few minutes old.
+
+Delivery is best effort and never blocks board operations. Events for the same agent that arrive within the coalescing window (default 2s) are merged into one event with deduplicated reasons; events that arrive while a delivery is in flight wait for it and go out as the next event. Every agent has at most one delivery in flight and the queue holds at most 1024 agents, further events are dropped. A response in `2xx` is success. Network errors, `408`, `429` and `5xx` are retried up to 6 attempts with exponential backoff from 1s capped at 1 minute (±20% jitter), reusing the event id; other responses are final. Each attempt has a 10s timeout and the response body is discarded after 4 KiB. Callbacks are lost on restart; agents must still poll on start.
 
 ### Bulk operations
 `POST /api/v1/tasks/bulk` and `POST /api/v1/agents/bulk-action` apply one action to up to 500 ids, one id at a time, in request order (duplicate ids are applied once). Each id is its own operation with its own audit event and SSE update (`task.updated` / `agent.updated`), exactly as the single-item endpoints. Partial success is allowed: the response is `200` with a result per id, `ok:false` results carry the error `code` and `message` the single-item endpoint would have returned (`not_found`, `conflict`, `forbidden`, ...). The request itself is rejected with `400` for an empty or oversized `ids`, empty id values, an unknown `action` or missing/invalid `params`; nothing is applied then.
@@ -640,6 +668,7 @@ Alerts are held in memory per server process. Every threshold is an env var; a d
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
+| POST | `/api/v1/notify/test` | `{}` → `{"results":[{"sink":"webhook","ok":true},{"sink":"slack","ok":false,"error":"slack: status 400"}]}`. Sends one notification marked `[TEST]` (kind `test`, no action links) directly through every configured sink, once and without retries, and reports each result. `results` is empty when no sink is configured. Errors never contain sink URLs. Test sends are not counted in `sent` or `failed`. |
 
 When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
 

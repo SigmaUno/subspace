@@ -13,6 +13,7 @@ import { ThreadPanel } from "./thread";
 import { TrendsView } from "./trends";
 import { UsageView } from "./usage";
 import { useLive } from "./live";
+import { SettingsView } from "./settings";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
@@ -88,6 +89,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "instructions", name: "Instructions", href: "/instructions" },
     { id: "files", name: "Files", href: "/files" },
     { id: "audit", name: "Audit", href: "/audit" },
+    { id: "settings", name: "Settings", href: "/settings" },
   ];
   const tabs = ["swarm", "briefs", "agents"];
   const more = [
@@ -138,6 +140,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "usage" && <UsageView revision={revisions.capacity} />}
             {section === "trends" && <TrendsView revision={revisions.board} />}
             {section === "files" && <FilesView />}
+            {section === "settings" && <SettingsView revisions={revisions} />}
           </div>
           {inboxOpen && <DecisionInbox feed={decisions.data} error={decisions.error} count={decisionCount}
             revision={revisions.decisions} refresh={decisions.refresh} close={() => setInboxOpen(false)} openThread={setThread} />}

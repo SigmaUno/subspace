@@ -25,7 +25,7 @@ var (
 	ErrExpired = errors.New("actionlink: token expired")
 )
 
-var b64 = base64.RawURLEncoding
+var b64 = base64.RawURLEncoding.Strict()
 
 type Claims struct {
 	Decision string `json:"d"`

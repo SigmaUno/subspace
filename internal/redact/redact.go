@@ -143,10 +143,14 @@ func Contains(s string) bool {
 // masked keeps a short identifying prefix and masks the rest. Secrets of four
 // characters or fewer are masked entirely.
 func masked(secret string) string {
-	if len(secret) <= 4 {
-		return mask
+	n := 0
+	for i := range secret {
+		if n == 4 {
+			return secret[:i] + mask
+		}
+		n++
 	}
-	return secret[:4] + mask
+	return mask
 }
 
 // shannon returns the Shannon entropy of s in bits per character.

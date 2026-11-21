@@ -360,6 +360,11 @@ func validBranch(b string) bool {
 		strings.Contains(b, "..") || strings.Contains(b, "//") || strings.Contains(b, "@{") {
 		return false
 	}
+	for _, part := range strings.Split(b, "/") {
+		if strings.HasPrefix(part, ".") || strings.HasSuffix(part, ".lock") {
+			return false
+		}
+	}
 	for _, r := range b {
 		if r <= ' ' || r == 0x7f || strings.ContainsRune(`~^:?*[\`, r) {
 			return false

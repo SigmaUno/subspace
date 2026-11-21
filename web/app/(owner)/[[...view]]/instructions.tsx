@@ -106,12 +106,28 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
   </section>;
 }
 
-export function InstructionsPage() {
+export function InstructionsView() {
   const [scope, setScope] = useState("global");
   const [kind, setKind] = useState<InstructionKind>("rules");
   const briefs = useResource<{ briefs: Brief[] }>("briefs", 0);
   const scopes = [{ id: "global", name: "Global" }, ...(briefs.data?.briefs ?? []).map((brief) => ({ id: `project:${brief.id}`, name: brief.id }))];
 
+  return <>
+    <div className="heading"><h1>Instructions</h1></div>
+    <ResourceState error={briefs.error} retry={briefs.refresh} />
+    <div className="actions" role="group" aria-label="Scope">
+      {scopes.map((item) => <button key={item.id} className="text-button" aria-pressed={item.id === scope}
+        onClick={() => setScope(item.id)}>{item.name}</button>)}
+    </div>
+    <div className="actions" role="group" aria-label="Kind">
+      {kinds.map(([id, name]) => <button key={id} className="text-button" aria-pressed={id === kind}
+        onClick={() => setKind(id)}>{name}</button>)}
+    </div>
+    <InstructionDocument key={`${scope}/${kind}`} scope={scope} kind={kind} />
+  </>;
+}
+
+export function InstructionsPage() {
   return <>
     <header className="topbar">
       <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
@@ -121,17 +137,7 @@ export function InstructionsPage() {
       </nav>
     </header>
     <main className="workspace stack">
-      <div className="heading"><h1>Instructions</h1></div>
-      <ResourceState error={briefs.error} retry={briefs.refresh} />
-      <div className="actions" role="group" aria-label="Scope">
-        {scopes.map((item) => <button key={item.id} className="text-button" aria-pressed={item.id === scope}
-          onClick={() => setScope(item.id)}>{item.name}</button>)}
-      </div>
-      <div className="actions" role="group" aria-label="Kind">
-        {kinds.map(([id, name]) => <button key={id} className="text-button" aria-pressed={id === kind}
-          onClick={() => setKind(id)}>{name}</button>)}
-      </div>
-      <InstructionDocument key={`${scope}/${kind}`} scope={scope} kind={kind} />
+      <InstructionsView />
     </main>
   </>;
 }

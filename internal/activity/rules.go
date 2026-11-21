@@ -21,6 +21,8 @@ type rule struct {
 var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {tool}{task? on }"}
 
 var rules = map[string]rule{
+	"set_agent_quota":       {icon: "gauge", text: "{actor} set quota for agent {a.agent}"},
+	"set_log_level":         {icon: "log", text: "{actor} set log level to {a.level}"},
 	"add_knowledge":         {icon: "book", text: "{actor} added knowledge entry {a.id}{note?: }"},
 	"approve_knowledge":     {icon: "check", text: "{actor} approved knowledge entry {a.id}"},
 	"create_token":          {icon: "key", text: "{actor} created API token {a.id}{note?: }"},

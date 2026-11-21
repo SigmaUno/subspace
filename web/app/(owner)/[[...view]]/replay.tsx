@@ -151,7 +151,7 @@ export function ReplayPage({ id }: { id: string }) {
         </div>
         <div className="meta">
           Step {index + 1} of {points.length} · audit {point?.audit_id} · <time dateTime={point?.at}>{stamp(point?.at)}</time>
-          {timeline.data.events > points.length && ` · ${timeline.data.events} events sampled`}
+          {(timeline.data?.events ?? 0) > points.length && ` · ${timeline.data?.events} events sampled`}
         </div>
       </section>}
 

@@ -79,6 +79,12 @@ export function deleteWebhooksOutById(
   return r.request("DELETE", "/api/v1/webhooks-out/{id}", { ...args, response: "none" });
 }
 
+export function getAbout(
+  r: Requester,
+): Promise<T.Info> {
+  return r.request("GET", "/api/v1/about", { response: "json" });
+}
+
 export function getActivity(
   r: Requester,
   args?: { query?: { since?: string; brief_id?: string; severity?: string; cursor?: string; limit?: number } },
@@ -374,6 +380,13 @@ export function getDigestPreview(
   args?: { query?: { window?: string } },
 ): Promise<T.DigestPreview> {
   return r.request("GET", "/api/v1/digest/preview", { ...args, response: "json" });
+}
+
+export function getDrills(
+  r: Requester,
+  args?: { query?: { limit?: number } },
+): Promise<{ drills: T.DrillResult[] | null }> {
+  return r.request("GET", "/api/v1/drills", { ...args, response: "json" });
 }
 
 export function getHa(
@@ -991,6 +1004,13 @@ export function postDecisionsById(
   args: { path: { id: string }; body: T.DecisionAction },
 ): Promise<T.DecisionOutcome> {
   return r.request("POST", "/api/v1/decisions/{id}", { ...args, response: "json" });
+}
+
+export function postDrills(
+  r: Requester,
+  args?: { body?: unknown },
+): Promise<T.DrillResult> {
+  return r.request("POST", "/api/v1/drills", { ...args, response: "json" });
 }
 
 export function postHillclimbJobs(

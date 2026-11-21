@@ -135,6 +135,8 @@ func (w *PushWatcher) agent(a *model.Agent) {
 	prev := w.agents[a.ID]
 	w.agents[a.ID] = a.Status
 	switch {
+	case a.Status == model.AgentRevoked:
+		w.Push.DropAgent(a.ID)
 	case a.Status == model.AgentPaused && prev != model.AgentPaused:
 		w.Push.Event(a.ID, map[string]any{"type": "paused", "scope": "agent"})
 	case a.Status == model.AgentActive && prev == model.AgentPaused:

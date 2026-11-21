@@ -1361,6 +1361,29 @@
         ],
         "type": "object"
       },
+      "Backups": {
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "latest_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "latest_verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "count",
+          "latest_at",
+          "latest_verified"
+        ],
+        "type": "object"
+      },
       "BoardView": {
         "properties": {
           "brief": {
@@ -2416,6 +2439,25 @@
         ],
         "type": "object"
       },
+      "Check": {
+        "properties": {
+          "detail": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "detail",
+          "name",
+          "status"
+        ],
+        "type": "object"
+      },
       "Component": {
         "properties": {
           "brief_id": {
@@ -3016,6 +3058,57 @@
           "blocked",
           "created",
           "done"
+        ],
+        "type": "object"
+      },
+      "DrillResult": {
+        "properties": {
+          "backup": {
+            "type": "string"
+          },
+          "backup_bytes": {
+            "type": "integer"
+          },
+          "checks": {
+            "items": {
+              "$ref": "#/components/schemas/Check"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "error": {
+            "type": "string"
+          },
+          "finished_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "trigger": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "backup",
+          "backup_bytes",
+          "checks",
+          "error",
+          "finished_at",
+          "id",
+          "started_at",
+          "status",
+          "trigger"
         ],
         "type": "object"
       },
@@ -3998,6 +4091,48 @@
         "required": [
           "action",
           "status"
+        ],
+        "type": "object"
+      },
+      "Info": {
+        "properties": {
+          "backend": {
+            "type": "string"
+          },
+          "backups": {
+            "$ref": "#/components/schemas/Backups"
+          },
+          "db_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "started_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "uptime_seconds": {
+            "type": "integer"
+          },
+          "version": {
+            "type": "string"
+          },
+          "wal_bytes": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "backend",
+          "backups",
+          "db_bytes",
+          "started_at",
+          "uptime_seconds",
+          "version",
+          "wal_bytes"
         ],
         "type": "object"
       },
@@ -8662,6 +8797,31 @@
         ]
       }
     },
+    "/api/v1/about": {
+      "get": {
+        "operationId": "getAbout",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Info"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Version, uptime, database size and backup state",
+        "tags": [
+          "about"
+        ]
+      }
+    },
     "/api/v1/action-links": {
       "post": {
         "operationId": "postActionLinks",
@@ -11986,6 +12146,83 @@
         "summary": "Preview the digest of a recent window",
         "tags": [
           "digest"
+        ]
+      }
+    },
+    "/api/v1/drills": {
+      "get": {
+        "operationId": "getDrills",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "drills": {
+                      "items": {
+                        "$ref": "#/components/schemas/DrillResult"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "drills"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List restore drill results, newest first",
+        "tags": [
+          "drills"
+        ]
+      },
+      "post": {
+        "operationId": "postDrills",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DrillResult"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Run a restore drill of the newest backup now; the result is 201 even when the drill failed",
+        "tags": [
+          "drills"
         ]
       }
     },
@@ -16735,6 +16972,9 @@
   ],
   "tags": [
     {
+      "name": "about"
+    },
+    {
       "name": "action-links"
     },
     {
@@ -16793,6 +17033,9 @@
     },
     {
       "name": "digest"
+    },
+    {
+      "name": "drills"
     },
     {
       "name": "ha"

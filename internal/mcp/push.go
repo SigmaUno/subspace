@@ -49,6 +49,7 @@ type Push struct {
 
 	once    sync.Once
 	mu      sync.Mutex
+	seq     uint64
 	streams map[string]*stream
 	byAgent map[string]map[string]*stream
 	byURI   map[string]map[string]*stream
@@ -70,6 +71,7 @@ type conn struct {
 type stream struct {
 	id    string
 	agent string
+	seq   uint64
 
 	mu   sync.Mutex
 	buf  []entry
@@ -92,7 +94,11 @@ func (p *Push) stream(sid, agent string) *stream {
 	p.mu.Lock()
 	st, ok := p.streams[sid]
 	if !ok {
-		st = &stream{id: sid, agent: agent, buf: make([]entry, max(p.Buffer, 1)), next: 1, subs: map[string]struct{}{}}
+		for len(p.byAgent[agent]) >= maxSessionsPer {
+			p.dropLocked(p.oldestLocked(agent))
+		}
+		p.seq++
+		st = &stream{id: sid, agent: agent, seq: p.seq, buf: make([]entry, max(p.Buffer, 1)), next: 1, subs: map[string]struct{}{}}
 		p.streams[sid] = st
 		if p.byAgent[agent] == nil {
 			p.byAgent[agent] = map[string]*stream{}
@@ -106,13 +112,34 @@ func (p *Push) stream(sid, agent string) *stream {
 	return st
 }
 
+func (p *Push) oldestLocked(agent string) *stream {
+	var old *stream
+	for _, st := range p.byAgent[agent] {
+		if old == nil || st.seq < old.seq {
+			old = st
+		}
+	}
+	return old
+}
+
 func (p *Push) Drop(sid string) {
 	p.mu.Lock()
-	st, ok := p.streams[sid]
-	if !ok {
-		p.mu.Unlock()
-		return
+	defer p.mu.Unlock()
+	if st, ok := p.streams[sid]; ok {
+		p.dropLocked(st)
 	}
+}
+
+func (p *Push) DropAgent(agent string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	for _, st := range p.byAgent[agent] {
+		p.dropLocked(st)
+	}
+}
+
+func (p *Push) dropLocked(st *stream) {
+	sid := st.id
 	delete(p.streams, sid)
 	delete(p.byAgent[st.agent], sid)
 	if len(p.byAgent[st.agent]) == 0 {
@@ -127,7 +154,6 @@ func (p *Push) Drop(sid string) {
 		st.conn = nil
 	}
 	st.mu.Unlock()
-	p.mu.Unlock()
 }
 
 func (p *Push) unindexLocked(uri, sid string) {

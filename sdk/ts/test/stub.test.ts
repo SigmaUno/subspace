@@ -3,7 +3,7 @@ import { createServer } from "node:http";
 import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import type { AddressInfo } from "node:net";
 import { test } from "node:test";
-import { McpClient, McpToolError, parseSse } from "../src/index.ts";
+import { ApiError, McpClient, McpToolError, parseSse } from "../src/index.ts";
 import type { McpNotification, SseMessage } from "../src/index.ts";
 
 function chunked(text: string, size: number): ReadableStream<Uint8Array> {
@@ -192,6 +192,35 @@ test("notifications reconnect with the session and last event id and re-initiali
         ["s2", "2"],
       ],
     );
+  } finally {
+    await s.close();
+  }
+});
+
+test("notifications re-initialize once per connect and fail when the session is still unknown", async () => {
+  let sessions = 0;
+  const s = await stub((req, res, body) => {
+    if (req.method === "POST") {
+      const rpc = rpcOf(body);
+      if (rpc.id === undefined) {
+        res.writeHead(202).end();
+        return;
+      }
+      sessions += 1;
+      return reply(res, rpc.id, { protocolVersion: "2025-06-18", capabilities: {}, serverInfo: { name: "stub", version: "1" } }, { "mcp-session-id": `s${sessions}` });
+    }
+    res.writeHead(404).end("unknown session");
+  });
+  try {
+    const client = new McpClient({ url: s.url, token: "t" });
+    const drain = async () => {
+      for await (const _ of client.notifications({ reconnect: { initialDelayMs: 5, maxDelayMs: 20 } })) {
+        assert.fail("no notification expected");
+      }
+    };
+    await assert.rejects(drain(), (err) => err instanceof ApiError && err.status === 404);
+    assert.equal(sessions, 2);
+    assert.equal(s.log.filter((l) => l.method === "GET").length, 2);
   } finally {
     await s.close();
   }

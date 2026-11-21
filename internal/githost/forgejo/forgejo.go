@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/githost"
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 // Client talks to a Forgejo instance with a token.
@@ -84,7 +85,7 @@ func (c *Client) GetPR(ctx context.Context, repo string, number int64) (githost.
 	case resp.StatusCode == http.StatusNotFound:
 		return githost.PR{}, fmt.Errorf("%w: %s#%d", githost.ErrNotFound, repo, number)
 	case resp.StatusCode != http.StatusOK:
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		netguard.Drain(resp.Body, 4096)
 		return githost.PR{}, fmt.Errorf("forgejo: get pr %s#%d: unexpected status %d", repo, number, resp.StatusCode)
 	}
 	var p apiPR
@@ -118,10 +119,10 @@ func (c *Client) GetPRDiff(ctx context.Context, repo string, number int64) (stri
 	case resp.StatusCode == http.StatusNotFound:
 		return "", fmt.Errorf("%w: %s#%d", githost.ErrNotFound, repo, number)
 	case resp.StatusCode != http.StatusOK:
-		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+		netguard.Drain(resp.Body, 4096)
 		return "", fmt.Errorf("forgejo: get pr diff %s#%d: unexpected status %d", repo, number, resp.StatusCode)
 	}
-	b, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	b, err := netguard.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return "", fmt.Errorf("forgejo: read pr diff: %w", err)
 	}
@@ -155,7 +156,7 @@ func (c *Client) PostStatus(ctx context.Context, repo, sha string, status githos
 		return fmt.Errorf("forgejo: post status: %w", err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
+	netguard.Drain(resp.Body, 4096)
 	switch {
 	case resp.StatusCode == http.StatusNotFound:
 		return fmt.Errorf("%w: %s@%s", githost.ErrNotFound, repo, sha)

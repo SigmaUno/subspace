@@ -11,6 +11,7 @@ export const moreNav: { name: string; items: NavItem[] }[] = [
   { name: "Work", items: [
     { id: "plans", name: "Plans", href: "/plans" },
     { id: "questions", name: "Questions", href: "/questions" },
+    { id: "help", name: "Help requests", href: "/help" },
     { id: "bots", name: "Bots", href: "/bots" },
     { id: "mergequeue", name: "Merge queue", href: "/mergequeue" },
   ] },

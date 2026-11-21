@@ -339,6 +339,12 @@ export interface BackupResult {
   path: string;
 }
 
+export interface Backups {
+  count: number;
+  latest_at: string | null;
+  latest_verified: boolean;
+}
+
 export interface BoardView {
   brief?: Brief | null;
   columns: Record<string, (Task | null)[] | null> | null;
@@ -584,6 +590,12 @@ export interface ChatMessage {
   to: string;
 }
 
+export interface Check {
+  detail: string;
+  name: string;
+  status: string;
+}
+
 export interface Component {
   brief_id: string;
   depends_on: string[] | null;
@@ -736,6 +748,18 @@ export interface DigestTasks {
   blocked: number;
   created: number;
   done: number;
+}
+
+export interface DrillResult {
+  backup: string;
+  backup_bytes: number;
+  checks: Check[] | null;
+  error: string;
+  finished_at: string;
+  id: string;
+  started_at: string;
+  status: string;
+  trigger: string;
 }
 
 export interface EndOutcome {
@@ -989,6 +1013,16 @@ export interface IncidentResult {
   error?: string;
   failures?: Failure[] | null;
   status: string;
+}
+
+export interface Info {
+  backend: string;
+  backups: Backups;
+  db_bytes: number | null;
+  started_at: string;
+  uptime_seconds: number;
+  version: string;
+  wal_bytes: number | null;
 }
 
 export interface Input {

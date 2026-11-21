@@ -84,6 +84,20 @@ func TestIncidentStartAndEnd(t *testing.T) {
 	h.fails(exitNotFound, "incident", "end", "INC-9")
 }
 
+func TestDrillsRunAndList(t *testing.T) {
+	h := newHarness(t)
+	h.fails(exitFailure, "drills", "run")
+	h.object("backups", "create")
+	ran := h.object("drills", "run")
+	if ran["status"] != "ok" || ran["id"] != "D-2" {
+		t.Fatalf("run = %v", ran)
+	}
+	got := list(t, h.object("drills", "list", "--limit", "5"), "drills")
+	if len(got) != 2 || got[0].(map[string]any)["id"] != "D-2" || got[1].(map[string]any)["status"] != "failed" {
+		t.Fatalf("list = %v", got)
+	}
+}
+
 func TestKnowledgeModeration(t *testing.T) {
 	h := newHarness(t)
 	lead := h.env.Register("rex", "leader", "other")

@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const maxTracked = 4096
@@ -301,10 +302,5 @@ func (l *lane) deliver(ctx context.Context, n Notification) {
 }
 
 func (s *Service) backoff(attempt int) time.Duration {
-	d := s.cfg.MaxDelay
-	if attempt < 32 && s.cfg.BaseDelay<<(attempt-1) < d {
-		d = s.cfg.BaseDelay << (attempt - 1)
-	}
-	half := d / 2
-	return half + time.Duration(s.cfg.Jitter(int64(half)+1))
+	return retryq.HalfJitter(retryq.Exp(s.cfg.BaseDelay, s.cfg.MaxDelay, attempt), s.cfg.Jitter)
 }

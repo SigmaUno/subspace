@@ -88,7 +88,7 @@ func (s *Service) RequestHelp(ctx context.Context, a model.Actor, taskID, kind, 
 	if !slices.Contains(helpKinds, kind) {
 		return nil, model.BadRequest("kind must be one of %s", strings.Join(helpKinds, ", "))
 	}
-	details, err := checkText("details", details)
+	details, err := s.checkText(ctx, a, board.ChannelHelp, "details", details)
 	if err != nil {
 		return nil, err
 	}
@@ -108,7 +108,7 @@ func (s *Service) ReportBlocker(ctx context.Context, a model.Actor, taskID, reas
 	if needs != NeedsLeader && needs != NeedsOwner {
 		return nil, model.BadRequest("needs must be leader or owner")
 	}
-	reason, err := checkText("reason", reason)
+	reason, err := s.checkText(ctx, a, board.ChannelStatus, "reason", reason)
 	if err != nil {
 		return nil, err
 	}
@@ -139,7 +139,9 @@ func (s *Service) SuggestSplit(ctx context.Context, a model.Actor, taskID string
 	if err != nil {
 		return nil, err
 	}
-	proposed, err = normalize(t, br, proposed)
+	proposed, err = normalize(t, br, proposed, func(v string) string {
+		return board.Redact(s.b.Scan(ctx, a, board.ChannelHelp, v))
+	})
 	if err != nil {
 		return nil, err
 	}
@@ -310,7 +312,7 @@ func (s *Service) notifyLeaders(ctx context.Context, a model.Actor, briefID, bod
 	return nil
 }
 
-func checkText(field, v string) (string, error) {
+func (s *Service) checkText(ctx context.Context, a model.Actor, channel, field, v string) (string, error) {
 	v = strings.TrimSpace(v)
 	if v == "" {
 		return "", model.BadRequest("%s is required", field)
@@ -318,7 +320,7 @@ func checkText(field, v string) (string, error) {
 	if len(v) > maxDetails {
 		return "", model.BadRequest("%s too long (max %d bytes)", field, maxDetails)
 	}
-	return board.Redact(v), nil
+	return board.Redact(s.b.Scan(ctx, a, channel, v)), nil
 }
 
 func clip(s string, n int) string {

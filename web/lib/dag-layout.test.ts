@@ -112,3 +112,64 @@ test("500 tasks get unique cells and every dependency points forward", () => {
   }
   assert.equal(layout.edges.length, tasks.reduce((sum, task) => sum + task.deps.length, 0));
 });
+
+test("no tasks give an empty layout", () => {
+  assert.deepEqual(layoutDag([]), { nodes: [], edges: [], width: 0, height: 0, layers: 0, crossings: 0 });
+});
+
+test("unknown, self and repeated dependencies are ignored", () => {
+  const layout = layoutDag([
+    { id: "T-1", deps: ["T-1", "T-404", "T-404"] },
+    { id: "T-2", deps: ["T-1", "T-1", "T-1"] },
+  ]);
+  assert.equal(layout.edges.length, 1);
+  assert.deepEqual([layerOf(layout, "T-1"), layerOf(layout, "T-2")], [0, 1]);
+  assert.equal(layout.edges.some((edge) => edge.reversed), false);
+});
+
+test("a repeated id keeps its first definition", () => {
+  const layout = layoutDag([
+    { id: "T-1", deps: [] },
+    { id: "T-2", deps: ["T-1"] },
+    { id: "T-2", deps: [] },
+  ]);
+  assert.equal(layout.nodes.length, 2);
+  assert.equal(layerOf(layout, "T-2"), 1);
+});
+
+test("ids with numbers are ordered naturally", () => {
+  const layout = layoutDag(["T-10", "T-9", "T-100", "T-1"].map((id) => ({ id, deps: [] })));
+  assert.deepEqual(layout.nodes.map((node) => node.id), ["T-1", "T-9", "T-10", "T-100"]);
+  assert.deepEqual(layout.nodes.map((node) => node.row), [0, 1, 2, 3]);
+});
+
+test("random graphs with cycles never fail and never overlap", () => {
+  const random = prng(99);
+  for (let round = 0; round < 40; round++) {
+    const count = 1 + Math.floor(random() * 30);
+    const input: DagInput[] = Array.from({ length: count }, (_, i) => ({
+      id: `T-${i + 1}`,
+      deps: Array.from({ length: Math.floor(random() * 4) }, () => `T-${1 + Math.floor(random() * (count + 2))}`),
+    }));
+    const layout = layoutDag(input);
+    assert.equal(layout.nodes.length, count);
+    assert.equal(new Set(layout.nodes.map((node) => `${node.layer}:${node.row}`)).size, count);
+    for (const edge of layout.edges) {
+      assert.ok(edge.points.length >= 2);
+      assert.ok(edge.points.every((point) => Number.isFinite(point.x) && Number.isFinite(point.y)));
+      if (!edge.reversed) assert.ok(layerOf(layout, edge.from) < layerOf(layout, edge.to));
+    }
+    assert.deepEqual(layoutDag(input), layout);
+  }
+});
+
+test("a long chain and a wide fan stay linear in size", { timeout: 20_000 }, () => {
+  const chain = Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, deps: i ? [`T-${i}`] : [] }));
+  const chained = layoutDag(chain);
+  assert.equal(chained.layers, 2000);
+  assert.equal(chained.crossings, 0);
+  const fan = [{ id: "T-0", deps: [] as string[] }, ...Array.from({ length: 2000 }, (_, i) => ({ id: `T-${i + 1}`, deps: ["T-0"] }))];
+  const fanned = layoutDag(fan);
+  assert.equal(fanned.layers, 2);
+  assert.equal(fanned.edges.length, 2000);
+});

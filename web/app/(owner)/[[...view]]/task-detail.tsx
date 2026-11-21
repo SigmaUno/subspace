@@ -9,6 +9,7 @@ import { Feedback, LoadMore } from "./components";
 import { TaskGates } from "./gates";
 import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
+import { ScopePanel } from "./scope-report";
 import { AgentTerminal } from "./terminal";
 import { PageShell } from "./shell";
 import { useConfirm, useToast } from "./ui";
@@ -207,6 +208,8 @@ export function TaskDetailPage({ id }: { id: string }) {
           })}</ul>
           : <EmptyState>No dependencies.</EmptyState>}
       </section>
+
+      <ScopePanel taskID={current.id} revision={revisions.board} />
 
       <OwnerActions task={current} changed={changed} />
 

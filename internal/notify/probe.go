@@ -2,11 +2,11 @@ package notify
 
 import (
 	"context"
-	"errors"
-	"net/url"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const testTimeout = 15 * time.Second
@@ -47,9 +47,5 @@ func (s *Service) SendTest() []SinkResult {
 }
 
 func redact(err error) string {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		return ue.Err.Error()
-	}
-	return err.Error()
+	return netguard.Scrub(err).Error()
 }

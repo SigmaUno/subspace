@@ -336,6 +336,30 @@ Delivery is best effort and never blocks board operations. Events for the same a
 
 `score` is `0.5 + (raw - 0.5) * n / (n + 3)` with `raw = 0.5 * first_pass_approval_rate + 0.3 * tasks_completed / n + 0.2 / (1 + review_rounds_per_task)` and `n = tasks_completed + blocked + expired` (a missing first-pass rate counts as 0.5). With `SUBSPACE_AUTOPILOT=on`, autopilot uses it to break ties between equally loaded eligible agents (higher first, then id); load, role, provider and capacity rules are never overridden. Scores used by autopilot are cached for 30s.
 
+### Agent output
+Live terminal output that agents send with the MCP tool `log_output` (see §5). It is held in memory, never written to the audit log and never sent through notifications, callbacks or the main event stream.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/agents/{id}/output?since=&limit=&task_id=` | → AgentOutput. Without `since` the newest `limit` lines; with `since` the lines with `seq` above it, oldest first. `limit` default 500, max 2000; `task_id` keeps only lines tagged with that task. 400 for a negative or non-integer `since` or `limit`, 404 for an unknown agent. |
+| GET | `/api/v1/agent-output` | → `{"agents":[{"agent_id","line":OutputLine,"lines":n,"updated_at"}]}`: the newest line of every `active` agent that has buffered output, most recently updated first. |
+
+```jsonc
+// AgentOutput
+{"agent_id":"claude-1","lines":[/* OutputLine */],
+ "first_seq":12,"last_seq":40,       // oldest retained and newest assigned seq; first_seq = last_seq + 1 when nothing is retained
+ "next_since":40,                    // pass as since to continue
+ "more":false,                       // limit cut the result (older lines without since, newer lines with it)
+ "gap":false}                        // lines after since were evicted, or since is ahead of last_seq (server restarted); refetch without since
+
+// OutputLine
+{"seq":40,"agent_id":"claude-1","task_id":"T-3","stream":"stdout","text":"\u001b[32mok\u001b[0m  ./internal/api","ts":"..."}   // task_id null when untagged; stream stdout|stderr|note
+```
+
+Every agent has a ring buffer of the last `SUBSPACE_OUTPUT_LINES` lines (default `2000`) and at most `SUBSPACE_OUTPUT_AGENT_BYTES` (default `524288`); all buffers together are capped at `SUBSPACE_OUTPUT_MEMORY` bytes (default `67108864`), evicting the oldest lines of the least recently active agent first. Line `seq` is per agent and increases by one per line. The last `SUBSPACE_OUTPUT_PERSIST` lines per agent (default `200`, `0` = off) are written to the `agent_output` table every heartbeat flush interval and reloaded on start, so a restart keeps a short tail.
+
+Text is cleaned before it is stored: at most 4096 bytes per call (longer text is cut at a character boundary and `truncated` is set), invalid UTF-8 replaced, control characters except tab and newline dropped, bidirectional override characters dropped, `\r\n` folded and a line rewritten with `\r` keeps its last segment. Escape sequences are removed (OSC such as terminal titles and hyperlinks, DCS/APC/PM/SOS strings, cursor movement, mode changes), except SGR colour sequences, which are rebuilt from a whitelist: reset, bold, dim, italic, underline, reverse, strike, their resets, the 8/16 foreground and background colours, and `38;5;n`/`48;5;n`/`38;2;r;g;b`/`48;2;r;g;b`. Blink and conceal are dropped. Secrets are masked with the same redaction as notes; a chunk that contains one loses its colours.
+
 ### Questions
 | Method | Path | Body → Response |
 |---|---|---|
@@ -726,7 +750,7 @@ Events form a hash chain: `hash = hex(sha256(prev_hash || canonical))`, where `p
 | GET | `/api/v1/events?topics=&last_event_id=` | → `text/event-stream` (owner token header) |
 
 (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
-Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`.
+Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, and the agent output topics `output`, `output:<id>` (see below).
 
 Response `text/event-stream`, a `: ping` comment every 15s. Each event:
 ```
@@ -756,6 +780,8 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `lagged` | `{"dropped":n}` — slow-client coalescing happened; refetch | all |
 
 On shutdown the server stops accepting connections, sends a final `close` event (`event: close`, data `{"type":"close",...,"data":{"reason":"shutdown"}}`, no `id`) on every stream and ends it (clients reconnect and refetch), lets in-flight requests finish for up to `SUBSPACE_SHUTDOWN_TIMEOUT` (default `20s`), then flushes heartbeat state to the DB and closes the store.
+
+Agent output topics: `output:<agent id>` (one agent; list several to follow several agents) and `output` (every agent). They are served by a separate stream: a request whose topics are all output topics gets only `agent.output` events, with their own `id` sequence and a replay buffer of the last 1000 events for `Last-Event-ID`; `all` never includes them, and mixing output topics with other topics is a 400 `bad_request`. `agent.output` carries `{"agent_id":"claude-1","task_id":"T-3","lines":[OutputLine]}`, one event per `log_output` call (`task_id` null when untagged).
 
 `alert.raised` and `alert.resolved` (topic `alerts`, also `all`) carry `{"id":"alert:<alert id>","kind":"alert","title","text","priority","brief_id"?,"task_id"?,"ts"}` and are emitted only by the alert rules.
 
@@ -797,6 +823,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_blocker | | ✓ | ✓ | |
 | list_help_requests, accept_split | ✓ | | | |
 | report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
+| log_output | ✓ | ✓ | ✓ | ✓ |
 
 The leader information tools (`get_forecast` … `get_components`) are read-only and exempt from loop protection. Every list they return is cut at 200 items and flagged with `"truncated":true`.
 
@@ -826,6 +853,9 @@ All tools return an object; `task` = Task object above.
 **Usage and provider health** (all roles; never loop-protected)
 - `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are held in memory.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
+
+**Live output** (all roles)
+- `log_output {"task_id?","stream":"stdout|stderr|note","text","seq?":int}` → `{"ok":true,"seq":40,"lines":2,"truncated":false,"duplicate":false}`. Appends the text, split into lines, to your output buffer and pushes it to owners following `output:<you>` (see Agent output). `seq` in the result is the `seq` of your newest line. `task_id` must be a task you can see (404 otherwise). The optional `seq` argument is your own increasing chunk number: a chunk whose `seq` is not above the last accepted one is a retry and is ignored (`duplicate:true`). Text that is empty after cleaning adds no lines. The tool is exempt from loop protection (repeated identical lines are normal) and has its own per-agent rate limit, `SUBSPACE_OUTPUT_RATE` (default `10/s:60`, same syntax as `SUBSPACE_RATE_MCP`), answering `rate_limited` above it; paused agents may still call it.
 
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.

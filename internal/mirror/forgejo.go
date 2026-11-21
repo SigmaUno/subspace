@@ -13,6 +13,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const (
@@ -311,7 +313,7 @@ func (m *ForgejoMirror) do(ctx context.Context, method, path string, in, out any
 	}
 	defer func() { _ = resp.Body.Close() }()
 	if resp.StatusCode < 200 || resp.StatusCode > 299 {
-		snippet, _ := io.ReadAll(io.LimitReader(resp.Body, maxErrBody))
+		snippet, _ := netguard.ReadBody(resp.Body, maxErrBody)
 		return fmt.Errorf("mirror: forgejo %s %s: status %d: %s", method, req.URL.Path, resp.StatusCode,
 			strings.TrimSpace(string(snippet)))
 	}

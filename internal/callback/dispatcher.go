@@ -6,17 +6,18 @@ import (
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"io"
 	"log/slog"
 	mrand "math/rand/v2"
 	"net/http"
-	"net/url"
 	"sort"
 	"strconv"
 	"sync"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
+	"github.com/SigmaUno/subspace/internal/retryq"
 )
 
 const (
@@ -277,12 +278,7 @@ func (d *Dispatcher) deliver(ctx context.Context, e *entry) {
 }
 
 func (d *Dispatcher) backoff(attempt int) time.Duration {
-	b := d.o.Backoff
-	for i := 1; i < attempt && b < d.o.MaxBackoff; i++ {
-		b *= 2
-	}
-	b = min(b, d.o.MaxBackoff)
-	return time.Duration(float64(b) * (0.8 + 0.4*d.o.Jitter()))
+	return retryq.Spread(retryq.Exp(d.o.Backoff, d.o.MaxBackoff, attempt), d.o.Jitter())
 }
 
 func (d *Dispatcher) send(ctx context.Context, e *entry) (retry bool, err error) {
@@ -312,14 +308,10 @@ func (d *Dispatcher) send(ctx context.Context, e *entry) (retry bool, err error)
 	req.Header.Set(HeaderSignature, Sign(t.Secret, ts, body))
 	resp, err := d.o.Client.Do(req)
 	if err != nil {
-		var ue *url.Error
-		if errors.As(err, &ue) {
-			err = ue.Err
-		}
-		return true, err
+		return true, netguard.Scrub(err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, maxDrain))
+	netguard.Drain(resp.Body, maxDrain)
 	switch {
 	case resp.StatusCode >= 200 && resp.StatusCode < 300:
 		return false, nil

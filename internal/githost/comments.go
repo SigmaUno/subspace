@@ -6,11 +6,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 type Style string
@@ -103,7 +104,7 @@ func (c *restCommenter) do(ctx context.Context, method, endpoint, body string, o
 		return fmt.Errorf("githost: %s comment: %w", strings.ToLower(method), err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	raw, err := io.ReadAll(io.LimitReader(resp.Body, 4<<20))
+	raw, err := netguard.ReadBody(resp.Body, 4<<20)
 	if err != nil {
 		return fmt.Errorf("githost: read response: %w", err)
 	}

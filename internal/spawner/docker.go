@@ -13,6 +13,8 @@ import (
 	"sort"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 const (
@@ -220,7 +222,7 @@ func (d Docker) do(ctx context.Context, token, method, path string, in, out any)
 		return errors.New(redact(err.Error(), token))
 	}
 	defer func() { _ = resp.Body.Close() }()
-	data, err := io.ReadAll(io.LimitReader(resp.Body, maxEngineReply))
+	data, err := netguard.ReadBody(resp.Body, maxEngineReply)
 	if err != nil {
 		return errors.New(redact(err.Error(), token))
 	}

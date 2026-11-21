@@ -5,7 +5,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"slices"
@@ -14,6 +13,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/githost"
+	"github.com/SigmaUno/subspace/internal/netguard"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
 	"github.com/SigmaUno/subspace/internal/scope"
 )
@@ -96,7 +96,7 @@ func (f *fetcher) get(ctx context.Context, h *host, endpoint string, v any) erro
 		return fmt.Errorf("%s: %w", h.name, err)
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 8<<20))
+	body, err := netguard.ReadBody(resp.Body, 8<<20)
 	if err != nil {
 		return fmt.Errorf("%s: read response: %w", h.name, err)
 	}

@@ -5,11 +5,12 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/netguard"
 )
 
 type ProbeConfig struct {
@@ -151,15 +152,12 @@ func (p *Prober) get(ctx context.Context, endpoint string) (int, http.Header, []
 		return 0, nil, nil, err
 	}
 	defer func() { _ = resp.Body.Close() }()
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
+	body, err := netguard.ReadBody(resp.Body, 1<<20)
 	return resp.StatusCode, resp.Header, body, err
 }
 
 func failure(err error) string {
-	var ue *url.Error
-	if errors.As(err, &ue) {
-		err = ue.Err
-	}
+	err = netguard.Scrub(err)
 	if errors.Is(err, context.DeadlineExceeded) {
 		return "timed out"
 	}

@@ -14,6 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/server"
+	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/version"
 )
 
@@ -93,6 +94,12 @@ func main() {
 		Lease: dur("SUBSPACE_LEASE", "15m"), PoisonExpiries: count("SUBSPACE_POISON_EXPIRIES", board.DefaultPoisonExpiries), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: count("SUBSPACE_BACKUP_KEEP", 14), DataDir: os.Getenv("SUBSPACE_DATA_DIR"),
 		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), ConfigFile: os.Getenv("SUBSPACE_CONFIG_FILE"), Log: log, LogPipe: pipe,
+	}
+	if os.Getenv("SUBSPACE_SPAWNER") == "docker" {
+		if cfg.Spawner, err = spawner.New("docker", os.Getenv); err != nil {
+			log.Error("docker spawner", "err", err)
+			os.Exit(2)
+		}
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()

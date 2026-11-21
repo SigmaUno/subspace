@@ -49,6 +49,7 @@ type RepoConfig struct {
 	Auto     bool
 	MaxTrain int
 	Required []string
+	WorkDir  string
 }
 
 type Runner interface {
@@ -249,7 +250,7 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 		return err
 	}
 	var log strings.Builder
-	dir := filepath.Join(q.cfg.WorkDir, dirName(repo))
+	dir := q.repoDir(repo, rc)
 	headSHA, sha, err := q.prepare(ctx, dir, rc, c, &log)
 	if err == nil {
 		err = q.verify(ctx, dir, rc, &log)
@@ -376,6 +377,13 @@ var (
 
 func redactCredentials(s string) string {
 	return urlUserinfo.ReplaceAllString(s, "${1}[redacted]@")
+}
+
+func (q *Queue) repoDir(repo string, rc RepoConfig) string {
+	if rc.WorkDir != "" {
+		return filepath.Join(rc.WorkDir, dirName(repo))
+	}
+	return filepath.Join(q.cfg.WorkDir, dirName(repo))
 }
 
 func dirName(repo string) string {

@@ -62,6 +62,8 @@ type Board struct {
 	capDB   bool
 	quality QualityGate
 
+	repoCheck RepoCheck
+
 	expiries map[string][]time.Time
 
 	pauseOp  sync.Mutex

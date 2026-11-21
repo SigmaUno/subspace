@@ -1,8 +1,6 @@
 package server
 
 import (
-	"os"
-
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/prsync"
 )
@@ -27,13 +25,12 @@ func mountPRStatus(d Deps) {
 		detach()
 	}()
 
-	path := os.Getenv("SUBSPACE_PRSYNC_CONFIG")
-	if path == "" {
-		return
-	}
-	cfg, err := prsync.LoadConfig(path, os.Getenv("SUBSPACE_PRSYNC_INTERVAL"))
+	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
 	if err != nil {
 		d.Log.Error("pr status sync disabled", "err", err)
+		return
+	}
+	if !ok {
 		return
 	}
 	p, err := prsync.New(prsync.Options{Config: cfg, Board: d.Board, Store: st, Hub: d.Hub, Log: d.Log})

@@ -18,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/repos"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -47,6 +48,7 @@ type mqRepo struct {
 	Base     string   `json:"base"`
 	Train    int      `json:"train"`
 	Required []string `json:"required"`
+	WorkDir  string   `json:"workdir"`
 }
 
 type mqFile struct {
@@ -55,33 +57,68 @@ type mqFile struct {
 	Repos    map[string]mqRepo `json:"repos"`
 }
 
+const (
+	mqConfigEnv   = "SUBSPACE_MQ_CONFIG"
+	mqIntervalEnv = "SUBSPACE_MQ_INTERVAL"
+)
+
 func mountMergeQueue(d Deps) {
-	path := os.Getenv("SUBSPACE_MQ_CONFIG")
-	if path == "" {
+	f, ok, err := mqConfig(d)
+	if err != nil {
+		d.Log.Error("mergequeue disabled", "err", err)
 		return
 	}
-	if err := startMergeQueue(d, path); err != nil {
-		d.Log.Error("mergequeue disabled", "config", path, "err", err)
+	if !ok {
+		return
+	}
+	if err := startMergeQueue(d, f); err != nil {
+		d.Log.Error("mergequeue disabled", "err", err)
 	}
 }
 
-func startMergeQueue(d Deps, path string) error {
+func mqConfig(d Deps) (mqFile, bool, error) {
+	rs, err := repos.Enabled(d.Ctx, repoSource(d))
+	if err != nil {
+		return mqFile{}, false, err
+	}
+	f := mqFile{Repos: map[string]mqRepo{}, Interval: os.Getenv(mqIntervalEnv)}
+	for _, r := range rs {
+		if len(r.MergeTestCommand) > 0 {
+			f.Repos[r.Name] = mqRepo{Remote: r.CloneURL(), Verify: r.MergeTestCommand, Base: r.DefaultBranch, WorkDir: r.MergeWorkDir}
+		}
+	}
+	if len(f.Repos) > 0 {
+		return f, true, nil
+	}
+	path := os.Getenv(mqConfigEnv)
+	if path == "" {
+		return mqFile{}, false, nil
+	}
+	repos.Deprecated(d.Log, mqConfigEnv)
 	raw, err := os.ReadFile(path) //nolint:gosec // operator-supplied path
 	if err != nil {
-		return err
+		return mqFile{}, false, err
 	}
-	var f mqFile
 	if err := json.Unmarshal(raw, &f); err != nil {
-		return err
+		return mqFile{}, false, err
 	}
+	return f, true, nil
+}
+
+func startMergeQueue(d Deps, f mqFile) error {
+	var err error
 	interval := 30 * time.Second
 	if f.Interval != "" {
 		if interval, err = time.ParseDuration(f.Interval); err != nil || interval <= 0 {
 			return fmt.Errorf("invalid interval %q", f.Interval)
 		}
 	}
-	if f.WorkDir == "" && isPostgres(d.Cfg.DBPath) {
-		return errors.New("workdir is required with the postgres backend")
+	if isPostgres(d.Cfg.DBPath) && f.WorkDir == "" {
+		for name, r := range f.Repos {
+			if r.WorkDir == "" {
+				return fmt.Errorf("workdir is required with the postgres backend (repo %s)", name)
+			}
+		}
 	}
 	if f.WorkDir == "" {
 		f.WorkDir = filepath.Join(filepath.Dir(d.Cfg.DBPath), "mergequeue")
@@ -93,7 +130,7 @@ func startMergeQueue(d Deps, path string) error {
 	repos := make(map[string]mergequeue.RepoConfig, len(f.Repos))
 	bases := make(map[string]string, len(f.Repos))
 	for name, r := range f.Repos {
-		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required}
+		repos[name] = mergequeue.RepoConfig{Remote: r.Remote, Verify: r.Verify, MaxTrain: r.Train, Required: r.Required, WorkDir: r.WorkDir}
 		bases[name] = r.Base
 		if r.Base == "" {
 			bases[name] = "main"

@@ -256,6 +256,7 @@ type Spawn struct {
 type Actor struct {
 	ID   string
 	Role string
+	Kind string
 }
 
 var Owner = Actor{ID: "owner", Role: RoleOwner}

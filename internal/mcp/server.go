@@ -174,7 +174,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
 		return
 	}
-	actor := model.Actor{ID: agent.ID, Role: agent.Role}
+	actor := model.Actor{ID: agent.ID, Role: agent.Role, Kind: agent.Kind}
 	resp := rpcResp{JSONRPC: "2.0", ID: req.ID}
 	switch req.Method {
 	case "initialize":
@@ -201,7 +201,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMessage) (any, *rpcErr) {
-	a := model.Actor{ID: agent.ID, Role: agent.Role}
+	a := model.Actor{ID: agent.ID, Role: agent.Role, Kind: agent.Kind}
 	var p struct {
 		Name      string          `json:"name"`
 		Arguments json.RawMessage `json:"arguments"`

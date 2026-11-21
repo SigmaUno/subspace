@@ -62,6 +62,7 @@ export interface Brief {
   budget: BriefBudget;
   allowed_providers: string[] | null;
   cross_review: boolean;
+  risky_paths: string[] | null;
   auto_done_on_merge: boolean;
   cost_used: number;
   plan_status: string;
@@ -91,6 +92,7 @@ export interface BriefPreview {
   max_parallel_agents: number;
   allowed_providers: string[] | null;
   cross_review: boolean;
+  risky_paths: string[] | null;
   leader_id: string | null;
   playbook: string;
   task_budget: BriefTaskBudget | null;

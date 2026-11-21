@@ -6,7 +6,7 @@ import { memo, useContext, useDeferredValue, useEffect, useMemo, useState } from
 import { api, commaList, label, money, safeURL, useResource, useSubmit, value } from "../../../../lib/client";
 import type { PRStatus } from "../../../../lib/pr-types";
 import type { Component } from "../../../../lib/swarm";
-import { statuses, type Agent, type Board, type Brief, type Task, type TaskStatus, type Thread } from "../../../../lib/types";
+import { reviewLabel, statuses, type Agent, type Board, type Brief, type Task, type TaskStatus, type Thread } from "../../../../lib/types";
 import { BoardFilters, useBoardPrefs } from "./views";
 import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, parseQuery } from "../../../../lib/board-query";
 import { ImportBrief } from "./brief-import";
@@ -18,6 +18,12 @@ import { typing } from "../shortcuts";
 import { EmptyState, ResourceState } from "../shared/states";
 import { VirtualList } from "../shared/virtual";
 
+function crossReviewFields(mode: string, paths: string) {
+  if (mode === "off") return { cross_review: false };
+  if (mode === "risky") return { cross_review: true, risky_paths: commaList(paths) };
+  return { cross_review: true };
+}
+
 export function BriefsView({ revision }: { revision: number }) {
   const [creating, setCreating] = useState(false);
   const [importing, setImporting] = useState(false);
@@ -26,6 +32,7 @@ export function BriefsView({ revision }: { revision: number }) {
   const router = useRouter();
   const playbooks = usePlaybooks();
   const [playbook, setPlaybook] = useState("");
+  const [review, setReview] = useState("on");
 
   return (
     <>
@@ -43,6 +50,7 @@ export function BriefsView({ revision }: { revision: number }) {
             max_cost_eur: Number(value(fields, "cost")),
             max_parallel_agents: Number(value(fields, "parallel")),
             playbook: value(fields, "playbook"),
+            ...crossReviewFields(value(fields, "review"), value(fields, "risky_paths")),
           });
           router.push(`/briefs/${encodeURIComponent(brief.id)}`);
         })}>
@@ -54,6 +62,14 @@ export function BriefsView({ revision }: { revision: number }) {
             <label>Allowed providers<input name="providers" placeholder="All providers" /></label>
             <label>Budget (EUR)<input name="cost" type="number" min="0" step="0.01" defaultValue="50" required /></label>
             <label>Max parallel agents<input name="parallel" type="number" min="1" defaultValue="10" required /></label>
+            <label>Cross review
+              <select name="review" value={review} onChange={(event) => setReview(event.target.value)}>
+                <option value="on">On: review every task</option>
+                <option value="risky">Only for risky paths</option>
+                <option value="off">Off: merge queue and owner approval</option>
+              </select>
+            </label>
+            {review === "risky" && <label>Risky paths<input name="risky_paths" placeholder="internal/auth/**, migrations" required /></label>}
             {!!playbooks.list.length && <PlaybookPicker playbooks={playbooks.list} selected={playbook} onChange={setPlaybook} />}
           </div>
           <Feedback error={form.error} />
@@ -68,7 +84,7 @@ export function BriefsView({ revision }: { revision: number }) {
             <span className="meta">{brief.id} · {brief.status}{brief.playbook && ` · ${brief.playbook}`}</span>
             <h2>{brief.title}</h2>
             <span className="meta">{brief.repos?.join(", ") || "No repositories"} · Plan {brief.plan_status}</span>
-            <span className="meta">{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)} · {brief.budget.max_parallel_agents} parallel agents</span>
+            <span className="meta">{money(brief.cost_used)} / {money(brief.budget.max_cost_eur)} · {brief.budget.max_parallel_agents} parallel agents · {reviewLabel(brief)}</span>
           </Link>
         ))}
       </div>

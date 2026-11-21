@@ -20,6 +20,7 @@ var Briefs = &Table[model.Brief]{Name: "briefs", Cols: []Column[model.Brief]{
 	field("plan_status", KindText, func(b *model.Brief) *string { return &b.PlanStatus }),
 	timeCol("created_at", func(b *model.Brief) *time.Time { return &b.CreatedAt }),
 	field("cross_review", KindBool, func(b *model.Brief) *bool { return &b.CrossReview }).withDefault("TRUE"),
+	list("risky_paths", func(b *model.Brief) *[]string { return &b.RiskyPaths }),
 	field("auto_done_on_merge", KindBool, func(b *model.Brief) *bool { return &b.AutoDoneOnMerge }),
 	field("leader_id", KindNullText, func(b *model.Brief) **string { return &b.LeaderID }),
 	codec("quality_gates", KindText,

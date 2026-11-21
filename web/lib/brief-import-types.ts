@@ -15,6 +15,7 @@ export type BriefPreview = {
   max_parallel_agents: number;
   allowed_providers: string[];
   cross_review: boolean;
+  risky_paths: string[] | null;
   playbook: string;
   task_budget: { max_minutes: number; max_cost_eur: number } | null;
   components: BriefComponentSpec[];

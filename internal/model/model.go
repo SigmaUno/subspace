@@ -110,6 +110,7 @@ type Brief struct {
 	Budget           BriefBudget  `json:"budget"`
 	AllowedProviders []string     `json:"allowed_providers"`
 	CrossReview      bool         `json:"cross_review"`
+	RiskyPaths       []string     `json:"risky_paths"`
 	AutoDoneOnMerge  bool         `json:"auto_done_on_merge"`
 	CostUsed         float64      `json:"cost_used"`
 	PlanStatus       string       `json:"plan_status"`
@@ -131,6 +132,8 @@ type QualityGates struct {
 }
 
 func (q QualityGates) Enabled() bool { return q != QualityGates{} }
+
+func (b *Brief) ReviewsAll() bool { return b.CrossReview && len(b.RiskyPaths) == 0 }
 
 func (b *Brief) LedBy(leaderID string) bool {
 	return b.LeaderID == nil || *b.LeaderID == leaderID

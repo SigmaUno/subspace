@@ -15,6 +15,11 @@ export const agentKinds = [
 
 export type TaskStatus = typeof statuses[number][0];
 
+export function reviewLabel(brief: { cross_review?: boolean; risky_paths?: string[] | null }) {
+  if (brief.cross_review === false) return "Cross review off";
+  return brief.risky_paths?.length ? `Cross review for ${brief.risky_paths.join(", ")}` : "Cross review on";
+}
+
 export interface Brief {
   id: string;
   title: string;
@@ -23,6 +28,8 @@ export interface Brief {
   status: string;
   budget: { max_cost_eur: number; max_parallel_agents: number };
   allowed_providers: string[] | null;
+  cross_review?: boolean;
+  risky_paths?: string[] | null;
   cost_used: number;
   plan_status: string;
   playbook?: string;

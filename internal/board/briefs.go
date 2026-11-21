@@ -7,6 +7,7 @@ import (
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/backup"
+	"github.com/SigmaUno/subspace/internal/conflict"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -165,9 +166,21 @@ type BriefInput struct {
 	MaxParallel      int                 `json:"max_parallel_agents"`
 	AllowedProviders []string            `json:"allowed_providers"`
 	CrossReview      *bool               `json:"cross_review"`
+	RiskyPaths       []string            `json:"risky_paths,omitempty"`
 	LeaderID         string              `json:"leader_id,omitempty"`
 	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
 	Playbook         string              `json:"playbook,omitempty"`
+}
+
+func checkRiskyPaths(in []string, crossReview bool) ([]string, error) {
+	paths, err := conflict.NormalizeAll(in)
+	if err != nil {
+		return nil, model.BadRequest("risky_paths: %v", err)
+	}
+	if len(paths) > 0 && !crossReview {
+		return nil, model.BadRequest("risky_paths needs cross_review")
+	}
+	return paths, nil
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -203,10 +216,17 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 			return err
 		}
 		crossReview := in.CrossReview == nil || *in.CrossReview
+		risky, err := checkRiskyPaths(in.RiskyPaths, crossReview)
+		if err != nil {
+			return err
+		}
 		maxCost := in.MaxCostEUR
 		if rules != nil {
 			if rules.CrossReview && !crossReview {
 				return model.BadRequest("playbook %s requires cross_review", in.Playbook)
+			}
+			if rules.CrossReview && len(risky) > 0 {
+				return model.BadRequest("playbook %s requires cross review of every task", in.Playbook)
 			}
 			maxCost = rules.ScaleCost(maxCost)
 		}
@@ -216,7 +236,7 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 		}
 		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
 			Budget:           model.BriefBudget{MaxCostEUR: maxCost, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: crossReview, RiskyPaths: risky, QualityGates: gates, Playbook: in.Playbook, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
@@ -244,6 +264,7 @@ type BriefPatch struct {
 	MaxParallel      *int                `json:"max_parallel_agents"`
 	AllowedProviders *[]string           `json:"allowed_providers"`
 	CrossReview      *bool               `json:"cross_review"`
+	RiskyPaths       *[]string           `json:"risky_paths,omitempty"`
 	AutoDoneOnMerge  *bool               `json:"auto_done_on_merge"`
 	Status           *string             `json:"status"`
 	LeaderID         *string             `json:"leader_id,omitempty"`
@@ -314,6 +335,25 @@ func (b *Board) patchBrief(tx store.Tx, br *model.Brief, p BriefPatch) (func(sto
 			}
 		}
 		br.CrossReview = *p.CrossReview
+		if !br.CrossReview {
+			br.RiskyPaths = []string{}
+		}
+	}
+	if p.RiskyPaths != nil {
+		risky, err := checkRiskyPaths(*p.RiskyPaths, br.CrossReview)
+		if err != nil {
+			return nil, err
+		}
+		if len(risky) > 0 {
+			rules, err := b.rulesFor(tx, br.Playbook)
+			if err != nil {
+				return nil, err
+			}
+			if rules != nil && rules.CrossReview {
+				return nil, model.Conflict("playbook %s requires cross review of every task", br.Playbook)
+			}
+		}
+		br.RiskyPaths = risky
 	}
 	if p.AutoDoneOnMerge != nil {
 		br.AutoDoneOnMerge = *p.AutoDoneOnMerge

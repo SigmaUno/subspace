@@ -1724,6 +1724,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "status": {
             "type": "string"
           },
@@ -1745,6 +1754,7 @@
           "playbook",
           "quality_gates",
           "repos",
+          "risky_paths",
           "status",
           "title"
         ],
@@ -1851,6 +1861,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "title": {
             "type": "string"
           }
@@ -1931,6 +1950,15 @@
               }
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "status": {
             "type": [
               "string",
@@ -2008,6 +2036,15 @@
               "null"
             ]
           },
+          "risky_paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "task_budget": {
             "oneOf": [
               {
@@ -2033,6 +2070,7 @@
           "playbook",
           "quality_gates",
           "repos",
+          "risky_paths",
           "task_budget",
           "title"
         ],

@@ -197,17 +197,22 @@ func TestReplayTimelineLinksTranscripts(t *testing.T) {
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		_, tl := e.REST("GET", "/api/v1/briefs/"+brief+"/replay/timeline", nil)
-		linked := 0
+		linked, unlinked := 0, 0
+		want := "/api/v1/tasks/" + f.task + "/transcript"
 		for _, k := range tl["key_events"].([]any) {
 			ev := k.(map[string]any)
-			if ev["task_id"] == f.task {
-				if ev["transcript"] != "/api/v1/tasks/"+f.task+"/transcript" {
-					t.Fatalf("link: %v", ev)
-				}
+			if ev["task_id"] != f.task {
+				continue
+			}
+			if ev["transcript"] == want {
 				linked++
+			} else if time.Now().After(deadline) {
+				t.Fatalf("link: %v", ev)
+			} else {
+				unlinked++
 			}
 		}
-		if linked > 0 {
+		if linked > 0 && unlinked == 0 {
 			return
 		}
 		if time.Now().After(deadline) {

@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { Message } from "../../../lib/types";
 
 const scopes = [
@@ -45,9 +45,16 @@ export function useLive(topics: string) {
   const [recent, setRecent] = useState<Record<string, Message>>({});
   const [status, setStatus] = useState<LiveStatus>("reconnecting");
   const [attempt, setAttempt] = useState(0);
+  const resume = useRef({ topics, id: "" });
 
   useEffect(() => {
-    const stream = new EventSource(`/api/v1/events?${new URLSearchParams({ topics })}`);
+    if (resume.current.topics !== topics) resume.current = { topics, id: "" };
+    const cursor = resume.current;
+    const resumed = cursor.id !== "";
+    const params = new URLSearchParams({ topics });
+    if (resumed) params.set("last_event_id", cursor.id);
+    const stream = new EventSource(`/api/v1/events?${params}`);
+    let opened = resumed;
     const pending = new Set<Scope>();
     const messages = new Map<string, Message>();
     const taskStatuses = new Map<string, string>();
@@ -72,8 +79,21 @@ export function useLive(topics: string) {
       }, 650);
     }
 
-    stream.addEventListener("hello", () => { setStatus("connected"); invalidate(scopes); });
-    stream.addEventListener("lagged", () => invalidate(scopes));
+    function on(event: string, handler: (event: MessageEvent<string>) => void) {
+      stream.addEventListener(event, (e) => {
+        const message = e as MessageEvent<string>;
+        if (message.lastEventId) cursor.id = message.lastEventId;
+        handler(message);
+      });
+    }
+
+    on("hello", () => {
+      setStatus("connected");
+      if (!opened) invalidate(scopes);
+      opened = true;
+    });
+    on("resync", () => invalidate(scopes));
+    on("lagged", () => invalidate(scopes));
     stream.onerror = () => {
       if (stream.readyState === EventSource.CLOSED) {
         stream.close();
@@ -87,14 +107,14 @@ export function useLive(topics: string) {
     const offline = () => setStatus("offline");
     window.addEventListener("online", online);
     window.addEventListener("offline", offline);
-    stream.addEventListener("message.created", (event: MessageEvent<string>) => {
+    on("message.created", (event) => {
       try {
         const { data } = JSON.parse(event.data) as { data?: Message };
         if (data?.thread_kind && data.thread_id) messages.set(`${data.thread_kind}:${data.thread_id}`, data);
       } catch {}
       invalidate(["thread", "chat"]);
     });
-    stream.addEventListener("task.updated", (event: MessageEvent<string>) => {
+    on("task.updated", (event) => {
       invalidate(["board"]);
       try {
         const { data } = JSON.parse(event.data) as { data?: { id: string; status: string } };
@@ -105,7 +125,7 @@ export function useLive(topics: string) {
       } catch {}
     });
     Object.entries(eventScopes).forEach(([event, changed]) => {
-      stream.addEventListener(event, () => invalidate(changed));
+      on(event, () => invalidate(changed));
     });
     return () => {
       if (timer) clearTimeout(timer);

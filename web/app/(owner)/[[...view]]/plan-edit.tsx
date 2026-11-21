@@ -4,6 +4,7 @@ import { useState } from "react";
 import { api, money, useSubmit, value } from "../../../lib/client";
 import type { Plan, Task } from "../../../lib/types";
 import { Feedback } from "./components";
+import { PlanEstimatesPanel } from "./plan-estimates";
 
 const liveTasks = (plan: Plan) => plan.tasks?.filter((task) => task.status !== "cancelled") ?? [];
 
@@ -144,6 +145,7 @@ export function PlanEditor({ plan, changed }: { plan: Plan; changed: () => void 
       {tasks.map((task) => <li key={task.id}><PlanTask task={task} plan={plan} changed={changed} /></li>)}
     </ol>
     <AddTask plan={plan} changed={changed} />
+    <PlanEstimatesPanel plan={plan} tasks={tasks} />
     <DependencyPreview tasks={tasks} />
   </>;
 }

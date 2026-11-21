@@ -4,7 +4,9 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/activity"
 	"github.com/SigmaUno/subspace/internal/agentstats"
+	"github.com/SigmaUno/subspace/internal/alerts"
 	"github.com/SigmaUno/subspace/internal/artifacts"
 	"github.com/SigmaUno/subspace/internal/autopilot"
 	"github.com/SigmaUno/subspace/internal/backup"
@@ -15,20 +17,27 @@ import (
 	"github.com/SigmaUno/subspace/internal/chat"
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
+	"github.com/SigmaUno/subspace/internal/digest"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/instructions"
+	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
+	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/notify"
 	"github.com/SigmaUno/subspace/internal/profiles"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/prsync"
+	"github.com/SigmaUno/subspace/internal/quota"
+	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/search"
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
+	"github.com/SigmaUno/subspace/internal/tokens"
 )
 
 const (
@@ -57,6 +66,7 @@ var operations = []Op{
 	post("/hooks/forgejo", "Forgejo webhook receiver (HMAC signed); replayed deliveries answer 202", Free{}, Free{}).Signed("webhookSignature"),
 
 	get("/api/v1/openapi.json", "This OpenAPI 3.1 document", Free{}),
+	get("/api/v1/me", "Role and scope of the presented owner token", Me{}),
 	get("/api/v1/state", "Counts, pause flag and version", board.StateInfo{}),
 	post("/api/v1/pause-all", "Pause everything: revoke leases, block claims and spawns", Reason{}, Paused{}),
 	post("/api/v1/resume-all", "Clear the global pause", Free{}, Paused{}),
@@ -68,6 +78,11 @@ var operations = []Op{
 	put("/api/v1/limits", "Replace the daily and weekly spend caps", spendguard.Limits{}, spendguard.View{}),
 	get("/api/v1/metrics", "Prometheus metrics", "").As(mediaText),
 	get("/api/v1/events", "Server-sent events stream", "").Q("topics last_event_id").As(mediaSSE),
+	get("/api/v1/logs", "Recent redacted server log lines, ascending by id", list[logpipe.Line]("lines")).Q("level since limit:integer"),
+	get("/api/v1/log-level", "Current server log level", LogLevel{}),
+	put("/api/v1/log-level", "Change the server log level; needs owner scope", LogLevel{}, LogLevel{}),
+	get("/api/v1/activity", "Activity feed, newest first", activity.Page{}).Q("since brief_id severity cursor limit:integer"),
+	get("/api/v1/alerts", "Health alerts, active first", list[alerts.Alert]("alerts")).Q("status limit:integer"),
 
 	post("/api/v1/briefs", "Create a brief", board.BriefInput{}, model.Brief{}).S(created),
 	get("/api/v1/briefs", "List briefs", list[model.Brief]("briefs")).Q("status"),
@@ -80,6 +95,9 @@ var operations = []Op{
 	get("/api/v1/briefs/{id}/forecast", "Cost and schedule forecast of a brief", forecast.Forecast{}),
 	get("/api/v1/briefs/{id}/report", "Report of a brief", report.Report{}),
 	get("/api/v1/briefs/{id}/report.md", "Report of a brief as markdown", "").As(mediaMarkdown),
+	get("/api/v1/briefs/{id}/replay", "Board of a brief as of an audit id or time", replay.Snapshot{}).Q("at"),
+	get("/api/v1/briefs/{id}/replay/timeline", "Status counts and key events over the life of a brief", replay.Timeline{}),
+	get("/api/v1/briefs/{id}/replay/diff", "Task changes of a brief between two audit ids or times", replay.Diff{}).Q("from to"),
 	post("/api/v1/briefs/import", "Import a brief document; the body is markdown or {\"markdown\": ...}", nil, ImportResult{}).
 		Body(mediaMarkdown, "").Body(mediaJSON, obj("markdown", "")).Q("dry_run:boolean").S(created),
 	get("/api/v1/brief-templates", "List brief templates", list[briefs.Template]("templates")),
@@ -102,8 +120,8 @@ var operations = []Op{
 	get("/api/v1/tasks/{id}/pr", "Latest pull request snapshot of a task", prsync.Status{}),
 	get("/api/v1/prs", "Pull request snapshots", list[prsync.Status]("prs")).Q("brief_id state limit:integer"),
 
-	get("/api/v1/agents", "List agents", list[model.Agent]("agents")).Q("role status"),
-	get("/api/v1/agents/{id}", "Get an agent", model.Agent{}),
+	get("/api/v1/agents", "List agents with their daily quota", list[Agent]("agents")).Q("role status"),
+	get("/api/v1/agents/{id}", "Get an agent with its daily quota", Agent{}),
 	post("/api/v1/agents", "Register an agent, optionally from a profile; the token is shown once", AgentRegister{}, board.Registered{}).S(created),
 	post("/api/v1/agents/bulk", "Register many agents, optionally from a profile; tokens are shown once", AgentRegisterBulk{}, list[board.Registered]("agents")).S(created),
 	post("/api/v1/agents/bulk-action", "Apply one action to many agents", BulkRequest{}, BulkResponse{}),
@@ -112,6 +130,8 @@ var operations = []Op{
 	post("/api/v1/agents/{id}/revoke", "Revoke an agent", Reason{}, model.Agent{}),
 	post("/api/v1/agents/{id}/resume", "Clear an agent's pause", Free{}, model.Agent{}),
 	get("/api/v1/agents/{id}/stats", "Performance statistics of an agent", agentstats.Stats{}),
+	put("/api/v1/agents/{id}/quota", "Replace the daily quota of an agent", quota.Quota{}, quota.Status{}),
+	post("/api/v1/agents/quota-bulk", "Apply one daily quota to many agents", QuotaBulk{}, QuotaBulkResponse{}),
 	get("/api/v1/agent-stats", "Performance statistics of every agent", list[agentstats.Stats]("agents")).Q("role"),
 
 	get("/api/v1/agent-profiles", "List agent profiles", list[profiles.Profile]("profiles")),
@@ -184,6 +204,21 @@ var operations = []Op{
 	get("/api/v1/search/", "Full-text search over tasks, messages, agents and briefs", list[search.Result]("results")).Q("q! kind limit:integer"),
 	get("/api/v1/timeseries", "Metric time series", timeseries.Series{}).Q("metric! bucket since brief_id"),
 	get("/api/v1/notify/status", "Notification sink status", NotifyStatus{}),
+	post("/api/v1/notify/test", "Send one test notification through every sink", Free{}, list[notify.SinkResult]("results")),
+	get("/api/v1/digest/preview", "Preview the digest of a recent window", digest.Preview{}).Q("window"),
+
+	get("/api/v1/tokens", "List managed API tokens, revoked ones included", list[tokens.Token]("tokens")),
+	post("/api/v1/tokens", "Create a managed API token; the secret is shown once", tokens.CreateInput{}, tokens.Created{}).S(created),
+	post("/api/v1/tokens/{id}/revoke", "Revoke a managed API token", Free{}, tokens.Token{}),
+
+	get("/api/v1/knowledge", "Search knowledge entries, pinned first", list[knowledge.Entry]("entries")).Q("brief_id kind status q limit:integer"),
+	post("/api/v1/knowledge", "Add a knowledge entry", knowledge.Input{}, knowledge.Entry{}).S(created),
+	get("/api/v1/knowledge/{id}", "Get a knowledge entry", knowledge.Entry{}),
+	patch("/api/v1/knowledge/{id}", "Edit a knowledge entry", knowledge.Patch{}, knowledge.Entry{}),
+	del("/api/v1/knowledge/{id}", "Delete a knowledge entry", nil).S(gone),
+	post("/api/v1/knowledge/{id}/pin", "Pin or unpin a knowledge entry", KnowledgePin{}, knowledge.Entry{}),
+	post("/api/v1/knowledge/{id}/approve", "Approve a pending knowledge entry", Free{}, knowledge.Entry{}),
+	post("/api/v1/knowledge/{id}/supersede", "Mark a knowledge entry superseded", KnowledgeSupersede{}, knowledge.Entry{}),
 
 	get("/api/v1/autopilot", "Autopilot status and per-brief flags", AutopilotView{}),
 	post("/api/v1/autopilot/briefs/{id}", "Enable or disable autopilot for a brief", AutopilotSet{}, AutopilotBrief{}),

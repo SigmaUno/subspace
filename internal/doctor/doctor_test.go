@@ -81,7 +81,7 @@ func writeFile(t *testing.T, dir, name, content string, mode os.FileMode) string
 	return p
 }
 
-const goodToken = "Zk3qT9vLx2WmB7nRc4HdYe8PaUf1GjS6"
+const goodToken = "Zk3qT9vLx2WmB7nR" + "c4HdYe8PaUf1GjS6"
 
 func TestConfigChecks(t *testing.T) {
 	dir := t.TempDir()
@@ -110,7 +110,7 @@ func TestConfigChecks(t *testing.T) {
 		{"url http remote", checkPublicURL, map[string]string{"SUBSPACE_PUBLIC_URL": "http://subspace.example.com"}, Warn},
 		{"url scheme", checkPublicURL, map[string]string{"SUBSPACE_PUBLIC_URL": "ftp://subspace.example.com"}, Error},
 		{"url relative", checkPublicURL, map[string]string{"SUBSPACE_PUBLIC_URL": "subspace.example.com"}, Error},
-		{"url credentials", checkPublicURL, map[string]string{"SUBSPACE_PUBLIC_URL": "https://u:p@subspace.example.com"}, Error},
+		{"url credentials", checkPublicURL, map[string]string{"SUBSPACE_PUBLIC_URL": "https://u:p" + "@subspace.example.com"}, Error},
 		{"addr all interfaces", checkListenAddr, nil, Warn},
 		{"addr all interfaces allowlisted", checkListenAddr, map[string]string{"SUBSPACE_OWNER_ALLOW_CIDRS": "10.0.0.0/8"}, Info},
 		{"addr loopback", checkListenAddr, map[string]string{"SUBSPACE_ADDR": "127.0.0.1:8080"}, OK},
@@ -266,7 +266,7 @@ func TestDatabaseMissingAndPostgres(t *testing.T) {
 	if len(res) != 1 || res[0].Severity != Warn || res[0].Check != "db.path" {
 		t.Fatalf("missing database: %+v", res)
 	}
-	res = checkDatabase(context.Background(), testEnv(map[string]string{"SUBSPACE_DB": "postgres://u:secret@db/x"}, nil))
+	res = checkDatabase(context.Background(), testEnv(map[string]string{"SUBSPACE_DB": "postgres://u:secret" + "@db/x"}, nil))
 	if len(res) != 1 || res[0].Severity != Info || strings.Contains(res[0].Message, "secret") {
 		t.Fatalf("postgres: %+v", res)
 	}

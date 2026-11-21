@@ -3,7 +3,9 @@ package openapi
 import (
 	"reflect"
 
+	"github.com/SigmaUno/subspace/internal/activity"
 	"github.com/SigmaUno/subspace/internal/agentstats"
+	"github.com/SigmaUno/subspace/internal/alerts"
 	"github.com/SigmaUno/subspace/internal/artifacts"
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/breaker"
@@ -11,17 +13,24 @@ import (
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
+	"github.com/SigmaUno/subspace/internal/digest"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/instructions"
+	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
+	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/notify"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/prsync"
+	"github.com/SigmaUno/subspace/internal/quota"
+	"github.com/SigmaUno/subspace/internal/replay"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
+	"github.com/SigmaUno/subspace/internal/tokens"
 )
 
 var componentNames = map[reflect.Type]string{
@@ -60,6 +69,7 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[instructions.Meta]():      "InstructionMeta",
 	reflect.TypeFor[instructions.Version]():   "InstructionVersion",
 	reflect.TypeFor[lifecycle.Spawn]():        "SpawnLifecycle",
+	reflect.TypeFor[model.Agent]():            "AgentRecord",
 	reflect.TypeFor[model.Budget]():           "TaskBudget",
 	reflect.TypeFor[prompts.Template]():       "Prompt",
 	reflect.TypeFor[prsync.Review]():          "PRReview",
@@ -78,4 +88,34 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[timeseries.Point]():       "TimeseriesPoint",
 	reflect.TypeFor[timeseries.Series]():      "TimeseriesSeries",
 	reflect.TypeFor[artifacts.Artifact]():     "Artifact",
+	reflect.TypeFor[Agent]():                  "Agent",
+	reflect.TypeFor[activity.Item]():          "ActivityItem",
+	reflect.TypeFor[activity.Page]():          "ActivityPage",
+	reflect.TypeFor[activity.Ref]():           "ActivityRef",
+	reflect.TypeFor[alerts.Alert]():           "Alert",
+	reflect.TypeFor[digest.Decisions]():       "DigestDecisions",
+	reflect.TypeFor[digest.Digest]():          "Digest",
+	reflect.TypeFor[digest.Preview]():         "DigestPreview",
+	reflect.TypeFor[digest.Risk]():            "DigestRisk",
+	reflect.TypeFor[digest.Tasks]():           "DigestTasks",
+	reflect.TypeFor[knowledge.Entry]():        "KnowledgeEntry",
+	reflect.TypeFor[knowledge.Input]():        "KnowledgeInput",
+	reflect.TypeFor[knowledge.Patch]():        "KnowledgePatch",
+	reflect.TypeFor[logpipe.Line]():           "LogLine",
+	reflect.TypeFor[notify.SinkResult]():      "NotifySinkResult",
+	reflect.TypeFor[quota.Quota]():            "AgentQuota",
+	reflect.TypeFor[quota.Status]():           "AgentQuotaStatus",
+	reflect.TypeFor[quota.Today]():            "AgentQuotaUsage",
+	reflect.TypeFor[replay.Agent]():           "ReplayAgent",
+	reflect.TypeFor[replay.Change]():          "ReplayChange",
+	reflect.TypeFor[replay.Diff]():            "ReplayDiff",
+	reflect.TypeFor[replay.KeyEvent]():        "ReplayKeyEvent",
+	reflect.TypeFor[replay.Point]():           "ReplayPoint",
+	reflect.TypeFor[replay.Snapshot]():        "ReplaySnapshot",
+	reflect.TypeFor[replay.Task]():            "ReplayTask",
+	reflect.TypeFor[replay.Timeline]():        "ReplayTimeline",
+	reflect.TypeFor[replay.Transition]():      "ReplayTransition",
+	reflect.TypeFor[tokens.CreateInput]():     "APITokenInput",
+	reflect.TypeFor[tokens.Created]():         "APITokenCreated",
+	reflect.TypeFor[tokens.Token]():           "APIToken",
 }

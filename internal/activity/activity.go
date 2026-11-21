@@ -39,6 +39,8 @@ type Item struct {
 	BriefID  string    `json:"brief_id,omitempty"`
 }
 
+var tokenNote = regexp.MustCompile(`^token=[A-Za-z0-9_-]+(?:; |$)`)
+
 var placeholder = regexp.MustCompile(`\{([\w.]+)(?:\?([^}|]*)(?:\|([^}]*))?)?\}`)
 
 func FromAudit(e *model.AuditEvent) Item {

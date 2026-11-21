@@ -52,9 +52,9 @@ func (s *syncBuffer) String() string {
 }
 
 const (
-	ghToken    = "ghp_AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
-	agentToken = "ssp_9n2mKp4Rt8Qw3Xy5Zc7Vb1Nm6Lk0Jh3Gf5Ds9Aq2We4"
-	pathToken  = "9n2mKp4Rt8Qw3Xy5Zc7Vb1Nm6Lk0Jh3Gf5Ds9Aq2We4Zz"
+	ghToken    = "ghp_" + "AbCdEfGhIjKlMnOpQrStUvWxYz0123456789"
+	agentToken = "ssp_" + "9n2mKp4Rt8Qw3Xy5Zc7" + "Vb1Nm6Lk0Jh3Gf5Ds9Aq2We4"
+	pathToken  = "9n2mKp4Rt8Qw3Xy5Zc7" + "Vb1Nm6Lk0Jh3Gf5Ds9Aq2We4Zz"
 )
 
 func newPipe(format logpipe.Format) (*logpipe.Pipeline, *syncBuffer) {

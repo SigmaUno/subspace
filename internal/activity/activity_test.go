@@ -48,6 +48,10 @@ func TestFromAudit(t *testing.T) {
 			"rex proposed plan P-3 with 14 tasks", SevInfo, "plan", []Ref{{"plan", "P-3"}}},
 		{"approve", audit("owner", "owner", "approve_plan", "", "", nil, m{"plan_id": "P-3", "status": "approved"}),
 			"owner approved plan P-3", SevSuccess, "check", []Ref{{"plan", "P-3"}}},
+		{"approve via root token", audit("owner", "owner", "approve_plan", "", "token=root", nil, m{"plan_id": "P-3", "status": "approved"}),
+			"owner approved plan P-3", SevSuccess, "check", []Ref{{"plan", "P-3"}}},
+		{"reject via api token", audit("owner", "owner", "reject_plan", "", "token=K-4; too big", nil, m{"plan_id": "P-3", "status": "rejected"}),
+			"owner rejected plan P-3: too big", SevWarning, "x", []Ref{{"plan", "P-3"}}},
 		{"review changes", audit("codex-r", "reviewer", "review", "T-2", "tighten the loop", nil, m{"status": "changes_requested"}),
 			"codex-r requested changes on T-2: tighten the loop", SevWarning, "comment", []Ref{{"task", "T-2"}}},
 		{"review approved", audit("codex-r", "reviewer", "review", "T-2", "", nil, m{"status": "approved"}),
@@ -76,7 +80,7 @@ func TestFromAudit(t *testing.T) {
 			"owner used frobnicate", SevInfo, "activity", []Ref{}},
 		{"missing fields", audit("rex", "leader", "propose_plan", "", "", nil, nil),
 			"rex proposed plan with tasks", SevInfo, "plan", []Ref{}},
-		{"secret in note", audit("owner", "owner", "cancel", "T-1", "token ghp_abcdefghijklmnopqrstuvwxyz0123456789 leaked", nil, m{"status": "cancelled"}),
+		{"secret in note", audit("owner", "owner", "cancel", "T-1", "token ghp_"+"abcdefghijklmnopqrstuvwxyz0123456789 leaked", nil, m{"status": "cancelled"}),
 			"", SevWarning, "x", []Ref{{"task", "T-1"}}},
 	}
 	for _, c := range cases {

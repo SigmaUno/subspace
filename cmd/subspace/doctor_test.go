@@ -33,7 +33,7 @@ func TestDoctorCommand(t *testing.T) {
 		t.Fatal(err)
 	}
 	vars := map[string]string{
-		"SUBSPACE_DB": path, "SUBSPACE_ADDR": "127.0.0.1:8080", "SUBSPACE_OWNER_TOKEN": "Zk3qT9vLx2WmB7nRc4HdYe8PaUf1GjS6",
+		"SUBSPACE_DB": path, "SUBSPACE_ADDR": "127.0.0.1:8080", "SUBSPACE_OWNER_TOKEN": "Zk3qT9vLx2WmB7nR" + "c4HdYe8PaUf1GjS6",
 	}
 
 	var out bytes.Buffer

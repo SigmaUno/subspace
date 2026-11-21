@@ -7,6 +7,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/notify"
+	"github.com/SigmaUno/subspace/internal/quota"
 )
 
 type ErrorDetail struct {
@@ -245,4 +246,44 @@ type MergeEnqueue struct {
 	TaskID string `json:"task_id"`
 	PR     int    `json:"pr,omitempty"`
 	Base   string `json:"base,omitempty"`
+}
+
+type Agent struct {
+	*model.Agent
+	Quota      *quota.Quota `json:"quota,omitempty"`
+	QuotaUsage *quota.Today `json:"quota_usage,omitempty"`
+}
+
+type Me struct {
+	Role  string `json:"role"`
+	Scope string `json:"scope"`
+}
+
+type QuotaBulk struct {
+	IDs   []string    `json:"ids"`
+	Quota quota.Quota `json:"quota"`
+}
+
+type QuotaBulkResult struct {
+	ID    string     `json:"id"`
+	OK    bool       `json:"ok"`
+	Error *BulkError `json:"error,omitempty"`
+}
+
+type QuotaBulkResponse struct {
+	Results   []QuotaBulkResult `json:"results"`
+	Succeeded int               `json:"succeeded"`
+	Failed    int               `json:"failed"`
+}
+
+type KnowledgePin struct {
+	Pinned *bool `json:"pinned,omitempty"`
+}
+
+type KnowledgeSupersede struct {
+	By string `json:"by,omitempty"`
+}
+
+type LogLevel struct {
+	Level string `json:"level"`
 }

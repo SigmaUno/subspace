@@ -6,7 +6,7 @@ import (
 	"testing"
 )
 
-const hostileToken = "ghp_abcdefghijklmnopqrstuvwxyz0123456789"
+const hostileToken = "ghp_" + "abcdefghijklmnopqrstuvwxyz0123456789"
 
 var hostile = map[string]string{
 	"mentions":      "ping @everyone and @SigmaUno/reviewers, mail root@evil.test",

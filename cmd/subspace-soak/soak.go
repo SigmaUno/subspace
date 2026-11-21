@@ -289,7 +289,7 @@ func (h *harness) launch(ctx context.Context, wg *sync.WaitGroup) error {
 }
 
 func (h *harness) seedPhase(ctx context.Context, dir string) error {
-	env, err := featureEnv(dir, h.fakes)
+	env, err := featureEnv(dir, h.fakes, h.proc.postgres())
 	if err != nil {
 		return err
 	}

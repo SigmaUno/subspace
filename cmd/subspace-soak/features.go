@@ -134,7 +134,7 @@ func (f *fakes) serveSink(w http.ResponseWriter, r *http.Request) {
 	w.WriteHeader(http.StatusNoContent)
 }
 
-func featureEnv(dir string, f *fakes) (map[string]string, error) {
+func featureEnv(dir string, f *fakes, pg bool) (map[string]string, error) {
 	bin := filepath.Join(dir, "bin")
 	if err := os.MkdirAll(bin, 0o750); err != nil {
 		return nil, err
@@ -148,7 +148,7 @@ func featureEnv(dir string, f *fakes) (map[string]string, error) {
 		return nil, err
 	}
 	s := f.sink.URL
-	return map[string]string{
+	env := map[string]string{
 		"PATH":                              bin + string(os.PathListSeparator) + os.Getenv("PATH"),
 		"SUBSPACE_AUTOPILOT":                "on",
 		"SUBSPACE_AUTOPILOT_INTERVAL":       "3s",
@@ -169,7 +169,12 @@ func featureEnv(dir string, f *fakes) (map[string]string, error) {
 		"SUBSPACE_SCHEDULE_INTERVAL":        "5s",
 		"SUBSPACE_PRSYNC_INTERVAL":          "10s",
 		"SUBSPACE_MQ_INTERVAL":              "5s",
-	}, nil
+		"SUBSPACE_OUTPUT_MEMORY":            strconv.Itoa(16 << 20),
+	}
+	if pg {
+		delete(env, "SUBSPACE_DRILL_EVERY")
+	}
+	return env, nil
 }
 
 func applyEnv(env map[string]string) error {
@@ -237,7 +242,7 @@ func apiCode(body []byte) string {
 
 func (h *harness) seed(ctx context.Context) error {
 	repo := map[string]any{"name": soakRepo, "host": "github", "base_url": h.fakes.forge.URL, "default_branch": "main",
-		"merge_test_command": []string{"true"}, "enabled": true}
+		"merge_test_command": []string{"true"}, "merge_work_dir": filepath.Join(h.proc.dataDir(), "mergequeue"), "enabled": true}
 	if err := h.post(ctx, "seed_repo", "/api/v1/repos", "", repo, nil); err != nil {
 		return fmt.Errorf("register repo: %w", err)
 	}

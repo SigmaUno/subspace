@@ -2143,6 +2143,21 @@
         ],
         "type": "object"
       },
+      "Budget": {
+        "properties": {
+          "max_calls_per_day": {
+            "type": "integer"
+          },
+          "max_result_bytes_per_day": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_calls_per_day",
+          "max_result_bytes_per_day"
+        ],
+        "type": "object"
+      },
       "BulkError": {
         "properties": {
           "code": {
@@ -3061,6 +3076,49 @@
         ],
         "type": "object"
       },
+      "Discovered": {
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "exposed_as": {
+            "type": "string"
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "input_schema": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "refused": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed",
+          "description",
+          "exposed_as",
+          "flags",
+          "name"
+        ],
+        "type": "object"
+      },
       "DrillResult": {
         "properties": {
           "backup": {
@@ -3642,6 +3700,221 @@
           "gate",
           "overridden",
           "passed"
+        ],
+        "type": "object"
+      },
+      "Gateway": {
+        "properties": {
+          "allow_private_hosts": {
+            "type": "boolean"
+          },
+          "allow_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "allowed_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "audit_arguments": {
+            "type": "boolean"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/Budget"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential_env": {
+            "type": "string"
+          },
+          "deny_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_result_bytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate_limits": {
+            "items": {
+              "$ref": "#/components/schemas/RateLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "type": "integer"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allow_private_hosts",
+          "allow_tools",
+          "allowed_roles",
+          "args",
+          "audit_arguments",
+          "budget",
+          "command",
+          "created_at",
+          "credential_env",
+          "deny_tools",
+          "enabled",
+          "max_result_bytes",
+          "name",
+          "rate_limits",
+          "timeout_ms",
+          "transport",
+          "updated_at",
+          "url"
+        ],
+        "type": "object"
+      },
+      "GatewayInput": {
+        "properties": {
+          "allow_private_hosts": {
+            "type": "boolean"
+          },
+          "allow_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "allowed_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "audit_arguments": {
+            "type": "boolean"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/Budget"
+          },
+          "command": {
+            "type": "string"
+          },
+          "credential_env": {
+            "type": "string"
+          },
+          "deny_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_result_bytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate_limits": {
+            "items": {
+              "$ref": "#/components/schemas/RateLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "type": "integer"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allow_private_hosts",
+          "allow_tools",
+          "allowed_roles",
+          "args",
+          "audit_arguments",
+          "budget",
+          "command",
+          "credential_env",
+          "deny_tools",
+          "enabled",
+          "max_result_bytes",
+          "name",
+          "rate_limits",
+          "timeout_ms",
+          "transport",
+          "url"
         ],
         "type": "object"
       },
@@ -4598,6 +4871,33 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "List": {
+        "properties": {
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "gateways": {
+            "items": {
+              "$ref": "#/components/schemas/Gateway"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "commands",
+          "gateways"
+        ],
         "type": "object"
       },
       "LogLevel": {
@@ -5886,6 +6186,21 @@
         "required": [
           "id",
           "jsonrpc"
+        ],
+        "type": "object"
+      },
+      "RateLimit": {
+        "properties": {
+          "per_minute": {
+            "type": "integer"
+          },
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "per_minute",
+          "tool"
         ],
         "type": "object"
       },
@@ -8451,6 +8766,31 @@
         "required": [
           "kind",
           "leak_id"
+        ],
+        "type": "object"
+      },
+      "Tools": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/Discovered"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "gateway",
+          "tools"
         ],
         "type": "object"
       },
@@ -12347,6 +12687,197 @@
         "summary": "Server-sent events stream",
         "tags": [
           "system"
+        ]
+      }
+    },
+    "/api/v1/gateways": {
+      "get": {
+        "operationId": "getGateways",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List MCP gateways and the stdio commands the server allows",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "post": {
+        "operationId": "postGateways",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatewayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Add an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      }
+    },
+    "/api/v1/gateways/{name}": {
+      "delete": {
+        "operationId": "deleteGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "get": {
+        "operationId": "getGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "put": {
+        "operationId": "putGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatewayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      }
+    },
+    "/api/v1/gateways/{name}/tools": {
+      "get": {
+        "operationId": "getGatewaysByNameTools",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tools"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Fetch the upstream tools of a gateway with the vetting result of each",
+        "tags": [
+          "gateways"
         ]
       }
     },
@@ -17216,6 +17747,9 @@
     },
     {
       "name": "drills"
+    },
+    {
+      "name": "gateways"
     },
     {
       "name": "ha"

@@ -27,9 +27,45 @@ type Tool struct {
 
 type ErrorHook func(actor model.Actor, tool, code, message string, args json.RawMessage)
 
+type ToolSource interface {
+	Tools(ctx context.Context, role string) []*Tool
+	Tool(ctx context.Context, name, role string) (*Tool, bool)
+}
+
 type Registry struct {
-	tools map[string]*Tool
-	hooks []ErrorHook
+	tools   map[string]*Tool
+	hooks   []ErrorHook
+	sources []ToolSource
+}
+
+func (r *Registry) AddSource(s ToolSource) { r.sources = append(r.sources, s) }
+
+func (r *Registry) Visible(ctx context.Context, role string) []*Tool {
+	out := r.List(role)
+	if len(r.sources) == 0 {
+		return out
+	}
+	for _, s := range r.sources {
+		for _, t := range s.Tools(ctx, role) {
+			if _, taken := r.tools[t.Name]; !taken && hasRole(t.Roles, role) {
+				out = append(out, t)
+			}
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].Name < out[j].Name })
+	return out
+}
+
+func (r *Registry) Lookup(ctx context.Context, name, role string) (*Tool, bool) {
+	if t, ok := r.tools[name]; ok {
+		return t, hasRole(t.Roles, role)
+	}
+	for _, s := range r.sources {
+		if t, ok := s.Tool(ctx, name, role); ok && hasRole(t.Roles, role) {
+			return t, true
+		}
+	}
+	return nil, false
 }
 
 func NewRegistry0() *Registry { return &Registry{tools: map[string]*Tool{}} }

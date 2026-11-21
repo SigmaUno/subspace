@@ -318,6 +318,8 @@ func (e *Error) HTTPStatus() int {
 		return http.StatusLocked
 	case "rate_limited":
 		return http.StatusTooManyRequests
+	case "upstream_error":
+		return http.StatusBadGateway
 	}
 	return http.StatusInternalServerError
 }

@@ -16,6 +16,7 @@ var codeHints = map[string]string{
 	"agent_paused":    "You are paused and write tools, including ask_owner, are refused; use read-only tools such as whoami and wait for the owner to resume you.",
 	"rate_limited":    "You are calling too fast; wait a few seconds before retrying and avoid repeating identical calls.",
 	"too_large":       "The input is too large; shorten it or split it across several calls.",
+	"upstream_error":  "An external tool behind a Subspace gateway failed; retry later or continue without it, and use ask_owner if it blocks your task.",
 	"internal":        "The server failed; retry once after a short wait, and if it repeats use ask_owner and name the tool.",
 }
 

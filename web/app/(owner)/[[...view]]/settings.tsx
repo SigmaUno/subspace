@@ -18,6 +18,7 @@ import { AnnouncementsView } from "./announcements";
 import { CharterView } from "./charter";
 import { Feedback } from "./components";
 import { DigestPanel } from "./digest";
+import { GatewaysView } from "./gateways";
 import { InstructionsView } from "./instructions";
 import type { Revisions } from "./live";
 import { PlaybooksPanel } from "./playbooks";
@@ -131,6 +132,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
     { id: "charter", name: "Charter", show: true },
     { id: "capacity", name: "Capacity and limits", show: true },
     { id: "repositories", name: "Repositories", show: true },
+    { id: "gateways", name: "Gateways", show: true },
     { id: "instructions", name: "Instructions", show: true },
     { id: "playbooks", name: "Playbooks", show: true },
     { id: "announcements", name: "Announcements", show: true },
@@ -159,6 +161,7 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
       <OrgBudget revision={revisions.capacity} />
     </>}
     {active === "repositories" && <RepositoriesView />}
+    {active === "gateways" && <GatewaysView />}
     {active === "instructions" && <InstructionsView embedded />}
     {active === "playbooks" && <PlaybooksPanel />}
     {active === "announcements" && <AnnouncementsView embedded />}

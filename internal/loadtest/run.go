@@ -139,7 +139,7 @@ func (r *Report) WriteText(w io.Writer) {
 		s.Connected, s.Subscribers, s.ConnectErrors, s.StreamErrors, s.Events, s.LaggedEvents, s.Dropped, s.LagP50ms, s.LagP95ms, s.LagP99ms, s.LagMaxms)
 	_, _ = fmt.Fprintf(w, "heap (live, process): after ramp %.1f MB, end %.1f MB, max %.1f MB\n", r.Heap.StartMB, r.Heap.EndMB, r.Heap.MaxMB)
 	if r.SSE.Reconnects > 0 {
-		_, _ = fmt.Fprintf(w, "SSE reconnects: %d, events at or below the hello seq %d, duplicates %d\n", r.SSE.Reconnects, r.SSE.Overlap, r.SSE.Duplicates)
+		_, _ = fmt.Fprintf(w, "SSE reconnects: %d, resyncs %d, events at or below the hello seq %d, duplicates %d\n", r.SSE.Reconnects, r.SSE.Resyncs, r.SSE.Overlap, r.SSE.Duplicates)
 	}
 	for _, e := range r.ErrorSamples {
 		_, _ = fmt.Fprintf(w, "error sample: %s\n", e)

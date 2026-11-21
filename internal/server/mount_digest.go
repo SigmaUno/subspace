@@ -12,7 +12,7 @@ import (
 func init() { registerMount(mountDigest) }
 
 func mountDigest(d Deps) {
-	briefs := forecast.StoreSource{Store: d.Store}
+	briefs := forecast.StoreSource{Store: d.Store, Estimator: estimator(d)}
 	src := digest.StoreSource{
 		Store:    d.Store,
 		Feed:     d.Feed,

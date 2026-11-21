@@ -18,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/digest"
+	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
@@ -96,6 +97,7 @@ var operations = []Op{
 	get("/api/v1/briefs/{id}/architecture", "Component graph of a brief", components.Graph{}),
 	put("/api/v1/briefs/{id}/components", "Replace the component plan of a brief", obj("components", []components.Spec{}), list[components.Component]("components")),
 	get("/api/v1/briefs/{id}/forecast", "Cost and schedule forecast of a brief", forecast.Forecast{}),
+	get("/api/v1/briefs/{id}/estimates", "Expected cost and duration of the open tasks of a brief, learned from completed tasks", estimate.Report{}),
 	get("/api/v1/briefs/{id}/report", "Report of a brief", report.Report{}),
 	get("/api/v1/briefs/{id}/report.md", "Report of a brief as markdown", "").As(mediaMarkdown),
 	get("/api/v1/briefs/{id}/replay", "Board of a brief as of an audit id or time", replay.Snapshot{}).Q("at"),
@@ -108,6 +110,7 @@ var operations = []Op{
 
 	get("/api/v1/plans", "List plans", list[model.Plan]("plans")).Q("status brief_id"),
 	get("/api/v1/plans/{id}", "Get a plan", model.Plan{}),
+	get("/api/v1/plans/{id}/estimates", "Expected cost and duration per task and in total for a plan", estimate.Report{}),
 	post("/api/v1/plans/{id}/approve", "Approve a proposed plan", Note{}, model.Plan{}),
 	post("/api/v1/plans/{id}/reject", "Reject a proposed plan", Reason{}, model.Plan{}),
 	post("/api/v1/plans/{id}/tasks", "Add a backlog task to a proposed plan", board.TaskInput{}, model.Plan{}).S(created),

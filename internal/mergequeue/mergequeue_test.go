@@ -370,3 +370,14 @@ func TestExecRunnerKeepsBoundedTail(t *testing.T) {
 		t.Fatalf("len %d, tail %q", len(out), out[max(len(out)-10, 0):])
 	}
 }
+
+func TestExecRunnerReturnsWhenBackgroundChildKeepsOutputOpen(t *testing.T) {
+	start := time.Now()
+	out, err := ExecRunner{}.Run(context.Background(), t.TempDir(), "sh", "-c", "echo ok; sleep 10 &")
+	if err != nil || strings.TrimSpace(out) != "ok" {
+		t.Fatalf("%q %v", out, err)
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("run blocked %v on a detached child", d)
+	}
+}

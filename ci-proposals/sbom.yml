@@ -1,0 +1,44 @@
+name: SBOM
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    paths:
+      - 'go.mod'
+      - 'go.sum'
+      - 'web/pnpm-lock.yaml'
+      - 'cmd/gen-sbom/**'
+      - 'scripts/sbom.sh'
+      - 'deploy/supplychain_test.go'
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  sbom:
+    name: Supply chain checks and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+        with:
+          persist-credentials: false
+      - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
+        with:
+          go-version-file: go.mod
+      - name: Download modules
+        run: go mod download
+      - name: Supply chain tests
+        run: go test ./deploy/... ./cmd/gen-sbom/... -run 'GoMod|GoSum|Licenses|Baseline|SBOM'
+      - name: Generate SBOM
+        run: scripts/sbom.sh sbom.cdx.json
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sbom
+          path: sbom.cdx.json
+          if-no-files-found: error

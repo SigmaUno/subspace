@@ -23,6 +23,8 @@ const (
 	lockSpace    = 0x53554253
 	lockMigrate  = 1
 
+	migrateTimeout = 5 * time.Minute
+
 	maxRetries             = 6
 	retryBase              = 10 * time.Millisecond
 	pgSerializationFailure = "40001"
@@ -52,11 +54,15 @@ type Store struct {
 	quit chan struct{}
 	wg   sync.WaitGroup
 	once sync.Once
+
+	readOnly bool
 }
 
 var _ store.Store = (*Store)(nil)
 
-func Open(dsn string) (*Store, error) {
+func Open(dsn string) (*Store, error) { return OpenWith(dsn, store.OpenOptions{}) }
+
+func OpenWith(dsn string, o store.OpenOptions) (*Store, error) {
 	wdb, err := sql.Open("pgx", dsn)
 	if err != nil {
 		return nil, err
@@ -73,54 +79,105 @@ func Open(dsn string) (*Store, error) {
 	rdb.SetMaxIdleConns(readConns)
 	rdb.SetConnMaxLifetime(connLifetime)
 	rdb.SetConnMaxIdleTime(connIdleTime)
-	if err := migrate(wdb); err != nil {
+	readOnly, err := migrate(wdb, o)
+	if err != nil {
 		_ = wdb.Close()
 		_ = rdb.Close()
 		return nil, fmt.Errorf("migrate: %w", err)
 	}
-	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
+	s := &Store{wdb: wdb, rdb: rdb, reqs: make(chan *wreq, 1024), quit: make(chan struct{}), readOnly: readOnly}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
 }
 
-func migrate(db *sql.DB) error {
-	ctx, cancel := context.WithTimeout(context.Background(), time.Minute)
+const schemaVersionTable = `CREATE TABLE IF NOT EXISTS schema_version (
+  id INTEGER PRIMARY KEY CHECK (id = 1), version BIGINT NOT NULL, hash TEXT NOT NULL, updated_at BIGINT NOT NULL
+);`
+
+const auditHashDDL = `ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`
+
+func BinarySchema() store.SchemaVersion {
+	units := []string{schema}
+	for _, tb := range store.CoreTables {
+		for _, add := range columnAdds(tb) {
+			units = append(units, "ALTER TABLE "+tb.Table()+" "+add)
+		}
+	}
+	units = append(units, extraSchemas...)
+	return store.SchemaOf(append(units, auditHashDDL)...)
+}
+
+func migrate(db *sql.DB, o store.OpenOptions) (readOnly bool, err error) {
+	ctx, cancel := context.WithTimeout(context.Background(), migrateTimeout)
 	defer cancel()
 	t, err := db.BeginTx(ctx, nil)
 	if err != nil {
-		return err
+		return false, err
 	}
 	defer func() { _ = t.Rollback() }()
 	if _, err := t.ExecContext(ctx, `SELECT pg_advisory_xact_lock($1, $2)`, lockSpace, lockMigrate); err != nil {
-		return err
+		return false, err
+	}
+	stored, err := readSchemaVersion(ctx, t)
+	if err != nil {
+		return false, err
+	}
+	bin := BinarySchema()
+	act, err := store.CheckSchema(stored, bin, o)
+	if err != nil || act == store.SchemaCurrent {
+		return false, err
+	}
+	if act == store.SchemaReadOnly {
+		return true, nil
 	}
 	if _, err := t.ExecContext(ctx, schema); err != nil {
-		return err
+		return false, err
 	}
 	for _, tb := range store.CoreTables {
-		if _, err := t.ExecContext(ctx, addColumns(tb)); err != nil {
-			return err
+		if _, err := t.ExecContext(ctx, "ALTER TABLE "+tb.Table()+" "+strings.Join(columnAdds(tb), ", ")); err != nil {
+			return false, err
 		}
 	}
 	for _, ddl := range extraSchemas {
 		if _, err := t.ExecContext(ctx, ddl); err != nil {
-			return err
+			return false, err
 		}
 	}
 	if err := migrateAuditChain(ctx, t); err != nil {
-		return err
+		return false, err
 	}
-	return t.Commit()
+	if _, err := t.ExecContext(ctx, schemaVersionTable); err != nil {
+		return false, err
+	}
+	if _, err := t.ExecContext(ctx, `INSERT INTO schema_version (id, version, hash, updated_at) VALUES (1, $1, $2, $3)
+  ON CONFLICT (id) DO UPDATE SET version = excluded.version, hash = excluded.hash, updated_at = excluded.updated_at`,
+		bin.Version, bin.Hash, time.Now().UnixMilli()); err != nil {
+		return false, err
+	}
+	return false, t.Commit()
 }
 
-func addColumns(tb store.Schema) string {
+func readSchemaVersion(ctx context.Context, t *sql.Tx) (*store.SchemaVersion, error) {
+	var exists bool
+	if err := t.QueryRowContext(ctx, `SELECT to_regclass('schema_version') IS NOT NULL`).Scan(&exists); err != nil || !exists {
+		return nil, err
+	}
+	var s store.SchemaVersion
+	err := t.QueryRowContext(ctx, `SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&s.Version, &s.Hash)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	return &s, err
+}
+
+func columnAdds(tb store.Schema) []string {
 	defs := tb.Defs()
 	adds := make([]string, len(defs))
 	for i, c := range defs {
 		adds[i] = "ADD COLUMN IF NOT EXISTS " + c.Name + " " + pgType(c)
 	}
-	return "ALTER TABLE " + tb.Table() + " " + strings.Join(adds, ", ")
+	return adds
 }
 
 func pgType(c store.ColumnDef) string {
@@ -148,7 +205,7 @@ func migrateAuditChain(ctx context.Context, t *sql.Tx) error {
 		return err
 	}
 	for _, q := range []string{
-		`ALTER TABLE audit ADD COLUMN hash TEXT NOT NULL DEFAULT ''`,
+		auditHashDDL,
 		`ALTER TABLE audit DISABLE TRIGGER audit_no_update`,
 	} {
 		if _, err := t.ExecContext(ctx, q); err != nil {
@@ -186,7 +243,12 @@ func (s *Store) DatabaseSize(ctx context.Context) (int64, error) {
 
 func (s *Store) Done() <-chan struct{} { return s.quit }
 
+func (s *Store) ReadOnly() bool { return s.readOnly }
+
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
+	if s.readOnly {
+		return store.ErrReadOnly
+	}
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
 	case s.reqs <- r:

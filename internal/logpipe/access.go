@@ -18,6 +18,7 @@ const (
 	mcpPath    = "/mcp"
 	peekLimit  = 2048
 	healthPath = "/healthz"
+	readyPath  = "/readyz"
 	logsPath   = "/api/v1/logs"
 )
 
@@ -104,7 +105,7 @@ func noisy(method, route string, status int, tool string) bool {
 		return false
 	}
 	switch {
-	case route == healthPath:
+	case route == healthPath, route == readyPath:
 		return true
 	case method == http.MethodGet && route == logsPath:
 		return true

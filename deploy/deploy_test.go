@@ -400,6 +400,9 @@ func TestHAReplicasShareDatabaseSoMCPSessionsNeedNoAffinity(t *testing.T) {
 		if p.Services[name].DependsOn["ha-postgres"].Condition != "service_healthy" {
 			t.Errorf("docker-compose.yml: %s must wait for ha-postgres to be healthy", name)
 		}
+		if hc := p.Services[name].Healthcheck; hc == nil || !strings.Contains(strings.Join(hc.Test, " "), "/readyz") {
+			t.Errorf("docker-compose.yml: %s healthcheck must probe /readyz so draining and migrating replicas leave the pool", name)
+		}
 	}
 	if !strings.Contains(readRepoFile(t, "internal/server/mcp_sessions.go"), "CREATE TABLE IF NOT EXISTS mcp_sessions") {
 		t.Error("internal/server/mcp_sessions.go: MCP sessions are no longer stored in the database; the ha Caddyfile needs session affinity")
@@ -421,7 +424,7 @@ func TestHACaddyfile(t *testing.T) {
 		"reverse_proxy ha-server-a:8080 ha-server-b:8080",
 		"lb_policy round_robin",
 		"lb_try_duration",
-		"health_uri /healthz",
+		"health_uri /readyz",
 		"health_interval",
 		"health_status 200",
 		"fail_duration",

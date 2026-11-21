@@ -126,6 +126,22 @@ export async function seedBrief() {
   return { brief, plan, leader, worker };
 }
 
+export async function approvedBrief() {
+  const seeded = await seedBrief();
+  await owner(`plans/${seeded.plan.id}/approve`, "POST", { note: "" });
+  return seeded;
+}
+
+export const notice = (page: Page, text: string | RegExp) =>
+  page.getByRole("region", { name: "Notifications" }).getByText(text);
+
+export async function openSettings(page: Page, tab: string) {
+  await page.goto("/settings");
+  const tabs = page.getByRole("group", { name: "Settings", exact: true });
+  await tabs.getByRole("button", { name: tab, exact: true }).click();
+  await expect(tabs.getByRole("button", { name: tab, exact: true })).toHaveAttribute("aria-pressed", "true");
+}
+
 export async function signIn(page: Page) {
   await page.context().addCookies([{ name: "subspace_owner", value: ownerToken(), url: webURL(), httpOnly: true, sameSite: "Strict" }]);
 }

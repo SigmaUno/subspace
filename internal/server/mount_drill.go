@@ -14,6 +14,7 @@ import (
 
 const (
 	envDrillEvery       = "SUBSPACE_DRILL_EVERY"
+	envDrillSource      = "SUBSPACE_DRILL_SOURCE"
 	drillUnsupportedMsg = "restore drills need SQLite backups: the postgres backup scheduler writes JSON-lines dumps, not pg_dump files"
 )
 
@@ -50,6 +51,21 @@ func mountDrill(d Deps) {
 	opts := drill.Options{
 		Store: d.Store, Backups: backupLister(d.Board.ListBackups), Every: every,
 		Pub: d.Hub, Now: d.Cfg.Now, Log: d.Log,
+	}
+	if d.Offsite != nil {
+		opts.Remote = d.Offsite.Remote
+	}
+	switch src := d.getenv()(envDrillSource); src {
+	case "", "local":
+	case "remote":
+		if d.Offsite == nil {
+			d.Log.Error("restore drills disabled", "err", envDrillSource+"=remote needs off-site backups (SUBSPACE_OFFSITE_KIND)")
+			return
+		}
+		opts.FromRemote = true
+	default:
+		d.Log.Error("restore drills disabled", "err", envDrillSource+" must be local or remote")
+		return
 	}
 	if isPostgres(d.Cfg.DBPath) {
 		opts.Unsupported = drillUnsupportedMsg

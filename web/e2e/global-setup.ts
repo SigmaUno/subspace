@@ -87,6 +87,11 @@ export default async function globalSetup() {
 
   try {
     await ready(`${api}/healthz`, server);
+    if (process.env.E2E_SEED_DEMO) {
+      const seeder = path.join(temp, "subspace-seed");
+      execFileSync("go", ["build", "-o", seeder, "./cmd/subspace-seed"], { cwd: root, stdio: "inherit" });
+      execFileSync(seeder, ["-url", api, "-seed", "1"], { cwd: temp, stdio: "inherit", env: { ...process.env, SUBSPACE_OWNER_TOKEN: token } });
+    }
     await ready(`${site}/login`, next);
   } catch (error) {
     await stop();

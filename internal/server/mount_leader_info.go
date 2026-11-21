@@ -21,7 +21,7 @@ func init() {
 		}
 		mcp.BindLeaderInfo(d.Board, leaderInfo{
 			d:        d,
-			forecast: forecast.NewService(forecast.StoreSource{Store: d.Store}, forecast.Options{}, now),
+			forecast: forecast.NewService(forecast.StoreSource{Store: d.Store, Estimator: estimator(d)}, forecast.Options{}, now),
 			report:   report.NewService(report.StoreSource{Store: d.Store}, now),
 			search:   search.New(d.Store, d.Log),
 			feed:     d.Feed,

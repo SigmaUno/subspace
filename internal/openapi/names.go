@@ -14,6 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/digest"
+	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
@@ -53,6 +54,13 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[components.Spec]():        "BriefComponentSpec",
 	reflect.TypeFor[decisions.Links]():        "DecisionLinks",
 	reflect.TypeFor[decisions.Outcome]():      "DecisionOutcome",
+	reflect.TypeFor[estimate.Report]():        "EstimateReport",
+	reflect.TypeFor[estimate.TaskEstimate]():  "TaskEstimate",
+	reflect.TypeFor[estimate.Estimate]():      "Estimate",
+	reflect.TypeFor[estimate.Stat]():          "EstimateStat",
+	reflect.TypeFor[estimate.Level]():         "EstimateLevel",
+	reflect.TypeFor[estimate.Range]():         "EstimateRange",
+	reflect.TypeFor[estimate.Totals]():        "EstimateTotals",
 	reflect.TypeFor[forecast.Burn]():          "ForecastBurn",
 	reflect.TypeFor[forecast.Cost]():          "ForecastCost",
 	reflect.TypeFor[forecast.Counts]():        "ForecastCounts",

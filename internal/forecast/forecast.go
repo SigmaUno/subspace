@@ -8,6 +8,7 @@ import (
 	"sort"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/usage"
 )
@@ -25,6 +26,7 @@ const (
 	minBurnHours   = 1.0 / 60
 	overrunHigh    = 0.5
 	overrunMedium  = 0.1
+	z80            = 0.8416212335729143
 )
 
 const (
@@ -46,6 +48,8 @@ type Snapshot struct {
 	Brief model.Brief
 	Tasks []*model.Task
 	Usage []usage.Record
+
+	Estimates map[string]estimate.Estimate
 }
 
 type Range struct {
@@ -138,6 +142,7 @@ func Build(s Snapshot, o Options) Forecast {
 	prior := fit(nodes)
 	for _, n := range nodes {
 		prior.apply(n)
+		applyEstimate(n, s.Estimates[n.task.ID])
 	}
 
 	f := Forecast{BriefID: s.Brief.ID, GeneratedAt: s.Now, Runs: runs, Seed: seed, Risks: []Risk{}}
@@ -352,6 +357,29 @@ func (p priors) apply(n *node) {
 	}
 	n.expCost = max(n.expCost, n.usedCost)
 	n.sigmaMin, n.sigmaEUR = p.sigmaMin, p.sigmaEUR
+}
+
+func applyEstimate(n *node, e estimate.Estimate) {
+	if !n.open || !e.Sufficient || (n.task.ProgressPct > 0 && n.usedMin > 0) {
+		return
+	}
+	if e.Minutes.Median > 0 {
+		sigma := lognormalSigma(e.Minutes)
+		n.expMin = max(e.Minutes.Median*math.Exp(sigma*sigma/2), n.usedMin)
+		n.sigmaMin = sigma
+	}
+	if e.CostEUR.Median > 0 {
+		sigma := lognormalSigma(e.CostEUR)
+		n.expCost = max(e.CostEUR.Median*math.Exp(sigma*sigma/2), n.usedCost)
+		n.sigmaEUR = sigma
+	}
+}
+
+func lognormalSigma(s estimate.Stat) float64 {
+	if s.Median <= 0 || s.P80 <= s.Median {
+		return minSigma
+	}
+	return min(max(math.Log(s.P80/s.Median)/z80, minSigma), maxSigma)
 }
 
 func plannedPath(nodes []*node, order []int) (float64, bool) {

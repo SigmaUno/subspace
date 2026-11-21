@@ -68,8 +68,8 @@ func (c *Config) Defaults() {
 // Validate checks the configuration.
 func (c *Config) Validate() error {
 	switch {
-	case c.Agents < 1 || c.Agents > 1000:
-		return errors.New("agents must be 1..1000")
+	case c.Agents < 1 || c.Agents > maxAgents:
+		return fmt.Errorf("agents must be 1..%d", maxAgents)
 	case c.Duration <= 0:
 		return errors.New("duration must be > 0")
 	case c.Ramp < 0 || c.Ramp > c.Duration:
@@ -113,6 +113,8 @@ type Report struct {
 	Tasks        TaskCounts  `json:"tasks"`
 	SSE          SSEReport   `json:"sse"`
 	Heap         HeapReport  `json:"heap"`
+	CPUSeconds   float64     `json:"cpu_s"`
+	CPUPerReqMs  float64     `json:"cpu_per_req_ms"`
 	ErrorSamples []string    `json:"error_samples,omitempty"`
 }
 
@@ -138,6 +140,7 @@ func (r *Report) WriteText(w io.Writer) {
 	_, _ = fmt.Fprintf(w, "\nSSE: %d/%d connected, %d connect errors, %d stream errors, %d events, %d lagged (%d dropped), lag p50 %.2f ms p95 %.2f ms p99 %.2f ms max %.2f ms\n",
 		s.Connected, s.Subscribers, s.ConnectErrors, s.StreamErrors, s.Events, s.LaggedEvents, s.Dropped, s.LagP50ms, s.LagP95ms, s.LagP99ms, s.LagMaxms)
 	_, _ = fmt.Fprintf(w, "heap (live, process): after ramp %.1f MB, end %.1f MB, max %.1f MB\n", r.Heap.StartMB, r.Heap.EndMB, r.Heap.MaxMB)
+	_, _ = fmt.Fprintf(w, "cpu (process, workload): %.1f s, %.3f ms per request\n", r.CPUSeconds, r.CPUPerReqMs)
 	if r.SSE.Reconnects > 0 {
 		_, _ = fmt.Fprintf(w, "SSE reconnects: %d, resyncs %d, events at or below the hello seq %d, duplicates %d\n", r.SSE.Reconnects, r.SSE.Resyncs, r.SSE.Overlap, r.SSE.Duplicates)
 	}
@@ -182,11 +185,15 @@ type runner struct {
 	proc   *InProcess
 	soft   client.Option
 	retry  *retrier
+
+	cpuWork  time.Duration
+	workReqs int64
 }
 
 const (
 	repo        = "loadtest/sandbox"
 	maxPlanSize = 500
+	maxAgents   = 3000
 	leaderConc  = 16
 	ownerConc   = 8
 )
@@ -250,6 +257,10 @@ func Run(ctx context.Context, cfg Config) (*Report, error) {
 	}
 	if elapsed > 0 {
 		rep.Throughput = float64(rep.Requests) / elapsed.Seconds()
+	}
+	if r.cpuWork > 0 && r.workReqs > 0 {
+		rep.CPUSeconds = r.cpuWork.Seconds()
+		rep.CPUPerReqMs = float64(r.cpuWork.Microseconds()) / 1000 / float64(r.workReqs)
 	}
 	// SSE failures count against the error budget as well.
 	sseErr := rep.SSE.ConnectErrors + rep.SSE.StreamErrors
@@ -348,19 +359,25 @@ func (r *runner) setupAgents(ctx context.Context) (leader agentCreds, workers, r
 }
 
 func (r *runner) bulk(ctx context.Context, prefix, role, kind string, n int) ([]agentCreds, error) {
-	out, err := r.owner.RegisterBulk(ctx, board.BulkInput{Prefix: prefix, Count: n, Role: role, Kind: kind, Model: "loadtest"})
-	if err != nil {
-		return nil, fmt.Errorf("register %ss: %w", role, err)
-	}
-	if len(out) != n {
-		return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out), n)
-	}
-	cs := make([]agentCreds, n)
-	for i, a := range out {
-		if a.Connect.Token == "" {
-			return nil, fmt.Errorf("register %ss: agent %s has no token", role, a.Agent.ID)
+	cs := make([]agentCreds, 0, n)
+	for chunk := 0; len(cs) < n; chunk++ {
+		p, k := prefix, min(n-len(cs), board.MaxBulk)
+		if chunk > 0 {
+			p = fmt.Sprintf("%s%d", prefix, chunk)
 		}
-		cs[i] = agentCreds{a.Agent.ID, a.Connect.Token}
+		out, err := r.owner.RegisterBulk(ctx, board.BulkInput{Prefix: p, Count: k, Role: role, Kind: kind, Model: "loadtest"})
+		if err != nil {
+			return nil, fmt.Errorf("register %ss: %w", role, err)
+		}
+		if len(out) != k {
+			return nil, fmt.Errorf("register %ss: got %d agents, want %d", role, len(out), k)
+		}
+		for _, a := range out {
+			if a.Connect.Token == "" {
+				return nil, fmt.Errorf("register %ss: agent %s has no token", role, a.Agent.ID)
+			}
+			cs = append(cs, agentCreds{a.Agent.ID, a.Connect.Token})
+		}
 	}
 	return cs, nil
 }
@@ -476,6 +493,7 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds) 
 	hard, cancel := context.WithDeadline(ctx, deadline.Add(r.cfg.Drain))
 	defer cancel()
 
+	cpu0, reqs0 := processCPU(), r.rec.Count()
 	refill := make(chan refillReq)
 	p := r.startPipeline(hard, reviewers)
 
@@ -504,6 +522,8 @@ func (r *runner) workload(ctx context.Context, workers, reviewers []agentCreds) 
 	close(refill)
 	leaderWG.Wait()
 	p.stop()
+	r.cpuWork = processCPU() - cpu0
+	r.workReqs = r.rec.Count() - reqs0
 }
 
 type pipeline struct {

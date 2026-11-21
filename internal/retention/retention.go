@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -34,6 +35,7 @@ type Options struct {
 	Store  store.Store
 	Policy Policy
 	Dir    string
+	Files  string
 	Now    func() time.Time
 	Log    *slog.Logger
 }
@@ -61,6 +63,7 @@ type Service struct {
 	st    store.Store
 	pol   Policy
 	dir   string
+	files string
 	now   func() time.Time
 	log   *slog.Logger
 	fault func(stage string) error
@@ -94,7 +97,10 @@ func New(o Options) (*Service, error) {
 		o.Log = slog.Default()
 	}
 	o.Policy.Dir = o.Dir
-	return &Service{st: o.Store, pol: o.Policy, dir: o.Dir, now: o.Now, log: o.Log}, nil
+	if o.Files == "" {
+		o.Files = filepath.Join(filepath.Dir(o.Dir), "transcripts")
+	}
+	return &Service{st: o.Store, pol: o.Policy, dir: o.Dir, files: o.Files, now: o.Now, log: o.Log}, nil
 }
 
 func (s *Service) Run(ctx context.Context) {
@@ -290,6 +296,11 @@ func (s *Service) prune(ctx context.Context, seg Segment) error {
 	if err != nil {
 		return err
 	}
+	if seg.Kind == Transcripts {
+		if err := s.archiveFiles(rows); err != nil {
+			return err
+		}
+	}
 	sp := specs[seg.Kind]
 	where := make([]string, len(sp.keys))
 	for i, k := range sp.keys {
@@ -353,6 +364,11 @@ func (s *Service) Restore(ctx context.Context, id int64) (*Segment, error) {
 	rows, err := readSegment(s.dir, *seg)
 	if err != nil {
 		return nil, err
+	}
+	if seg.Kind == Transcripts {
+		if err := s.restoreFiles(rows); err != nil {
+			return nil, err
+		}
 	}
 	table := specs[seg.Kind].table
 	for i := 0; i < len(rows); i += s.pol.Batch {

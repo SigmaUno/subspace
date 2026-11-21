@@ -1498,6 +1498,7 @@ export interface ReplayKeyEvent {
   task_id: string;
   to: string;
   tool: string;
+  transcript?: string;
 }
 
 export interface ReplayPoint {
@@ -1684,6 +1685,7 @@ export interface RetentionPolicy {
   interval: string;
   messages_days: number;
   segment_rows: number;
+  transcripts_days: number;
   usage_days: number;
   vacuum_pages: number;
   wal_autocheckpoint: number;
@@ -2057,6 +2059,26 @@ export interface TrainMember {
   pr: number;
   result: string;
   sha: string;
+  task_id: string;
+}
+
+export interface TranscriptLine {
+  agent_id: string;
+  offset: number;
+  stream: string;
+  text: string;
+  ts: string;
+}
+
+export interface TranscriptPage {
+  bytes: number;
+  first_offset: number;
+  gap: boolean;
+  last_offset: number;
+  lines: TranscriptLine[] | null;
+  more: boolean;
+  next_since: number;
+  segments: number;
   task_id: string;
 }
 

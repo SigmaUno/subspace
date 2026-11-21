@@ -39,6 +39,8 @@ type Deps struct {
 	Leader     *ha.Elector
 	KeyLock    func(ctx context.Context, key string) (func(), error)
 
+	OnClose func(func())
+
 	Env    func(string) string
 	Reload *reload.Manager
 	Trust  *proxyTrust

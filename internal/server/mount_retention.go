@@ -25,7 +25,7 @@ func init() {
 			d.Log.Error("retention disabled", "err", "SUBSPACE_DATA_DIR or SUBSPACE_RETAIN_DIR is required with the postgres backend")
 			return
 		}
-		svc, err := retention.New(retention.Options{Store: d.Store, Policy: pol, Dir: dir, Now: d.Cfg.Now, Log: d.Log})
+		svc, err := retention.New(retention.Options{Store: d.Store, Policy: pol, Dir: dir, Files: dataSubdir(d, "transcripts"), Now: d.Cfg.Now, Log: d.Log})
 		if err != nil {
 			d.Log.Error("retention disabled", "err", err)
 			return

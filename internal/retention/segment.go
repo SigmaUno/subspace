@@ -22,9 +22,10 @@ const (
 	Messages    Kind = "messages"
 	Usage       Kind = "usage"
 	Idempotency Kind = "idempotency"
+	Transcripts Kind = "transcripts"
 )
 
-var Kinds = []Kind{Audit, Messages, Usage, Idempotency}
+var Kinds = []Kind{Audit, Messages, Usage, Idempotency, Transcripts}
 
 type spec struct {
 	table string
@@ -37,6 +38,7 @@ var specs = map[Kind]spec{
 	Messages:    {"messages", "created_at", []string{"id"}},
 	Usage:       {"usage_records", "ts", []string{"key"}},
 	Idempotency: {"idempotency_keys", "created_at", []string{"agent_id", "key"}},
+	Transcripts: {"task_transcripts", "created_at", []string{"id"}},
 }
 
 const (

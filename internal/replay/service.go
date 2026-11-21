@@ -17,7 +17,8 @@ const (
 )
 
 type Service struct {
-	st store.Store
+	st          store.Store
+	transcripts func(ctx context.Context, taskIDs []string) (map[string]bool, error)
 
 	mu      sync.Mutex
 	briefs  map[string]*History
@@ -27,6 +28,10 @@ type Service struct {
 
 func NewService(st store.Store) *Service {
 	return &Service{st: st, briefs: map[string]*History{}, used: map[string]uint64{}}
+}
+
+func (s *Service) SetTranscripts(f func(ctx context.Context, taskIDs []string) (map[string]bool, error)) {
+	s.transcripts = f
 }
 
 func (s *Service) with(ctx context.Context, briefID string, fn func(*History) error) error {
@@ -110,6 +115,9 @@ func (s *Service) Timeline(ctx context.Context, briefID string) (tl Timeline, er
 		tl = h.Timeline()
 		return nil
 	})
+	if err == nil && s.transcripts != nil {
+		err = s.linkTranscripts(ctx, &tl)
+	}
 	return tl, err
 }
 
@@ -133,4 +141,28 @@ func (s *Service) Diff(ctx context.Context, briefID, from, to string) (d Diff, e
 		return nil
 	})
 	return d, err
+}
+
+func (s *Service) linkTranscripts(ctx context.Context, tl *Timeline) error {
+	seen := map[string]bool{}
+	var ids []string
+	for _, k := range tl.KeyEvents {
+		if k.TaskID != "" && !seen[k.TaskID] {
+			seen[k.TaskID] = true
+			ids = append(ids, k.TaskID)
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	has, err := s.transcripts(ctx, ids)
+	if err != nil {
+		return err
+	}
+	for i, k := range tl.KeyEvents {
+		if has[k.TaskID] {
+			tl.KeyEvents[i].Transcript = "/api/v1/tasks/" + k.TaskID + "/transcript"
+		}
+	}
+	return nil
 }

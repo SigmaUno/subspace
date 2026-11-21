@@ -147,6 +147,8 @@ var covered = map[string]use{
 	"GET /api/v1/tasks/{id}":                                         {"tasks show T-1", ""},
 	"GET /api/v1/tasks/{id}/gates":                                   {"tasks gates T-1", ""},
 	"GET /api/v1/tasks/{id}/pr":                                      {"tasks pr T-1", ""},
+	"GET /api/v1/tasks/{id}/transcript":                              {"tasks transcript T-1 --limit 5 --q error", ""},
+	"GET /api/v1/tasks/{id}/transcript/download":                     {"tasks transcript-download T-1 --out {tmp}", ""},
 	"GET /api/v1/tasks/{id}/scope":                                   {"tasks scope T-1", ""},
 	"GET /api/v1/tokens":                                             {"tokens list", ""},
 	"GET /api/v1/webhooks-out":                                       {"webhooks-out list", ""},

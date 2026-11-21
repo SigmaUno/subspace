@@ -756,6 +756,20 @@ export function getTasksByIdScope(
   return r.request("GET", "/api/v1/tasks/{id}/scope", { ...args, response: "json" });
 }
 
+export function getTasksByIdTranscript(
+  r: Requester,
+  args: { path: { id: string }; query?: { since?: number; limit?: number; at?: string; q?: string } },
+): Promise<T.TranscriptPage> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript", { ...args, response: "json" });
+}
+
+export function getTasksByIdTranscriptDownload(
+  r: Requester,
+  args: { path: { id: string } },
+): Promise<string> {
+  return r.request("GET", "/api/v1/tasks/{id}/transcript/download", { ...args, response: "text" });
+}
+
 export function getThreadsByKindByIdMessages(
   r: Requester,
   args: { path: { kind: string; id: string }; query?: { since?: number; limit?: number } },

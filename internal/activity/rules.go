@@ -35,6 +35,7 @@ var rules = map[string]rule{
 	"run_schedule":          {icon: "clock", text: "{actor} ran schedule {a.schedule_id} for {a.scheduled_for}: {a.status}", warnIf: "a.failed"},
 	"retention_archive":     {icon: "archive", text: "{actor} archived old data ({a.rows} rows)"},
 	"retention_restore":     {icon: "archive", severity: SevWarning, text: "{actor} restored archived data"},
+	"transcript_prune":      {icon: "archive", severity: SevWarning, text: "{actor} dropped transcript lines {b.first_offset}-{b.last_offset} of {task} ({a.reason})"},
 	"set_agent_quota":       {icon: "gauge", text: "{actor} set quota for agent {a.agent}"},
 	"reload_config":         {icon: "settings", text: "{actor} reloaded the configuration{note?: }"},
 	"set_log_level":         {icon: "log", text: "{actor} set log level to {a.level}"},

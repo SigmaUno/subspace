@@ -15,6 +15,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/testmode"
@@ -166,6 +167,7 @@ func TestContractRESTRoutesExist(t *testing.T) {
 }
 
 func TestContractMCPToolsPerRole(t *testing.T) {
+	guardhint.Watch(t, guardhint.ToolLists)
 	e := newEnv(t)
 	rows := contractTable(t, contractToolsHeader)
 	roles := []string{"leader", "worker", "tester", "reviewer"}

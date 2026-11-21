@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/prsync"
@@ -33,30 +34,16 @@ func init() {
 
 func mountMergeTrains(d Deps) {
 	st := mqStore{st: d.Store}
-	d.API.Mount(d.Mux, "GET /api/v1/mergequeue/trains", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		limit := 50
-		if v := r.URL.Query().Get("limit"); v != "" {
-			n, err := strconv.Atoi(v)
-			if err != nil || n <= 0 {
-				writeAPIError(w, model.BadRequest("limit must be a positive integer"))
-				return
-			}
-			limit = min(n, 500)
+	d.API.Mount(d.Mux, "GET /api/v1/mergequeue/trains", httpx.Handle(http.StatusOK, func(r *http.Request) (any, error) {
+		limit, err := httpx.PositiveLimit(r, 50, 500)
+		if err != nil {
+			return nil, err
 		}
 		ts, err := st.ListTrains(r.Context(), r.URL.Query().Get("repo"), limit)
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		writeMQ(w, http.StatusOK, map[string]any{"trains": ts})
+		return map[string]any{"trains": ts}, err
 	}))
-	d.API.Mount(d.Mux, "GET /api/v1/mergequeue/trains/{id}", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		t, err := st.GetTrain(r.Context(), r.PathValue("id"))
-		if err != nil {
-			writeAPIError(w, err)
-			return
-		}
-		writeMQ(w, http.StatusOK, t)
+	d.API.Mount(d.Mux, "GET /api/v1/mergequeue/trains/{id}", httpx.Handle(http.StatusOK, func(r *http.Request) (any, error) {
+		return st.GetTrain(r.Context(), r.PathValue("id"))
 	}))
 }
 

@@ -113,7 +113,24 @@ func (r *Repo) Validate() error {
 	if r.TokenEnv != "" && (!tokenEnvRe.MatchString(r.TokenEnv) || redact.Contains(r.TokenEnv)) {
 		return model.BadRequest("token_env must be the name of an environment variable (A-Z, 0-9 and _), never the token itself")
 	}
+	if serverSecret(r.TokenEnv) {
+		return model.BadRequest("token_env must not name a Subspace server setting; only SUBSPACE_* variables ending in %s are allowed", strings.Join(gitTokenSuffixes, ", "))
+	}
 	return nil
+}
+
+var gitTokenSuffixes = []string{"_GIT_TOKEN", "_GITHUB_TOKEN", "_FORGEJO_TOKEN"}
+
+func serverSecret(env string) bool {
+	if !strings.HasPrefix(env, "SUBSPACE_") {
+		return false
+	}
+	for _, s := range gitTokenSuffixes {
+		if strings.HasSuffix(env, s) {
+			return false
+		}
+	}
+	return true
 }
 
 func (r *Repo) validateHost() error {

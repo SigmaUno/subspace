@@ -13,6 +13,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -149,6 +150,7 @@ func TestFromMessage(t *testing.T) {
 }
 
 func TestEveryAuditedToolHasTemplate(t *testing.T) {
+	guardhint.Watch(t, guardhint.ActivityTemplates)
 	tools := auditedTools(t)
 	if len(tools) < 40 {
 		t.Fatalf("found only %d audited tools, scanner is broken", len(tools))

@@ -284,7 +284,11 @@ func (s *Service) pauseAll(ctx context.Context, inc *Incident, res *Result) erro
 		res.Detail = "already paused: " + why
 		return nil
 	}
-	return s.o.Control.PauseAll(ctx, fmt.Sprintf("incident %s: %s", inc.ID, inc.Reason))
+	return s.o.Control.PauseAll(ctx, pauseReason(inc))
+}
+
+func pauseReason(inc *Incident) string {
+	return fmt.Sprintf("incident %s: %s", inc.ID, inc.Reason)
 }
 
 func (s *Service) revoke(ctx context.Context, inc *Incident, scope Scope, res *Result) {
@@ -388,7 +392,7 @@ func (s *Service) End(ctx context.Context, id string, req EndRequest) (*EndOutco
 		return out, nil
 	}
 	if inc.done(PauseAll) {
-		if paused, _ := s.o.Control.Paused(); paused {
+		if paused, why := s.o.Control.Paused(); paused && why == pauseReason(inc) {
 			if err := s.o.Control.ResumeAll(ctx); err != nil {
 				return nil, err
 			}

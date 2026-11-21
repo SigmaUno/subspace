@@ -212,7 +212,7 @@ func (s *Service) AcceptSplit(ctx context.Context, a model.Actor, id string) (*S
 		if _, err := q.Exec(`UPDATE help_requests SET created_tasks=? WHERE id=?`, marshal(ids), id); err != nil {
 			return err
 		}
-		return s.audit(tx, a, "accept_split", orig.ID, map[string]any{"status": orig.Status},
+		return s.audit(tx, a, "accept_split", orig.ID, map[string]any{"original_status": orig.Status},
 			map[string]any{"request_id": id, "created": ids, "status": model.StatusCancelled}, "")
 	})
 	if err != nil {

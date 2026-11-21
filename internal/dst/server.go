@@ -51,6 +51,11 @@ const (
 var instrScopes = []string{instructions.ScopeGlobal, projectScope}
 
 type ServerWorld struct {
+	Faults      int
+	Moderation  bool
+	RetainDays  int
+	Gates       string
+	MinTests    int
 	Autopilot   bool
 	AutoMerge   bool
 	Spawn       autopilot.SpawnConfig
@@ -98,6 +103,19 @@ func NewServerWorld(seed int64) World {
 		BackupEvery: time.Duration(15+r.Intn(30)) * time.Minute,
 		BackupKeep:  1 + r.Intn(3),
 	}
+	if r.Intn(2) == 0 {
+		sw.Faults = 10
+	}
+	sw.Moderation = r.Intn(4) > 0
+	sw.RetainDays = r.Intn(3)
+	if r.Intn(3) == 0 {
+		gs := []string{"questions", "review", "budget", "tests"}
+		sw.Gates = strings.Join(gs[:1+r.Intn(len(gs))], ",")
+		sw.MinTests = r.Intn(12)
+	}
+	if r.Intn(2) == 0 {
+		w.Rival = "lead2"
+	}
 	sw.Capacity.Limits = []capacity.Limit{{Provider: model.ProviderForKind(kind), Model: spawnModel, MaxConcurrency: 1 + r.Intn(3)}}
 	if r.Intn(2) == 0 {
 		sw.Capacity.GlobalMaxAgents = len(w.Agents) + 1 + r.Intn(4)
@@ -122,54 +140,63 @@ type InstrHead struct {
 }
 
 type ServerState struct {
-	AutoMerge  bool
-	Autopilot  bool
-	BackupKeep int
-	Backups    int
-	Spawns     []*model.Spawn
-	Capacity   *board.CapacityView
-	Candidates []*mergequeue.Candidate
-	Pushes     []Push
-	Violations []*Violation
-	Instr      map[string]InstrHead
-	Sent       map[string]int
-	Episodes   map[string]int
+	AutoMerge     bool
+	Autopilot     bool
+	Moderation    bool
+	BackupKeep    int
+	Backups       int
+	Spawns        []*model.Spawn
+	Capacity      *board.CapacityView
+	Candidates    []*mergequeue.Candidate
+	Pushes        []Push
+	Instr         map[string]InstrHead
+	Sent          map[string]int
+	Episodes      map[string]int
+	OpenQuestions map[string]bool
+	Archived      bool
+	Splits        map[string]string
+	Announcements []string
+	Knowledge     []string
 }
 
 type ServerOptions struct {
-	AutoApprove bool
+	AutoApprove   bool
+	NoQuotaGate   bool
+	NoQualityGate bool
 }
 
 type ServerSystem struct {
-	*BoardSystem
-	o      ServerOptions
-	dir    string
-	hub    events.Hub
-	w      World
-	ap     *autopilot.Service
-	mq     *mergequeue.Queue
-	cands  *mergequeue.MemStore
-	hook   http.Handler
-	bk     *backup.Scheduler
-	next   time.Time
-	expect map[string]string
-	nt     *notify.Service
-	sink   *flakySink
-	stop   context.CancelFunc
-	watch  events.Subscription
-	sigs   map[string]string
-	eps    map[string]int
-	instr  *instructions.Service
-	search *search.Service
-	lastOp Kind
-	heads  map[string]InstrHead
-	hooks  int
+	*MCPSystem
+	o        ServerOptions
+	f        features
+	archived *bool
+	ids      *ServerState
+	dir      string
+	hub      events.Hub
+	w        World
+	ap       *autopilot.Service
+	mq       *mergequeue.Queue
+	cands    *mergequeue.MemStore
+	hook     http.Handler
+	bk       *backup.Scheduler
+	next     time.Time
+	expect   map[string]string
+	nt       *notify.Service
+	sink     *flakySink
+	stop     context.CancelFunc
+	watch    events.Subscription
+	sigs     map[string]string
+	eps      map[string]int
+	instr    *instructions.Service
+	search   *search.Service
+	lastOp   Kind
+	heads    map[string]InstrHead
+	hooks    int
 
 	mu     sync.Mutex
 	head   string
 	runs   map[string]int
 	pushes []Push
-	viol   []*Violation
 }
 
 func NewServerSystem(dir string, clock *Clock, lease time.Duration) (System, error) {
@@ -183,7 +210,9 @@ func NewServerFactory(o ServerOptions) Factory {
 		if err != nil {
 			return nil, err
 		}
-		return &ServerSystem{BoardSystem: bs, o: o, dir: dir, hub: hub, sigs: map[string]string{}, eps: map[string]int{}, runs: map[string]int{}}, nil
+		s := &ServerSystem{o: o, dir: dir, hub: hub, sigs: map[string]string{}, eps: map[string]int{}, runs: map[string]int{}}
+		s.MCPSystem = newMCP(bs, MCPOptions{}, s.extendRegistry)
+		return s, nil
 	}
 }
 
@@ -197,10 +226,20 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	}
 	s.w = w
 	sw := w.Server
+	s.faults.r = rand.New(rand.NewSource(w.Seed ^ 0xfa17)) //nolint:gosec // deterministic simulation
+	s.faults.drop, s.faults.dup = sw.Faults, sw.Faults
 	if _, err := s.b.SetCapacity(ctx, sw.Capacity); err != nil {
 		return out, err
 	}
-	s.wire()
+	if sw.Gates != "" {
+		g := gateConfig(Op{Text: sw.Gates, N: sw.MinTests})
+		if _, err := s.b.UpdateBrief(ctx, s.brief, board.BriefPatch{QualityGates: &g}); err != nil {
+			return out, err
+		}
+	}
+	if err := s.wire(ctx); err != nil {
+		return out, err
+	}
 	s.cands = mergequeue.NewMemStore()
 	s.mq, err = mergequeue.New(mergequeue.Config{
 		Repos:    map[string]mergequeue.RepoConfig{simRepo: {Remote: "https://git.example/" + simRepo + ".git", Verify: []string{"make", "test"}, Auto: s.o.AutoApprove}},
@@ -235,21 +274,33 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	return out, nil
 }
 
-func (s *ServerSystem) wire() {
+func (s *ServerSystem) wire(ctx context.Context) error {
 	s.ap = autopilot.New(s.b, autopilot.Options{DefaultSpawn: s.w.Server.Spawn, Now: s.clock.Now, Log: discard})
 	s.ap.SetEnabled(s.brief, s.w.Server.Autopilot)
 	s.instr = instructions.New(s.st, instructions.StoreAuditor{Store: s.st, Now: s.clock.Now}, s.clock.Now)
 	s.search = search.New(s.st, discard)
+	s.archived = nil
+	if err := s.wireFeatures(ctx); err != nil {
+		return err
+	}
+	s.MCPSystem.wire()
+	return nil
 }
 
 func (s *ServerSystem) Do(ctx context.Context, op Op) Result {
 	s.lastOp = op.Kind
 	s.touch(op)
+	if res, ok := s.doFeature(ctx, op); ok {
+		s.drain()
+		return res
+	}
 	var res Result
 	switch op.Kind {
 	case OpRestart:
 		res = s.BoardSystem.Do(ctx, op)
-		s.wire()
+		if res.Err == nil {
+			res.Err = s.wire(ctx)
+		}
 	case OpEnqueue:
 		res.Err = s.enqueue(ctx, op.Task)
 	case OpMergeTick:
@@ -286,19 +337,13 @@ func (s *ServerSystem) Do(ctx context.Context, op Op) Result {
 			res.Hits = append(res.Hits, r.ID)
 		}
 	default:
-		res = s.BoardSystem.Do(ctx, op)
+		res = s.MCPSystem.Do(ctx, op)
 	}
 	if op.Kind == OpAdvance {
 		s.backupTick(ctx)
 	}
 	s.drain()
 	return res
-}
-
-func (s *ServerSystem) fault(inv, format string, a ...any) {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	s.viol = append(s.viol, violation(inv, format, a...))
 }
 
 func (s *ServerSystem) check(ctx context.Context, taskID string) (*model.Task, error) {
@@ -577,6 +622,9 @@ func (s *ServerSystem) backupTick(ctx context.Context) {
 }
 
 func (s *ServerSystem) verifyBackup(ctx context.Context, path string) (err error) {
+	if s.pg != nil {
+		return verifyPGBackup(ctx, path, s.expect)
+	}
 	db, err := sql.Open("sqlite", "file:"+path+"?mode=ro")
 	if err != nil {
 		return err
@@ -644,6 +692,11 @@ func notifyKey(ev events.Event) (id, sig, kind string) {
 			kind = "plan"
 		}
 		return d.ID, ev.Type, kind
+	case notify.Notification:
+		if ev.Type == "alert.raised" {
+			kind = d.Kind
+		}
+		return d.ID, ev.Type, kind
 	case *model.Task:
 		switch d.Status {
 		case model.StatusNeedsOwner, model.StatusBlocked, model.StatusApproved:
@@ -656,6 +709,11 @@ func notifyKey(ev events.Event) (id, sig, kind string) {
 		return "control", "paused", "paused"
 	case "control.resumed":
 		return "control", "resumed", ""
+	case "quota.warning":
+		d, _ := ev.Data.(map[string]any)
+		agent, _ := d["agent_id"].(string)
+		level, _ := d["level"].(string)
+		return "agent_quota:" + agent, fmt.Sprintf("%v|%s", d["starts_at"], level), "agent_quota"
 	}
 	return "", "", ""
 }
@@ -665,7 +723,26 @@ func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
 	if err != nil {
 		return nil, err
 	}
-	sv := &ServerState{AutoMerge: s.w.Server.AutoMerge, Autopilot: s.w.Server.Autopilot, BackupKeep: s.w.Server.BackupKeep}
+	sv := &ServerState{AutoMerge: s.w.Server.AutoMerge, Autopilot: s.w.Server.Autopilot, Moderation: s.w.Server.Moderation,
+		BackupKeep: s.w.Server.BackupKeep, OpenQuestions: map[string]bool{}}
+	qs, err := s.b.ListQuestions(ctx, "open")
+	if err != nil {
+		return nil, err
+	}
+	for _, q := range qs {
+		if q.TaskID != nil {
+			sv.OpenQuestions[*q.TaskID] = true
+		}
+	}
+	if sv.Archived, err = s.archivedSegments(ctx); err != nil {
+		return nil, err
+	}
+	if s.ids == nil || featureIDs[s.lastOp] {
+		if s.ids, err = s.featureIDs(ctx); err != nil {
+			return nil, err
+		}
+	}
+	sv.Splits, sv.Announcements, sv.Knowledge = s.ids.Splits, s.ids.Announcements, s.ids.Knowledge
 	if s.lastOp == OpAutopilotTick {
 		if sv.Spawns, err = s.b.ListSpawns(ctx, s.brief); err != nil {
 			return nil, err
@@ -694,7 +771,6 @@ func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
 	sv.Instr = s.heads
 	s.mu.Lock()
 	sv.Pushes = append([]Push(nil), s.pushes...)
-	sv.Violations = append([]*Violation(nil), s.viol...)
 	s.mu.Unlock()
 	sv.Sent = s.sink.counts()
 	sv.Episodes = maps.Clone(s.eps)

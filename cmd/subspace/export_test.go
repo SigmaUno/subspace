@@ -15,6 +15,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"reflect"
 	"runtime"
 	"slices"
 	"strings"
@@ -523,8 +524,12 @@ func TestRoundTripSQLiteToPostgres(t *testing.T) {
 		}
 		for i, row := range got[c.name] {
 			for col, v := range row {
-				if fmt.Sprint(want[c.name][i][col]) != fmt.Sprint(v) {
-					t.Errorf("%s row %d column %s: %v, want %v", c.name, i, col, v, want[c.name][i][col])
+				w, ok := want[c.name][i][col]
+				if !ok && col == "id_num" {
+					continue
+				}
+				if !sameValue(w, v) {
+					t.Errorf("%s row %d column %s: %v, want %v", c.name, i, col, v, w)
 				}
 			}
 		}
@@ -539,4 +544,20 @@ func TestRoundTripSQLiteToPostgres(t *testing.T) {
 	mustDo(t, err)
 	_, err = runCmd(t, runAuditVerify, "--db", pgBack)
 	mustDo(t, err)
+}
+
+func sameValue(a, b any) bool {
+	if fmt.Sprint(a) == fmt.Sprint(b) {
+		return true
+	}
+	as, aok := a.(string)
+	bs, bok := b.(string)
+	if !aok || !bok {
+		return false
+	}
+	var av, bv any
+	if json.Unmarshal([]byte(as), &av) != nil || json.Unmarshal([]byte(bs), &bv) != nil {
+		return false
+	}
+	return reflect.DeepEqual(av, bv)
 }

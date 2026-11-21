@@ -2,12 +2,9 @@ package api
 
 import (
 	"context"
-	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"slices"
-	"strconv"
 	"strings"
 	"time"
 
@@ -15,6 +12,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -31,72 +29,16 @@ type API struct {
 	patterns []string
 }
 
-type errBody struct {
-	Error struct {
-		Code    string `json:"code"`
-		Message string `json:"message"`
-		Details any    `json:"details,omitempty"`
-	} `json:"error"`
-}
-
 func (a *API) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	if e.Code == "internal" && a.Log != nil {
-		a.Log.Error("api error", "err", err)
-	}
-	var b errBody
-	b.Error.Code, b.Error.Message, b.Error.Details = e.Code, e.Message, e.Details
-	writeJSON(w, e.HTTPStatus(), b)
+	httpx.Fail(w, a.Log, "api error", err)
 }
 
-func writeJSON(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
-}
-
-func decode(r *http.Request, v any) error {
-	b, err := io.ReadAll(http.MaxBytesReader(nil, r.Body, 1<<20))
-	if err != nil {
-		return model.BadRequest("request body too large or unreadable")
-	}
-	if len(b) == 0 {
-		return nil
-	}
-	if err := json.Unmarshal(b, v); err != nil {
-		return model.BadRequest("invalid JSON body")
-	}
-	return nil
-}
-
-const maxListLimit = 1000
-
-func qint(r *http.Request, name string) int {
-	n, _ := strconv.Atoi(r.URL.Query().Get(name))
-	return n
-}
-
-func limitq(r *http.Request) int {
-	n := qint(r, "limit")
-	if n > maxListLimit {
-		return maxListLimit
-	}
-	return n
-}
+const maxBody = 1 << 20
 
 func cursorq(r *http.Request) string { return r.URL.Query().Get("cursor") }
 
 func paged[T any](key string, p board.Page[T], err error) (any, error) {
-	var next any
-	if p.Next != "" {
-		next = p.Next
-	}
-	return map[string]any{key: p.Items, "next_cursor": next}, err
-}
-
-func qint64(r *http.Request, name string) int64 {
-	n, _ := strconv.ParseInt(r.URL.Query().Get(name), 10, 64)
-	return n
+	return httpx.Page(key, p.Items, p.Next), err
 }
 
 type TokenLookup interface {
@@ -171,9 +113,24 @@ func (a *API) do(status int, f func(r *http.Request) (any, error)) http.HandlerF
 			a.fail(w, err)
 			return
 		}
-		writeJSON(w, status, v)
+		httpx.WriteJSON(w, status, v)
 	})
 }
+
+func withBody[T any](a *API, status int, f func(r *http.Request, in T) (any, error)) http.HandlerFunc {
+	return a.do(status, func(r *http.Request) (any, error) {
+		var in T
+		if err := httpx.Decode(nil, r, maxBody, &in); err != nil {
+			return nil, err
+		}
+		return f(r, in)
+	})
+}
+
+type (
+	reasonBody struct{ Reason string }
+	noteBody   struct{ Note string }
+)
 
 func (a *API) Register(mux *http.ServeMux) {
 	B := a.B
@@ -184,74 +141,46 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/me", a.guard(func(w http.ResponseWriter, r *http.Request) {
 		p, _ := auth.PrincipalFrom(r.Context())
-		writeJSON(w, http.StatusOK, map[string]string{"role": model.RoleOwner, "scope": p.Scope})
+		httpx.WriteJSON(w, http.StatusOK, map[string]string{"role": model.RoleOwner, "scope": p.Scope})
 	}))
 	m("GET /api/v1/state", a.do(200, func(r *http.Request) (any, error) { return B.State(r.Context()) }))
-	m("POST /api/v1/pause-all", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Reason string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/pause-all", withBody(a, 200, func(r *http.Request, in reasonBody) (any, error) {
 		return map[string]any{"paused": true}, B.PauseAll(r.Context(), in.Reason)
 	}))
 	m("POST /api/v1/resume-all", a.do(200, func(r *http.Request) (any, error) {
 		return map[string]any{"paused": false}, B.ResumeAll(r.Context())
 	}))
 	m("GET /api/v1/charter", a.do(200, func(r *http.Request) (any, error) { return B.GetCharter(r.Context()) }))
-	m("PUT /api/v1/charter", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Text string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("PUT /api/v1/charter", withBody(a, 200, func(r *http.Request, in struct{ Text string }) (any, error) {
 		return B.SetCharter(r.Context(), in.Text)
 	}))
 
-	m("POST /api/v1/briefs", a.do(201, func(r *http.Request) (any, error) {
-		var in board.BriefInput
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/briefs", withBody(a, 201, func(r *http.Request, in board.BriefInput) (any, error) {
 		return B.CreateBrief(r.Context(), in)
 	}))
 	m("GET /api/v1/briefs", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.ListBriefsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		p, err := B.ListBriefsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), httpx.Limit(r))
 		return paged("briefs", p, err)
 	}))
 	m("GET /api/v1/briefs/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetBrief(r.Context(), r.PathValue("id")) }))
-	m("PATCH /api/v1/briefs/{id}", a.do(200, func(r *http.Request) (any, error) {
-		var in board.BriefPatch
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("PATCH /api/v1/briefs/{id}", withBody(a, 200, func(r *http.Request, in board.BriefPatch) (any, error) {
 		return B.UpdateBrief(r.Context(), r.PathValue("id"), in)
 	}))
 	m("GET /api/v1/briefs/{id}/board", a.do(200, func(r *http.Request) (any, error) { return B.Board(r.Context(), r.PathValue("id")) }))
 
 	m("GET /api/v1/plans", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.ListPlansPage(r.Context(), r.URL.Query().Get("brief_id"), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		p, err := B.ListPlansPage(r.Context(), r.URL.Query().Get("brief_id"), r.URL.Query().Get("status"), cursorq(r), httpx.Limit(r))
 		return paged("plans", p, err)
 	}))
 	m("GET /api/v1/plans/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetPlan(r.Context(), r.PathValue("id")) }))
-	m("POST /api/v1/plans/{id}/approve", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Note string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/plans/{id}/approve", withBody(a, 200, func(r *http.Request, in noteBody) (any, error) {
 		return B.ApprovePlan(r.Context(), r.PathValue("id"), in.Note)
 	}))
-	m("POST /api/v1/plans/{id}/reject", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Reason string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/plans/{id}/reject", withBody(a, 200, func(r *http.Request, in reasonBody) (any, error) {
 		return B.RejectPlan(r.Context(), r.PathValue("id"), in.Reason)
 	}))
 
-	m("POST /api/v1/plans/{id}/tasks", a.do(201, func(r *http.Request) (any, error) {
-		var in board.TaskInput
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/plans/{id}/tasks", withBody(a, 201, func(r *http.Request, in board.TaskInput) (any, error) {
 		return B.AddPlanTask(r.Context(), r.PathValue("id"), in)
 	}))
 	m("DELETE /api/v1/plans/{id}/tasks/{taskId}", a.do(200, func(r *http.Request) (any, error) {
@@ -260,121 +189,77 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/tasks", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		p, err := B.ListTasksPage(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Cursor: cursorq(r), Limit: limitq(r)})
+		p, err := B.ListTasksPage(r.Context(), board.TaskQuery{BriefID: q.Get("brief_id"), Status: q.Get("status"), Assignee: q.Get("assignee"), Role: q.Get("role"), Cursor: cursorq(r), Limit: httpx.Limit(r)})
 		return paged("tasks", p, err)
 	}))
 	m("GET /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetTask(r.Context(), model.Owner, r.PathValue("id")) }))
-	m("PATCH /api/v1/tasks/{id}", a.do(200, func(r *http.Request) (any, error) {
-		var in board.TaskEdit
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("PATCH /api/v1/tasks/{id}", withBody(a, 200, func(r *http.Request, in board.TaskEdit) (any, error) {
 		return B.EditTask(r.Context(), r.PathValue("id"), in)
 	}))
-	m("POST /api/v1/tasks/{id}/done", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Note string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/tasks/{id}/done", withBody(a, 200, func(r *http.Request, in noteBody) (any, error) {
 		return B.MarkDone(r.Context(), r.PathValue("id"), in.Note)
 	}))
-	m("POST /api/v1/tasks/{id}/cancel", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Reason string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/tasks/{id}/cancel", withBody(a, 200, func(r *http.Request, in reasonBody) (any, error) {
 		return B.Cancel(r.Context(), r.PathValue("id"), in.Reason)
 	}))
-	m("POST /api/v1/tasks/{id}/reopen", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Status, Note string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/tasks/{id}/reopen", withBody(a, 200, func(r *http.Request, in struct{ Status, Note string }) (any, error) {
 		return B.Reopen(r.Context(), r.PathValue("id"), in.Status, in.Note)
 	}))
 
 	m("GET /api/v1/agents", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.ListAgentsPage(r.Context(), r.URL.Query().Get("role"), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		p, err := B.ListAgentsPage(r.Context(), r.URL.Query().Get("role"), r.URL.Query().Get("status"), cursorq(r), httpx.Limit(r))
 		return paged("agents", p, err)
 	}))
 	m("GET /api/v1/agents/{id}", a.do(200, func(r *http.Request) (any, error) { return B.GetAgent(r.Context(), r.PathValue("id")) }))
-	m("POST /api/v1/agents", a.do(201, func(r *http.Request) (any, error) {
-		var in board.AgentInput
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/agents", withBody(a, 201, func(r *http.Request, in board.AgentInput) (any, error) {
 		return B.RegisterAgent(r.Context(), in)
 	}))
-	m("POST /api/v1/agents/bulk", a.do(201, func(r *http.Request) (any, error) {
-		var in board.BulkInput
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/agents/bulk", withBody(a, 201, func(r *http.Request, in board.BulkInput) (any, error) {
 		rs, err := B.RegisterBulk(r.Context(), in)
 		return map[string]any{"agents": rs}, err
 	}))
 	m("GET /api/v1/agents/{id}/connect", a.do(200, func(r *http.Request) (any, error) { return B.Connect(r.Context(), r.PathValue("id")) }))
-	m("POST /api/v1/agents/{id}/rotate-token", a.do(200, func(r *http.Request) (any, error) {
-		var in struct {
-			ExpiresIn string `json:"expires_in"`
-		}
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/agents/{id}/rotate-token", withBody(a, 200, func(r *http.Request, in struct {
+		ExpiresIn string `json:"expires_in"`
+	}) (any, error) {
 		d, err := board.ParseExpiresIn(in.ExpiresIn)
 		if err != nil {
 			return nil, err
 		}
 		return B.RotateTokenFor(r.Context(), r.PathValue("id"), d)
 	}))
-	m("POST /api/v1/agents/{id}/revoke", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Reason string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/agents/{id}/revoke", withBody(a, 200, func(r *http.Request, in reasonBody) (any, error) {
 		return B.RevokeAgent(r.Context(), r.PathValue("id"), in.Reason)
 	}))
 	m("POST /api/v1/agents/{id}/resume", a.do(200, func(r *http.Request) (any, error) { return B.ResumeAgent(r.Context(), r.PathValue("id")) }))
 
 	m("GET /api/v1/questions", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.ListQuestionsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), limitq(r))
+		p, err := B.ListQuestionsPage(r.Context(), r.URL.Query().Get("status"), cursorq(r), httpx.Limit(r))
 		return paged("questions", p, err)
 	}))
-	m("POST /api/v1/questions/{id}/answer", a.do(200, func(r *http.Request) (any, error) {
-		var in struct{ Answer string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/questions/{id}/answer", withBody(a, 200, func(r *http.Request, in struct{ Answer string }) (any, error) {
 		return B.Answer(r.Context(), r.PathValue("id"), in.Answer)
 	}))
 
 	m("GET /api/v1/threads/{kind}/{id}/messages", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.OwnerThreadPage(r.Context(), r.PathValue("kind"), r.PathValue("id"), cursorq(r), qint64(r, "since"), limitq(r))
+		p, err := B.OwnerThreadPage(r.Context(), r.PathValue("kind"), r.PathValue("id"), cursorq(r), httpx.Int64(r, "since"), httpx.Limit(r))
 		return paged("messages", p, err)
 	}))
-	m("POST /api/v1/threads/{kind}/{id}/messages", a.do(201, func(r *http.Request) (any, error) {
-		var in struct{ Body string }
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("POST /api/v1/threads/{kind}/{id}/messages", withBody(a, 201, func(r *http.Request, in struct{ Body string }) (any, error) {
 		return B.OwnerReply(r.Context(), r.PathValue("kind"), r.PathValue("id"), in.Body)
 	}))
 
 	m("GET /api/v1/capacity", a.do(200, func(r *http.Request) (any, error) { return B.Capacity(r.Context()) }))
-	m("PUT /api/v1/capacity", a.do(200, func(r *http.Request) (any, error) {
-		var in capacity.Config
-		if err := decode(r, &in); err != nil {
-			return nil, err
-		}
+	m("PUT /api/v1/capacity", withBody(a, 200, func(r *http.Request, in capacity.Config) (any, error) {
 		return B.SetCapacity(r.Context(), in)
 	}))
 	m("GET /api/v1/spawns", a.do(200, func(r *http.Request) (any, error) {
-		p, err := B.ListSpawnsPage(r.Context(), r.URL.Query().Get("brief_id"), cursorq(r), limitq(r))
+		p, err := B.ListSpawnsPage(r.Context(), r.URL.Query().Get("brief_id"), cursorq(r), httpx.Limit(r))
 		return paged("spawns", p, err)
 	}))
 	m("GET /api/v1/audit", a.do(200, func(r *http.Request) (any, error) {
 		q := r.URL.Query()
-		p, err := B.ListAuditPage(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: qint64(r, "since"), Limit: limitq(r)}, cursorq(r))
+		p, err := B.ListAuditPage(r.Context(), store.AuditFilter{AgentID: q.Get("agent_id"), TaskID: q.Get("task_id"), Tool: q.Get("tool"), SinceID: httpx.Int64(r, "since"), Limit: httpx.Limit(r)}, cursorq(r))
 		return paged("events", p, err)
 	}))
 	m("GET /api/v1/audit/verify", a.do(200, func(r *http.Request) (any, error) { return B.VerifyAudit(r.Context()) }))

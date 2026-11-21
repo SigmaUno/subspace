@@ -17,6 +17,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/audit"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -156,9 +157,7 @@ func unauthorized(w http.ResponseWriter) {
 
 func tokenExpired(w http.ResponseWriter) {
 	w.Header().Set("WWW-Authenticate", `Bearer error="invalid_token", error_description="token expired"`)
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusUnauthorized)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "token_expired", "message": "agent token expired"}})
+	httpx.WriteError(w, model.Errf("token_expired", "agent token expired"))
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
@@ -222,7 +221,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	}
 	var req rpcReq
 	if err := json.Unmarshal(body, &req); err != nil || req.JSONRPC != "2.0" {
-		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32700, "parse error"}})
+		httpx.WriteJSON(w, http.StatusOK, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32700, "parse error"}})
 		return
 	}
 	if sid != "" && req.Method != "initialize" {
@@ -241,7 +240,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if !validID(req.ID) {
-		writeJSON(w, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
+		httpx.WriteJSON(w, http.StatusOK, rpcResp{JSONRPC: "2.0", ID: json.RawMessage("null"), Error: &rpcErr{-32600, "invalid request: id must be a string or a number"}})
 		return
 	}
 	actor := model.Actor{ID: agent.ID, Role: agent.Role, Kind: agent.Kind}
@@ -280,7 +279,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	default:
 		resp.Error = &rpcErr{-32601, "method not found"}
 	}
-	writeJSON(w, resp)
+	httpx.WriteJSON(w, http.StatusOK, resp)
 }
 
 func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMessage) (any, *rpcErr) {
@@ -390,11 +389,6 @@ func toolResult(v any, isErr bool) map[string]any {
 		"structuredContent": sc,
 		"isError":           isErr,
 	}
-}
-
-func writeJSON(w http.ResponseWriter, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	_ = json.NewEncoder(w).Encode(v)
 }
 
 func bearer(r *http.Request) (string, bool) {

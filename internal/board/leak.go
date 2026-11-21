@@ -19,6 +19,7 @@ const (
 	ChannelReview   = "review"
 	ChannelPR       = "pr_text"
 	ChannelOutput   = "log_output"
+	ChannelTask     = "task_text"
 )
 
 type LeakSource struct {
@@ -62,6 +63,13 @@ func (b *Board) scrubAll(ctx context.Context, a model.Actor, channel string, xs 
 	return out
 }
 
+func (b *Board) scrubTask(ctx context.Context, a model.Actor, in TaskInput) TaskInput {
+	in.Title = b.scrub(ctx, a, ChannelTask, in.Title)
+	in.Spec = b.scrub(ctx, a, ChannelTask, in.Spec)
+	in.AcceptanceCriteria = b.scrubAll(ctx, a, ChannelTask, in.AcceptanceCriteria)
+	return in
+}
+
 func messageChannel(kind string) string {
 	switch kind {
 	case model.MsgNote:
@@ -72,7 +80,7 @@ func messageChannel(kind string) string {
 	return ChannelMessage
 }
 
-func (b *Board) RevokeLeaked(ctx context.Context, id string, src LeakSource, record func(tx store.Tx) (string, error)) (string, error) {
+func (b *Board) RevokeLeaked(ctx context.Context, id, tokenHash string, src LeakSource, record func(tx store.Tx) (string, error)) (string, error) {
 	sys := model.Actor{ID: "system", Role: "system"}
 	var leakID string
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -81,7 +89,7 @@ func (b *Board) RevokeLeaked(ctx context.Context, id string, src LeakSource, rec
 		if err != nil {
 			return model.NotFound("agent %s not found", id)
 		}
-		if a.Status == model.AgentRevoked {
+		if a.Status == model.AgentRevoked || a.TokenHash != tokenHash {
 			return nil
 		}
 		before := a.Status

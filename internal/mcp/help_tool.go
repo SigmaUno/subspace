@@ -33,22 +33,18 @@ func RegisterHelp(r *Registry, b *board.Board) {
 			"kind":    enum("what is wrong", "unclear_spec", "missing_access", "conflicting_requirements", "too_big", "dependency_issue"),
 			"details": str("specific description of the problem and what you need"),
 		}, "task_id", "kind", "details"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				TaskID  string `json:"task_id"`
-				Kind    string `json:"kind"`
-				Details string `json:"details"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			TaskID  string `json:"task_id"`
+			Kind    string `json:"kind"`
+			Details string `json:"details"`
+		}) (any, error) {
 			s, err := svc()
 			if err != nil {
 				return nil, err
 			}
 			req, err := s.RequestHelp(ctx, c.Actor, in.TaskID, in.Kind, in.Details)
 			return map[string]any{"request": req}, err
-		},
+		}),
 	})
 	r.Register(&Tool{
 		Name: "report_blocker",
@@ -60,22 +56,18 @@ func RegisterHelp(r *Registry, b *board.Board) {
 			"reason":  str("what blocks you"),
 			"needs":   enum("who must unblock it", "leader", "owner"),
 		}, "task_id", "reason", "needs"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				TaskID string `json:"task_id"`
-				Reason string `json:"reason"`
-				Needs  string `json:"needs"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			TaskID string `json:"task_id"`
+			Reason string `json:"reason"`
+			Needs  string `json:"needs"`
+		}) (any, error) {
 			s, err := svc()
 			if err != nil {
 				return nil, err
 			}
 			req, err := s.ReportBlocker(ctx, c.Actor, in.TaskID, in.Reason, in.Needs)
 			return map[string]any{"request": req}, err
-		},
+		}),
 	})
 	r.Register(&Tool{
 		Name:        "suggest_split",
@@ -88,21 +80,17 @@ func RegisterHelp(r *Registry, b *board.Board) {
 				"items": obj(taskSpec, "title", "spec"),
 			},
 		}, "task_id", "proposed_tasks"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				TaskID        string             `json:"task_id"`
-				ProposedTasks []helpreq.Proposed `json:"proposed_tasks"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			TaskID        string             `json:"task_id"`
+			ProposedTasks []helpreq.Proposed `json:"proposed_tasks"`
+		}) (any, error) {
 			s, err := svc()
 			if err != nil {
 				return nil, err
 			}
 			req, err := s.SuggestSplit(ctx, c.Actor, in.TaskID, in.ProposedTasks)
 			return map[string]any{"request": req}, err
-		},
+		}),
 	})
 	r.Register(&Tool{
 		Name:        "list_help_requests",
@@ -115,23 +103,19 @@ func RegisterHelp(r *Registry, b *board.Board) {
 			"task_id":  str("only this task"),
 			"limit":    intg("maximum number of requests, 1-1000"),
 		}),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				Status  string `json:"status"`
-				BriefID string `json:"brief_id"`
-				TaskID  string `json:"task_id"`
-				Limit   int    `json:"limit"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			Status  string `json:"status"`
+			BriefID string `json:"brief_id"`
+			TaskID  string `json:"task_id"`
+			Limit   int    `json:"limit"`
+		}) (any, error) {
 			s, err := svc()
 			if err != nil {
 				return nil, err
 			}
 			rs, err := s.ListFor(ctx, c.Actor, helpreq.Filter{Status: in.Status, BriefID: in.BriefID, TaskID: in.TaskID, Limit: in.Limit})
 			return map[string]any{"requests": rs}, err
-		},
+		}),
 	})
 	r.Register(&Tool{
 		Name: "accept_split",
@@ -139,13 +123,9 @@ func RegisterHelp(r *Registry, b *board.Board) {
 			"at the new ones and cancels the original task.",
 		Roles:  LeaderOnly,
 		Schema: obj(map[string]any{"request_id": str("split proposal id, e.g. HR-3")}, "request_id"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				RequestID string `json:"request_id"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			RequestID string `json:"request_id"`
+		}) (any, error) {
 			s, err := svc()
 			if err != nil {
 				return nil, err
@@ -155,6 +135,6 @@ func RegisterHelp(r *Registry, b *board.Board) {
 				return nil, err
 			}
 			return res, nil
-		},
+		}),
 	})
 }

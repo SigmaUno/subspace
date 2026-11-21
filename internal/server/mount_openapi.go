@@ -7,6 +7,7 @@ import (
 	"sync"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/openapi"
@@ -31,7 +32,7 @@ func init() {
 				})
 			})
 			if err != nil {
-				writeAPIError(w, model.Errf("internal", "openapi: %v", err))
+				httpx.WriteError(w, model.Errf("internal", "openapi: %v", err))
 				return
 			}
 			w.Header().Set("Content-Type", "application/json")

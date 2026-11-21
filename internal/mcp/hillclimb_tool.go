@@ -19,14 +19,10 @@ func RegisterHillclimb(r *Registry, b *board.Board, m *hillclimb.Measurer) {
 			"job_id": str("hill-climb job id, e.g. H-1"),
 			"branch": str("branch to measure: your task's branch or a variant of it (<task branch>-<suffix>)"),
 		}, "job_id", "branch"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				JobID  string `json:"job_id"`
-				Branch string `json:"branch"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			JobID  string `json:"job_id"`
+			Branch string `json:"branch"`
+		}) (any, error) {
 			if in.JobID == "" || in.Branch == "" {
 				return nil, model.BadRequest("job_id and branch are required")
 			}
@@ -61,7 +57,7 @@ func RegisterHillclimb(r *Registry, b *board.Board, m *hillclimb.Measurer) {
 				"attempt": a, "metric": a.Value, "loss": loss, "best": j.Best,
 				"job_status": j.Status, "stop_reason": j.StopReason, "remaining_attempts": remaining,
 			}, nil
-		},
+		}),
 	})
 }
 

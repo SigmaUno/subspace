@@ -10,7 +10,7 @@ from collections.abc import Callable, Iterable, Iterator, Sequence
 from dataclasses import dataclass
 from typing import Any
 
-from ._transport import backoff, parse_retry_after
+from ._transport import backoff, parse_retry_after, urlopen
 from .errors import SubspaceError, TransportError, error_from_body
 
 
@@ -84,7 +84,7 @@ class EventStream:
             headers["Last-Event-ID"] = str(self.last_event_id)
         req = urllib.request.Request(f"{self._base}/api/v1/events?{query}", headers=headers)
         try:
-            return urllib.request.urlopen(req, timeout=self._timeout)
+            return urlopen(req, timeout=self._timeout)
         except urllib.error.HTTPError as e:
             body = e.read()
             retry_after = parse_retry_after(e.headers.get("Retry-After"), time.time())

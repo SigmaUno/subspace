@@ -2,6 +2,7 @@ package dst
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"path/filepath"
@@ -17,7 +18,6 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
 )
 
 type BoardSystem struct {
@@ -28,7 +28,8 @@ type BoardSystem struct {
 	world World
 	brief string
 
-	st    *sqlite.Store
+	st    stateStore
+	pg    *pgSchema
 	b     *board.Board
 	cache *auth.Cache
 
@@ -38,6 +39,13 @@ type BoardSystem struct {
 	last   *State
 	dirty  map[string]bool
 	steps  int
+	viol   []*Violation
+}
+
+func (s *BoardSystem) fault(inv, format string, a ...any) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.viol = append(s.viol, violation(inv, format, a...))
 }
 
 func (s *BoardSystem) touch(op Op) {
@@ -61,8 +69,12 @@ func (s *BoardSystem) touch(op Op) {
 		mark("plans")
 	case OpSetCapacity:
 		mark("capacity")
-	case OpHandoff:
+	case OpHandoff, OpSetGates:
 		mark("briefs")
+	case OpIncidentStart, OpIncidentEnd, OpResumeAgent:
+		mark("agents", "tasks")
+	case OpScheduleTick, OpAcceptSplit:
+		mark("briefs", "tasks")
 	}
 }
 
@@ -71,15 +83,20 @@ func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, erro
 }
 
 func newBoardSystem(dir string, clock *Clock, lease time.Duration, also events.Publisher) (*BoardSystem, error) {
-	s := &BoardSystem{path: filepath.Join(dir, "dst.db"), lease: lease, clock: clock, hub: newRecorder(also), tokens: map[string][]string{}, dirty: map[string]bool{}}
+	pg, err := newPGSchema()
+	if err != nil {
+		return nil, err
+	}
+	s := &BoardSystem{path: filepath.Join(dir, "dst.db"), pg: pg, lease: lease, clock: clock, hub: newRecorder(also), tokens: map[string][]string{}, dirty: map[string]bool{}}
 	if err := s.open(); err != nil {
+		_ = pg.drop()
 		return nil, err
 	}
 	return s, nil
 }
 
 func (s *BoardSystem) open() error {
-	st, err := sqlite.Open(s.path)
+	st, err := s.openStore()
 	if err != nil {
 		return err
 	}
@@ -430,6 +447,7 @@ func (s *BoardSystem) Snapshot(ctx context.Context) (*State, error) {
 	for id, ts := range s.tokens {
 		out.Tokens[id] = len(ts) - 1
 	}
+	out.Faults = slices.Clone(s.viol)
 	s.mu.Unlock()
 	out.Subs, out.Subscribers = s.hub.stats()
 	s.last = out
@@ -442,10 +460,8 @@ func (s *BoardSystem) Audit(ctx context.Context) ([]*model.AuditEvent, error) {
 
 func (s *BoardSystem) Close() error {
 	herr := s.hub.reset()
-	if err := s.st.Close(); err != nil {
-		return err
-	}
-	return herr
+	err := s.st.Close()
+	return errors.Join(err, s.pg.drop(), herr)
 }
 
 func idLess(a, b string) bool {

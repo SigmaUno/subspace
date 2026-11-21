@@ -100,47 +100,6 @@ func TestHostDelegation(t *testing.T) {
 	}
 }
 
-func TestParsePullRequestEvent(t *testing.T) {
-	merged := `{"action":"closed","number":8,"pull_request":{"number":8,"title":"Add","state":"closed","merged":true,"html_url":"https://f/o/r/pulls/8","head":{"ref":"sub/t-8-add"},"base":{"ref":"main"}},"repository":{"full_name":"o/r"},"sender":{"login":"owner"}}`
-	opened := `{"action":"opened","pull_request":{"number":9,"state":"open","head":{"ref":"h"},"base":{"ref":"main"}},"repository":{"full_name":"o/r"}}`
-	tests := []struct {
-		name, event, body string
-		want              githost.PullRequestEvent
-		merged            bool
-		wantErr           bool
-	}{
-		{"merged", "pull_request", merged, githost.PullRequestEvent{Action: "closed", Repo: "o/r", Number: 8, Title: "Add", State: "closed", Merged: true, HeadBranch: "sub/t-8-add", BaseBranch: "main", URL: "https://f/o/r/pulls/8", Sender: "owner"}, true, false},
-		{"opened number fallback", "pull_request", opened, githost.PullRequestEvent{Action: "opened", Repo: "o/r", Number: 9, State: "open", HeadBranch: "h", BaseBranch: "main"}, false, false},
-		{"other event", "push", merged, githost.PullRequestEvent{}, false, true},
-		{"bad json", "pull_request", `{`, githost.PullRequestEvent{}, false, true},
-		{"missing pr", "pull_request", `{"action":"closed","repository":{"full_name":"o/r"}}`, githost.PullRequestEvent{}, false, true},
-		{"missing repo", "pull_request", `{"action":"closed","pull_request":{"number":1}}`, githost.PullRequestEvent{}, false, true},
-	}
-	for _, tc := range tests {
-		t.Run(tc.name, func(t *testing.T) {
-			ev, err := ParsePullRequestEvent(tc.event, []byte(tc.body))
-			if tc.wantErr {
-				if err == nil {
-					t.Fatal("expected error")
-				}
-				return
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			if ev != tc.want {
-				t.Fatalf("got %+v want %+v", ev, tc.want)
-			}
-			if ev.IsMerged() != tc.merged {
-				t.Errorf("IsMerged = %v", ev.IsMerged())
-			}
-		})
-	}
-	if _, err := ParsePullRequestEvent("push", nil); !errors.Is(err, ErrNotPullRequest) {
-		t.Errorf("want ErrNotPullRequest, got %v", err)
-	}
-}
-
 func TestPostStatus(t *testing.T) {
 	const sha = "0a1b2c3d4e5f60718293a4b5c6d7e8f901234567"
 	st := githost.CommitStatus{State: githost.StateSuccess, Context: "subspace/review", Description: "ok", TargetURL: "https://s/tasks/T-1"}

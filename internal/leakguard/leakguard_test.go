@@ -2,6 +2,7 @@ package leakguard_test
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -14,7 +15,11 @@ import (
 	"testing"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/leakguard"
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 )
@@ -272,6 +277,18 @@ func TestLeakInEveryChannelRevokesOnlyThatIdentity(t *testing.T) {
 			rid, rtok := f.agent("reviewer", "codex")
 			f.Must(f.lead, "assign", map[string]any{"task_id": task, "agent_id": rid, "as": "reviewer"})
 			f.Must(rtok, "review", map[string]any{"task_id": task, "verdict": "changes_requested", "comments": "do not commit " + v})
+		}},
+		{"task_text", func(v string) {
+			f.Must(f.lead, "create_task", map[string]any{"brief_id": f.brief, "title": "rotate keys", "spec": "use " + v, "repo": "o/r"})
+		}},
+		{"task_text", func(v string) {
+			_, task := f.claimed("worker", "claude-code")
+			f.Must(f.lead, "update_task", map[string]any{"task_id": task, "acceptance_criteria": []string{"works with " + v}})
+		}},
+		{"task_text", func(v string) {
+			f.Must(f.lead, "propose_plan", map[string]any{"brief_id": f.brief, "tasks": []any{
+				map[string]any{"title": "t " + v, "spec": "s", "repo": "o/r", "role": "worker", "acceptance_criteria": []string{"ok"}},
+			}})
 		}},
 		{"log_output", func(v string) {
 			tok, _ := f.claimed("worker", "claude-code")
@@ -545,5 +562,32 @@ func TestViewerTokenCannotReissue(t *testing.T) {
 	}
 	if code, _ := f.RESTAs(wtok, "POST", "/api/v1/token-leaks/"+leak+"/reissue", map[string]any{}); code != 403 && code != 401 {
 		t.Fatalf("agent reissue: %d", code)
+	}
+}
+
+type staleLookup struct{ a *model.Agent }
+
+func (s staleLookup) LookupToken(string) (*model.Agent, error) { return s.a, nil }
+
+func TestLeakOfTokenRotatedAfterLookupKeepsAgent(t *testing.T) {
+	f := setup(t)
+	id, old := f.agent("worker", "claude-code")
+	author, _ := f.agent("worker", "claude-code")
+	snap, err := f.Srv.Board.LoadByTokenHash(auth.Hash(old))
+	if err != nil || snap == nil {
+		t.Fatalf("load: %v %v", snap, err)
+	}
+	code, out := f.REST("POST", "/api/v1/agents/"+id+"/rotate-token", map[string]any{})
+	if code != 200 {
+		t.Fatalf("rotate: %d %v", code, out)
+	}
+	fresh := out["connect"].(map[string]any)["token"].(string)
+	g := leakguard.New(leakguard.Options{Board: f.Srv.Board, Store: f.Srv.Store, Agents: staleLookup{snap}})
+	g.Scan(context.Background(), board.LeakSource{Channel: board.ChannelMessage, Actor: model.Actor{ID: author, Role: "worker"}}, "old "+old)
+	if s := f.status(id); s != "active" {
+		t.Fatalf("agent is %s after a leak of its rotated token", s)
+	}
+	if c := f.mcpCode(fresh); c != 200 {
+		t.Fatalf("fresh token: %d", c)
 	}
 }

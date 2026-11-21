@@ -19,12 +19,8 @@ func RegisterOutput(r *Registry, s *agentout.Service) {
 			"text":    str("output text, at most 4096 bytes; longer text is truncated"),
 			"seq":     intg("optional increasing chunk number; a chunk whose seq is not above the last accepted one is ignored as a retry"),
 		}, "stream", "text"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in agentout.Input
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in agentout.Input) (any, error) {
 			return s.Append(ctx, c.Actor, in)
-		},
+		}),
 	})
 }

@@ -14,6 +14,7 @@ import (
 	"sync"
 	"testing"
 
+	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/openapi"
 )
 
@@ -39,6 +40,7 @@ var covered = map[string]use{
 	"DELETE /api/v1/artifacts/{id}":                                  {"artifacts delete A-1", ""},
 	"DELETE /api/v1/knowledge/{id}":                                  {"knowledge delete K-1", ""},
 	"DELETE /api/v1/plans/{id}/tasks/{taskId}":                       {"plans drop-task P-1 T-1", ""},
+	"DELETE /api/v1/playbooks/{name}":                                {"playbooks delete hotfix-x", ""},
 	"DELETE /api/v1/schedules/{id}":                                  {"schedules delete SC-1", ""},
 	"DELETE /api/v1/webhooks-out/{id}":                               {"webhooks-out delete W-1", ""},
 	"GET /api/v1/agent-output":                                       {"output latest", ""},
@@ -79,6 +81,7 @@ var covered = map[string]use{
 	"GET /api/v1/costs":                                              {"costs --group-by day", ""},
 	"GET /api/v1/decisions":                                          {"decisions list", ""},
 	"GET /api/v1/decisions/next":                                     {"decisions next", ""},
+	"GET /api/v1/ha":                                                 {"ha status", ""},
 	"GET /api/v1/digest/preview":                                     {"digest --window 24h", ""},
 	"GET /api/v1/incident":                                           {"incident list", ""},
 	"GET /api/v1/insights":                                           {"insights --severity high", ""},
@@ -98,6 +101,8 @@ var covered = map[string]use{
 	"GET /api/v1/plans":                                              {"plans list", ""},
 	"GET /api/v1/plans/{id}":                                         {"plans show P-1", ""},
 	"GET /api/v1/plans/{id}/estimates":                               {"estimates plan P-1", ""},
+	"GET /api/v1/playbooks":                                          {"playbooks list", ""},
+	"GET /api/v1/playbooks/{name}":                                   {"playbooks show hotfix", ""},
 	"GET /api/v1/prompts":                                            {"prompts list", ""},
 	"GET /api/v1/prompts/{id}":                                       {"prompts show x", ""},
 	"GET /api/v1/prompts/{id}/render":                                {"prompts render x", ""},
@@ -152,6 +157,8 @@ var covered = map[string]use{
 	"POST /api/v1/plans/{id}/approve":                                {"plans approve P-1", ""},
 	"POST /api/v1/plans/{id}/reject":                                 {"plans reject P-1 --reason r", ""},
 	"POST /api/v1/plans/{id}/tasks":                                  {"plans add-task P-1 --title t --spec s --repo o/r", ""},
+	"POST /api/v1/playbooks":                                         {"playbooks create hotfix-x --coverage tester", ""},
+	"POST /api/v1/playbooks/{name}/clone":                            {"playbooks clone hotfix hotfix-x", ""},
 	"POST /api/v1/questions/{id}/answer":                             {"answer Q-1 --answer yes", ""},
 	"POST /api/v1/reload":                                            {"reload", ""},
 	"POST /api/v1/resume-all":                                        {"resume-all", ""},
@@ -170,17 +177,11 @@ var covered = map[string]use{
 	"PUT /api/v1/capacity":                                           {"capacity set --file -", `{}`},
 	"PUT /api/v1/charter":                                            {"charter set --text rules", ""},
 	"PUT /api/v1/instructions/{scope}/{kind}":                        {"instructions set --kind rules --text t", ""},
+	"PUT /api/v1/playbooks/{name}":                                   {"playbooks update hotfix-x --description d", ""},
 	"PUT /api/v1/limits":                                             {"spend-limits set --daily-eur 10 --weekly-eur 0", ""},
 }
 
 var exempt = map[string]string{
-	"DELETE /api/v1/playbooks/{name}":                      pending,
-	"GET /api/v1/ha":                                       pending,
-	"GET /api/v1/playbooks":                                pending,
-	"GET /api/v1/playbooks/{name}":                         pending,
-	"POST /api/v1/playbooks":                               pending,
-	"POST /api/v1/playbooks/{name}/clone":                  pending,
-	"PUT /api/v1/playbooks/{name}":                         pending,
 	"DELETE /api/v1/push/subscriptions":                    "browser push subscriptions are created and removed by the browser itself",
 	"GET /api/v1/push/subscriptions":                       "browser push subscriptions are created and removed by the browser itself",
 	"GET /api/v1/push/vapid-key":                           "browser push subscriptions are created and removed by the browser itself",
@@ -263,6 +264,7 @@ func ownerRoutes(t *testing.T) []string {
 }
 
 func TestEveryOwnerRouteHasACommandOrAnExemption(t *testing.T) {
+	guardhint.Watch(t, guardhint.CLIParity)
 	routes := ownerRoutes(t)
 	for _, route := range routes {
 		_, has := covered[route]

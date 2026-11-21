@@ -63,7 +63,6 @@ type Service struct {
 	public  string
 
 	wake chan struct{}
-	wg   sync.WaitGroup
 
 	mu       sync.Mutex
 	pending  map[string]*model.Task
@@ -141,7 +140,7 @@ func New(o Options) (*Service, error) {
 
 func (s *Service) Start(ctx context.Context, hub events.Hub) {
 	sub := hub.Subscribe([]string{"board"})
-	s.wg.Go(func() {
+	go func() {
 		defer sub.Close()
 		for {
 			select {
@@ -153,13 +152,11 @@ func (s *Service) Start(ctx context.Context, hub events.Hub) {
 				}
 			}
 		}
-	})
+	}()
 	for range workers {
-		s.wg.Go(func() { s.work(ctx) })
+		go s.work(ctx)
 	}
 }
-
-func (s *Service) Wait() { s.wg.Wait() }
 
 func (s *Service) Enqueue(data any) {
 	var t model.Task

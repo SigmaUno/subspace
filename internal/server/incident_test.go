@@ -10,6 +10,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type incidentFleet struct{ lead, w1, w2, rev string }
@@ -17,7 +18,7 @@ type incidentFleet struct{ lead, w1, w2, rev string }
 func incidentEnv(t *testing.T, dataDir string) *servertest.Env {
 	t.Helper()
 	return servertest.Start(t, server.Config{
-		PublicURL: "http://sub.test", DBPath: filepath.Join(t.TempDir(), "t.db"), DataDir: dataDir,
+		PublicURL: "http://sub.test", DBPath: testdb.Path(t, "t.db"), DataDir: dataDir,
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute,
 	})
 }
@@ -360,5 +361,21 @@ func TestIncidentRejectsBadRequests(t *testing.T) {
 	}
 	if code, _ := e.RESTAs("", "POST", "/api/v1/incident", map[string]any{"reason": "x", "actions": []string{"pause_all"}}); code != 401 {
 		t.Fatalf("anonymous: %d", code)
+	}
+}
+
+func TestIncidentEndKeepsPauseItDidNotSet(t *testing.T) {
+	e := incidentEnv(t, t.TempDir())
+	incidentSetup(t, e)
+	if code, out := e.REST("POST", "/api/v1/pause-all", map[string]any{"reason": "budget review"}); code != 200 {
+		t.Fatalf("pause: %d %v", code, out)
+	}
+	_, out := e.REST("POST", "/api/v1/incident", map[string]any{"reason": "drill", "actions": []string{"pause_all"}})
+	code, end := e.REST("POST", "/api/v1/incident/"+out["id"].(string)+"/end", map[string]any{})
+	if code != 200 || end["resumed_all"] != false {
+		t.Fatalf("end: %d %v", code, end)
+	}
+	if !incidentPaused(t, e) {
+		t.Fatal("ending the incident lifted a pause the owner set before it")
 	}
 }

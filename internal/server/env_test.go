@@ -6,9 +6,10 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 const ownerTok = "owner-token-for-tests-0123456789"
@@ -22,7 +23,7 @@ type env struct {
 func newEnv(t *testing.T) *env {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: filepath.Join(t.TempDir(), "t.db"), OwnerToken: ownerTok, PublicURL: "http://sub.test",
+	s, err := New(ctx, Config{DBPath: testdb.Path(t, "t.db"), DataDir: testdb.DataDir(t), OwnerToken: ownerTok, PublicURL: "http://sub.test",
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute})
 	if err != nil {
 		t.Fatal(err)

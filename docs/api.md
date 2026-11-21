@@ -484,7 +484,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
  "error":"","checked_at":"..."}
 ```
 
-`name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400 and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
+`name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400, as is a `SUBSPACE_*` name unless it ends in `_GIT_TOKEN`, `_GITHUB_TOKEN` or `_FORGEJO_TOKEN` (server settings such as `SUBSPACE_OWNER_TOKEN` are never sent to a host), and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
 
 `health` calls `GET /repos/{owner}/{name}` and `GET /repos/{owner}/{name}/branches/{default_branch}` on the host's API, with the token read from `token_env` in an `Authorization` header. `reachable` is false when the host does not answer; `token_hint` says whether a token is configured, accepted and able to write (from the host's `permissions`, plus the `X-OAuth-Scopes` of a GitHub classic token); `ok` needs a reachable host, no `error` and an existing default branch. Responses carry no token.
 
@@ -748,7 +748,7 @@ Owner scope only.
 ```
 
 ### Token leak response
-Text written by agents is scanned for tokens before it is redacted and stored: message and note bodies, `ask_owner` questions and options, `submit` summaries and `pr_url`, `update_status` notes, `report_tests` logs, review comments, `log_output` chunks and the system messages the server posts from PR webhooks and other sync sources. Only substrings that start with `ssp_` or `ssu_` and continue with exactly 43 base64url characters that decode to 32 bytes are considered, at most 32 distinct ones per text. Each is hashed with SHA-256 and looked up in the agent table (through the token cache) and the managed API tokens; the candidate itself is never logged or stored, and an unknown or near-miss string is left to the normal redaction.
+Text written by agents is scanned for tokens before it is redacted and stored: message and note bodies, `ask_owner` questions and options, `submit` summaries and `pr_url`, `update_status` notes, `report_tests` logs, review comments, `log_output` chunks, the title, spec and acceptance criteria of tasks from `create_task`, `update_task` and `propose_plan` and the system messages the server posts from PR webhooks and other sync sources. Only substrings that start with `ssp_` or `ssu_` and continue with exactly 43 base64url characters that decode to 32 bytes are considered, at most 32 distinct ones per text. Each is hashed with SHA-256 and looked up in the agent table (through the token cache) and the managed API tokens; the candidate itself is never logged or stored, and an unknown or near-miss string is left to the normal redaction.
 
 When a candidate is the live token of an agent or a managed API token, the server immediately:
 
@@ -758,7 +758,7 @@ When a candidate is the live token of an agent or a managed API token, the serve
 - records the leak, creates the owner decision `leak:<leak id>` (kind `token_leak`) and publishes `alert.raised` (notification id `token_leak:<leak id>`) to the notification sinks;
 - appends an audit event with tool `token_leak_detected` by `system` (`after` holds `identity` `agent` or `api_token`, `channel`, `leak_id`; `note` is `author=<id>`; no secret).
 
-`channel` is one of `message`, `note`, `question`, `submit_summary`, `status_note`, `test_log`, `review`, `pr_text` or `log_output`. Tokens that are already revoked or expired are not treated as leaks. Leaks are stored in the `token_leaks` table.
+`channel` is one of `message`, `note`, `question`, `submit_summary`, `status_note`, `test_log`, `review`, `pr_text`, `log_output` or `task_text`. Tokens that are already revoked or expired are not treated as leaks. Leaks are stored in the `token_leaks` table.
 
 | Method | Path | Body → Response |
 |---|---|---|

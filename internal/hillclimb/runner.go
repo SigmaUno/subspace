@@ -176,29 +176,28 @@ func (r *GitRunner) checkout(ctx context.Context, cache, url, branch, id, src st
 		if err := os.MkdirAll(cache, 0o750); err != nil {
 			return err
 		}
-		if _, err := r.git(ctx, cache, "init", "--bare", "--quiet"); err != nil {
+		if err := r.git(ctx, cache, "init", "--bare", "--quiet"); err != nil {
 			return err
 		}
 	}
 	ref := "refs/hillclimb/" + id
-	if _, err := r.git(ctx, cache, "fetch", "--quiet", "--no-tags", url, "+refs/heads/"+branch+":"+ref); err != nil {
+	if err := r.git(ctx, cache, "fetch", "--quiet", "--no-tags", url, "+refs/heads/"+branch+":"+ref); err != nil {
 		return model.BadRequest("fetch branch %s: %v", branch, err)
 	}
-	defer func() { _, _ = r.git(context.Background(), cache, "update-ref", "-d", ref) }()
-	_, err := r.git(ctx, cache, "worktree", "add", "--quiet", "--detach", src, ref)
-	return err
+	defer func() { _ = r.git(context.Background(), cache, "update-ref", "-d", ref) }()
+	return r.git(ctx, cache, "worktree", "add", "--quiet", "--detach", src, ref)
 }
 
 func (r *GitRunner) removeWorktree(cache, src string) {
 	mu := r.lock(cache)
 	mu.Lock()
 	defer mu.Unlock()
-	_, _ = r.git(context.Background(), cache, "worktree", "remove", "--force", src)
+	_ = r.git(context.Background(), cache, "worktree", "remove", "--force", src)
 	_ = os.RemoveAll(src)
-	_, _ = r.git(context.Background(), cache, "worktree", "prune")
+	_ = r.git(context.Background(), cache, "worktree", "prune")
 }
 
-func (r *GitRunner) git(ctx context.Context, dir string, args ...string) (string, error) {
+func (r *GitRunner) git(ctx context.Context, dir string, args ...string) error {
 	bin := r.Git
 	if bin == "" {
 		bin = "git"
@@ -209,9 +208,9 @@ func (r *GitRunner) git(ctx context.Context, dir string, args ...string) (string
 	var out bytes.Buffer
 	c.Stdout, c.Stderr = &out, &out
 	if err := c.Run(); err != nil {
-		return out.String(), fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(tail(out.String())))
+		return fmt.Errorf("git %s: %w: %s", args[0], err, strings.TrimSpace(tail(out.String())))
 	}
-	return out.String(), nil
+	return nil
 }
 
 func (r *GitRunner) exec(ctx context.Context, run, src, cmd string) (string, error) {

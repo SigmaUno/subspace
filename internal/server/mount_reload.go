@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/reload"
 )
 
@@ -16,16 +17,16 @@ func init() {
 			res, err := reloadConfig(r.Context(), d.Reload, d.Board, d.Log, "")
 			var rejected *reload.Error
 			if errors.As(err, &rejected) {
-				writeAPIJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
+				httpx.WriteJSON(w, http.StatusBadRequest, map[string]any{"error": map[string]any{
 					"code": "bad_request", "message": rejected.Error(), "errors": rejected.Errors,
 				}})
 				return
 			}
 			if err != nil {
-				writeAPIError(w, err)
+				httpx.WriteError(w, err)
 				return
 			}
-			writeAPIJSON(w, http.StatusOK, res)
+			httpx.WriteJSON(w, http.StatusOK, res)
 		}))
 	})
 }

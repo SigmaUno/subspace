@@ -97,8 +97,6 @@ func New(o Options) (*Service, error) {
 	return &Service{st: o.Store, pol: o.Policy, dir: o.Dir, now: o.Now, log: o.Log}, nil
 }
 
-func (s *Service) Dir() string { return s.dir }
-
 func (s *Service) Run(ctx context.Context) {
 	if m, ok := s.st.(Maintainer); ok && s.pol.WALAutocheckpoint > 0 {
 		if err := m.SetAutocheckpoint(ctx, s.pol.WALAutocheckpoint); err != nil && ctx.Err() == nil {
@@ -534,3 +532,5 @@ func record(r row) audit.Record {
 	return audit.Record{ID: r.int("id"), TS: r.int("ts"), AgentID: r.str("agent_id"), Role: r.str("role"), Tool: r.str("tool"),
 		TaskID: r.str("task_id"), Before: r.str("before"), After: r.str("after"), Note: r.str("note")}
 }
+
+func (s *Service) Dir() string { return s.dir }

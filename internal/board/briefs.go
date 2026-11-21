@@ -71,7 +71,7 @@ func (b *Board) PauseAll(ctx context.Context, reason string) error {
 			return err
 		}
 		for _, t := range ts {
-			if err := b.releaseLease(tx, w, model.Owner, t, model.StatusAssigned, "pause_all: lease revoked"); err != nil {
+			if err := b.releaseLease(tx, w, model.Owner, t, "pause_all: lease revoked"); err != nil {
 				return err
 			}
 		}
@@ -417,6 +417,11 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 	if len(in.Tasks) == 0 || len(in.Tasks) > maxPlanTasks {
 		return nil, model.BadRequest("a plan needs 1..%d tasks", maxPlanTasks)
 	}
+	tasks := make([]TaskInput, len(in.Tasks))
+	for i, t := range in.Tasks {
+		tasks[i] = b.scrubTask(ctx, a, t)
+	}
+	in.Tasks = tasks
 	var out *model.Plan
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)

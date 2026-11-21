@@ -138,14 +138,6 @@ func (a *args) eq(col, v string) {
 	}
 }
 
-func (a *args) after(afterID string) {
-	if afterID == "" {
-		return
-	}
-	n := a.add(store.IDNum(afterID))
-	a.where = append(a.where, "("+idNum+" > "+n+" OR ("+idNum+" = "+n+" AND id > "+a.add(afterID)+"))")
-}
-
 func (a *args) afterCreated(table, afterID string) {
 	if afterID == "" {
 		return

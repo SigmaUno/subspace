@@ -2,6 +2,7 @@ package sqlite
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -69,6 +70,28 @@ func (t *tx) Costs(q store.CostQuery) ([]store.CostRow, error) {
 		if err := rows.Scan(&r.Key, &r.Sub, &r.Requests, &r.TokensIn, &r.TokensOut, &r.CacheRead, &r.CacheWrite, &r.CostEUR); err != nil {
 			return nil, err
 		}
+		out = append(out, r)
+	}
+	return out, rows.Err()
+}
+
+func (t *tx) ListCosts(since, until time.Time) ([]store.CostRecord, error) {
+	rows, err := t.q.QueryContext(t.ctx, `SELECT key, ts, brief_id, task_id, component_id, agent_id, kind, role, provider, model,
+		tokens_in, tokens_out, cache_read, cache_write, cost_eur FROM cost_records WHERE ts >= ? AND ts < ? ORDER BY ts, key`,
+		since.UnixMilli(), until.UnixMilli())
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	var out []store.CostRecord
+	for rows.Next() {
+		var r store.CostRecord
+		var ts int64
+		if err := rows.Scan(&r.Key, &ts, &r.BriefID, &r.TaskID, &r.ComponentID, &r.AgentID, &r.Kind, &r.Role, &r.Provider, &r.Model,
+			&r.TokensIn, &r.TokensOut, &r.CacheRead, &r.CacheWrite, &r.CostEUR); err != nil {
+			return nil, err
+		}
+		r.TS = time.UnixMilli(ts).UTC()
 		out = append(out, r)
 	}
 	return out, rows.Err()

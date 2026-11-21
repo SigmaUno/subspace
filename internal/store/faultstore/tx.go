@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"fmt"
+	"time"
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -276,4 +277,8 @@ func (t *Tx) PutCost(r store.CostRecord) error {
 
 func (t *Tx) Costs(q store.CostQuery) ([]store.CostRow, error) {
 	return callOn(t, "Costs", noCosts, func(in store.CostsTx) ([]store.CostRow, error) { return in.Costs(q) })
+}
+
+func (t *Tx) ListCosts(since, until time.Time) ([]store.CostRecord, error) {
+	return callOn(t, "ListCosts", noCosts, func(in store.CostsTx) ([]store.CostRecord, error) { return in.ListCosts(since, until) })
 }

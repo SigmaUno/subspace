@@ -200,7 +200,7 @@ func TestInProcess(t *testing.T) {
 func TestSSETrackRestartResyncIsNotADuplicate(t *testing.T) {
 	f := &sseFleet{}
 	last, hello := int64(0), int64(0)
-	feed := func(name, id string) { f.track(client.Event{Name: name, ID: id}, &last, &hello) }
+	feed := func(name, id string) { f.track(client.RawEvent{Name: []byte(name), ID: []byte(id)}, &last, &hello) }
 
 	for _, id := range []string{"1", "2", "3", "4"} {
 		feed("task.updated", id)

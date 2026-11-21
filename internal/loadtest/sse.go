@@ -1,6 +1,7 @@
 package loadtest
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -8,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"strconv"
-	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -133,7 +133,7 @@ func (f *sseFleet) subscribe(ctx context.Context, last *int64, lifetime time.Dur
 	)
 	defer local.flush(f)
 	for {
-		ev, err := stream.Next()
+		ev, err := stream.NextRaw()
 		if err != nil {
 			if cctx.Err() == nil && !errors.Is(err, io.EOF) && !f.persist {
 				f.streamErrors.Add(1)
@@ -145,12 +145,12 @@ func (f *sseFleet) subscribe(ctx context.Context, last *int64, lifetime time.Dur
 	}
 }
 
-func (f *sseFleet) track(ev client.Event, last, hello *int64) {
-	id, err := strconv.ParseInt(ev.ID, 10, 64)
-	if err != nil {
+func (f *sseFleet) track(ev client.RawEvent, last, hello *int64) {
+	id, ok := parseID(ev.ID)
+	if !ok {
 		return
 	}
-	switch ev.Name {
+	switch string(ev.Name) {
 	case "hello":
 		if id < *last {
 			*last = 0
@@ -182,24 +182,25 @@ func (l *sseLocal) flush(f *sseFleet) {
 	f.events.Add(l.events)
 }
 
-func (f *sseFleet) handle(ev client.Event, ready func(), local *sseLocal) {
+func (f *sseFleet) handle(ev client.RawEvent, ready func(), local *sseLocal) {
 	now := time.Now()
 	typ, ts := envelopeHead(ev.Data)
-	if ev.Name != "" {
+	if len(ev.Name) > 0 {
 		typ = ev.Name
 	}
-	switch typ {
+	switch string(typ) {
 	case "hello":
 		ready()
 		return
 	case "lagged":
-		env, _ := ev.Envelope()
-		var d struct {
-			Dropped int64 `json:"dropped"`
+		var env struct {
+			Data struct {
+				Dropped int64 `json:"dropped"`
+			} `json:"data"`
 		}
-		_ = json.Unmarshal(env.Data, &d)
+		_ = json.Unmarshal(ev.Data, &env)
 		f.lagged.Add(1)
-		f.dropped.Add(d.Dropped)
+		f.dropped.Add(env.Data.Dropped)
 		return
 	}
 	local.events++
@@ -208,25 +209,40 @@ func (f *sseFleet) handle(ev client.Event, ready func(), local *sseLocal) {
 	}
 }
 
-func envelopeHead(data string) (typ string, ts time.Time) {
-	typ, _ = jsonStringField(data, `"type":"`)
-	if v, ok := jsonStringField(data, `"ts":"`); ok {
-		ts, _ = time.Parse(time.RFC3339Nano, v)
-		return typ, ts
+func parseID(b []byte) (int64, bool) {
+	if len(b) == 0 || len(b) > 18 {
+		return 0, false
 	}
-	env, _ := client.Event{Data: data}.Envelope()
-	return env.Type, env.TS
+	var n int64
+	for _, c := range b {
+		if c < '0' || c > '9' {
+			return 0, false
+		}
+		n = n*10 + int64(c-'0')
+	}
+	return n, true
 }
 
-func jsonStringField(data, key string) (string, bool) {
-	i := strings.Index(data, key)
+func envelopeHead(data []byte) (typ []byte, ts time.Time) {
+	typ, _ = jsonStringField(data, []byte(`"type":"`))
+	if v, ok := jsonStringField(data, []byte(`"ts":"`)); ok {
+		ts, _ = time.Parse(time.RFC3339Nano, string(v))
+		return typ, ts
+	}
+	var env client.Envelope
+	_ = json.Unmarshal(data, &env)
+	return []byte(env.Type), env.TS
+}
+
+func jsonStringField(data, key []byte) ([]byte, bool) {
+	i := bytes.Index(data, key)
 	if i < 0 {
-		return "", false
+		return nil, false
 	}
 	v := data[i+len(key):]
-	j := strings.IndexAny(v, `"\`)
+	j := bytes.IndexAny(v, `"\`)
 	if j < 0 || v[j] != '"' {
-		return "", false
+		return nil, false
 	}
 	return v[:j], true
 }

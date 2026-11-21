@@ -31,7 +31,17 @@ func (e Event) Envelope() (Envelope, error) {
 	return env, err
 }
 
-type eventReader struct{ br *bufio.Reader }
+type RawEvent struct {
+	ID   []byte
+	Name []byte
+	Data []byte
+}
+
+type eventReader struct {
+	br      *bufio.Reader
+	raw     RawEvent
+	hasData bool
+}
 
 func newEventReader(r io.Reader) *eventReader {
 	return &eventReader{br: bufio.NewReaderSize(r, 64<<10)}
@@ -50,36 +60,51 @@ func (r *eventReader) line() ([]byte, error) {
 	return buf, err
 }
 
-func (r *eventReader) next() (Event, error) {
-	var cur Event
-	var data []string
+func (r *eventReader) reset() {
+	r.raw = RawEvent{ID: r.raw.ID[:0], Name: r.raw.Name[:0], Data: r.raw.Data[:0]}
+	r.hasData = false
+}
+
+func (r *eventReader) nextRaw() (RawEvent, error) {
+	r.reset()
 	for {
 		line, err := r.line()
 		if err != nil {
-			return Event{}, err
+			return RawEvent{}, err
 		}
 		line = bytes.TrimRight(line, "\r\n")
 		switch {
 		case len(line) == 0:
-			if len(data) > 0 || cur.Name != "" {
-				cur.Data = strings.Join(data, "\n")
-				return cur, nil
+			if r.hasData || len(r.raw.Name) > 0 {
+				return r.raw, nil
 			}
-			cur, data = Event{}, data[:0]
+			r.reset()
 		case line[0] == ':':
 		default:
 			k, v, _ := bytes.Cut(line, []byte(":"))
 			v = bytes.TrimPrefix(v, []byte(" "))
 			switch string(k) {
 			case "id":
-				cur.ID = string(v)
+				r.raw.ID = append(r.raw.ID[:0], v...)
 			case "event":
-				cur.Name = string(v)
+				r.raw.Name = append(r.raw.Name[:0], v...)
 			case "data":
-				data = append(data, string(v))
+				if r.hasData {
+					r.raw.Data = append(r.raw.Data, '\n')
+				}
+				r.raw.Data = append(r.raw.Data, v...)
+				r.hasData = true
 			}
 		}
 	}
+}
+
+func (r *eventReader) next() (Event, error) {
+	raw, err := r.nextRaw()
+	if err != nil {
+		return Event{}, err
+	}
+	return Event{ID: string(raw.ID), Name: string(raw.Name), Data: string(raw.Data)}, nil
 }
 
 type EventStream struct {
@@ -88,6 +113,8 @@ type EventStream struct {
 }
 
 func (s *EventStream) Next() (Event, error) { return s.r.next() }
+
+func (s *EventStream) NextRaw() (RawEvent, error) { return s.r.nextRaw() }
 
 func (s *EventStream) Close() error { return s.body.Close() }
 

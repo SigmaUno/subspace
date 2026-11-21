@@ -331,7 +331,11 @@ func (s *Service) Run(ctx context.Context, hub events.Hub) {
 				continue
 			}
 			if st.HeadSHA != "" {
-				_ = s.recordHead(ctx, st.TaskID, st.HeadSHA, ev.TS)
+				at := st.ChangedAt
+				if at.IsZero() {
+					at = ev.TS
+				}
+				_ = s.recordHead(ctx, st.TaskID, st.HeadSHA, at)
 			}
 			_, _ = s.b.PromoteGated(ctx, st.TaskID)
 		}

@@ -131,10 +131,13 @@ func (s *sub) wants(topics []string) bool {
 }
 
 func (h *hub) Publish(topics []string, typ string, data any) {
+	ts := time.Now().UTC()
+	payload := encodePayload(typ, ts, data)
 	h.mu.Lock()
 	defer h.mu.Unlock()
 	h.seq++
-	ev := Event{Seq: h.seq, Type: typ, TS: time.Now().UTC(), Data: data, enc: &encoded{}}
+	ev := Event{Seq: h.seq, Type: typ, TS: ts, Data: data, enc: &encoded{}}
+	ev.enc.once.Do(func() { ev.enc.b = frameOf(ev.Seq, typ, payload) })
 	h.record(ev, topics)
 
 	for _, s := range h.topics[TopicAll] {

@@ -1,15 +1,14 @@
 package alerts
 
 import (
-	"bytes"
 	"net/http"
 	"sync"
 	"sync/atomic"
+
+	"github.com/SigmaUno/subspace/internal/events"
 )
 
 const eventsPath = "/api/v1/events"
-
-var laggedMark = []byte("event: lagged\n")
 
 type SSEMonitor struct {
 	active atomic.Int64
@@ -33,25 +32,20 @@ func (m *SSEMonitor) Middleware(next http.Handler) http.Handler {
 		}
 		m.active.Add(1)
 		defer m.active.Add(-1)
-		next.ServeHTTP(&sseStream{ResponseWriter: w, m: m}, r)
+		s := &sseStream{m: m}
+		next.ServeHTTP(w, r.WithContext(events.WithLaggedHook(r.Context(), s.lagged)))
 	})
 }
 
 type sseStream struct {
-	http.ResponseWriter
 	m *SSEMonitor
 }
 
-func (s *sseStream) Write(p []byte) (int, error) {
-	if bytes.Contains(p, laggedMark) {
-		s.m.mu.Lock()
-		if s.m.lagged == nil {
-			s.m.lagged = map[*sseStream]struct{}{}
-		}
-		s.m.lagged[s] = struct{}{}
-		s.m.mu.Unlock()
+func (s *sseStream) lagged() {
+	s.m.mu.Lock()
+	if s.m.lagged == nil {
+		s.m.lagged = map[*sseStream]struct{}{}
 	}
-	return s.ResponseWriter.Write(p)
+	s.m.lagged[s] = struct{}{}
+	s.m.mu.Unlock()
 }
-
-func (s *sseStream) Unwrap() http.ResponseWriter { return s.ResponseWriter }

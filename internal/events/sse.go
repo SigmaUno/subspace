@@ -20,6 +20,12 @@ const writeBuffer = 32 << 10
 
 type shutdownKey struct{}
 
+type laggedHookKey struct{}
+
+func WithLaggedHook(ctx context.Context, fn func()) context.Context {
+	return context.WithValue(ctx, laggedHookKey{}, fn)
+}
+
 func WithShutdown(ctx context.Context, done <-chan struct{}) context.Context {
 	return context.WithValue(ctx, shutdownKey{}, done)
 }
@@ -30,6 +36,21 @@ func shutdownFrom(ctx context.Context) <-chan struct{} {
 }
 
 func ShutdownSignal(ctx context.Context) <-chan struct{} { return shutdownFrom(ctx) }
+
+func relay(ctx context.Context, src <-chan struct{}) <-chan struct{} {
+	if src == nil {
+		return nil
+	}
+	out := make(chan struct{})
+	go func() {
+		select {
+		case <-src:
+			close(out)
+		case <-ctx.Done():
+		}
+	}()
+	return out
+}
 
 type seqer interface{ Seq() int64 }
 
@@ -45,10 +66,18 @@ type encoded struct {
 }
 
 func encodeFrame(id int64, typ string, ts time.Time, data any) []byte {
+	return frameOf(id, typ, encodePayload(typ, ts, data))
+}
+
+func encodePayload(typ string, ts time.Time, data any) []byte {
 	b, err := json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: data})
 	if err != nil {
 		b, _ = json.Marshal(wireEvent{Type: typ, TS: ts.UTC().Format(time.RFC3339), Data: nil})
 	}
+	return b
+}
+
+func frameOf(id int64, typ string, b []byte) []byte {
 	buf := make([]byte, 0, len(b)+len(typ)+40)
 	if id >= 0 {
 		buf = append(buf, "id: "...)
@@ -121,7 +150,7 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			return
 		}
 		rc := http.NewResponseController(w)
-		shutdown := shutdownFrom(r.Context())
+		shutdown := relay(r.Context(), shutdownFrom(r.Context()))
 
 		var (
 			sub     Subscription
@@ -159,8 +188,12 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			}
 			return rc.Flush()
 		}
+		onLagged, _ := r.Context().Value(laggedHookKey{}).(func())
 		lagged := func() error {
 			if n := sub.TakeDropped(); n > 0 {
+				if onLagged != nil {
+					onLagged()
+				}
 				_, err := bw.Write(encodeFrame(-1, "lagged", time.Now(), map[string]int{"dropped": n}))
 				return err
 			}
@@ -193,11 +226,40 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 			return err
 		}
 
+		drain := func() (int, bool) {
+			n := 0
+			for ; n < SubscriberBuffer; n++ {
+				select {
+				case ev, ok := <-sub.C():
+					if !ok {
+						_ = flush()
+						return n, false
+					}
+					if err := write(ev); err != nil {
+						return n, false
+					}
+				default:
+					return n, flush() == nil
+				}
+			}
+			return n, flush() == nil
+		}
+
 		t := time.NewTicker(ping)
 		defer t.Stop()
 		ft := time.NewTimer(flushDelay)
 		defer ft.Stop()
+		polling := false
 		for {
+			var (
+				poll <-chan time.Time
+				evs  <-chan Event
+			)
+			if polling {
+				poll = ft.C
+			} else {
+				evs = sub.C()
+			}
 			select {
 			case <-r.Context().Done():
 				return
@@ -221,7 +283,16 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				if err := flush(); err != nil {
 					return
 				}
-			case ev, ok := <-sub.C():
+			case <-poll:
+				arm()
+				n, ok := drain()
+				if !ok {
+					return
+				}
+				if polling = n > 0; polling {
+					ft.Reset(flushDelay)
+				}
+			case ev, ok := <-evs:
 				if !ok {
 					return
 				}
@@ -236,24 +307,11 @@ func NewSSEHandler(h Hub, topics func(*http.Request) []string, ping time.Duratio
 				case <-ft.C:
 				}
 				arm()
-			drain:
-				for n := 0; n < SubscriberBuffer; n++ {
-					select {
-					case ev, ok := <-sub.C():
-						if !ok {
-							_ = flush()
-							return
-						}
-						if err := write(ev); err != nil {
-							return
-						}
-					default:
-						break drain
-					}
-				}
-				if err := flush(); err != nil {
+				if _, ok := drain(); !ok {
 					return
 				}
+				polling = true
+				ft.Reset(flushDelay)
 			}
 		}
 	})

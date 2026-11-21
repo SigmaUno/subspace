@@ -260,7 +260,8 @@ func TestPlaybookWarningsAreRecordedOnThePlan(t *testing.T) {
 func TestCreateTaskGetsDefaultBudget(t *testing.T) {
 	f := start(t)
 	bid := f.brief(t, "performance", nil)["id"].(string)
-	got := f.Must(f.lead, "create_task", map[string]any{"brief_id": bid, "title": "profile hot path", "spec": "profile the hot path", "repo": "o/r"})["task"].(map[string]any)
+	got := f.Must(f.lead, "create_task", map[string]any{"brief_id": bid, "title": "profile hot path", "spec": "profile the hot path", "repo": "o/r",
+		"acceptance_criteria": []string{"p95 latency drops by 20%"}})["task"].(map[string]any)
 	if b := got["budget"].(map[string]any); b["max_minutes"] != 120.0 || b["max_cost_eur"] != 6.0 {
 		t.Fatalf("budget = %v", b)
 	}
@@ -268,6 +269,41 @@ func TestCreateTaskGetsDefaultBudget(t *testing.T) {
 	got = f.Must(f.lead, "create_task", map[string]any{"brief_id": plain, "title": "profile hot path", "spec": "profile the hot path", "repo": "o/r"})["task"].(map[string]any)
 	if b := got["budget"].(map[string]any); b["max_minutes"] != 0.0 {
 		t.Fatalf("plain budget = %v", b)
+	}
+}
+
+func TestCreateAndUpdateTaskEnforcePlaybookAfterApproval(t *testing.T) {
+	f := start(t)
+	bid := f.brief(t, "hotfix", nil)["id"].(string)
+	regression := "A regression test reproduces the crash"
+	plan := f.Must(f.lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": []any{
+		task("fix", "fix crash", "worker", 60, nil, regression),
+		task("undo", "rollback of the fix", "worker", 30, nil, "Regression test covers the rollback"),
+		task("t1", "test fix", "tester", 30, []string{"fix", "undo"}, "Report lists failures"),
+	}})["plan"].(map[string]any)
+	rest(t, f.Env, 200, "POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{})
+
+	out, isErr := f.Call(f.lead, "create_task", map[string]any{"brief_id": bid, "title": "rewrite the parser", "spec": "rewrite it",
+		"repo": "o/r", "acceptance_criteria": []string{"Parser is faster"}, "budget": map[string]any{"max_minutes": 900}})
+	msg := errorMessage(out)
+	if !isErr {
+		t.Fatalf("create_task bypassed the playbook: %v", out)
+	}
+	for _, want := range []string{"playbook hotfix", "playbook_criteria", "playbook_task_size"} {
+		if !strings.Contains(msg, want) {
+			t.Errorf("message lacks %q: %s", want, msg)
+		}
+	}
+
+	ok := f.Must(f.lead, "create_task", map[string]any{"brief_id": bid, "title": "guard nil config", "spec": "guard it", "repo": "o/r",
+		"acceptance_criteria": []string{regression}})["task"].(map[string]any)
+	id := ok["id"].(string)
+	f.MustFail(f.lead, "update_task", map[string]any{"task_id": id, "acceptance_criteria": []string{"Looks fine"}}, "bad_request")
+	f.Must(f.lead, "update_task", map[string]any{"task_id": id, "acceptance_criteria": []string{regression, "Docs updated"}})
+
+	got := rest(t, f.Env, 200, "GET", "/api/v1/tasks/"+id, nil)
+	if fmt.Sprint(got["acceptance_criteria"]) != "["+regression+" Docs updated]" {
+		t.Fatalf("criteria = %v", got["acceptance_criteria"])
 	}
 }
 

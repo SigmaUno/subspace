@@ -3,6 +3,8 @@
 .PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
+.PHONY: sync
+
 GO ?= go
 BIN := bin
 LDFLAGS := -s -w
@@ -34,6 +36,9 @@ fmt:
 
 gen-ts:
 	$(GO) run ./cmd/gen-ts -o web/lib/generated-types.ts
+
+sync:
+	./scripts/sync.sh
 
 run: build
 	SUBSPACE_OWNER_TOKEN=$${SUBSPACE_OWNER_TOKEN:-dev-owner-token} SUBSPACE_DB=$${SUBSPACE_DB:-./data/subspace.db} SUBSPACE_ADDR=$${SUBSPACE_ADDR:-:8080} $(BIN)/subspace

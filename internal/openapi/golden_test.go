@@ -10,6 +10,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/openapi"
 	"github.com/SigmaUno/subspace/internal/servertest"
@@ -142,6 +143,7 @@ func checkGolden(t *testing.T, path string, cur map[string]any, classify func(ol
 }
 
 func TestOpenAPIGolden(t *testing.T) {
+	guardhint.Watch(t, guardhint.OpenAPIGolden)
 	t.Run("rest", func(t *testing.T) {
 		checkGolden(t, restGolden, currentDocument(t), classifyDocs)
 	})

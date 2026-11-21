@@ -26,18 +26,14 @@ func RegisterTaskTemplates(r *Registry, b *board.Board, lib *prompts.Library) {
 			"depends_on": strs("task ids"),
 			"priority":   intg("higher runs first, default 0"),
 		}, "brief_id", "template_id", "vars", "repo"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				BriefID    string            `json:"brief_id"`
-				TemplateID string            `json:"template_id"`
-				Vars       map[string]string `json:"vars"`
-				Repo       string            `json:"repo"`
-				DependsOn  []string          `json:"depends_on"`
-				Priority   int               `json:"priority"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			BriefID    string            `json:"brief_id"`
+			TemplateID string            `json:"template_id"`
+			Vars       map[string]string `json:"vars"`
+			Repo       string            `json:"repo"`
+			DependsOn  []string          `json:"depends_on"`
+			Priority   int               `json:"priority"`
+		}) (any, error) {
 			if in.BriefID == "" || in.TemplateID == "" {
 				return nil, model.BadRequest("brief_id and template_id are required")
 			}
@@ -50,7 +46,7 @@ func RegisterTaskTemplates(r *Registry, b *board.Board, lib *prompts.Library) {
 				Repo: in.Repo, DependsOn: in.DependsOn, Role: rt.Role, Budget: rt.Budget, Priority: in.Priority,
 			})
 			return map[string]any{"task": t}, err
-		},
+		}),
 	})
 }
 

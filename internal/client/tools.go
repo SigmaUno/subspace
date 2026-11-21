@@ -37,6 +37,14 @@ type UsageReport struct {
 	RequestID   string  `json:"request_id,omitempty"`
 }
 
+func callTool[T any](ctx context.Context, m *MCP, tool string, args any) (*T, error) {
+	var out T
+	if err := m.Call(ctx, tool, args, &out); err != nil {
+		return nil, err
+	}
+	return &out, nil
+}
+
 func (m *MCP) task(ctx context.Context, tool string, args any) (*model.Task, error) {
 	var out struct {
 		Task *model.Task `json:"task"`
@@ -70,19 +78,11 @@ func (m *MCP) message(ctx context.Context, tool string, args any) (*model.Messag
 func taskArgs(id string) map[string]any { return map[string]any{"task_id": id} }
 
 func (m *MCP) GetInstructions(ctx context.Context) (*Instructions, error) {
-	var out Instructions
-	if err := m.Call(ctx, "get_instructions", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return callTool[Instructions](ctx, m, "get_instructions", nil)
 }
 
 func (m *MCP) WhoAmI(ctx context.Context) (*WhoAmI, error) {
-	var out WhoAmI
-	if err := m.Call(ctx, "whoami", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return callTool[WhoAmI](ctx, m, "whoami", nil)
 }
 
 func (m *MCP) ListMyTasks(ctx context.Context, statuses ...string) ([]*model.Task, error) {
@@ -102,11 +102,7 @@ func (m *MCP) Heartbeat(ctx context.Context, taskID string) (*board.HeartbeatRes
 	if taskID != "" {
 		args["task_id"] = taskID
 	}
-	var out board.HeartbeatResult
-	if err := m.Call(ctx, "heartbeat", args, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return callTool[board.HeartbeatResult](ctx, m, "heartbeat", args)
 }
 
 func (m *MCP) UpdateStatus(ctx context.Context, in board.StatusInput) (*model.Task, error) {
@@ -284,11 +280,7 @@ func (m *MCP) ListAgents(ctx context.Context, role, status string) ([]*model.Age
 }
 
 func (m *MCP) Capacity(ctx context.Context) (*board.CapacityView, error) {
-	var out board.CapacityView
-	if err := m.Call(ctx, "capacity", nil, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return callTool[board.CapacityView](ctx, m, "capacity", nil)
 }
 
 func (m *MCP) RequestSpawn(ctx context.Context, in board.SpawnInput) ([]*model.Spawn, error) {

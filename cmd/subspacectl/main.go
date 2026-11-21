@@ -309,6 +309,8 @@ func registry() map[string]entry {
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
 		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
 		"repos":        {parse: grouped("repos", repoCommands), subs: names(repoCommands)},
+		"playbooks":    {parse: grouped("playbooks", playbookCommands), subs: names(playbookCommands)},
+		"ha":           {parse: grouped("ha", haCommands), subs: names(haCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
 		"autopilot":    {parse: grouped("autopilot", autopilotCommands), subs: names(autopilotCommands)},
 		"mergequeue":   {parse: grouped("mergequeue", mergequeueCommands), subs: names(mergequeueCommands)},

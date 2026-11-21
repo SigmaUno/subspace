@@ -14,6 +14,8 @@ import (
 	"slices"
 	"strings"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/guardhint"
 )
 
 const (
@@ -251,6 +253,7 @@ func loadAllowlist(t *testing.T) allowlist {
 }
 
 func TestNoSecretsInTrackedFiles(t *testing.T) {
+	guardhint.Watch(t, guardhint.SecretScan)
 	root := repoRoot(t)
 	allow := loadAllowlist(t)
 	files := bytes.Split(bytes.TrimRight(gitOutput(t, root, "ls-files", "-z"), "\x00"), []byte{0})
@@ -278,6 +281,7 @@ func TestNoSecretsInTrackedFiles(t *testing.T) {
 }
 
 func TestNoSecretsInRecentHistory(t *testing.T) {
+	guardhint.Watch(t, guardhint.SecretScan)
 	root := repoRoot(t)
 	allow := loadAllowlist(t)
 	cmd := exec.Command("git", "log", "-p", "--no-color", "--no-ext-diff", "--no-renames",
@@ -309,6 +313,7 @@ func TestNoSecretsInRecentHistory(t *testing.T) {
 }
 
 func TestNoSecretsInStagedChanges(t *testing.T) {
+	guardhint.Watch(t, guardhint.SecretScan)
 	if os.Getenv("SECRETSCAN_STAGED") == "" {
 		t.Skip("set SECRETSCAN_STAGED=1 to scan the staged diff")
 	}

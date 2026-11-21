@@ -156,15 +156,11 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			"kind":  enum("restrict to one kind", "task", "message", "agent", "brief"),
 			"limit": intg("maximum results, 1-100, default 20"),
 		}, "query"),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				Query string `json:"query"`
-				Kind  string `json:"kind"`
-				Limit int    `json:"limit"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			Query string `json:"query"`
+			Kind  string `json:"kind"`
+			Limit int    `json:"limit"`
+		}) (any, error) {
 			if in.Limit < 0 || in.Limit > infoSearchRows {
 				return nil, model.BadRequest("limit must be between 1 and %d", infoSearchRows)
 			}
@@ -178,7 +174,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			}
 			rs, cut := truncate(rs)
 			return map[string]any{"results": rs, "truncated": cut}, nil
-		},
+		}),
 	})
 
 	r.Register(&Tool{
@@ -187,13 +183,9 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		Roles:       LeaderOnly,
 		ReadOnly:    true,
 		Schema:      obj(map[string]any{"agent_id": str("a single agent id")}),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				AgentID string `json:"agent_id"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in struct {
+			AgentID string `json:"agent_id"`
+		}) (any, error) {
 			src, err := source()
 			if err != nil {
 				return nil, err
@@ -204,7 +196,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			}
 			out, cut := truncate(stats)
 			return map[string]any{"agents": out, "truncated": cut}, nil
-		},
+		}),
 	})
 
 	r.Register(&Tool{
@@ -244,13 +236,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 		Roles:       LeaderOnly,
 		ReadOnly:    true,
 		Schema:      obj(map[string]any{"brief_id": str("only spawns of this brief")}),
-		Handler: func(ctx context.Context, c *Call) (any, error) {
-			var in struct {
-				BriefID string `json:"brief_id"`
-			}
-			if err := decode(c, &in); err != nil {
-				return nil, err
-			}
+		Handler: handle(func(ctx context.Context, c *Call, in briefRef) (any, error) {
 			all, err := b.ListSpawns(ctx, in.BriefID)
 			if err != nil {
 				return nil, err
@@ -275,7 +261,7 @@ func RegisterLeaderInfo(r *Registry, b *board.Board) {
 			}
 			out, cut := truncate(sps)
 			return map[string]any{"spawns": out, "truncated": cut}, nil
-		},
+		}),
 	})
 
 	r.Register(&Tool{

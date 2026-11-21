@@ -5,9 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/guardhint"
 )
 
 func TestGeneratedSDKUpToDate(t *testing.T) {
+	guardhint.Watch(t, guardhint.SDK)
 	want, err := build()
 	if err != nil {
 		t.Fatal(err)

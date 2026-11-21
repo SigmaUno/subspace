@@ -532,3 +532,5 @@ func record(r row) audit.Record {
 	return audit.Record{ID: r.int("id"), TS: r.int("ts"), AgentID: r.str("agent_id"), Role: r.str("role"), Tool: r.str("tool"),
 		TaskID: r.str("task_id"), Before: r.str("before"), After: r.str("after"), Note: r.str("note")}
 }
+
+func (s *Service) Dir() string { return s.dir }

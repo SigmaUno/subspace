@@ -14,7 +14,7 @@ func (c *Checker) checkServer(st *step, pre, post *State) *Violation {
 		return nil
 	}
 	for _, f := range []func(Op, Result, *State, *State) *Violation{
-		c.checkFaults, c.checkMerges, c.checkAutoEnqueue, c.checkAutopilot, c.checkWebhook, c.checkInstructions, c.checkSearch,
+		c.checkBackups, c.checkMerges, c.checkAutoEnqueue, c.checkAutopilot, c.checkWebhook, c.checkInstructions, c.checkSearch,
 	} {
 		if v := f(st.op, st.res, pre, post); v != nil {
 			return v
@@ -24,6 +24,9 @@ func (c *Checker) checkServer(st *step, pre, post *State) *Violation {
 }
 
 func (c *Checker) Final(post *State) *Violation {
+	if v := c.checkFaults(nil, nil, post); v != nil {
+		return v
+	}
 	if post.Server == nil {
 		return nil
 	}
@@ -35,10 +38,7 @@ func (c *Checker) Final(post *State) *Violation {
 	return nil
 }
 
-func (c *Checker) checkFaults(_ Op, _ Result, pre, post *State) *Violation {
-	if n := len(pre.Server.Violations); len(post.Server.Violations) > n {
-		return post.Server.Violations[n]
-	}
+func (c *Checker) checkBackups(_ Op, _ Result, _, post *State) *Violation {
 	if s := post.Server; s.Backups > s.BackupKeep {
 		return violation(InvBackup, "%d backups kept, keep is %d", s.Backups, s.BackupKeep)
 	}

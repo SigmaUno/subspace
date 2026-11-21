@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"io"
 	"net/http"
 	"sync"
@@ -98,7 +99,7 @@ func reloadingGuard(next http.Handler, d Deps, g *spendguard.Guard) http.Handler
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if err := g.Reload(r.Context()); err != nil {
 			d.Log.Error("spendguard reload", "err", err)
-			writeAPIError(w, err)
+			httpx.WriteError(w, err)
 			return
 		}
 		next.ServeHTTP(w, r)

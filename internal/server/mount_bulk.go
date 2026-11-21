@@ -3,12 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
-	"io"
 	"log/slog"
 	"net/http"
 	"strings"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -88,7 +88,7 @@ func (h *bulkHandler) tasks(w http.ResponseWriter, r *http.Request) {
 		}
 	case "set_budget":
 		if p.MaxMinutes == nil && p.MaxCostEUR == nil || p.MaxMinutes != nil && *p.MaxMinutes < 0 || p.MaxCostEUR != nil && *p.MaxCostEUR < 0 {
-			h.fail(w, model.BadRequest("set_budget needs non-negative max_minutes and/or max_cost_eur"))
+			httpx.WriteError(w, model.BadRequest("set_budget needs non-negative max_minutes and/or max_cost_eur"))
 			return
 		}
 		run = func(ctx context.Context, id string) bulkResult {
@@ -107,7 +107,7 @@ func (h *bulkHandler) tasks(w http.ResponseWriter, r *http.Request) {
 		}
 	case "assign", "reassign":
 		if p.AgentID == "" {
-			h.fail(w, model.BadRequest("%s needs agent_id", req.Action))
+			httpx.WriteError(w, model.BadRequest("%s needs agent_id", req.Action))
 			return
 		}
 		run = func(ctx context.Context, id string) bulkResult {
@@ -120,7 +120,7 @@ func (h *bulkHandler) tasks(w http.ResponseWriter, r *http.Request) {
 			return h.result(id, err)
 		}
 	default:
-		h.fail(w, model.BadRequest("action must be cancel, reopen, set_budget, assign, reassign or unblock"))
+		httpx.WriteError(w, model.BadRequest("action must be cancel, reopen, set_budget, assign, reassign or unblock"))
 		return
 	}
 	h.respond(w, r.Context(), req, run)
@@ -174,7 +174,7 @@ func (h *bulkHandler) agents(w http.ResponseWriter, r *http.Request) {
 			return res
 		}
 	default:
-		h.fail(w, model.BadRequest("action must be pause, resume, revoke or rotate-token"))
+		httpx.WriteError(w, model.BadRequest("action must be pause, resume, revoke or rotate-token"))
 		return
 	}
 	h.respond(w, r.Context(), req, run)
@@ -190,7 +190,7 @@ func (h *bulkHandler) respond(w http.ResponseWriter, ctx context.Context, req bu
 		}
 		results = append(results, res)
 	}
-	h.write(w, http.StatusOK, map[string]any{
+	httpx.WriteJSON(w, http.StatusOK, map[string]any{
 		"action": req.Action, "results": results,
 		"succeeded": len(results) - failed, "failed": failed,
 	})
@@ -199,34 +199,33 @@ func (h *bulkHandler) respond(w http.ResponseWriter, ctx context.Context, req bu
 func (h *bulkHandler) parse(w http.ResponseWriter, r *http.Request) (bulkRequest, bulkParams, bool) {
 	var req bulkRequest
 	var p bulkParams
-	raw, err := io.ReadAll(http.MaxBytesReader(w, r.Body, bulkMaxBody))
-	if err != nil {
-		h.fail(w, model.BadRequest("request body too large or unreadable"))
-		return req, p, false
+	raw, err := httpx.Body(w, r, bulkMaxBody)
+	if err == nil {
+		err = httpx.Unmarshal(raw, &req)
 	}
-	if err := json.Unmarshal(raw, &req); err != nil {
-		h.fail(w, model.BadRequest("invalid JSON body"))
+	if err != nil {
+		httpx.WriteError(w, err)
 		return req, p, false
 	}
 	if len(req.Params) > 0 {
 		if err := json.Unmarshal(req.Params, &p); err != nil {
-			h.fail(w, model.BadRequest("invalid params"))
+			httpx.WriteError(w, model.BadRequest("invalid params"))
 			return req, p, false
 		}
 	}
 	switch n := len(req.IDs); {
 	case n == 0:
-		h.fail(w, model.BadRequest("ids must not be empty"))
+		httpx.WriteError(w, model.BadRequest("ids must not be empty"))
 		return req, p, false
 	case n > bulkMaxIDs:
-		h.fail(w, model.BadRequest("at most %d ids per request", bulkMaxIDs))
+		httpx.WriteError(w, model.BadRequest("at most %d ids per request", bulkMaxIDs))
 		return req, p, false
 	}
 	seen := make(map[string]bool, len(req.IDs))
 	ids := req.IDs[:0]
 	for _, id := range req.IDs {
 		if strings.TrimSpace(id) == "" {
-			h.fail(w, model.BadRequest("ids must not contain empty values"))
+			httpx.WriteError(w, model.BadRequest("ids must not contain empty values"))
 			return req, p, false
 		}
 		if !seen[id] {
@@ -247,15 +246,4 @@ func (h *bulkHandler) result(id string, err error) bulkResult {
 		h.log.Error("bulk", "id", id, "err", err)
 	}
 	return bulkResult{ID: id, Error: &bulkError{Code: e.Code, Message: e.Message}}
-}
-
-func (h *bulkHandler) fail(w http.ResponseWriter, err error) {
-	e := model.AsError(err)
-	h.write(w, e.HTTPStatus(), map[string]any{"error": bulkError{Code: e.Code, Message: e.Message}})
-}
-
-func (h *bulkHandler) write(w http.ResponseWriter, status int, v any) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(v)
 }

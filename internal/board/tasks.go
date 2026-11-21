@@ -25,7 +25,11 @@ func (b *Board) statusChange(tx store.Tx, w *wctx, actor model.Actor, tool strin
 	if err := w.post(tx, model.ThreadTask, t.ID, actor, model.MsgStatus, msg); err != nil {
 		return err
 	}
-	return w.audit(tx, actor, tool, t.ID, map[string]any{"status": from}, map[string]any{"status": to}, note)
+	return w.audit(tx, actor, tool, t.ID, map[string]any{"status": from}, map[string]any{"status": to, "state": replayState(t)}, note)
+}
+
+func replayState(t *model.Task) map[string]any {
+	return map[string]any{"status": t.Status, "assignee": t.Assignee, "reviewer": t.Reviewer, "progress_pct": t.ProgressPct, "cost_used": t.CostUsed}
 }
 
 func (b *Board) endLease(t *model.Task) {
@@ -142,7 +146,7 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		}
 		w.task(t, true)
 		out = t
-		return w.audit(tx, a, "create_task", t.ID, nil, map[string]any{"status": status}, in.Title)
+		return w.audit(tx, a, "create_task", t.ID, nil, map[string]any{"status": status, "state": replayState(t)}, in.Title)
 	})
 	return out, err
 }
@@ -358,7 +362,7 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 			if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgSystem, "reassigned to "+agentID); err != nil {
 				return err
 			}
-			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID}, reason)
+			return w.audit(tx, a, tool, t.ID, map[string]any{"status": from}, map[string]any{"assignee": agentID, "state": replayState(t)}, reason)
 		}
 		if err := b.finishUpdate(tx, w, a, tool, t, model.StatusAssigned, &out); err != nil {
 			return err
@@ -575,7 +579,7 @@ func (b *Board) UpdateStatus(ctx context.Context, a model.Actor, in StatusInput)
 				return err
 			}
 		}
-		return w.audit(tx, a, "update_status", t.ID, nil, map[string]any{"progress_pct": t.ProgressPct, "cost_used": t.CostUsed}, in.Note)
+		return w.audit(tx, a, "update_status", t.ID, nil, map[string]any{"progress_pct": t.ProgressPct, "cost_used": t.CostUsed, "state": replayState(t)}, in.Note)
 	})
 	if err == nil && out != nil && out.Status == model.StatusBlocked && in.Status != model.StatusBlocked {
 		return out, model.Errf("budget_exceeded", "budget exceeded: task blocked")

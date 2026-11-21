@@ -8,6 +8,7 @@ import { BotsView } from "./bots";
 import { BriefsView } from "./board";
 import { CharterView } from "./charter";
 import { AgentsView, CapacityView, PlansView, QuestionsView } from "./operations";
+import { HelpRequestsView } from "./helprequests";
 import { Leaderboard } from "./leaderboard";
 import { ThreadPanel } from "./thread";
 import { TrendsView } from "./trends";
@@ -85,6 +86,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
     { id: "briefs", name: "Briefs", href: "/briefs" },
     { id: "agents", name: "Agents", href: "/agents" },
     { id: "bots", name: "Bots", href: "/bots" },
+    { id: "help", name: "Help", href: "/help" },
     { id: "capacity", name: "Capacity", href: "/capacity" },
     { id: "charter", name: "Charter", href: "/charter" },
     { id: "usage", name: "Usage", href: "/usage" },
@@ -143,6 +145,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
             {section === "bots" && <BotsView revision={revisions.agents} openThread={setThread} />}
             {section === "plans" && <PlansView revision={revisions.plans} openThread={setThread} />}
             {section === "questions" && <QuestionsView revision={revisions.questions} openThread={setThread} />}
+            {section === "help" && <HelpRequestsView revision={revisions.board} />}
             {section === "capacity" && <CapacityView revision={revisions.capacity} />}
             {section === "charter" && <CharterView />}
             {section === "usage" && <UsageView revision={revisions.capacity} />}

@@ -8,6 +8,7 @@ import type { Task } from "../../../lib/types";
 import { Feedback } from "./components";
 import { useLive } from "./live";
 import { ConnectionStatus, EmptyState, ResourceState } from "./states";
+import { TrainsPanel } from "./trains";
 
 const stateLabels: Record<CandidateState, string> = {
   queued: "Queued",
@@ -128,6 +129,8 @@ export function MergeQueuePage() {
         </div>}
         {current && <CandidateDetail key={current.id} candidate={current} />}
       </section>
+
+      <TrainsPanel repo={repo} revision={revisions.board} />
     </main>
   </>;
 }

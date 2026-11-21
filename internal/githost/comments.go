@@ -9,7 +9,6 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"strconv"
 	"strings"
 	"time"
 )
@@ -24,17 +23,6 @@ const (
 type Commenter interface {
 	CreateComment(ctx context.Context, repo string, number int64, body string) (int64, error)
 	UpdateComment(ctx context.Context, repo string, id int64, body string) error
-}
-
-type StatusError struct {
-	Status     int
-	RetryAfter time.Duration
-}
-
-func (e *StatusError) Error() string { return fmt.Sprintf("githost: unexpected status %d", e.Status) }
-
-func (e *StatusError) Retryable() bool {
-	return e.Status == http.StatusRequestTimeout || e.Status == http.StatusTooManyRequests || e.Status >= 500 || e.RetryAfter > 0
 }
 
 type CommenterConfig struct {
@@ -135,18 +123,16 @@ func (c *restCommenter) do(ctx context.Context, method, endpoint, body string, o
 }
 
 func statusError(resp *http.Response, now time.Time) error {
-	e := &StatusError{Status: resp.StatusCode}
-	limited := resp.StatusCode == http.StatusTooManyRequests ||
-		(resp.StatusCode == http.StatusForbidden && resp.Header.Get("X-RateLimit-Remaining") == "0")
-	if !limited {
+	e := NewStatusError(resp)
+	if !e.Limited {
 		return e
 	}
-	if s, err := strconv.Atoi(resp.Header.Get("Retry-After")); err == nil && s > 0 {
-		e.RetryAfter = time.Duration(s) * time.Second
-	} else if r, err := strconv.ParseInt(resp.Header.Get("X-RateLimit-Reset"), 10, 64); err == nil {
-		e.RetryAfter = max(time.Unix(r, 0).Sub(now), time.Second)
-	} else {
-		e.RetryAfter = time.Second
+	if e.RetryAfter <= 0 {
+		if !e.ResetAt.IsZero() {
+			e.RetryAfter = max(e.ResetAt.Sub(now), time.Second)
+		} else {
+			e.RetryAfter = time.Second
+		}
 	}
 	return e
 }

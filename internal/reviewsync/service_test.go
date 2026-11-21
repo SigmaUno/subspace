@@ -266,7 +266,7 @@ func TestApproveRespectsMode(t *testing.T) {
 
 func TestRetryBacksOffWithInjectedClockAndGivesUp(t *testing.T) {
 	r := newRig(t, ModeAll)
-	r.host.failNext = []error{&githost.StatusError{Status: 502}, &githost.StatusError{Status: 429, RetryAfter: 5 * time.Second}}
+	r.host.failNext = []error{&githost.StatusError{Code: 502}, &githost.StatusError{Code: 429, RetryAfter: 5 * time.Second}}
 	r.review(VerdictChangesRequested, "retry me")
 	next, ok := r.svc.Process(context.Background())
 	if !ok || !next.Equal(r.clock.Now().Add(time.Second)) || r.host.creates != 0 {
@@ -287,7 +287,7 @@ func TestRetryBacksOffWithInjectedClockAndGivesUp(t *testing.T) {
 	}
 
 	g := newRig(t, ModeAll)
-	g.host.failNext = []error{&githost.StatusError{Status: 500}, &githost.StatusError{Status: 500}, &githost.StatusError{Status: 500}}
+	g.host.failNext = []error{&githost.StatusError{Code: 500}, &githost.StatusError{Code: 500}, &githost.StatusError{Code: 500}}
 	g.review(VerdictChangesRequested, "x")
 	for range 5 {
 		g.run()
@@ -298,7 +298,7 @@ func TestRetryBacksOffWithInjectedClockAndGivesUp(t *testing.T) {
 	}
 
 	p := newRig(t, ModeAll)
-	p.host.failNext = []error{&githost.StatusError{Status: 403}}
+	p.host.failNext = []error{&githost.StatusError{Code: 403}}
 	p.review(VerdictChangesRequested, "x")
 	p.run()
 	if p.svc.Pending() != 0 {

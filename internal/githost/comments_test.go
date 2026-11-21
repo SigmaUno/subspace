@@ -68,10 +68,10 @@ func TestCommenterErrors(t *testing.T) {
 	var se *StatusError
 	for s, retry := range map[int]bool{500: true, 502: true, 408: true, 401: false, 403: false, 422: false} {
 		err := call(s, nil)
-		if !errors.As(err, &se) || se.Status != s || se.Retryable() != retry {
+		if !errors.As(err, &se) || se.Code != s || se.Retryable() != retry {
 			t.Fatalf("%d: %v retryable=%v", s, err, retry)
 		}
-		if err.Error() != (&StatusError{Status: s}).Error() {
+		if err.Error() != (&StatusError{Code: s}).Error() {
 			t.Fatalf("error leaks the response: %v", err)
 		}
 	}

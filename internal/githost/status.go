@@ -49,7 +49,7 @@ type StatusError struct {
 func (e *StatusError) Error() string { return fmt.Sprintf("githost: unexpected status %d", e.Code) }
 
 func (e *StatusError) Retryable() bool {
-	return e.Limited || e.Code == http.StatusTooManyRequests || e.Code >= 500
+	return e.Limited || e.RetryAfter > 0 || e.Code == http.StatusRequestTimeout || e.Code == http.StatusTooManyRequests || e.Code >= 500
 }
 
 func NewStatusError(resp *http.Response) *StatusError {

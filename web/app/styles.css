@@ -12,13 +12,12 @@
   --border-strong: #d0d0d0;
   --text: #0a0a0a;
   --text-secondary: #525252;
-  --muted: #7a7a7a;
-  --faint: #a3a3a3;
+  --muted: #666666;
+  --faint: #6b6b6b;
   --accent: #137259;
   --accent-soft: rgba(51, 192, 158, .12);
-  --accent-ring: rgba(51, 192, 158, .35);
-  --action: #178a6c;
-  --action-hover: #137259;
+  --action: #137259;
+  --action-hover: #0e5c48;
   --on-action: #ffffff;
   --warn: #9a5b0c;
   --warn-soft: #fdf6ea;
@@ -44,7 +43,7 @@
   --s-done-bg: #eef3f0; --s-done-fg: #4b6658;
   --s-blocked-bg: #fdeeed; --s-blocked-fg: #b3261e;
   --s-needs_owner-bg: #fdefe7; --s-needs_owner-fg: #a9481a;
-  --s-cancelled-bg: #f5f5f5; --s-cancelled-fg: #8f8f8f;
+  --s-cancelled-bg: #f5f5f5; --s-cancelled-fg: #6b6b6b;
   font: 100%/1.5 var(--font-sans);
   font-feature-settings: "cv11", "ss01";
 }
@@ -71,7 +70,7 @@ textarea { resize: vertical; }
 label { display: grid; gap: .3rem; min-width: 0; font-size: .8125rem; font-weight: 550; color: var(--text-secondary); }
 label.inline { display: flex; align-items: center; gap: .5rem; }
 fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
-:focus-visible { outline: 2px solid var(--accent-ring); outline-offset: 2px; }
+:focus-visible { outline: 2px solid var(--action); outline-offset: 2px; }
 h1, h2, p { margin: 0; }
 h1 { font-size: clamp(1.4rem, 2.4vw, 1.75rem); font-weight: 600; letter-spacing: -.025em; line-height: 1.2; overflow-wrap: anywhere; }
 h2 { font-size: 1rem; font-weight: 600; letter-spacing: -.01em; overflow-wrap: anywhere; }
@@ -174,6 +173,15 @@ progress::-moz-progress-bar { background: var(--action); border-radius: 999px; }
   .topbar { padding-inline: .7rem; }
   .board { grid-auto-columns: min(78vw, 15.5rem); }
 }
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; scroll-behavior: auto !important; }
+}
+.dialog-backdrop { position: fixed; inset: 0; z-index: 50; display: flex; align-items: flex-start; justify-content: center; padding-top: 12vh; background: rgba(15, 23, 42, .32); }
+.shortcut-dialog { width: min(32rem, 92vw); box-shadow: var(--shadow-lg); }
+.shortcut-list { display: grid; gap: .5rem; margin: 0; }
+.shortcut-list > div { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); align-items: center; gap: .75rem; }
+.shortcut-list dt, .shortcut-list dd { margin: 0; font-size: .875rem; }
+.shortcut-list dd { color: var(--text-secondary); }
 
 /* Hillclimb loss curve */
 .hillclimb-chart { width: 100%; height: auto; overflow: visible; }

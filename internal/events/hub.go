@@ -28,3 +28,16 @@ type Hub interface {
 	Subscribe(topics []string) Subscription
 	Subscribers() int
 }
+
+type Resumed struct {
+	Sub    Subscription
+	Replay []Event
+	Resync bool
+	Seq    int64
+}
+
+type Resumer interface {
+	Hub
+
+	Resume(topics []string, after int64) Resumed
+}

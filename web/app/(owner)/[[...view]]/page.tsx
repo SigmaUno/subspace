@@ -7,6 +7,7 @@ import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
 import { PromptsPage } from "./prompts";
+import { ReplayPage } from "./replay";
 import { ReportPage } from "./report";
 import { TaskDetailPage } from "./task-detail";
 import { Workspace } from "./workspace";
@@ -27,6 +28,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
   if (root === "charter" && view.length === 1) return <Workspace section="charter" architecture={false} />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
+  if (root === "briefs" && id && subview === "replay" && view.length === 3) return <ReplayPage id={id} />;
   if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;
   if (root === "tasks" && id && view.length === 2) return <TaskDetailPage id={id} />;
   const architecture = subview === "architecture";

@@ -171,6 +171,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
         <Link href={path} aria-current={architecture ? undefined : "page"}>Overview</Link>
         <Link href={path + "/architecture"} aria-current={architecture ? "page" : undefined}>Architecture</Link>
         <Link href={path + "/report"}>Report</Link>
+        <Link href={path + "/replay"}>Replay</Link>
       </nav>
       <div className={`project-layout ${chat ? "has-chat" : ""}`}>
         <div className="stack project-body">

@@ -1,0 +1,2861 @@
+{
+  "leader": {
+    "accept_split": {
+      "additionalProperties": false,
+      "properties": {
+        "request_id": {
+          "description": "split proposal id, e.g. HR-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id"
+      ],
+      "type": "object"
+    },
+    "add_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "markdown body, at most 8 KiB",
+          "type": "string"
+        },
+        "brief_id": {
+          "description": "brief id; defaults to the brief of your current task",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "supersedes": {
+          "description": "leader only: id of the entry this one replaces",
+          "type": "string"
+        },
+        "tags": {
+          "description": "lowercase tags, at most 10",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "one-line title, at most 200 characters",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "body"
+      ],
+      "type": "object"
+    },
+    "add_note": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "note",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "agent_stats": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "description": "a single agent id",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "ask_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "description": "proposed answers",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "specific question",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "related task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "assign": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "description": "agent",
+          "type": "string"
+        },
+        "as": {
+          "description": "assignee (default) or reviewer",
+          "enum": [
+            "assignee",
+            "reviewer"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "board": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "capacity": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "create_task": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_criteria": {
+          "description": "checkable acceptance criteria",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        },
+        "budget": {
+          "additionalProperties": false,
+          "properties": {
+            "max_cost_eur": {
+              "description": "max cost in EUR",
+              "type": "number"
+            },
+            "max_minutes": {
+              "description": "max minutes",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "component_id": {
+          "description": "architecture component id, e.g. C-1",
+          "type": "string"
+        },
+        "depends_on": {
+          "description": "task ids or refs",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "paths": {
+          "description": "repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority": {
+          "description": "higher runs first, default 0",
+          "type": "integer"
+        },
+        "ref": {
+          "description": "local reference so other tasks of the plan can depend on it",
+          "type": "string"
+        },
+        "repo": {
+          "description": "owner/name of the repo",
+          "type": "string"
+        },
+        "role": {
+          "description": "worker or tester",
+          "enum": [
+            "worker",
+            "tester"
+          ],
+          "type": "string"
+        },
+        "spec": {
+          "description": "what to do",
+          "type": "string"
+        },
+        "title": {
+          "description": "short title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id",
+        "title",
+        "spec",
+        "repo"
+      ],
+      "type": "object"
+    },
+    "create_task_from_template": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        },
+        "depends_on": {
+          "description": "task ids",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "priority": {
+          "description": "higher runs first, default 0",
+          "type": "integer"
+        },
+        "repo": {
+          "description": "owner/name of the repo",
+          "type": "string"
+        },
+        "template_id": {
+          "description": "task template id",
+          "type": "string"
+        },
+        "vars": {
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "value for every variable the template declares",
+          "type": "object"
+        }
+      },
+      "required": [
+        "brief_id",
+        "template_id",
+        "vars",
+        "repo"
+      ],
+      "type": "object"
+    },
+    "get_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "artifact id, e.g. A-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_brief": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id"
+      ],
+      "type": "object"
+    },
+    "get_components": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief id, e.g. B-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id"
+      ],
+      "type": "object"
+    },
+    "get_forecast": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief id, e.g. B-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id"
+      ],
+      "type": "object"
+    },
+    "get_instructions": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "get_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "entry id, e.g. K-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_report": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief id, e.g. B-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id"
+      ],
+      "type": "object"
+    },
+    "get_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "heartbeat": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "ignored, for humans",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "only this task",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_agents": {
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "description": "role",
+          "enum": [
+            "leader",
+            "worker",
+            "tester",
+            "reviewer"
+          ],
+          "type": "string"
+        },
+        "status": {
+          "description": "status",
+          "enum": [
+            "active",
+            "paused",
+            "revoked"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "maximum number of artifacts, 1-1000",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_briefs": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "filter",
+          "enum": [
+            "open",
+            "closed"
+          ],
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_decisions": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "list_help_requests": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "only this brief",
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum number of requests, 1-1000",
+          "type": "integer"
+        },
+        "status": {
+          "description": "default open",
+          "enum": [
+            "open",
+            "accepted",
+            "superseded",
+            "closed",
+            "all"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "only this task",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_my_tasks": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "filter by status",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "list_spawns": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "only spawns of this brief",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "log_output": {
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "description": "optional increasing chunk number; a chunk whose seq is not above the last accepted one is ignored as a retry",
+          "type": "integer"
+        },
+        "stream": {
+          "description": "which stream the text came from",
+          "enum": [
+            "stdout",
+            "stderr",
+            "note"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the output belongs to, if any",
+          "type": "string"
+        },
+        "text": {
+          "description": "output text, at most 4096 bytes; longer text is truncated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "text"
+      ],
+      "type": "object"
+    },
+    "pin_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "entry id",
+          "type": "string"
+        },
+        "pinned": {
+          "description": "default true",
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "post_message": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "message",
+          "type": "string"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread",
+        "body"
+      ],
+      "type": "object"
+    },
+    "propose_plan": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        },
+        "note": {
+          "description": "rationale",
+          "type": "string"
+        },
+        "tasks": {
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptance_criteria": {
+                "description": "checkable acceptance criteria",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_cost_eur": {
+                    "description": "max cost in EUR",
+                    "type": "number"
+                  },
+                  "max_minutes": {
+                    "description": "max minutes",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "component_id": {
+                "description": "architecture component id, e.g. C-1",
+                "type": "string"
+              },
+              "depends_on": {
+                "description": "task ids or refs",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "paths": {
+                "description": "repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "priority": {
+                "description": "higher runs first, default 0",
+                "type": "integer"
+              },
+              "ref": {
+                "description": "local reference so other tasks of the plan can depend on it",
+                "type": "string"
+              },
+              "repo": {
+                "description": "owner/name of the repo",
+                "type": "string"
+              },
+              "role": {
+                "description": "worker or tester",
+                "enum": [
+                  "worker",
+                  "tester"
+                ],
+                "type": "string"
+              },
+              "spec": {
+                "description": "what to do",
+                "type": "string"
+              },
+              "title": {
+                "description": "short title",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "spec",
+              "repo"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        }
+      },
+      "required": [
+        "brief_id",
+        "tasks"
+      ],
+      "type": "object"
+    },
+    "put_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "description": "file content, base64-encoded",
+          "type": "string"
+        },
+        "content_type": {
+          "description": "media type; sniffed from the content when omitted",
+          "type": "string"
+        },
+        "name": {
+          "description": "file name",
+          "type": "string"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "name",
+        "content_base64"
+      ],
+      "type": "object"
+    },
+    "read_thread": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "max messages",
+          "type": "integer"
+        },
+        "since": {
+          "description": "only messages with id greater than this",
+          "type": "integer"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "reassign": {
+      "additionalProperties": false,
+      "properties": {
+        "agent_id": {
+          "description": "agent",
+          "type": "string"
+        },
+        "reason": {
+          "description": "why",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "agent_id"
+      ],
+      "type": "object"
+    },
+    "report_provider_error": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "defaults to your model",
+          "type": "string"
+        },
+        "provider": {
+          "description": "defaults to your provider",
+          "type": "string"
+        },
+        "status": {
+          "description": "HTTP status of the failed request, if any",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "report_usage": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief the usage belongs to; derived from task_id when omitted",
+          "type": "string"
+        },
+        "cache_read": {
+          "description": "cached input tokens read",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write": {
+          "description": "input tokens written to cache",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_usd": {
+          "description": "cost in USD; computed from tokens when omitted",
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "description": "model id, e.g. claude-sonnet-5-5",
+          "type": "string"
+        },
+        "provider": {
+          "description": "anthropic, openai, deepseek, ...; derived from model when omitted",
+          "type": "string"
+        },
+        "rate_limited": {
+          "description": "true to report a provider 429 instead of a completed request",
+          "type": "boolean"
+        },
+        "request_id": {
+          "description": "unique id of the request; repeated reports with the same id replace each other",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the usage belongs to",
+          "type": "string"
+        },
+        "tokens_in": {
+          "description": "uncached input tokens",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens_out": {
+          "description": "output tokens including reasoning",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "request_spawn": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief",
+          "type": "string"
+        },
+        "model": {
+          "description": "model name",
+          "type": "string"
+        },
+        "n": {
+          "description": "1-50",
+          "type": "integer"
+        },
+        "profile": {
+          "description": "agent profile name; explicit fields override it",
+          "type": "string"
+        },
+        "provider": {
+          "description": "override provider",
+          "type": "string"
+        },
+        "role": {
+          "description": "worker (default) or tester",
+          "enum": [
+            "worker",
+            "tester"
+          ],
+          "type": "string"
+        },
+        "worker_kind": {
+          "description": "kind",
+          "enum": [
+            "claude-code",
+            "codex",
+            "opencode"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "brief_id",
+        "n"
+      ],
+      "type": "object"
+    },
+    "search": {
+      "additionalProperties": false,
+      "properties": {
+        "kind": {
+          "description": "restrict to one kind",
+          "enum": [
+            "task",
+            "message",
+            "agent",
+            "brief"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum results, 1-100, default 20",
+          "type": "integer"
+        },
+        "query": {
+          "description": "text to find, at most 200 characters",
+          "type": "string"
+        }
+      },
+      "required": [
+        "query"
+      ],
+      "type": "object"
+    },
+    "search_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "limit to one brief",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum entries, 1-100, default 20",
+          "type": "integer"
+        },
+        "query": {
+          "description": "words to match in title, tags and body; empty lists the newest entries",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "supersede_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "by": {
+          "description": "newer entry id",
+          "type": "string"
+        },
+        "id": {
+          "description": "entry to supersede",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "update_status": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_eur": {
+          "description": "cumulative cost spent so far",
+          "type": "number"
+        },
+        "note": {
+          "description": "what changed",
+          "type": "string"
+        },
+        "progress_pct": {
+          "description": "0-100",
+          "type": "integer"
+        },
+        "status": {
+          "description": "new status",
+          "enum": [
+            "in_progress",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "update_task": {
+      "additionalProperties": false,
+      "properties": {
+        "acceptance_criteria": {
+          "description": "criteria",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "budget": {
+          "additionalProperties": false,
+          "properties": {
+            "max_cost_eur": {
+              "description": "max cost in EUR",
+              "type": "number"
+            },
+            "max_minutes": {
+              "description": "max minutes",
+              "type": "integer"
+            }
+          },
+          "type": "object"
+        },
+        "depends_on": {
+          "description": "deps",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "spec": {
+          "description": "spec",
+          "type": "string"
+        },
+        "status": {
+          "description": "status",
+          "enum": [
+            "blocked",
+            "ready",
+            "cancelled"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        },
+        "title": {
+          "description": "title",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "whoami": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "reviewer": {
+    "add_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "markdown body, at most 8 KiB",
+          "type": "string"
+        },
+        "brief_id": {
+          "description": "brief id; defaults to the brief of your current task",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "supersedes": {
+          "description": "leader only: id of the entry this one replaces",
+          "type": "string"
+        },
+        "tags": {
+          "description": "lowercase tags, at most 10",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "one-line title, at most 200 characters",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "body"
+      ],
+      "type": "object"
+    },
+    "add_note": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "note",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "ask_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "description": "proposed answers",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "specific question",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "related task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "get_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "artifact id, e.g. A-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_instructions": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "get_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "entry id, e.g. K-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "heartbeat": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "ignored, for humans",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "only this task",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "maximum number of artifacts, 1-1000",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_my_tasks": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "filter by status",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "list_reviews": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "log_output": {
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "description": "optional increasing chunk number; a chunk whose seq is not above the last accepted one is ignored as a retry",
+          "type": "integer"
+        },
+        "stream": {
+          "description": "which stream the text came from",
+          "enum": [
+            "stdout",
+            "stderr",
+            "note"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the output belongs to, if any",
+          "type": "string"
+        },
+        "text": {
+          "description": "output text, at most 4096 bytes; longer text is truncated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "text"
+      ],
+      "type": "object"
+    },
+    "post_message": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "message",
+          "type": "string"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread",
+        "body"
+      ],
+      "type": "object"
+    },
+    "put_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "description": "file content, base64-encoded",
+          "type": "string"
+        },
+        "content_type": {
+          "description": "media type; sniffed from the content when omitted",
+          "type": "string"
+        },
+        "name": {
+          "description": "file name",
+          "type": "string"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "name",
+        "content_base64"
+      ],
+      "type": "object"
+    },
+    "read_thread": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "max messages",
+          "type": "integer"
+        },
+        "since": {
+          "description": "only messages with id greater than this",
+          "type": "integer"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "report_provider_error": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "defaults to your model",
+          "type": "string"
+        },
+        "provider": {
+          "description": "defaults to your provider",
+          "type": "string"
+        },
+        "status": {
+          "description": "HTTP status of the failed request, if any",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "report_usage": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief the usage belongs to; derived from task_id when omitted",
+          "type": "string"
+        },
+        "cache_read": {
+          "description": "cached input tokens read",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write": {
+          "description": "input tokens written to cache",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_usd": {
+          "description": "cost in USD; computed from tokens when omitted",
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "description": "model id, e.g. claude-sonnet-5-5",
+          "type": "string"
+        },
+        "provider": {
+          "description": "anthropic, openai, deepseek, ...; derived from model when omitted",
+          "type": "string"
+        },
+        "rate_limited": {
+          "description": "true to report a provider 429 instead of a completed request",
+          "type": "boolean"
+        },
+        "request_id": {
+          "description": "unique id of the request; repeated reports with the same id replace each other",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the usage belongs to",
+          "type": "string"
+        },
+        "tokens_in": {
+          "description": "uncached input tokens",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens_out": {
+          "description": "output tokens including reasoning",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "request_help": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "description": "specific description of the problem and what you need",
+          "type": "string"
+        },
+        "kind": {
+          "description": "what is wrong",
+          "enum": [
+            "unclear_spec",
+            "missing_access",
+            "conflicting_requirements",
+            "too_big",
+            "dependency_issue"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "kind",
+        "details"
+      ],
+      "type": "object"
+    },
+    "review": {
+      "additionalProperties": false,
+      "properties": {
+        "comments": {
+          "description": "review comments",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        },
+        "verdict": {
+          "description": "verdict",
+          "enum": [
+            "approve",
+            "changes_requested"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "verdict",
+        "comments"
+      ],
+      "type": "object"
+    },
+    "search_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "limit to one brief",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum entries, 1-100, default 20",
+          "type": "integer"
+        },
+        "query": {
+          "description": "words to match in title, tags and body; empty lists the newest entries",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "suggest_split": {
+      "additionalProperties": false,
+      "properties": {
+        "proposed_tasks": {
+          "description": "2 to 20 replacement tasks; depends_on may name the ref of another proposed task",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptance_criteria": {
+                "description": "checkable acceptance criteria",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_cost_eur": {
+                    "description": "max cost in EUR",
+                    "type": "number"
+                  },
+                  "max_minutes": {
+                    "description": "max minutes",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "component_id": {
+                "description": "architecture component id, e.g. C-1",
+                "type": "string"
+              },
+              "depends_on": {
+                "description": "task ids or refs",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "paths": {
+                "description": "repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "priority": {
+                "description": "higher runs first, default 0",
+                "type": "integer"
+              },
+              "ref": {
+                "description": "local reference so other tasks of the plan can depend on it",
+                "type": "string"
+              },
+              "repo": {
+                "description": "owner/name of the repo",
+                "type": "string"
+              },
+              "role": {
+                "description": "worker or tester",
+                "enum": [
+                  "worker",
+                  "tester"
+                ],
+                "type": "string"
+              },
+              "spec": {
+                "description": "what to do",
+                "type": "string"
+              },
+              "title": {
+                "description": "short title",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "spec"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "proposed_tasks"
+      ],
+      "type": "object"
+    },
+    "update_status": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_eur": {
+          "description": "cumulative cost spent so far",
+          "type": "number"
+        },
+        "note": {
+          "description": "what changed",
+          "type": "string"
+        },
+        "progress_pct": {
+          "description": "0-100",
+          "type": "integer"
+        },
+        "status": {
+          "description": "new status",
+          "enum": [
+            "in_progress",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "whoami": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "tester": {
+    "add_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "markdown body, at most 8 KiB",
+          "type": "string"
+        },
+        "brief_id": {
+          "description": "brief id; defaults to the brief of your current task",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "supersedes": {
+          "description": "leader only: id of the entry this one replaces",
+          "type": "string"
+        },
+        "tags": {
+          "description": "lowercase tags, at most 10",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "one-line title, at most 200 characters",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "body"
+      ],
+      "type": "object"
+    },
+    "add_note": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "note",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "ask_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "description": "proposed answers",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "specific question",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "related task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "claim_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "get_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "artifact id, e.g. A-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_instructions": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "get_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "entry id, e.g. K-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "heartbeat": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "ignored, for humans",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "only this task",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "maximum number of artifacts, 1-1000",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_my_tasks": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "filter by status",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "log_output": {
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "description": "optional increasing chunk number; a chunk whose seq is not above the last accepted one is ignored as a retry",
+          "type": "integer"
+        },
+        "stream": {
+          "description": "which stream the text came from",
+          "enum": [
+            "stdout",
+            "stderr",
+            "note"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the output belongs to, if any",
+          "type": "string"
+        },
+        "text": {
+          "description": "output text, at most 4096 bytes; longer text is truncated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "text"
+      ],
+      "type": "object"
+    },
+    "post_message": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "message",
+          "type": "string"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread",
+        "body"
+      ],
+      "type": "object"
+    },
+    "put_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "description": "file content, base64-encoded",
+          "type": "string"
+        },
+        "content_type": {
+          "description": "media type; sniffed from the content when omitted",
+          "type": "string"
+        },
+        "name": {
+          "description": "file name",
+          "type": "string"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "name",
+        "content_base64"
+      ],
+      "type": "object"
+    },
+    "read_thread": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "max messages",
+          "type": "integer"
+        },
+        "since": {
+          "description": "only messages with id greater than this",
+          "type": "integer"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "release_task": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "why",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "report_blocker": {
+      "additionalProperties": false,
+      "properties": {
+        "needs": {
+          "description": "who must unblock it",
+          "enum": [
+            "leader",
+            "owner"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "description": "what blocks you",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task you are working on",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "reason",
+        "needs"
+      ],
+      "type": "object"
+    },
+    "report_provider_error": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "defaults to your model",
+          "type": "string"
+        },
+        "provider": {
+          "description": "defaults to your provider",
+          "type": "string"
+        },
+        "status": {
+          "description": "HTTP status of the failed request, if any",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "report_tests": {
+      "additionalProperties": false,
+      "properties": {
+        "failed": {
+          "description": "failed",
+          "type": "integer"
+        },
+        "log_excerpt": {
+          "description": "relevant log excerpt",
+          "type": "string"
+        },
+        "passed": {
+          "description": "passed",
+          "type": "integer"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "passed",
+        "failed"
+      ],
+      "type": "object"
+    },
+    "report_usage": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief the usage belongs to; derived from task_id when omitted",
+          "type": "string"
+        },
+        "cache_read": {
+          "description": "cached input tokens read",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write": {
+          "description": "input tokens written to cache",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_usd": {
+          "description": "cost in USD; computed from tokens when omitted",
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "description": "model id, e.g. claude-sonnet-5-5",
+          "type": "string"
+        },
+        "provider": {
+          "description": "anthropic, openai, deepseek, ...; derived from model when omitted",
+          "type": "string"
+        },
+        "rate_limited": {
+          "description": "true to report a provider 429 instead of a completed request",
+          "type": "boolean"
+        },
+        "request_id": {
+          "description": "unique id of the request; repeated reports with the same id replace each other",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the usage belongs to",
+          "type": "string"
+        },
+        "tokens_in": {
+          "description": "uncached input tokens",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens_out": {
+          "description": "output tokens including reasoning",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "request_help": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "description": "specific description of the problem and what you need",
+          "type": "string"
+        },
+        "kind": {
+          "description": "what is wrong",
+          "enum": [
+            "unclear_spec",
+            "missing_access",
+            "conflicting_requirements",
+            "too_big",
+            "dependency_issue"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "kind",
+        "details"
+      ],
+      "type": "object"
+    },
+    "search_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "limit to one brief",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum entries, 1-100, default 20",
+          "type": "integer"
+        },
+        "query": {
+          "description": "words to match in title, tags and body; empty lists the newest entries",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "submit": {
+      "additionalProperties": false,
+      "properties": {
+        "pr_url": {
+          "description": "pull request URL",
+          "type": "string"
+        },
+        "summary": {
+          "description": "what was done",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "suggest_split": {
+      "additionalProperties": false,
+      "properties": {
+        "proposed_tasks": {
+          "description": "2 to 20 replacement tasks; depends_on may name the ref of another proposed task",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptance_criteria": {
+                "description": "checkable acceptance criteria",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_cost_eur": {
+                    "description": "max cost in EUR",
+                    "type": "number"
+                  },
+                  "max_minutes": {
+                    "description": "max minutes",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "component_id": {
+                "description": "architecture component id, e.g. C-1",
+                "type": "string"
+              },
+              "depends_on": {
+                "description": "task ids or refs",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "paths": {
+                "description": "repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "priority": {
+                "description": "higher runs first, default 0",
+                "type": "integer"
+              },
+              "ref": {
+                "description": "local reference so other tasks of the plan can depend on it",
+                "type": "string"
+              },
+              "repo": {
+                "description": "owner/name of the repo",
+                "type": "string"
+              },
+              "role": {
+                "description": "worker or tester",
+                "enum": [
+                  "worker",
+                  "tester"
+                ],
+                "type": "string"
+              },
+              "spec": {
+                "description": "what to do",
+                "type": "string"
+              },
+              "title": {
+                "description": "short title",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "spec"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "proposed_tasks"
+      ],
+      "type": "object"
+    },
+    "update_status": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_eur": {
+          "description": "cumulative cost spent so far",
+          "type": "number"
+        },
+        "note": {
+          "description": "what changed",
+          "type": "string"
+        },
+        "progress_pct": {
+          "description": "0-100",
+          "type": "integer"
+        },
+        "status": {
+          "description": "new status",
+          "enum": [
+            "in_progress",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "whoami": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  "worker": {
+    "add_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "markdown body, at most 8 KiB",
+          "type": "string"
+        },
+        "brief_id": {
+          "description": "brief id; defaults to the brief of your current task",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "supersedes": {
+          "description": "leader only: id of the entry this one replaces",
+          "type": "string"
+        },
+        "tags": {
+          "description": "lowercase tags, at most 10",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "title": {
+          "description": "one-line title, at most 200 characters",
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind",
+        "title",
+        "body"
+      ],
+      "type": "object"
+    },
+    "add_note": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "note",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "body"
+      ],
+      "type": "object"
+    },
+    "ask_owner": {
+      "additionalProperties": false,
+      "properties": {
+        "options": {
+          "description": "proposed answers",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "question": {
+          "description": "specific question",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "related task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "question"
+      ],
+      "type": "object"
+    },
+    "claim_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "get_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "artifact id, e.g. A-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_instructions": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    },
+    "get_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "description": "entry id, e.g. K-1",
+          "type": "string"
+        }
+      },
+      "required": [
+        "id"
+      ],
+      "type": "object"
+    },
+    "get_task": {
+      "additionalProperties": false,
+      "properties": {
+        "task_id": {
+          "description": "Task id, e.g. T-3",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "heartbeat": {
+      "additionalProperties": false,
+      "properties": {
+        "note": {
+          "description": "ignored, for humans",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "only this task",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_artifacts": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "maximum number of artifacts, 1-1000",
+          "type": "integer"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "list_my_tasks": {
+      "additionalProperties": false,
+      "properties": {
+        "status": {
+          "description": "filter by status",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        }
+      },
+      "type": "object"
+    },
+    "log_output": {
+      "additionalProperties": false,
+      "properties": {
+        "seq": {
+          "description": "optional increasing chunk number; a chunk whose seq is not above the last accepted one is ignored as a retry",
+          "type": "integer"
+        },
+        "stream": {
+          "description": "which stream the text came from",
+          "enum": [
+            "stdout",
+            "stderr",
+            "note"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the output belongs to, if any",
+          "type": "string"
+        },
+        "text": {
+          "description": "output text, at most 4096 bytes; longer text is truncated",
+          "type": "string"
+        }
+      },
+      "required": [
+        "stream",
+        "text"
+      ],
+      "type": "object"
+    },
+    "post_message": {
+      "additionalProperties": false,
+      "properties": {
+        "body": {
+          "description": "message",
+          "type": "string"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread",
+        "body"
+      ],
+      "type": "object"
+    },
+    "put_artifact": {
+      "additionalProperties": false,
+      "properties": {
+        "content_base64": {
+          "description": "file content, base64-encoded",
+          "type": "string"
+        },
+        "content_type": {
+          "description": "media type; sniffed from the content when omitted",
+          "type": "string"
+        },
+        "name": {
+          "description": "file name",
+          "type": "string"
+        },
+        "scope": {
+          "description": "agent:<id>, task:<id> or project:<id>",
+          "type": "string"
+        }
+      },
+      "required": [
+        "scope",
+        "name",
+        "content_base64"
+      ],
+      "type": "object"
+    },
+    "read_thread": {
+      "additionalProperties": false,
+      "properties": {
+        "limit": {
+          "description": "max messages",
+          "type": "integer"
+        },
+        "since": {
+          "description": "only messages with id greater than this",
+          "type": "integer"
+        },
+        "thread": {
+          "description": "kind:id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "thread"
+      ],
+      "type": "object"
+    },
+    "release_task": {
+      "additionalProperties": false,
+      "properties": {
+        "reason": {
+          "description": "why",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id"
+      ],
+      "type": "object"
+    },
+    "report_blocker": {
+      "additionalProperties": false,
+      "properties": {
+        "needs": {
+          "description": "who must unblock it",
+          "enum": [
+            "leader",
+            "owner"
+          ],
+          "type": "string"
+        },
+        "reason": {
+          "description": "what blocks you",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task you are working on",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "reason",
+        "needs"
+      ],
+      "type": "object"
+    },
+    "report_provider_error": {
+      "additionalProperties": false,
+      "properties": {
+        "model": {
+          "description": "defaults to your model",
+          "type": "string"
+        },
+        "provider": {
+          "description": "defaults to your provider",
+          "type": "string"
+        },
+        "status": {
+          "description": "HTTP status of the failed request, if any",
+          "type": "integer"
+        }
+      },
+      "type": "object"
+    },
+    "report_usage": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "brief the usage belongs to; derived from task_id when omitted",
+          "type": "string"
+        },
+        "cache_read": {
+          "description": "cached input tokens read",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cache_write": {
+          "description": "input tokens written to cache",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "cost_usd": {
+          "description": "cost in USD; computed from tokens when omitted",
+          "minimum": 0,
+          "type": "number"
+        },
+        "model": {
+          "description": "model id, e.g. claude-sonnet-5-5",
+          "type": "string"
+        },
+        "provider": {
+          "description": "anthropic, openai, deepseek, ...; derived from model when omitted",
+          "type": "string"
+        },
+        "rate_limited": {
+          "description": "true to report a provider 429 instead of a completed request",
+          "type": "boolean"
+        },
+        "request_id": {
+          "description": "unique id of the request; repeated reports with the same id replace each other",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task the usage belongs to",
+          "type": "string"
+        },
+        "tokens_in": {
+          "description": "uncached input tokens",
+          "minimum": 0,
+          "type": "integer"
+        },
+        "tokens_out": {
+          "description": "output tokens including reasoning",
+          "minimum": 0,
+          "type": "integer"
+        }
+      },
+      "required": [
+        "model"
+      ],
+      "type": "object"
+    },
+    "request_help": {
+      "additionalProperties": false,
+      "properties": {
+        "details": {
+          "description": "specific description of the problem and what you need",
+          "type": "string"
+        },
+        "kind": {
+          "description": "what is wrong",
+          "enum": [
+            "unclear_spec",
+            "missing_access",
+            "conflicting_requirements",
+            "too_big",
+            "dependency_issue"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "kind",
+        "details"
+      ],
+      "type": "object"
+    },
+    "search_knowledge": {
+      "additionalProperties": false,
+      "properties": {
+        "brief_id": {
+          "description": "limit to one brief",
+          "type": "string"
+        },
+        "kind": {
+          "description": "entry kind",
+          "enum": [
+            "decision",
+            "convention",
+            "pitfall",
+            "howto",
+            "glossary"
+          ],
+          "type": "string"
+        },
+        "limit": {
+          "description": "maximum entries, 1-100, default 20",
+          "type": "integer"
+        },
+        "query": {
+          "description": "words to match in title, tags and body; empty lists the newest entries",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    },
+    "submit": {
+      "additionalProperties": false,
+      "properties": {
+        "pr_url": {
+          "description": "pull request URL",
+          "type": "string"
+        },
+        "summary": {
+          "description": "what was done",
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "summary"
+      ],
+      "type": "object"
+    },
+    "suggest_split": {
+      "additionalProperties": false,
+      "properties": {
+        "proposed_tasks": {
+          "description": "2 to 20 replacement tasks; depends_on may name the ref of another proposed task",
+          "items": {
+            "additionalProperties": false,
+            "properties": {
+              "acceptance_criteria": {
+                "description": "checkable acceptance criteria",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "budget": {
+                "additionalProperties": false,
+                "properties": {
+                  "max_cost_eur": {
+                    "description": "max cost in EUR",
+                    "type": "number"
+                  },
+                  "max_minutes": {
+                    "description": "max minutes",
+                    "type": "integer"
+                  }
+                },
+                "type": "object"
+              },
+              "component_id": {
+                "description": "architecture component id, e.g. C-1",
+                "type": "string"
+              },
+              "depends_on": {
+                "description": "task ids or refs",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "paths": {
+                "description": "repo-relative paths or globs (*, ?, **) the task will touch; defaults to the component's paths",
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              "priority": {
+                "description": "higher runs first, default 0",
+                "type": "integer"
+              },
+              "ref": {
+                "description": "local reference so other tasks of the plan can depend on it",
+                "type": "string"
+              },
+              "repo": {
+                "description": "owner/name of the repo",
+                "type": "string"
+              },
+              "role": {
+                "description": "worker or tester",
+                "enum": [
+                  "worker",
+                  "tester"
+                ],
+                "type": "string"
+              },
+              "spec": {
+                "description": "what to do",
+                "type": "string"
+              },
+              "title": {
+                "description": "short title",
+                "type": "string"
+              }
+            },
+            "required": [
+              "title",
+              "spec"
+            ],
+            "type": "object"
+          },
+          "type": "array"
+        },
+        "task_id": {
+          "description": "task you are assigned to",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "proposed_tasks"
+      ],
+      "type": "object"
+    },
+    "update_status": {
+      "additionalProperties": false,
+      "properties": {
+        "cost_eur": {
+          "description": "cumulative cost spent so far",
+          "type": "number"
+        },
+        "note": {
+          "description": "what changed",
+          "type": "string"
+        },
+        "progress_pct": {
+          "description": "0-100",
+          "type": "integer"
+        },
+        "status": {
+          "description": "new status",
+          "enum": [
+            "in_progress",
+            "blocked"
+          ],
+          "type": "string"
+        },
+        "task_id": {
+          "description": "task",
+          "type": "string"
+        }
+      },
+      "required": [
+        "task_id",
+        "status"
+      ],
+      "type": "object"
+    },
+    "whoami": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  }
+}

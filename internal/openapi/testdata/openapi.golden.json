@@ -5157,6 +5157,117 @@
         ],
         "type": "object"
       },
+      "PushSubscription": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "failures": {
+            "type": "integer"
+          },
+          "host": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_success_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "created_at",
+          "expires_at",
+          "failures",
+          "host",
+          "id",
+          "last_success_at",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionInput": {
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "expirationTime": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "keys": {
+            "$ref": "#/components/schemas/PushSubscriptionKeys"
+          },
+          "name": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "expirationTime",
+          "keys",
+          "name"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionKeys": {
+        "properties": {
+          "auth": {
+            "type": "string"
+          },
+          "p256dh": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "auth",
+          "p256dh"
+        ],
+        "type": "object"
+      },
+      "PushSubscriptionRemove": {
+        "properties": {
+          "endpoint": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "endpoint",
+          "id"
+        ],
+        "type": "object"
+      },
+      "PushVAPIDKey": {
+        "properties": {
+          "public_key": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "public_key"
+        ],
+        "type": "object"
+      },
       "QualityGates": {
         "properties": {
           "budget": {
@@ -5805,6 +5916,122 @@
         ],
         "type": "object"
       },
+      "Repo": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "host": {
+            "type": "string"
+          },
+          "merge_test_command": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "merge_work_dir": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected_branches": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "token_env": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "base_url",
+          "created_at",
+          "default_branch",
+          "enabled",
+          "host",
+          "merge_test_command",
+          "merge_work_dir",
+          "name",
+          "protected_branches",
+          "token_env",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "RepoInput": {
+        "properties": {
+          "base_url": {
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "host": {
+            "type": "string"
+          },
+          "merge_test_command": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "merge_work_dir": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "protected_branches": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "token_env": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "host",
+          "name"
+        ],
+        "type": "object"
+      },
       "Report": {
         "properties": {
           "brief_id": {
@@ -6103,6 +6330,54 @@
           "hourly",
           "per_hour",
           "window_hours"
+        ],
+        "type": "object"
+      },
+      "ReposHealth": {
+        "properties": {
+          "checked_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "default_branch": {
+            "type": "string"
+          },
+          "default_branch_exists": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "host_default_branch": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "reachable": {
+            "type": "boolean"
+          },
+          "repo": {
+            "type": "string"
+          },
+          "token_configured": {
+            "type": "boolean"
+          },
+          "token_hint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "checked_at",
+          "default_branch",
+          "default_branch_exists",
+          "error",
+          "host_default_branch",
+          "ok",
+          "reachable",
+          "repo",
+          "token_configured",
+          "token_hint"
         ],
         "type": "object"
       },
@@ -7711,6 +7986,54 @@
           "points",
           "since",
           "until"
+        ],
+        "type": "object"
+      },
+      "TokenLeakReissued": {
+        "properties": {
+          "agent": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/AgentRecord"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "connect": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Connect"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string"
+          },
+          "leak_id": {
+            "type": "string"
+          },
+          "secret": {
+            "type": "string"
+          },
+          "token": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/APIToken"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "kind",
+          "leak_id"
         ],
         "type": "object"
       },
@@ -13539,6 +13862,127 @@
         ]
       }
     },
+    "/api/v1/push/subscriptions": {
+      "delete": {
+        "operationId": "deletePushSubscriptions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionRemove"
+              }
+            }
+          }
+        },
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove a Web Push subscription by id or endpoint",
+        "tags": [
+          "push"
+        ]
+      },
+      "get": {
+        "operationId": "getPushSubscriptions",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "subscriptions": {
+                      "items": {
+                        "$ref": "#/components/schemas/PushSubscription"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "subscriptions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List Web Push subscriptions",
+        "tags": [
+          "push"
+        ]
+      },
+      "post": {
+        "operationId": "postPushSubscriptions",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PushSubscriptionInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushSubscription"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Subscribe a browser to Web Push notifications; 200 when the endpoint was already subscribed",
+        "tags": [
+          "push"
+        ]
+      }
+    },
+    "/api/v1/push/vapid-key": {
+      "get": {
+        "operationId": "getPushVapidKey",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PushVAPIDKey"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "VAPID public key for browser push subscriptions",
+        "tags": [
+          "push"
+        ]
+      }
+    },
     "/api/v1/questions": {
       "get": {
         "operationId": "getQuestions",
@@ -13658,6 +14102,243 @@
         "summary": "Re-read SUBSPACE_CONFIG_FILE and the capacity file and apply them atomically",
         "tags": [
           "reload"
+        ]
+      }
+    },
+    "/api/v1/repos": {
+      "get": {
+        "operationId": "getRepos",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "repos": {
+                      "items": {
+                        "$ref": "#/components/schemas/Repo"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "repos"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List registered repositories",
+        "tags": [
+          "repos"
+        ]
+      },
+      "post": {
+        "operationId": "postRepos",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repo"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Register a repository",
+        "tags": [
+          "repos"
+        ]
+      }
+    },
+    "/api/v1/repos/{owner}/{name}": {
+      "delete": {
+        "operationId": "deleteReposByOwnerByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove a repository from the registry",
+        "tags": [
+          "repos"
+        ]
+      },
+      "get": {
+        "operationId": "getReposByOwnerByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a registered repository",
+        "tags": [
+          "repos"
+        ]
+      },
+      "put": {
+        "operationId": "putReposByOwnerByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RepoInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Repo"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace a registered repository",
+        "tags": [
+          "repos"
+        ]
+      }
+    },
+    "/api/v1/repos/{owner}/{name}/health": {
+      "get": {
+        "operationId": "getReposByOwnerByNameHealth",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "owner",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReposHealth"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Read-only reachability, token and default branch check of a repository",
+        "tags": [
+          "repos"
         ]
       }
     },
@@ -14936,6 +15617,47 @@
         ]
       }
     },
+    "/api/v1/token-leaks/{id}/reissue": {
+      "post": {
+        "operationId": "postTokenLeaksByIdReissue",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TokenLeakReissued"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Re-issue a token that leaked: a fresh agent token or API token, shown once",
+        "tags": [
+          "token-leaks"
+        ]
+      }
+    },
     "/api/v1/tokens": {
       "get": {
         "operationId": "getTokens",
@@ -15571,10 +16293,16 @@
       "name": "prs"
     },
     {
+      "name": "push"
+    },
+    {
       "name": "questions"
     },
     {
       "name": "reload"
+    },
+    {
+      "name": "repos"
     },
     {
       "name": "retention"
@@ -15602,6 +16330,9 @@
     },
     {
       "name": "timeseries"
+    },
+    {
+      "name": "token-leaks"
     },
     {
       "name": "tokens"

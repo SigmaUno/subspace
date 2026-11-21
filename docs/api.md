@@ -561,6 +561,32 @@ Buckets are aligned to UTC multiples of the bucket size. A series has at most 20
 
 When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
 
+### Digest
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/digest/preview?window=` | → Preview of the digest for the last `window` (Go duration above 0 and up to `744h`, default `24h`). 400 for another value. |
+
+```jsonc
+// Preview
+{"digest":{"since":"2026-11-20T08:00:00Z","until":"2026-11-21T08:00:00Z",
+           "tasks":{"done":3,"created":5,"blocked":1},          // blocked: tasks now blocked or needs_owner, last updated in the window
+           "cost_eur":12.5,"tokens":53000,                        // reported cost increases and usage tokens in the window
+           "risks":[{"source":"spend","severity":"high","subject":"daily","message":"daily spend at 100% of its cap"}],   // source spend|forecast, severity high|medium, high first
+           "decisions":{"count":7,"titles":["Approve plan P-1 for B-1"]},   // pending owner decisions without merge-ready ones; up to 5 titles by priority
+           "flapping_agents":["claude-2"],"merge_ready":["T-5"]},          // agents paused with reason flapping; tasks whose PR is merge-ready
+ "title":"Subspace digest: 3 done, 7 decisions pending","text":"Window: ..."}
+```
+
+A digest is a short plain-text summary sent through the notification sinks (`kind` `digest`, same sinks as other notifications). It holds counts, cost, token totals, risks from the spend limits (at least 80% of a cap) and from the open briefs' forecasts, the number and titles of pending decisions, flapping agents and merge-ready PRs. Titles are shortened to 80 characters and secrets in them are masked; task specs, notes and thread messages are never included. The scheduler runs only when at least one notification sink is configured.
+
+| Var | Default | Meaning |
+|---|---|---|
+| `SUBSPACE_DIGEST_AT` | – | daily digest times, `HH:MM` list such as `08:00,18:00` |
+| `SUBSPACE_DIGEST_WEEKLY` | – | weekly digest times, `day@HH:MM` list such as `mon@09:00,fri@17:00` (`mon`…`sun` or full names) |
+| `SUBSPACE_DIGEST_TZ` | `UTC` | IANA time zone of the times above |
+
+Each variable is its own rule with its own window, which runs from the previous slot of that rule (or from the last evaluation) to now, at most 8 days. A time that does not exist on a daylight-saving day fires right after the gap; an ambiguous time fires once, at its first occurrence. A rule is skipped when nothing changed since its last digest: no tasks done, created or blocked, no cost or tokens, and the same pending decisions, risks, flapping agents and merge-ready PRs. A change to an empty state is sent once. The first evaluation after a fresh start only records the slot, and a missed slot is sent once on the next start. Rule state is kept in the key-value table (`digest.state.daily`, `digest.state.weekly`). Invalid values disable the digest and are logged.
+
 ### Action links
 | Method | Path | Body → Response |
 |---|---|---|

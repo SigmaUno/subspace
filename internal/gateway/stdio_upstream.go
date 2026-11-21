@@ -8,6 +8,7 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"slices"
 	"sync"
 	"time"
 )
@@ -28,6 +29,7 @@ type stdioUpstream struct {
 	secret  string
 	maxLine int64
 	now     func() time.Time
+	allowed bool
 
 	mu        sync.Mutex
 	proc      *stdioProc
@@ -50,9 +52,9 @@ type stdioProc struct {
 	once    sync.Once
 }
 
-func newStdioUpstream(g Gateway, secret string, now func() time.Time) *stdioUpstream {
+func newStdioUpstream(g Gateway, secret string, now func() time.Time, commands []string) *stdioUpstream {
 	return &stdioUpstream{command: g.Command, args: g.Args, credEnv: g.CredentialEnv, secret: secret,
-		maxLine: int64(g.MaxResultBytes) + stdioLineReserv, now: now}
+		maxLine: int64(g.MaxResultBytes) + stdioLineReserv, now: now, allowed: slices.Contains(commands, g.Command)}
 }
 
 func (s *stdioUpstream) env(dir string) []string {
@@ -79,6 +81,9 @@ func (s *stdioUpstream) current(ctx context.Context) (*stdioProc, error) {
 	defer s.mu.Unlock()
 	if s.closed {
 		return nil, errUnavailable
+	}
+	if !s.allowed {
+		return nil, errCommandNotAllowed
 	}
 	if s.proc != nil {
 		select {
@@ -146,7 +151,7 @@ func (s *stdioUpstream) start(ctx context.Context) (*stdioProc, error) {
 		p.kill()
 		return nil, err
 	}
-	if err := p.send(rpcRequest{JSONRPC: "2.0", Method: "notifications/initialized"}); err != nil {
+	if err := p.send(ictx, rpcRequest{JSONRPC: "2.0", Method: "notifications/initialized"}); err != nil {
 		p.kill()
 		return nil, err
 	}
@@ -165,17 +170,28 @@ func (s *stdioUpstream) call(ctx context.Context, method string, params any) (js
 	return res, err
 }
 
-func (p *stdioProc) send(msg rpcRequest) error {
+func (p *stdioProc) send(ctx context.Context, msg rpcRequest) error {
 	b, err := json.Marshal(msg)
 	if err != nil {
 		return err
 	}
-	p.wmu.Lock()
-	defer p.wmu.Unlock()
-	if _, err := p.stdin.Write(append(b, '\n')); err != nil {
-		return errors.Join(errUnavailable, err)
+	written := make(chan error, 1)
+	go func() {
+		p.wmu.Lock()
+		defer p.wmu.Unlock()
+		_, err := p.stdin.Write(append(b, '\n'))
+		written <- err
+	}()
+	select {
+	case err := <-written:
+		if err != nil {
+			return errors.Join(errUnavailable, err)
+		}
+		return nil
+	case <-ctx.Done():
+		p.kill()
+		return ctx.Err()
 	}
-	return nil
 }
 
 func (p *stdioProc) call(ctx context.Context, method string, params any) (json.RawMessage, error) {
@@ -195,7 +211,7 @@ func (p *stdioProc) call(ctx context.Context, method string, params any) (json.R
 		delete(p.pending, id)
 		p.mu.Unlock()
 	}()
-	if err := p.send(rpcRequest{JSONRPC: "2.0", ID: &id, Method: method, Params: params}); err != nil {
+	if err := p.send(ctx, rpcRequest{JSONRPC: "2.0", ID: &id, Method: method, Params: params}); err != nil {
 		return nil, err
 	}
 	select {
@@ -238,7 +254,10 @@ func (p *stdioProc) read(stdout io.Reader, maxLine int64) {
 		ch := p.pending[id]
 		p.mu.Unlock()
 		if ch != nil {
-			ch <- &m
+			select {
+			case ch <- &m:
+			default:
+			}
 		}
 	}
 	if !errors.Is(err, errTooLarge) {

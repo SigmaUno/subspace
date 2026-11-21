@@ -133,9 +133,14 @@ func (s *Store) Get(ctx context.Context, name string) (Gateway, error) {
 }
 
 func snapshot(g *Gateway) map[string]any {
-	return map[string]any{"name": g.Name, "transport": g.Transport, "url": g.URL, "command": g.Command, "args": g.Args,
-		"credential_env": g.CredentialEnv, "allowed_roles": g.AllowedRoles, "allow_tools": g.AllowTools, "deny_tools": g.DenyTools,
-		"allow_private_hosts": g.AllowPrivateHosts, "enabled": g.Enabled}
+	out := map[string]any{}
+	config, err := encode(*g)
+	if err == nil {
+		_ = json.Unmarshal([]byte(config), &out)
+	}
+	delete(out, "created_at")
+	delete(out, "updated_at")
+	return out
 }
 
 func (s *Store) audit(ctx context.Context, tx store.Tx, tool string, before, after *Gateway) error {

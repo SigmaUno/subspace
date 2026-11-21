@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/gateway"
+	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 	"github.com/SigmaUno/subspace/internal/testmain"
 )
@@ -57,6 +58,8 @@ func newFake(t *testing.T) *fakeUpstream {
 		map[string]any{"name": "huge", "description": "huge schema", "inputSchema": map[string]any{"type": "object", "description": strings.Repeat("a", 40<<10)}},
 		map[string]any{"name": "bad name!", "description": "bad", "inputSchema": map[string]any{"type": "object"}},
 		map[string]any{"name": "admin_delete", "description": "dangerous", "inputSchema": map[string]any{"type": "object"}},
+		map[string]any{"name": "whoami", "description": "Signed in with " + credential + " and sk-ant-" + strings.Repeat("c", 30),
+			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{"token": map[string]any{"type": "string", "default": credential}}}},
 	}
 	for _, n := range []string{"leak", "big", "deep_result", "slow", "fail", "other"} {
 		tools = append(tools, map[string]any{"name": n, "description": n, "inputSchema": map[string]any{"type": "object"}})
@@ -490,4 +493,115 @@ func TestStdioGateway(t *testing.T) {
 	if len(evs) < 6 {
 		t.Fatalf("audit events: %d", len(evs))
 	}
+}
+
+func TestGatewayToolListNeverShowsTheCredential(t *testing.T) {
+	t.Setenv(credEnv, credential)
+	f := newFake(t)
+	e := servertest.New(t)
+	wk := e.Register("w1", "worker", "claude-code")
+	if code, out := e.REST("POST", "/api/v1/gateways", httpGateway(f.URL, nil)); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	list := e.RPC(wk, "tools/list", map[string]any{})
+	b, _ := json.Marshal(list)
+	if !strings.Contains(string(b), "gw_docs__whoami") {
+		t.Fatalf("whoami not listed: %s", b)
+	}
+	if strings.Contains(string(b), credential) || strings.Contains(string(b), "sk-ant-cccc") {
+		t.Fatalf("tools/list leaks the gateway credential to the agent")
+	}
+	_, tl := e.REST("GET", "/api/v1/gateways/docs/tools", nil)
+	if b, _ := json.Marshal(tl); strings.Contains(string(b), credential) {
+		t.Fatalf("discovered tools leak the gateway credential")
+	}
+}
+
+func TestGatewayAuditRecordsTheWholeConfiguration(t *testing.T) {
+	t.Setenv(credEnv, credential)
+	f := newFake(t)
+	e := servertest.New(t)
+	if code, out := e.REST("POST", "/api/v1/gateways", httpGateway(f.URL, nil)); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	changed := httpGateway(f.URL, map[string]any{"audit_arguments": true, "budget": map[string]any{"max_calls_per_day": 7},
+		"rate_limits": []any{map[string]any{"tool": "*", "per_minute": 3}}, "timeout_ms": 2000, "max_result_bytes": 4096})
+	if code, out := e.REST("PUT", "/api/v1/gateways/docs", changed); code != 200 {
+		t.Fatalf("update: %d %v", code, out)
+	}
+	code, out := e.REST("GET", "/api/v1/audit?tool=update_gateway", nil)
+	if code != 200 || len(out["events"].([]any)) != 1 {
+		t.Fatalf("audit: %d %v", code, out)
+	}
+	ev := out["events"].([]any)[0].(map[string]any)
+	before, after := ev["before"].(map[string]any), ev["after"].(map[string]any)
+	for _, k := range []string{"audit_arguments", "budget", "rate_limits", "timeout_ms", "max_result_bytes"} {
+		if fmt.Sprint(before[k]) == fmt.Sprint(after[k]) {
+			t.Errorf("audit event does not show the change of %s: before %v after %v", k, before[k], after[k])
+		}
+	}
+	if b, _ := json.Marshal(ev); strings.Contains(string(b), credential) {
+		t.Fatal("audit event holds the credential value")
+	}
+}
+
+func TestStdioGatewayRechecksTheCommandAllowlist(t *testing.T) {
+	bin := buildFake(t)
+	t.Setenv("SUBSPACE_GATEWAY_COMMANDS", bin)
+	cfg := server.Config{DBPath: servertest.DB(t), PublicURL: "http://sub.test",
+		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute}
+	e := servertest.Start(t, cfg)
+	wk := e.Register("w1", "worker", "claude-code")
+	stdio := map[string]any{"name": "local", "transport": "stdio", "command": bin, "allowed_roles": []string{"worker"}}
+	if code, out := e.REST("POST", "/api/v1/gateways", stdio); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	e.Must(wk, "gw_local__echo", map[string]any{"text": "allowed"})
+	e.Stop()
+
+	t.Setenv("SUBSPACE_GATEWAY_COMMANDS", "")
+	e = servertest.Start(t, cfg)
+	if out, isErr := e.Call(wk, "gw_local__echo", map[string]any{"text": "removed"}); !isErr {
+		t.Fatalf("command removed from SUBSPACE_GATEWAY_COMMANDS still runs: %v", out)
+	}
+	for _, n := range toolNames(e, wk) {
+		if strings.HasPrefix(n, "gw_local__") {
+			t.Fatalf("tool of a command outside the allowlist listed: %s", n)
+		}
+	}
+}
+
+func TestStdioGatewayTimesOutWritesToAStuckUpstream(t *testing.T) {
+	bin := buildFake(t)
+	t.Setenv("SUBSPACE_GATEWAY_COMMANDS", bin)
+	e := servertest.New(t)
+	wk := e.Register("w1", "worker", "claude-code")
+	stdio := map[string]any{"name": "local", "transport": "stdio", "command": bin, "allowed_roles": []string{"worker"}, "timeout_ms": 1000}
+	if code, out := e.REST("POST", "/api/v1/gateways", stdio); code != 201 {
+		t.Fatalf("create: %d %v", code, out)
+	}
+	within := func(what string, d time.Duration, f func()) {
+		t.Helper()
+		done := make(chan struct{})
+		go func() {
+			defer close(done)
+			f()
+		}()
+		select {
+		case <-done:
+		case <-time.After(d):
+			t.Fatalf("%s did not return within %s", what, d)
+		}
+	}
+
+	within("call to an upstream that stops answering", 10*time.Second, func() {
+		e.MustFail(wk, "gw_local__deaf", map[string]any{"text": "1"}, "upstream_error")
+	})
+	within("large call to an upstream that stops reading", 10*time.Second, func() {
+		e.MustFail(wk, "gw_local__echo", map[string]any{"text": strings.Repeat("z", 512<<10)}, "upstream_error")
+	})
+	eventually(t, "restart after the upstream stopped reading", func() bool {
+		_, isErr := e.Call(wk, "gw_local__echo", map[string]any{"text": "back " + time.Now().String()})
+		return !isErr
+	})
 }

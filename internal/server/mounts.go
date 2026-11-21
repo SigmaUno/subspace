@@ -8,6 +8,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -22,6 +23,7 @@ type Deps struct {
 	API   *api.API
 	Mux   *http.ServeMux
 	Auth  auth.AgentLookup
+	Feed  *decisions.Feed
 }
 
 var extraMounts []func(Deps)

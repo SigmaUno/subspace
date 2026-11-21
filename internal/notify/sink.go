@@ -12,6 +12,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 )
 
 const SignatureHeader = "X-Subspace-Signature"
@@ -89,13 +90,32 @@ func NewNtfy(url string, c *http.Client) Sink {
 			"Priority":     {strconv.Itoa(n.Priority)},
 			"Tags":         {n.Kind},
 		}
+		if len(n.Actions) > 0 {
+			acts := make([]string, 0, maxActions)
+			for _, a := range n.Actions[:min(len(n.Actions), maxActions)] {
+				acts = append(acts, "view, "+a.Label+", "+a.URL+", clear=true")
+			}
+			h.Set("Actions", strings.Join(acts, "; "))
+		}
 		return []byte(n.Text), h, nil
 	}}
 }
 
 func NewSlack(url string, c *http.Client) Sink {
 	return &httpSink{name: "slack", url: url, client: c, build: func(n Notification) ([]byte, http.Header, error) {
-		b, err := json.Marshal(map[string]string{"text": "*" + n.Title + "*\n" + n.Text})
+		text := "*" + n.Title + "*\n" + n.Text
+		body := map[string]any{"text": text}
+		if len(n.Actions) > 0 {
+			buttons := make([]map[string]any, len(n.Actions))
+			for i, a := range n.Actions {
+				buttons[i] = map[string]any{"type": "button", "text": map[string]string{"type": "plain_text", "text": a.Label}, "url": a.URL}
+			}
+			body["blocks"] = []map[string]any{
+				{"type": "section", "text": map[string]string{"type": "mrkdwn", "text": text}},
+				{"type": "actions", "elements": buttons},
+			}
+		}
+		b, err := json.Marshal(body)
 		return b, http.Header{"Content-Type": {"application/json"}}, err
 	}}
 }

@@ -15,6 +15,7 @@ func init() {
 			cfg = notify.Config{}
 		}
 		cfg.Log = d.Log
+		cfg.Mint = actionMinter(d)
 		svc := notify.New(cfg)
 		svc.Start(context.Background(), d.Hub)
 		d.API.Mount(d.Mux, "/api/v1/notify/", svc.Handler())

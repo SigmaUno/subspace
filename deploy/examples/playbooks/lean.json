@@ -1,0 +1,28 @@
+[
+  {
+    "name": "solo-lean",
+    "description": "Small changes for a solo developer: tests required, cross review optional",
+    "coverage": "tester_or_reviewer",
+    "criteria_rules": [
+      {"name": "tests", "pattern": "test|verif|assert", "role": "worker", "severity": "warning"}
+    ],
+    "allowed_sizes": ["s", "m"],
+    "default_task_budget": {"max_minutes": 90, "max_cost_eur": 3},
+    "cross_review": false,
+    "instructions": "Keep tasks small. Each implementation task names how it is tested. Prefer one task per pull request."
+  },
+  {
+    "name": "research-spike",
+    "description": "Time-boxed experiments with a written outcome",
+    "required_tasks": [
+      {"name": "write_up", "pattern": "write ?up|findings|results|summary", "severity": "warning"}
+    ],
+    "criteria_rules": [
+      {"name": "hypothesis", "pattern": "hypothes|measure|compare|benchmark", "role": "worker", "severity": "warning"}
+    ],
+    "allowed_sizes": ["s", "m", "l"],
+    "default_task_budget": {"max_minutes": 180, "max_cost_eur": 6},
+    "brief_cost_multiplier": 1.5,
+    "instructions": "Every experiment states a hypothesis and how it is measured. End the plan with a write-up task that records results, including negative ones."
+  }
+]

@@ -1,0 +1,31 @@
+{
+  "charter": {"template": "../charters/security-sensitive.md"},
+  "profiles": [
+    {"name": "secure-worker", "role": "worker", "kind": "claude-code", "model": "claude-sonnet-5-5", "provider": "anthropic",
+     "expires_in": "168h", "description": "Short-lived Claude Code workers"},
+    {"name": "secure-reviewer", "role": "reviewer", "kind": "codex", "model": "gpt-5-codex", "provider": "openai",
+     "expires_in": "168h", "description": "Independent reviewer on a different provider"},
+    {"name": "secure-tester", "role": "tester", "kind": "codex", "model": "gpt-5-codex", "provider": "openai",
+     "expires_in": "168h", "description": "Tester that writes negative tests"}
+  ],
+  "leader": {"id": "lead", "kind": "claude-code", "model": "claude-opus-5-5", "provider": "anthropic", "expires_in": "168h"},
+  "workers": [{"prefix": "worker", "count": 2, "profile": "secure-worker"}],
+  "reviewer": {"id": "review", "profile": "secure-reviewer"},
+  "tester": {"id": "test", "profile": "secure-tester"},
+  "repos": [
+    {"name": "example-org/payments", "host": "github", "default_branch": "main", "protected_branches": ["main", "release/*"],
+     "token_env": "GITHUB_TOKEN", "enabled": true}
+  ],
+  "capacity": {
+    "global_max_agents": 4,
+    "limits": [
+      {"provider": "anthropic", "model": "*", "max_concurrency": 3, "requests_per_min": 60},
+      {"provider": "openai", "model": "*", "max_concurrency": 2, "requests_per_min": 60}
+    ]
+  },
+  "limits": {"daily_cost_eur": 20, "weekly_cost_eur": 80},
+  "quality_gates": {"tests": true, "min_tests_passed": 2, "checks": true, "scope": true, "questions": true, "review": true, "budget": true, "max_pr_age_hours": 48},
+  "autopilot": {"enabled": false},
+  "brief": "security-sensitive-brief.md",
+  "secrets_file": "secure-agents.secrets"
+}

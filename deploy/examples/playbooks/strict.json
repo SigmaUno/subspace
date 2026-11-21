@@ -1,0 +1,45 @@
+[
+  {
+    "name": "team-standard",
+    "description": "Team default: tester or cross review on every implementation task",
+    "coverage": "tester_or_reviewer",
+    "criteria_rules": [
+      {"name": "tests", "pattern": "test|verif|assert", "role": "worker", "severity": "error"}
+    ],
+    "allowed_sizes": ["s", "m", "l"],
+    "default_task_budget": {"max_minutes": 120, "max_cost_eur": 5},
+    "cross_review": true,
+    "instructions": "Split work into reviewable tasks with explicit dependencies. Every implementation task needs an acceptance criterion that says how it is tested, and independent review or a tester task."
+  },
+  {
+    "name": "security-strict",
+    "description": "Security-sensitive changes: tester coverage, threat notes and a rollback task",
+    "coverage": "tester",
+    "required_tasks": [
+      {"name": "rollback", "pattern": "roll ?back|revert", "severity": "error"},
+      {"name": "threat_review", "pattern": "threat|security review", "role": "tester", "severity": "warning"}
+    ],
+    "criteria_rules": [
+      {"name": "threat", "pattern": "threat|vulnerab|injection|authz|secret|permission", "role": "worker", "severity": "error"},
+      {"name": "tests", "pattern": "regression|negative test|test", "role": "worker", "severity": "error"}
+    ],
+    "allowed_sizes": ["s", "m"],
+    "default_task_budget": {"max_minutes": 90, "max_cost_eur": 4},
+    "brief_cost_multiplier": 1.5,
+    "cross_review": true,
+    "instructions": "Never put secrets or exploit details for live systems into tasks or notes. Each task names the threat class it covers and has a negative test. The plan includes a rollback task. Tasks stay at size s or m."
+  },
+  {
+    "name": "oss-contribution",
+    "description": "Public repository contributions: small pull requests with tests and docs",
+    "coverage": "tester_or_reviewer",
+    "criteria_rules": [
+      {"name": "tests", "pattern": "test|regression", "role": "worker", "severity": "error"},
+      {"name": "docs", "pattern": "doc|changelog|readme", "role": "worker", "severity": "warning"}
+    ],
+    "allowed_sizes": ["s", "m"],
+    "default_task_budget": {"max_minutes": 90, "max_cost_eur": 3},
+    "cross_review": true,
+    "instructions": "Keep pull requests small and focused. Bug fixes need a regression test. Breaking public API changes need maintainer approval before work starts."
+  }
+]

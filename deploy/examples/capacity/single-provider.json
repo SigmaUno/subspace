@@ -1,0 +1,8 @@
+{
+  "global_max_agents": 6,
+  "limits": [
+    {"provider": "anthropic", "model": "claude-opus-*", "max_concurrency": 1, "requests_per_min": 30},
+    {"provider": "anthropic", "model": "claude-sonnet-*", "max_concurrency": 4, "requests_per_min": 120},
+    {"provider": "anthropic", "model": "*", "max_concurrency": 5, "requests_per_min": 150}
+  ]
+}

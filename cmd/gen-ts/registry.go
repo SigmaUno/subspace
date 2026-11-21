@@ -15,6 +15,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/playbooks"
+	"github.com/SigmaUno/subspace/internal/policy"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/search"
@@ -67,6 +68,20 @@ var registry = []entry{
 	{"Playbook", playbooks.Playbook{}},
 	{"PlaybookCriteriaRule", planlint.CriteriaRule{}},
 	{"PlaybookRequiredTask", planlint.RequiredTask{}},
+	{"Policy", policy.Policy{}},
+	{"PolicyDecision", policy.Decision{}},
+	{"PolicyDocument", policy.Document{}},
+	{"PolicyDryRunInput", policy.DryRunInput{}},
+	{"PolicyDryRunResult", policy.DryRunResult{}},
+	{"PolicyFact", policy.FactInfo{}},
+	{"PolicyFinding", policy.Finding{}},
+	{"PolicyHold", policy.Hold{}},
+	{"PolicyMatch", policy.Match{}},
+	{"PolicyRule", policy.Rule{}},
+	{"PolicySpawn", policy.Spawn{}},
+	{"PolicyThen", policy.Then{}},
+	{"PolicyVersion", policy.Version{}},
+	{"PolicyWhen", policy.When{}},
 	{"Prompt", prompts.Template{}},
 	{"ProviderStatus", usage.ProviderStatus{}},
 	{"QualityGates", model.QualityGates{}},

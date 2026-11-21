@@ -1,0 +1,20 @@
+{
+  "policy": {
+    "name": "deploy changes need the owner",
+    "enabled": true,
+    "rules": [
+      {"id": "deploy", "when": {"actions": ["assign"], "match": "overlaps(task.paths, \"deploy/**\")"},
+       "then": {"effect": "require_owner_approval", "timeout": "2h", "message": "task touches deploy/**"}},
+      {"id": "big-deploy-warn", "when": {"actions": ["assign"], "match": "glob(task.paths, \"deploy/**\") and task.priority >= 5"},
+       "then": {"effect": "warn", "message": "high priority deploy change"}}
+    ]
+  },
+  "cases": [
+    {"name": "deploy path held", "action": "assign", "facts": {"task.paths": ["deploy/k8s/app.yaml"]}, "want": "hold", "applied": ["deploy"]},
+    {"name": "whole repo overlaps deploy", "action": "assign", "facts": {"task.paths": ["**"]}, "want": "hold", "applied": ["deploy"]},
+    {"name": "parent dir overlaps deploy", "action": "assign", "facts": {"task.paths": ["deploy"]}, "want": "hold", "applied": ["deploy"]},
+    {"name": "other path allowed", "action": "assign", "facts": {"task.paths": ["internal/api/**", "deployment.md"]}, "want": "allow"},
+    {"name": "hold wins over warn", "action": "assign", "facts": {"task.paths": ["deploy/x"], "task.priority": 9}, "want": "hold", "applied": ["deploy", "big-deploy-warn"]},
+    {"name": "no paths allowed", "action": "assign", "facts": {"task.paths": []}, "want": "allow"}
+  ]
+}

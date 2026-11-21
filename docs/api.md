@@ -7,7 +7,7 @@ the server changes, this file changes in the same PR.
 - All bodies are JSON (`Content-Type: application/json`), UTF-8. Timestamps are RFC 3339 UTC (`2026-11-20T21:04:05Z`); absent = `null`.
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, knowledge entries `K-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
-- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
+- IDs are short strings: briefs `B-<n>`, plans `P-<n>`, tasks `T-<n>`, questions `Q-<n>`, help requests `HR-<n>`, spawns `S-<n>`, restore drills `D-<n>`, components `C-<n>`, artifacts `A-<n>`, hillclimb jobs `H-<n>`, API tokens `K-<n>`, announcements `AN-<n>`, schedules `SC-<n>`, policies `PO-<n>`, policy holds `PH-<n>`, policy decisions `PD-<n>`, conversations `C-<16 hex>`. Messages and audit events have integer ids. Agent ids are chosen by the owner (`[a-z0-9][a-z0-9_-]{0,62}`).
 - Heartbeat data is held in memory and flushed to the DB every ~2s. REST reads overlay the in-memory values, so `last_heartbeat_at` / `lease_expires_at` are always current on the instance that received the heartbeat and at most one flush interval behind on other instances (see High availability).
 
 ## 1. Auth
@@ -37,7 +37,7 @@ Errors (REST): HTTP status + body
 ```json
 {"error": {"code": "not_found", "message": "task T-9 not found"}}
 ```
-Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `gates_failed` 409 (quality gates hold an approval; the error carries `details`, see Quality gates), `paused` 423, `capacity` 409, `rate_limited` 429, `upstream_error` 502 (an external MCP server behind a gateway failed, see MCP gateways), `internal` 500, plus `too_large` 413 and `quota_exceeded`: 409 when an agent's daily quota blocks `claim_task` or `assign` (see Agent quotas), 507 for artifact uploads. Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
+Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `gates_failed` 409 (quality gates hold an approval; the error carries `details`, see Quality gates), `paused` 423, `capacity` 409, `rate_limited` 429, `upstream_error` 502 (an external MCP server behind a gateway failed, see MCP gateways), `internal` 500, plus `too_large` 413 and `quota_exceeded`: 409 when an agent's daily quota blocks `claim_task` or `assign` (see Agent quotas), 507 for artifact uploads, and `policy_denied` 403 / `policy_hold` 409 from owner policies (see Policies). Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
@@ -1526,6 +1526,82 @@ Recurring work: a schedule creates a brief, or adds tasks to an existing brief, 
 
 The runner evaluates every `SUBSPACE_SCHEDULE_INTERVAL` (default `30s`). Schedules are stored in the `schedules` table.
 
+### Policies
+Owner policies are declarative rules on top of the fixed rules of the board. A policy is a JSON document of rules; each rule says *when* (actions and a match expression over facts) and *then* (an effect). Owner scope writes, viewer scope reads. Create, replace and delete append audit events (`create_policy`, `update_policy`, `delete_policy`). Without policies nothing changes: the board evaluates them through one interface whose default is a no-op.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/policies` | → `{"policies":[Policy]}` oldest first, each with its current lint `warnings`. |
+| POST | `/api/v1/policies` | PolicyDocument → Policy (201), version 1. 400 with `error.details.findings` when the lint reports errors, 409 above 100 policies. |
+| GET | `/api/v1/policies/facts` | → `{"facts":[{"name","type","description","actions"}],"actions":[...],"effects":[...]}`. |
+| POST | `/api/v1/policies/lint` | PolicyDocument → `{"ok":true,"findings":[Finding]}` without saving. `ok` is false when a finding has severity `error`. |
+| POST | `/api/v1/policies/evaluate` | `{"action","actor_id","task_id","agent_id","brief_id","plan_id","as","spawn":{"worker_kind","provider","model","role","n"},"at","facts":{name: value},"policy":PolicyDocument}` → DryRun. Builds the facts of a sample action from the live data, applies the `facts` overrides, and evaluates the stored enabled policies, or only `policy` (a draft, evaluated even when disabled). Nothing is recorded and no hold is created or used. Only `action` is required; `actor_id` defaults to the owner, `at` to now. 400 for an unknown action or fact, a fact of the wrong type or a draft with lint errors; 404 for unknown ids. |
+| GET | `/api/v1/policies/decisions?outcome=&action=&task_id=&before=&limit=` | → `{"decisions":[Decision]}` newest first; `limit` default 100, max 1000; `before` is the numeric part of a decision id for paging. The newest 20000 decisions are kept. |
+| GET | `/api/v1/policies/{id}` | → Policy. 404 for an unknown id. |
+| PUT | `/api/v1/policies/{id}` | PolicyDocument → Policy; the version increases by one and the previous document stays in the version history. |
+| DELETE | `/api/v1/policies/{id}` | → 204. Deletes the policy and its versions; decisions and holds stay. |
+| GET | `/api/v1/policies/{id}/versions` | → `{"versions":[{"version","document":PolicyDocument,"created_at"}]}` newest first. |
+| GET | `/api/v1/policy-holds?status=&limit=` | → `{"holds":[Hold]}` newest first; `status` pending, approved, consumed, rejected or expired. |
+| GET | `/api/v1/policy-holds/{id}` | → Hold. |
+| POST | `/api/v1/policy-holds/{id}/approve` | `{"note"?}` → Hold. Only pending holds (409 otherwise, also once `expires_at` passed). Appends `approve_policy_hold`. A held `assign`/`reassign` or `approve_plan` is carried out at once as the original caller and the hold becomes `consumed` (`result` says what happened, or why the replay failed; the approval then stays usable for a retry). For other actions the approval lets the next identical call pass once. The caller gets a `system` message in its agent thread. |
+| POST | `/api/v1/policy-holds/{id}/reject` | `{"note"?}` → Hold `rejected`; appends `reject_policy_hold` and tells the caller not to retry. |
+
+```jsonc
+// PolicyDocument
+{"name":"Deploy changes need the owner","description":"","enabled":true,
+ "timezone":"Europe/Berlin",                     // IANA name for the time.* facts, default UTC
+ "rules":[{"id":"deploy",                        // [a-z0-9][a-z0-9_-]{0,62}, unique in the policy; default rule-<n>
+           "when":{"actions":["assign"],"match":"overlaps(task.paths, \"deploy/**\")"},   // empty match = always
+           "then":{"effect":"require_owner_approval","timeout":"2h","message":"touches deploy/**"}}]}
+
+// Policy: the document plus
+{"id":"PO-1","version":2,"warnings":[Finding],"created_at":"...","updated_at":"..."}
+
+// Finding
+{"severity":"warning","code":"always_true","rule":"deploy","message":"..."}
+
+// Hold
+{"id":"PH-1","status":"pending","action":"assign","actor_id":"rex","actor_role":"leader",
+ "task_id":"T-4","brief_id":"B-1","plan_id":"","target":"codex-1",
+ "args":{"tool":"assign","as":"assignee","agent_id":"codex-1"},
+ "message":"touches deploy/**","matched":[Match],"created_at":"...","expires_at":"...",
+ "decided_at":null,"note":"","result":""}
+
+// Decision (history entry)
+{"id":"PD-12","ts":"...","action":"assign","actor_id":"rex","actor_role":"leader","task_id":"T-3","brief_id":"B-1",
+ "target":"codex-1","outcome":"deny",           // deny|hold|warn|approved|allow
+ "message":"assign must go to provider anthropic, not \"openai\"","hold_id":"",
+ "matched":[Match],"facts":{"task.labels":["security"],"subject.provider":"openai"},"errors":[]}
+
+// Match
+{"policy_id":"PO-1","policy":"...","version":1,"rule":"route","effect":"route_to_provider","message":"...","applied":true}
+
+// DryRun: outcome, message, matched, facts, errors, steps, plus
+{"action":"assign","at":"...","findings":[Finding]}
+```
+
+Actions and where they are evaluated (inside the same transaction as the action, after the fixed checks): `assign` (leader `assign` and `reassign`, also `as=reviewer`), `claim_task`, `submit`, `review`, `request_spawn`, `create_task`, `update_task`, `approve_plan` (owner approval of a plan) and `merge_ready` (a task is about to become `approved`: `review` approve, or `submit` without cross review).
+
+Effects, combined over every enabled policy (all matching rules apply; deny beats hold beats warn):
+
+| effect | parameters | behaviour |
+|---|---|---|
+| `deny` | `message` | the action fails with `policy_denied` (403) and changes nothing |
+| `route_to_provider` | `provider` | denies with `policy_denied` unless the subject's provider equals `provider` |
+| `set_max_parallel` | `max` (1–10000), `per` `agent`\|`provider`\|`brief` (default agent) | denies with `policy_denied` while `count.in_progress_<per>` is at least `max` |
+| `require_owner_approval` | `timeout` (1m–720h, default 24h) | the action fails with `policy_hold` (409, `details.hold_id`) and nothing changes; a pending Hold is created once per action, caller, subject and target (a repeated call returns the same hold), shows up in `/api/v1/decisions` as `policy:PH-<n>`, appends `policy_hold` and publishes `policy.hold` on topic `control`. Holds not decided before `expires_at` become `expired` (checked every `SUBSPACE_POLICY_SWEEP`, default `30s`) and the caller is told. |
+| `warn` | `message` | the action proceeds; a `system` message goes to the task thread (else the brief thread) and a `policy_warn` audit event is appended |
+
+The subject of an action is the target agent for `assign`, the requested provider for `request_spawn`, and the caller otherwise. Every action where a rule applied is recorded in the decision history (a denied or held action only there); actions that no rule touched are not recorded.
+
+Match expressions are a small language interpreted by the server (no eval): literals (`"text"` with `\" \\ \n \t` escapes, numbers such as `3`, `-1.5`, `true`, `false`, lists `["a","b"]` of string or number literals), fact names, `== != < <= > >=`, `in` / `not in` (element of a list, or substring of a string), `&&`/`and`, `||`/`or`, `!`/`not`, parentheses, and the functions `glob(x, "pattern")` (`*`, `?`, `**` as a whole path segment), `overlaps(paths, "glob")` (two path globs can match a common file, the rule of path conflicts), `has_prefix(x, s)`, `has_suffix(x, s)`, `regex(x, "pattern")` (RE2), `contains(s, sub)`, `any_in(list, list)`, `len(x)` and `lower(s)`. `glob`, `overlaps`, `regex`, `has_prefix` and `has_suffix` take a string or a list of strings and are true when any element matches. Expressions are type checked when saved. Limits: 2048 bytes, 256 nodes, nesting depth 32, lists of 64 elements, regex patterns of 200 bytes and bounded compiled size, and 5000 evaluation steps per expression. A rule whose evaluation hits the step limit does not match and the error is reported in `errors` of the decision.
+
+Facts (`GET /api/v1/policies/facts` lists them with types): `action`; `actor.id|role|kind|provider|model`; `subject.id|provider`; `target.id|role|kind|provider|model`, `target.tester_tasks` (open tester tasks of the target) and `request.as` for `assign`; `task.id|title|repo|paths|component|priority|labels|role|status|has_tester`; `brief.id|title|playbook|repos`; `plan.id|tasks` for `approve_plan`; `spawn.kind|provider|model|role|n` for `request_spawn`; `time.hour|minute|weekday|date` in the policy timezone (`weekday` is `mon`…`sun`); `cost.task_used|task_budget|task_minutes_used|task_minutes_budget|brief_used|brief_budget|component_used` (EUR of the brief's tasks in the same component); `count.in_progress_agent|in_progress_provider|in_progress_brief|in_progress_total`. Task labels are the `#tag` words of the title and spec and `[tag]` markers in the title, lower-cased. A fact that does not apply to an action reads as its zero value (`""`, `0`, `false`, `[]`).
+
+Lint findings: errors `invalid_name`, `invalid_timezone`, `too_many_rules`, `invalid_rule_id`, `duplicate_rule`, `no_actions`, `unknown_action`, `unknown_fact`, `invalid_match`, `unknown_effect`, `invalid_effect`, `invalid_message`; warnings `no_rules`, `always_true` (the match folds to true), `unreachable` (the match folds to false, or an earlier rule of the policy always denies the same actions) and `fact_unavailable` (a fact that is never set for one of the rule's actions). Documents with errors are rejected; warnings are returned with the policy.
+
+Policies, versions, holds and decisions are stored in the `policies`, `policy_versions`, `policy_holds` and `policy_decisions` tables. Every instance reloads the policies when the `policy_rev` key changes.
+
 ### High availability
 
 With the Postgres backend any number of server instances may share one database behind a load balancer. SQLite is single instance; that instance is always the leader.
@@ -1576,6 +1652,7 @@ When the id is older than the oldest retained event, or newer than the server's 
 | `control.paused` / `control.resumed` | `{"reason":"..."}` | control |
 | `quota.warning` | `{"agent_id":"claude-1","percent":92,"level":"warning","cost_eur":4.6,"tasks":3,"concurrent_tasks":1,"starts_at":"..."}` | control |
 | `spend.warning` | `{"window":"daily","cap_eur":10,"spent_eur":8.2,"percent":82,"level":"warning","starts_at":"..."}` | control |
+| `policy.hold` | Hold, when a policy hold is created, decided or expires | control |
 | `activity.new` | ActivityItem | activity |
 | `capacity.changed` | capacity object (as GET /capacity) | control |
 | `resync` | `{"seq":n}` — a resume could not be served; refetch | all |

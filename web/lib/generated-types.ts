@@ -418,6 +418,148 @@ export interface PlaybookRequiredTask {
   severity: string;
 }
 
+export interface Policy {
+  id: string;
+  version: number;
+  name: string;
+  description: string;
+  enabled: boolean;
+  timezone: string;
+  rules: PolicyRule[] | null;
+  warnings: PolicyFinding[] | null;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface PolicyDecision {
+  id: string;
+  ts: string;
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  task_id: string;
+  brief_id: string;
+  target: string;
+  outcome: string;
+  message: string;
+  hold_id: string;
+  matched: PolicyMatch[] | null;
+  facts: Record<string, unknown> | null;
+  errors: string[] | null;
+}
+
+export interface PolicyDocument {
+  name: string;
+  description: string;
+  enabled: boolean;
+  timezone: string;
+  rules: PolicyRule[] | null;
+}
+
+export interface PolicyDryRunInput {
+  action: string;
+  actor_id?: string;
+  task_id?: string;
+  agent_id?: string;
+  brief_id?: string;
+  plan_id?: string;
+  as?: string;
+  spawn?: PolicySpawn;
+  at?: string;
+  facts?: Record<string, unknown>;
+  policy?: PolicyDocument;
+}
+
+export interface PolicyDryRunResult {
+  outcome: string;
+  message: string;
+  matched: PolicyMatch[] | null;
+  facts: Record<string, unknown> | null;
+  errors: string[] | null;
+  steps: number;
+  action: string;
+  at?: string;
+  findings: PolicyFinding[] | null;
+}
+
+export interface PolicyFact {
+  name: string;
+  type: string;
+  description: string;
+  actions: string[] | null;
+}
+
+export interface PolicyFinding {
+  severity: string;
+  code: string;
+  rule?: string;
+  message: string;
+}
+
+export interface PolicyHold {
+  id: string;
+  status: string;
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  task_id: string;
+  brief_id: string;
+  plan_id: string;
+  target: string;
+  args: Record<string, string> | null;
+  message: string;
+  matched: PolicyMatch[] | null;
+  created_at: string;
+  expires_at: string;
+  decided_at: string | null;
+  note: string;
+  result: string;
+}
+
+export interface PolicyMatch {
+  policy_id: string;
+  policy: string;
+  version: number;
+  rule: string;
+  effect: string;
+  message: string;
+  applied: boolean;
+}
+
+export interface PolicyRule {
+  id: string;
+  when: PolicyWhen;
+  then: PolicyThen;
+}
+
+export interface PolicySpawn {
+  worker_kind: string;
+  provider: string;
+  model: string;
+  role: string;
+  n: number;
+}
+
+export interface PolicyThen {
+  effect: string;
+  message?: string;
+  provider?: string;
+  max?: number;
+  per?: string;
+  timeout?: string;
+}
+
+export interface PolicyVersion {
+  version: number;
+  document: PolicyDocument;
+  created_at: string;
+}
+
+export interface PolicyWhen {
+  actions: string[] | null;
+  match: string;
+}
+
 export interface Prompt {
   id: string;
   title: string;

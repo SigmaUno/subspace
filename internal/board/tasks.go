@@ -193,6 +193,9 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if t.DependsOn, err = b.checkDeps(tx, t, deps); err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "create_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := tx.InsertTask(t); err != nil {
 			return err
 		}
@@ -253,11 +256,11 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			}
 			t.Budget = *p.Budget
 		}
+		br, err := unscoped(tx).GetBrief(t.BriefID)
+		if err != nil {
+			return err
+		}
 		if p.AcceptanceCriteria != nil || p.Budget != nil {
-			br, err := unscoped(tx).GetBrief(t.BriefID)
-			if err != nil {
-				return err
-			}
 			rules, err := b.rulesFor(tx, br.Playbook)
 			if err != nil {
 				return err
@@ -266,6 +269,13 @@ func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p Task
 			if err := playbookTaskCheck(a, br.Playbook, rules, lt); err != nil {
 				return err
 			}
+		}
+		args := map[string]string{}
+		if p.Status != nil {
+			args["status"] = *p.Status
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "update_task", Actor: a, Task: t, Brief: br, Args: args}); err != nil {
+			return err
 		}
 		if p.Status != nil {
 			switch *p.Status {
@@ -373,41 +383,54 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 	}
 	var out *model.Task
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
-		t, ag, err := b.assignTarget(tx, taskID, agentID)
+		t, ag, br, err := b.assignTarget(tx, taskID, agentID)
 		if err != nil {
 			return err
 		}
+		var overlaps []*model.Task
 		if as == "reviewer" {
-			if err := setReviewer(tx, tool, t, ag); err != nil {
-				return err
-			}
+			err = setReviewer(tx, tool, t, ag)
+		} else {
+			overlaps, err = b.assigneeAllowed(tx, tool, t, ag)
+		}
+		if err != nil {
+			return err
+		}
+		args := map[string]string{"tool": tool}
+		if reason != "" {
+			args["reason"] = reason
+		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "assign", Actor: a, Task: t, Brief: br, Target: ag, As: as, Args: args}); err != nil {
+			return err
+		}
+		if as == "reviewer" {
 			return b.finishUpdate(tx, w, a, tool, t, model.StatusInReview, &out)
 		}
-		return b.setAssignee(tx, w, a, tool, t, ag, reason, &out)
+		return b.setAssignee(tx, w, a, tool, t, ag, reason, overlaps, &out)
 	})
 	return out, err
 }
 
-func (b *Board) assignTarget(tx store.Tx, taskID, agentID string) (*model.Task, *model.Agent, error) {
+func (b *Board) assignTarget(tx store.Tx, taskID, agentID string) (*model.Task, *model.Agent, *model.Brief, error) {
 	t, err := tx.GetTask(taskID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	ag, err := tx.GetAgent(agentID)
 	if err != nil {
-		return nil, nil, model.NotFound("agent %s not found", agentID)
+		return nil, nil, nil, model.NotFound("agent %s not found", agentID)
 	}
 	if ag.Status != model.AgentActive {
-		return nil, nil, model.Conflict("agent %s is %s", agentID, ag.Status)
+		return nil, nil, nil, model.Conflict("agent %s is %s", agentID, ag.Status)
 	}
 	br, err := tx.GetBrief(t.BriefID)
 	if err != nil {
-		return nil, nil, err
+		return nil, nil, nil, err
 	}
 	if !b.providerAllowed(br, ag.Provider) {
-		return nil, nil, model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
+		return nil, nil, nil, model.Forbidden("provider %q is not allowed for brief %s", ag.Provider, br.ID)
 	}
-	return t, ag, nil
+	return t, ag, br, nil
 }
 
 func setReviewer(tx store.Tx, tool string, t *model.Task, ag *model.Agent) error {
@@ -449,16 +472,16 @@ func (b *Board) assignable(tx store.Tx, tool string, t *model.Task, agentID stri
 	return overlaps, nil
 }
 
-func (b *Board) setAssignee(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, ag *model.Agent, reason string, out **model.Task) error {
-	agentID := ag.ID
+func (b *Board) assigneeAllowed(tx store.Tx, tool string, t *model.Task, ag *model.Agent) ([]*model.Task, error) {
 	if ag.Role != t.Role {
-		return model.BadRequest("task needs a %s, agent %s is a %s", t.Role, agentID, ag.Role)
+		return nil, model.BadRequest("task needs a %s, agent %s is a %s", t.Role, ag.ID, ag.Role)
 	}
+	return b.assignable(tx, tool, t, ag.ID)
+}
+
+func (b *Board) setAssignee(tx store.Tx, w *wctx, a model.Actor, tool string, t *model.Task, ag *model.Agent, reason string, overlaps []*model.Task, out **model.Task) error {
+	agentID := ag.ID
 	from := t.Status
-	overlaps, err := b.assignable(tx, tool, t, agentID)
-	if err != nil {
-		return err
-	}
 	if deref(t.Assignee) != agentID {
 		if err := b.gated(tx, w, GateAssign, agentID, t, 0); err != nil {
 			return err
@@ -560,6 +583,9 @@ func (b *Board) ClaimTask(ctx context.Context, a model.Actor, taskID string) (*m
 				return model.Errf("capacity", "brief %s already has %d parallel agents", br.ID, len(active))
 			}
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "claim_task", Actor: a, Task: t, Brief: br}); err != nil {
+			return err
+		}
 		if err := b.gated(tx, w, GateClaim, a.ID, t, 0); err != nil {
 			return err
 		}
@@ -631,6 +657,9 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 		if err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "submit", Actor: a, Task: t, Brief: br, Args: map[string]string{"pr_url": in.PRURL}}); err != nil {
+			return err
+		}
 		to := model.StatusSubmitted
 		if !br.CrossReview {
 			to = model.StatusApproved
@@ -642,6 +671,11 @@ func (b *Board) Submit(ctx context.Context, a model.Actor, in SubmitInput) (*mod
 					return qerr
 				}
 				to, held = model.StatusSubmitted, ge
+			}
+		}
+		if to == model.StatusApproved {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 		}
 		b.endLease(w, t)
@@ -913,6 +947,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 		if err := crossProvider(tx, t, me.Provider); err != nil {
 			return err
 		}
+		if err := b.checkPolicy(tx, w, PolicyRequest{Action: "review", Actor: a, Task: t, Brief: br, Args: map[string]string{"verdict": verdict}}); err != nil {
+			return err
+		}
 		t.Reviewer = &a.ID
 		if err := w.post(tx, model.ThreadTask, t.ID, a, model.MsgNote, "Review ("+verdict+"): "+comments); err != nil {
 			return err
@@ -926,6 +963,9 @@ func (b *Board) Review(ctx context.Context, a model.Actor, taskID, verdict, comm
 				}
 				held = ge
 				return b.holdForGates(tx, w, a, t, ge)
+			}
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "merge_ready", Actor: a, Task: t, Brief: br}); err != nil {
+				return err
 			}
 			return b.statusChange(tx, w, a, "review", t, model.StatusApproved, comments)
 		}

@@ -32,6 +32,7 @@ func rules(fs []planlint.Finding, severity string) map[string][]string {
 
 func TestLint(t *testing.T) {
 	long := func(n int) string { return strings.Repeat("x", n) }
+	runes := func(n int) string { return "test" + strings.Repeat("é", n-4) }
 	cases := []struct {
 		name  string
 		brief func(*model.Brief)
@@ -80,6 +81,27 @@ func TestLint(t *testing.T) {
 			},
 			errs:  map[string][]string{planlint.RuleSpecSize: {"b"}},
 			warns: map[string][]string{planlint.RuleSpecSize: {"a"}},
+		},
+		{
+			name: "spec size limits are inclusive and count runes",
+			tasks: func() []planlint.Task {
+				a, b, c, d := good("a"), good("b"), good("c"), good("d")
+				a.Spec, b.Spec, c.Spec, d.Spec = runes(4000), runes(4001), runes(20000), runes(20001)
+				return []planlint.Task{a, b, c, d}
+			},
+			errs:  map[string][]string{planlint.RuleSpecSize: {"d"}},
+			warns: map[string][]string{planlint.RuleSpecSize: {"b", "c"}},
+		},
+		{
+			name: "fifteen criteria are allowed",
+			tasks: func() []planlint.Task {
+				a := good("a")
+				a.AcceptanceCriteria = nil
+				for i := 0; i < 15; i++ {
+					a.AcceptanceCriteria = append(a.AcceptanceCriteria, "criterion number "+string(rune('a'+i)))
+				}
+				return []planlint.Task{a}
+			},
 		},
 		{
 			name: "too many criteria",
@@ -176,6 +198,18 @@ func TestLint(t *testing.T) {
 			warns: map[string][]string{planlint.RuleBudget: {"a"}},
 		},
 		{
+			name:  "small budgets count as budgets",
+			brief: func(b *model.Brief) { b.Budget.MaxCostEUR = 0.5 },
+			tasks: func() []planlint.Task {
+				a, b, c := good("a"), good("b"), good("c")
+				a.Budget = model.Budget{}
+				b.Budget = model.Budget{MaxCostEUR: 0.5}
+				c.Budget = model.Budget{MaxMinutes: 1}
+				return []planlint.Task{a, b, c}
+			},
+			warns: map[string][]string{planlint.RuleBudget: {"a"}},
+		},
+		{
 			name:  "no budget warning without a brief cost cap",
 			tasks: func() []planlint.Task { a := good("a"); a.Budget = model.Budget{}; return []planlint.Task{a} },
 		},
@@ -185,6 +219,19 @@ func TestLint(t *testing.T) {
 			tasks: func() []planlint.Task {
 				return []planlint.Task{good("a"), good("b"), good("c"), good("d", "a", "b", "c")}
 			},
+			warns: map[string][]string{planlint.RuleParallelism: {""}},
+		},
+		{
+			name:  "ready tasks up to the parallel limit",
+			brief: func(b *model.Brief) { b.Budget.MaxParallelAgent = 3 },
+			tasks: func() []planlint.Task {
+				return []planlint.Task{good("a"), good("b"), good("c"), good("d", "a", "b", "c")}
+			},
+		},
+		{
+			name:  "single agent brief",
+			brief: func(b *model.Brief) { b.Budget.MaxParallelAgent = 1 },
+			tasks: func() []planlint.Task { return []planlint.Task{good("a"), good("b")} },
 			warns: map[string][]string{planlint.RuleParallelism: {""}},
 		},
 	}
@@ -225,5 +272,25 @@ func TestLintOrdersErrorsFirstAndSplits(t *testing.T) {
 	}
 	if got := planlint.Format(errs); !strings.Contains(got, planlint.RuleRepo) || !strings.Contains(got, "[b]") {
 		t.Fatalf("format: %q", got)
+	}
+}
+
+func TestNoTesterMessage(t *testing.T) {
+	a := good("a")
+	a.Title = "Rotate the deploy credentials"
+	for _, cross := range []bool{true, false} {
+		b := brief()
+		b.CrossReview = cross
+		fs := planlint.Lint(b, []planlint.Task{a, good("b")})
+		if len(fs) != 1 || fs[0].Rule != planlint.RuleNoTester {
+			t.Fatalf("findings: %+v", fs)
+		}
+		want := "risky work (a) but the plan has no tester task"
+		if !cross {
+			want += " and cross review is off"
+		}
+		if fs[0].Message != want {
+			t.Fatalf("cross_review=%v: message %q, want %q", cross, fs[0].Message, want)
+		}
 	}
 }

@@ -6,6 +6,9 @@ internal/auth/cache.go	if !ok {	negate condition
 internal/auth/cache.go	if agentID == "" {	replace == with !=
 internal/capacity/impl.go	} else if avail < 0 {	change constant 0 to 1
 internal/capacity/impl.go	} else if avail < 0 {	replace < with <=
+internal/planlint/planlint.go	low[v] = min(low[v], index[w])	swap arguments low[v] and index[w]
+internal/planlint/planlint.go	low[v] = min(low[v], low[w])	swap arguments low[v] and low[w]
+internal/planlint/planlint.go	next := 0	change constant 0 to 1
 internal/redact/redact.go	for _, m := range genericRunRe.FindAllStringIndex(s, -1) {	change constant 1 to 2
 internal/redact/redact.go	for _, m := range r.re.FindAllStringSubmatchIndex(s, -1) {	change constant 1 to 2
 internal/redact/redact.go	for _, sp := range spans[1:] {	change constant 1 to 0

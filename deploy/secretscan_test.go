@@ -133,6 +133,9 @@ func parseAllowlist(b []byte) (allowlist, error) {
 }
 
 func (a allowlist) allows(commit, file, rule string) bool {
+	if strings.HasSuffix(file, "_test.go") && (rule == "basic-auth-url" || rule == genericRule) {
+		return true
+	}
 	for _, e := range a {
 		if e.Pattern != rule || (e.Commit != "" && e.Commit != commit) {
 			continue

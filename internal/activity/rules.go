@@ -21,6 +21,9 @@ type rule struct {
 var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {tool}{task? on }"}
 
 var rules = map[string]rule{
+	"redeliver_webhook_out": {icon: "webhook", text: "{actor} redelivered outbound webhook delivery {a.id}"},
+	"create_webhook_out":    {icon: "webhook", text: "{actor} created outbound webhook {a.id}"},
+	"delete_webhook_out":    {icon: "webhook", severity: SevWarning, text: "{actor} deleted outbound webhook {a.id}"},
 	"delete_announcement":   {icon: "megaphone", severity: SevWarning, text: "{actor} deleted announcement {a.id}"},
 	"publish_announcement":  {icon: "megaphone", text: "{actor} published announcement {a.id}{note?: }"},
 	"retention_archive":     {icon: "archive", text: "{actor} archived old data ({a.rows} rows)"},

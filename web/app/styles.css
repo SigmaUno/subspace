@@ -349,3 +349,6 @@ kbd { display: inline-block; font-size: .6875rem; border: 1px solid var(--border
 .registry-row > div { min-width: 0; overflow-wrap: anywhere; }
 .registry-head { background: var(--panel-muted); color: var(--muted); font: 500 .6875rem/1.4 var(--font-mono); letter-spacing: .06em; text-transform: uppercase; border-bottom-color: var(--border); }
 .registry-list { max-height: 33rem; }
+
+.scope { display: contents; }
+.scope[data-scope="viewer"] [data-write] { display: none !important; }

@@ -79,7 +79,7 @@ function OwnerActions({ task, changed }: { task: TaskDetail; changed: (task: Tas
   const transition = async (action: string, body: Record<string, string>) => {
     changed(await api<TaskDetail>(`${path}/${action}`, "POST", body));
   };
-  return <section className="panel stack">
+  return <section className="panel stack" data-write>
     <h2>Owner actions</h2>
     <div className="form-grid">
       {completable.includes(task.status) && <ActionForm title="Mark done" button="Mark done"
@@ -239,7 +239,7 @@ export function TaskDetailPage({ id }: { id: string }) {
               </article>
             ))}
           </div>
-          <form className="stack" onSubmit={(event) => reply.submit(event, async (fields, element) => {
+          <form className="stack" data-write onSubmit={(event) => reply.submit(event, async (fields, element) => {
             const body = value(fields, "body");
             if (!body) throw new Error("Enter a reply.");
             await api(`threads/task/${path}/messages`, "POST", { body });

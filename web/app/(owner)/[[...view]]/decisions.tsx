@@ -90,7 +90,7 @@ function DecisionCard({ item, acting, next, openThread }: {
     </div>
     {!!item.options?.length && <div className="actions">{item.options.map((option) =>
       <button type="button" key={option} onClick={() => { setText(option); response.current?.focus(); }}>{option}</button>)}</div>}
-    <form className="stack" ref={form} onSubmit={decide}>
+    <form className="stack" data-write ref={form} onSubmit={decide}>
       <label>{question ? "Answer" : allowReject ? "Note or rejection reason" : "Note"}
         <textarea name="response" rows={2} ref={response} value={text}
           onChange={(event) => setText(event.target.value)} required={question} />

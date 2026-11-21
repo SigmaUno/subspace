@@ -101,7 +101,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
           <button type="button" aria-expanded={inboxOpen} onClick={() => setInboxOpen(!inboxOpen)}>
             Decisions <span className="nav-count">{decisionCount}</span>
           </button>
-          <button className={state.data?.paused ? "primary" : "danger"} onClick={togglePause} disabled={pending || !state.data}>
+          <button className={state.data?.paused ? "primary" : "danger"} data-write onClick={togglePause} disabled={pending || !state.data}>
             {state.data?.paused ? "Resume all" : "Pause all"}
           </button>
           <button onClick={signOut}>Sign out</button>

@@ -8,7 +8,7 @@ import { Feedback } from "./components";
 
 function CreateJobForm({ created }: { created: (job: HillclimbJob) => void }) {
   const form = useSubmit();
-  return <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     const target = value(fields, "target");
     const job = await api<HillclimbJob>("hillclimb/jobs", "POST", {
       brief_id: value(fields, "brief_id"),
@@ -90,7 +90,7 @@ function HillclimbView() {
 
   return <>
     <div className="heading"><h1>Hillclimb</h1>
-      <button className="primary" onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "New job"}</button></div>
+      <button className="primary" data-write onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "New job"}</button></div>
     {showForm && <CreateJobForm created={(job) => { setShowForm(false); setSelected(job.id); jobs.refresh(); }} />}
     <Feedback error={jobs.error} loading={!jobs.data} />
     {jobs.data && !jobs.data.jobs.length && <p className="empty">No hillclimb jobs yet.</p>}

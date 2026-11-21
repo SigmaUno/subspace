@@ -28,7 +28,7 @@ function VersionDiff({ scope, kind, version }: { scope: string; kind: Instructio
 function Editor({ scope, kind, text, reload }: { scope: string; kind: InstructionKind; text: string; reload: () => void }) {
   const [draft, setDraft] = useState(text);
   const form = useSubmit();
-  return <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     await api<InstructionVersion>(documentPath(scope, kind), "PUT", { text: draft, message: value(fields, "message") });
     reload();
   })}>
@@ -92,7 +92,7 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
               <td>{item.author}</td>
               <td>{item.message || "—"}</td>
               <td><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></td>
-              <td>{item.version !== head && <button disabled={pending} onClick={() => rollback(item.version)}>Roll back</button>}</td>
+              <td>{item.version !== head && <button data-write disabled={pending} onClick={() => rollback(item.version)}>Roll back</button>}</td>
             </tr>
           ))}</tbody>
         </table>

@@ -48,7 +48,7 @@ export function CharterView() {
       setSaved(true);
     })}>
       <div className="form-grid">
-        <label>Markdown<textarea rows={22} value={text} onChange={(event) => edit(event.target.value)} /></label>
+        <label data-write>Markdown<textarea rows={22} value={text} onChange={(event) => edit(event.target.value)} /></label>
         <div className="stack">
           <span className="meta">Preview</span>
           <div className="preserve">{text || <span className="empty">Nothing yet.</span>}</div>
@@ -56,7 +56,7 @@ export function CharterView() {
       </div>
       <Feedback error={form.error} />
       {saved && <span className="meta" role="status">Charter saved.</span>}
-      <div className="actions">
+      <div className="actions" data-write>
         <button type="button" disabled={!dirty || form.busy} onClick={() => setDraft(undefined)}>Discard changes</button>
         <button className="primary" disabled={!dirty || form.busy}>Save charter</button>
       </div>

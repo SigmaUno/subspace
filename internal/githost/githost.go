@@ -101,20 +101,3 @@ func ValidateBranch(taskID, slug, branch string) error {
 	}
 	return nil
 }
-
-// PullRequestEvent is a parsed pull_request webhook.
-type PullRequestEvent struct {
-	Action     string // opened, closed, reopened, synchronized, ...
-	Repo       string
-	Number     int64
-	Title      string
-	State      string
-	Merged     bool
-	HeadBranch string
-	BaseBranch string
-	URL        string
-	Sender     string
-}
-
-// IsMerged reports whether the event means the PR was merged.
-func (e PullRequestEvent) IsMerged() bool { return e.Action == "closed" && e.Merged }

@@ -10,6 +10,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/api"
@@ -49,11 +50,13 @@ type Config struct {
 }
 
 type Server struct {
-	cfg     Config
-	Store   store.Store
-	Board   *board.Board
-	Hub     events.Hub
-	handler http.Handler
+	cfg         Config
+	Store       store.Store
+	Board       *board.Board
+	Hub         events.Hub
+	handler     http.Handler
+	shutdown    chan struct{}
+	shutdowning sync.Once
 }
 
 func New(ctx context.Context, cfg Config) (*Server, error) {
@@ -146,7 +149,28 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, shutdown: make(chan struct{})}
+	s.handler = bodyDeadline(s.endStreamsOnShutdown(h), cfg.BodyTimeout)
+	return s, nil
+}
+
+func (s *Server) endStreamsOnShutdown(h http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/events" {
+			h.ServeHTTP(w, r)
+			return
+		}
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		go func() {
+			select {
+			case <-s.shutdown:
+				cancel()
+			case <-ctx.Done():
+			}
+		}()
+		h.ServeHTTP(w, r.WithContext(ctx))
+	})
 }
 
 type deadlineBody struct {
@@ -188,6 +212,7 @@ func (s *Server) Run(ctx context.Context) error {
 		go s.backupLoop(ctx)
 	}
 	srv := s.httpServer()
+	srv.RegisterOnShutdown(func() { s.shutdowning.Do(func() { close(s.shutdown) }) })
 	errc := make(chan error, 1)
 	go func() { errc <- srv.ListenAndServe() }()
 	select {

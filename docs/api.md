@@ -668,6 +668,7 @@ Alerts are held in memory per server process. Every threshold is an env var; a d
 | Method | Path | Body → Response |
 |---|---|---|
 | GET | `/api/v1/notify/status` | → `{"enabled":false,"sinks":[],"sent":0,"failed":0,"dropped":0,"queued":0}` |
+| POST | `/api/v1/notify/test` | `{}` → `{"results":[{"sink":"webhook","ok":true},{"sink":"slack","ok":false,"error":"slack: status 400"}]}`. Sends one notification marked `[TEST]` (kind `test`, no action links) directly through every configured sink, once and without retries, and reports each result. `results` is empty when no sink is configured. Errors never contain sink URLs. Test sends are not counted in `sent` or `failed`. |
 
 When `SUBSPACE_PUBLIC_URL` starts with `https://`, notifications for proposed plans (`Approve`, `Reject`, `Snooze 1h`), questions with options (`Option 1`…`Option 3`, plus `Snooze 1h` when there are fewer than 3 options) and approved tasks (`Mark merged`, `Snooze 1h`) carry action links: the webhook body gets `"actions":[{"label":"Approve","url":"https://.../a/<token>"}]`, ntfy gets an `Actions` header with up to 3 `view` actions, Slack gets link buttons. Option labels are numbered; the option text is only shown on the confirmation page.
 

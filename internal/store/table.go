@@ -115,7 +115,7 @@ func timeCol[T any](name string, f func(*T) *time.Time) Column[T] {
 
 func optTime[T any](name string, f func(*T) **time.Time) Column[T] {
 	return codec(name, KindMillis,
-		func(x *T) (any, error) { return millisPtr(*f(x)), nil },
+		func(x *T) (any, error) { return MillisPtr(*f(x)), nil },
 		func(x *T, v int64) error { *f(x) = fromMillisPtr(v); return nil })
 }
 
@@ -265,7 +265,7 @@ func Flag(b bool) int {
 	return 0
 }
 
-func millisPtr(t *time.Time) int64 {
+func MillisPtr(t *time.Time) int64 {
 	if t == nil {
 		return 0
 	}

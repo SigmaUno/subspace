@@ -103,7 +103,7 @@ func admit(tx store.Tx, q store.SQL, ev board.GateEvent, lim Quota, day int64) e
 		u.ConcurrentTasks = l.held
 	} else {
 		var n int
-		if err := scan(q, []any{&n}, `SELECT count(*) FROM agent_quota_tasks WHERE agent_id=? AND day=? AND task_id=?`, ev.AgentID, day, ev.Task.ID); err != nil {
+		if err := store.ScanRow(q, []any{&n}, `SELECT count(*) FROM agent_quota_tasks WHERE agent_id=? AND day=? AND task_id=?`, ev.AgentID, day, ev.Task.ID); err != nil {
 			return err
 		}
 		newTask = n == 0
@@ -120,10 +120,10 @@ type load struct{ held, queued int }
 func usageOf(tx store.Tx, q store.SQL, agent string, day int64) (Usage, load, error) {
 	var u Usage
 	var l load
-	if err := scan(q, []any{&u.CostEUR}, `SELECT cost_eur FROM agent_quota_days WHERE agent_id=? AND day=?`, agent, day); err != nil {
+	if err := store.ScanRow(q, []any{&u.CostEUR}, `SELECT cost_eur FROM agent_quota_days WHERE agent_id=? AND day=?`, agent, day); err != nil {
 		return u, l, err
 	}
-	if err := scan(q, []any{&u.Tasks}, `SELECT count(*) FROM agent_quota_tasks WHERE agent_id=? AND day=?`, agent, day); err != nil {
+	if err := store.ScanRow(q, []any{&u.Tasks}, `SELECT count(*) FROM agent_quota_tasks WHERE agent_id=? AND day=?`, agent, day); err != nil {
 		return u, l, err
 	}
 	ts, err := tx.ListTasks(store.TaskFilter{Assignee: agent, Limit: taskLimit,
@@ -143,37 +143,9 @@ func usageOf(tx store.Tx, q store.SQL, agent string, day int64) (Usage, load, er
 	return u, l, nil
 }
 
-func scan(q store.SQL, dest []any, query string, args ...any) error {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
-	if rows.Next() {
-		if err := rows.Scan(dest...); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
-}
-
-func each(q store.SQL, fn func(*sql.Rows) error, query string, args ...any) error {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return err
-	}
-	defer func() { _ = rows.Close() }()
-	for rows.Next() {
-		if err := fn(rows); err != nil {
-			return err
-		}
-	}
-	return rows.Err()
-}
-
 func loadQuota(q store.SQL, agent string) (Quota, error) {
 	var lim Quota
-	err := scan(q, []any{&lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks},
+	err := store.ScanRow(q, []any{&lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks},
 		`SELECT max_cost_eur_per_day,max_tasks_per_day,max_concurrent_tasks FROM agent_quotas WHERE agent_id=?`, agent)
 	return lim, err
 }
@@ -205,7 +177,7 @@ func warn(tx store.Tx, q store.SQL, agent string, lim Quota, now time.Time) (*bo
 		return nil, err
 	}
 	var warned int
-	if err := scan(q, []any{&warned}, `SELECT warned FROM agent_quota_days WHERE agent_id=? AND day=?`, agent, day); err != nil {
+	if err := store.ScanRow(q, []any{&warned}, `SELECT warned FROM agent_quota_days WHERE agent_id=? AND day=?`, agent, day); err != nil {
 		return nil, err
 	}
 	if warned != 0 {
@@ -303,7 +275,7 @@ func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 		if err != nil {
 			return err
 		}
-		if err := each(q, func(r *sql.Rows) error {
+		if err := store.Each(q, func(r *sql.Rows) error {
 			var id string
 			var lim Quota
 			if err := r.Scan(&id, &lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks); err != nil {
@@ -314,7 +286,7 @@ func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}, `SELECT agent_id,max_cost_eur_per_day,max_tasks_per_day,max_concurrent_tasks FROM agent_quotas`); err != nil {
 			return err
 		}
-		if err := each(q, func(r *sql.Rows) error {
+		if err := store.Each(q, func(r *sql.Rows) error {
 			var id string
 			var cost float64
 			if err := r.Scan(&id, &cost); err != nil {
@@ -325,7 +297,7 @@ func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 		}, `SELECT agent_id,cost_eur FROM agent_quota_days WHERE day=?`, day); err != nil {
 			return err
 		}
-		if err := each(q, func(r *sql.Rows) error {
+		if err := store.Each(q, func(r *sql.Rows) error {
 			var id string
 			var n int
 			if err := r.Scan(&id, &n); err != nil {

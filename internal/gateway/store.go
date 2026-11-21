@@ -2,6 +2,7 @@ package gateway
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"fmt"
 	"time"
@@ -48,29 +49,24 @@ func query(tx store.Tx, where string, args ...any) ([]Gateway, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(`SELECT name, config, created_at, updated_at FROM mcp_gateways `+where, args...)
-	if err != nil {
-		return nil, err
+	return store.QueryAll(q, scanGateway, `SELECT name, config, created_at, updated_at FROM mcp_gateways `+where, args...)
+}
+
+func scanGateway(rows *sql.Rows) (Gateway, error) {
+	var (
+		name, config     string
+		created, updated int64
+		g                Gateway
+	)
+	if err := rows.Scan(&name, &config, &created, &updated); err != nil {
+		return Gateway{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []Gateway{}
-	for rows.Next() {
-		var (
-			name, config     string
-			created, updated int64
-			g                Gateway
-		)
-		if err := rows.Scan(&name, &config, &created, &updated); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(config), &g); err != nil {
-			return nil, fmt.Errorf("gateway: stored gateway %s: %w", name, err)
-		}
-		g.Name = name
-		g.CreatedAt, g.UpdatedAt = time.UnixMilli(created).UTC(), time.UnixMilli(updated).UTC()
-		out = append(out, g)
+	if err := json.Unmarshal([]byte(config), &g); err != nil {
+		return Gateway{}, fmt.Errorf("gateway: stored gateway %s: %w", name, err)
 	}
-	return out, rows.Err()
+	g.Name = name
+	g.CreatedAt, g.UpdatedAt = time.UnixMilli(created).UTC(), time.UnixMilli(updated).UTC()
+	return g, nil
 }
 
 func load(tx store.Tx, name string) (*Gateway, error) {

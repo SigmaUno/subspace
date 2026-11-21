@@ -2,6 +2,7 @@ package agentout
 
 import (
 	"context"
+	"database/sql"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/store"
@@ -50,29 +51,23 @@ func persist(ctx context.Context, st store.Store, batches []batch, keep int) err
 }
 
 func load(ctx context.Context, st store.Store) ([]Line, error) {
-	var out []Line
-	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT agent_id,seq,task_id,stream,text,ts FROM agent_output ORDER BY agent_id,seq`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var (
-				l    Line
-				task string
-				ts   int64
-			)
-			if err := rows.Scan(&l.AgentID, &l.Seq, &task, &l.Stream, &l.Text, &ts); err != nil {
-				return err
-			}
-			if task != "" {
-				l.TaskID = &task
-			}
-			l.TS = time.UnixMilli(ts).UTC()
-			out = append(out, l)
-		}
-		return rows.Err()
-	}))
-	return out, err
+	return store.ViewSQL(ctx, st, func(q store.SQL) ([]Line, error) {
+		return store.QueryAll(q, scanLine, `SELECT agent_id,seq,task_id,stream,text,ts FROM agent_output ORDER BY agent_id,seq`)
+	})
+}
+
+func scanLine(rows *sql.Rows) (Line, error) {
+	var (
+		l    Line
+		task string
+		ts   int64
+	)
+	if err := rows.Scan(&l.AgentID, &l.Seq, &task, &l.Stream, &l.Text, &ts); err != nil {
+		return Line{}, err
+	}
+	if task != "" {
+		l.TaskID = &task
+	}
+	l.TS = time.UnixMilli(ts).UTC()
+	return l, nil
 }

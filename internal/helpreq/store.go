@@ -2,6 +2,7 @@ package helpreq
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"time"
@@ -60,44 +61,29 @@ func insert(t store.Tx, q store.SQL, r *Request) error {
 }
 
 func query(q store.SQL, where string, args ...any) ([]*Request, error) {
-	rows, err := q.Query(`SELECT `+cols+` FROM help_requests `+where, args...)
-	if err != nil {
+	return store.QueryAll(q, scanRequest, `SELECT `+cols+` FROM help_requests `+where, args...)
+}
+
+func scanRequest(rows *sql.Rows) (*Request, error) {
+	var (
+		r                 Request
+		proposed, created string
+		at                int64
+	)
+	if err := rows.Scan(&r.ID, &r.Type, &r.Kind, &r.TaskID, &r.BriefID, &r.AgentID, &r.Role, &r.Needs, &r.Details,
+		&proposed, &r.Status, &created, &at); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var out []*Request
-	for rows.Next() {
-		var (
-			r                 Request
-			proposed, created string
-			at                int64
-		)
-		if err := rows.Scan(&r.ID, &r.Type, &r.Kind, &r.TaskID, &r.BriefID, &r.AgentID, &r.Role, &r.Needs, &r.Details,
-			&proposed, &r.Status, &created, &at); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(proposed), &r.ProposedTasks); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(created), &r.CreatedTasks); err != nil {
-			return nil, err
-		}
-		r.ProposedTasks, r.CreatedTasks = nzTasks(r.ProposedTasks), nzStrings(r.CreatedTasks)
-		r.CreatedAt = time.UnixMilli(at).UTC()
-		out = append(out, &r)
+	if err := errors.Join(json.Unmarshal([]byte(proposed), &r.ProposedTasks), json.Unmarshal([]byte(created), &r.CreatedTasks)); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	r.ProposedTasks, r.CreatedTasks = nzTasks(r.ProposedTasks), nzStrings(r.CreatedTasks)
+	r.CreatedAt = time.UnixMilli(at).UTC()
+	return &r, nil
 }
 
 func get(q store.SQL, id string) (*Request, error) {
-	rs, err := query(q, `WHERE id=?`, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(rs) == 0 {
-		return nil, model.NotFound("help request %s not found", id)
-	}
-	return rs[0], nil
+	return store.QueryOne(q, scanRequest, model.NotFound("help request %s not found", id), `SELECT `+cols+` FROM help_requests WHERE id=?`, id)
 }
 
 func setStatus(q store.SQL, id, from, to string) error {

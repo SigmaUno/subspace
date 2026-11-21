@@ -1,6 +1,7 @@
 package announce
 
 import (
+	"database/sql"
 	"errors"
 	"time"
 
@@ -51,28 +52,23 @@ func insert(t store.Tx, q store.SQL, a *Announcement) error {
 }
 
 func query(q store.SQL, where string, args ...any) ([]Announcement, error) {
-	rows, err := q.Query(`SELECT `+cols+` FROM announcements `+where, args...)
-	if err != nil {
-		return nil, err
+	return store.QueryAll(q, scanAnnouncement, `SELECT `+cols+` FROM announcements `+where, args...)
+}
+
+func scanAnnouncement(rows *sql.Rows) (Announcement, error) {
+	var (
+		a                Announcement
+		created, expires int64
+	)
+	if err := rows.Scan(&a.ID, &a.Text, &a.BriefID, &created, &expires); err != nil {
+		return Announcement{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []Announcement{}
-	for rows.Next() {
-		var (
-			a                Announcement
-			created, expires int64
-		)
-		if err := rows.Scan(&a.ID, &a.Text, &a.BriefID, &created, &expires); err != nil {
-			return nil, err
-		}
-		a.CreatedAt = time.UnixMilli(created).UTC()
-		if expires > 0 {
-			e := time.UnixMilli(expires).UTC()
-			a.ExpiresAt = &e
-		}
-		out = append(out, a)
+	a.CreatedAt = time.UnixMilli(created).UTC()
+	if expires > 0 {
+		e := time.UnixMilli(expires).UTC()
+		a.ExpiresAt = &e
 	}
-	return out, rows.Err()
+	return a, nil
 }
 
 func remove(q store.SQL, id string) error {

@@ -40,34 +40,65 @@ func SupportsSQL(ctx context.Context, st Store) bool {
 	return ok
 }
 
-func QueryAll[T any](q SQL, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
+func Each(q SQL, fn func(*sql.Rows) error, query string, args ...any) error {
 	rows, err := q.Query(query, args...)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = rows.Close() }()
+	for rows.Next() {
+		if err := fn(rows); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
+}
+
+func QueryAll[T any](q SQL, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
+	out := []T{}
+	err := Each(q, func(rows *sql.Rows) error {
+		v, err := scan(rows)
+		if err == nil {
+			out = append(out, v)
+		}
+		return err
+	}, query, args...)
 	if err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []T{}
-	for rows.Next() {
-		v, err := scan(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, v)
+	return out, nil
+}
+
+func ScanRow(q SQL, dest []any, query string, args ...any) error {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return err
 	}
-	return out, rows.Err()
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		if err := rows.Scan(dest...); err != nil {
+			return err
+		}
+	}
+	return rows.Err()
 }
 
 func Scalar[T any](q SQL, query string, args ...any) (T, error) {
 	var v T
-	rows, err := q.Query(query, args...)
+	err := ScanRow(q, []any{&v}, query, args...)
+	return v, err
+}
+
+func QueryOne[T any](q SQL, scan func(*sql.Rows) (T, error), missing error, query string, args ...any) (T, error) {
+	var zero T
+	all, err := QueryAll(q, scan, query, args...)
 	if err != nil {
-		return v, err
+		return zero, err
 	}
-	defer func() { _ = rows.Close() }()
-	if rows.Next() {
-		err = rows.Scan(&v)
+	if len(all) == 0 {
+		return zero, missing
 	}
-	return v, errors.Join(err, rows.Err())
+	return all[0], nil
 }
 
 func ViewSQL[T any](ctx context.Context, st Store, fn func(SQL) (T, error)) (T, error) {
@@ -86,16 +117,4 @@ func AtomicSQL[T any](ctx context.Context, st Store, fn func(SQL) (T, error)) (T
 		return err
 	}))
 	return out, err
-}
-
-func QueryOne[T any](q SQL, scan func(*sql.Rows) (T, error), missing error, query string, args ...any) (T, error) {
-	var zero T
-	all, err := QueryAll(q, scan, query, args...)
-	if err != nil {
-		return zero, err
-	}
-	if len(all) == 0 {
-		return zero, missing
-	}
-	return all[0], nil
 }

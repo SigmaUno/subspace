@@ -2,6 +2,7 @@ package leakguard
 
 import (
 	"context"
+	"database/sql"
 	"fmt"
 	"time"
 
@@ -49,29 +50,19 @@ func (g *Guard) record(tx store.Tx, kind, subject string, src board.LeakSource) 
 }
 
 func (g *Guard) open(ctx context.Context) ([]leak, error) {
-	var out []leak
-	err := g.o.Store.View(ctx, func(tx store.Tx) error {
-		q, err := store.SQLOf(tx)
-		if err != nil {
-			return err
-		}
-		rows, err := q.Query(`SELECT id,kind,subject,channel,author,detected_at FROM token_leaks WHERE resolved_at IS NULL ORDER BY detected_at, id`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var l leak
-			var ms int64
-			if err := rows.Scan(&l.ID, &l.Kind, &l.Subject, &l.Channel, &l.Author, &ms); err != nil {
-				return err
-			}
-			l.DetectedAt = time.UnixMilli(ms).UTC()
-			out = append(out, l)
-		}
-		return rows.Err()
+	return store.ViewSQL(ctx, g.o.Store, func(q store.SQL) ([]leak, error) {
+		return store.QueryAll(q, scanLeak, `SELECT id,kind,subject,channel,author,detected_at FROM token_leaks WHERE resolved_at IS NULL ORDER BY detected_at, id`)
 	})
-	return out, err
+}
+
+func scanLeak(rows *sql.Rows) (leak, error) {
+	var l leak
+	var ms int64
+	if err := rows.Scan(&l.ID, &l.Kind, &l.Subject, &l.Channel, &l.Author, &ms); err != nil {
+		return leak{}, err
+	}
+	l.DetectedAt = time.UnixMilli(ms).UTC()
+	return l, nil
 }
 
 func (g *Guard) get(ctx context.Context, id string) (*leak, bool, error) {

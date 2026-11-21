@@ -1,6 +1,7 @@
 package knowledge
 
 import (
+	"database/sql"
 	"encoding/json"
 	"strings"
 	"time"
@@ -112,32 +113,27 @@ func query(tx store.Tx, clause string, a ...any) ([]*Entry, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(`SELECT `+cols+` FROM knowledge `+clause, a...)
-	if err != nil {
+	return store.QueryAll(q, scanEntry, `SELECT `+cols+` FROM knowledge `+clause, a...)
+}
+
+func scanEntry(rows *sql.Rows) (*Entry, error) {
+	var e Entry
+	var tags, supersedes, supersededBy string
+	var pinned int
+	var created, updated int64
+	if err := rows.Scan(&e.ID, &e.BriefID, &e.Kind, &e.Title, &e.Body, &tags, &e.Author, &e.AuthorRole, &e.Status,
+		&pinned, &supersedes, &supersededBy, &created, &updated); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	var out []*Entry
-	for rows.Next() {
-		var e Entry
-		var tags, supersedes, supersededBy string
-		var pinned int
-		var created, updated int64
-		if err := rows.Scan(&e.ID, &e.BriefID, &e.Kind, &e.Title, &e.Body, &tags, &e.Author, &e.AuthorRole, &e.Status,
-			&pinned, &supersedes, &supersededBy, &created, &updated); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(tags), &e.Tags); err != nil {
-			return nil, err
-		}
-		e.Pinned = pinned != 0
-		e.Supersedes = nullable(supersedes)
-		e.SupersededBy = nullable(supersededBy)
-		e.CreatedAt = time.UnixMilli(created).UTC()
-		e.UpdatedAt = time.UnixMilli(updated).UTC()
-		out = append(out, &e)
+	if err := json.Unmarshal([]byte(tags), &e.Tags); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	e.Pinned = pinned != 0
+	e.Supersedes = nullable(supersedes)
+	e.SupersededBy = nullable(supersededBy)
+	e.CreatedAt = time.UnixMilli(created).UTC()
+	e.UpdatedAt = time.UnixMilli(updated).UTC()
+	return &e, nil
 }
 
 func args(e *Entry) []any {

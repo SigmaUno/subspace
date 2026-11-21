@@ -501,30 +501,24 @@ func auditAnchor(q store.SQL) (model.AuditHead, error) {
 const segmentCols = `id, kind, seq, file, row_count, bytes, sha256, cutoff, first_id, last_id, prev_hash, last_hash, status, created_at, updated_at`
 
 func listSegments(ctx context.Context, st store.Store) ([]Segment, error) {
-	out := []Segment{}
-	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT ` + segmentCols + ` FROM retention_segments ORDER BY kind, seq`)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var (
-				s                        Segment
-				kind                     string
-				cutoff, created, updated int64
-			)
-			if err := rows.Scan(&s.ID, &kind, &s.Seq, &s.File, &s.Rows, &s.Bytes, &s.SHA256, &cutoff, &s.FirstID, &s.LastID,
-				&s.PrevHash, &s.LastHash, &s.Status, &created, &updated); err != nil {
-				return err
-			}
-			s.Kind = Kind(kind)
-			s.Cutoff, s.CreatedAt, s.UpdatedAt = time.UnixMilli(cutoff).UTC(), time.UnixMilli(created).UTC(), time.UnixMilli(updated).UTC()
-			out = append(out, s)
-		}
-		return rows.Err()
-	}))
-	return out, err
+	return store.ViewSQL(ctx, st, func(q store.SQL) ([]Segment, error) {
+		return store.QueryAll(q, scanSegment, `SELECT `+segmentCols+` FROM retention_segments ORDER BY kind, seq`)
+	})
+}
+
+func scanSegment(rows *sql.Rows) (Segment, error) {
+	var (
+		s                        Segment
+		kind                     string
+		cutoff, created, updated int64
+	)
+	if err := rows.Scan(&s.ID, &kind, &s.Seq, &s.File, &s.Rows, &s.Bytes, &s.SHA256, &cutoff, &s.FirstID, &s.LastID,
+		&s.PrevHash, &s.LastHash, &s.Status, &created, &updated); err != nil {
+		return Segment{}, err
+	}
+	s.Kind = Kind(kind)
+	s.Cutoff, s.CreatedAt, s.UpdatedAt = time.UnixMilli(cutoff).UTC(), time.UnixMilli(created).UTC(), time.UnixMilli(updated).UTC()
+	return s, nil
 }
 
 func record(r row) audit.Record {

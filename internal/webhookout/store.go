@@ -68,28 +68,13 @@ type SQLStore struct{ st store.Store }
 
 func NewSQLStore(st store.Store) *SQLStore { return &SQLStore{st: st} }
 
-func count(q store.SQL, query string, args ...any) (int, error) {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	var n int
-	if rows.Next() {
-		if err := rows.Scan(&n); err != nil {
-			return 0, err
-		}
-	}
-	return n, rows.Err()
-}
-
 func (s *SQLStore) CreateSub(ctx context.Context, sub *Subscription, max int, audit AuditFn) error {
 	events, err := json.Marshal(sub.Events)
 	if err != nil {
 		return err
 	}
 	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
-		n, err := count(q, `SELECT COUNT(*) FROM outbound_webhooks`)
+		n, err := store.Scalar[int](q, `SELECT COUNT(*) FROM outbound_webhooks`)
 		if err != nil {
 			return err
 		}
@@ -130,23 +115,9 @@ func scanSub(rows *sql.Rows) (*Subscription, error) {
 }
 
 func (s *SQLStore) subs(ctx context.Context, where string, args ...any) ([]*Subscription, error) {
-	var out []*Subscription
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+subCols+` FROM outbound_webhooks s `+where, args...)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			sub, err := scanSub(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, sub)
-		}
-		return rows.Err()
-	}))
-	return out, err
+	return store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Subscription, error) {
+		return store.QueryAll(q, scanSub, `SELECT `+subCols+` FROM outbound_webhooks s `+where, args...)
+	})
 }
 
 func (s *SQLStore) ListSubs(ctx context.Context) ([]*Subscription, error) {
@@ -154,14 +125,9 @@ func (s *SQLStore) ListSubs(ctx context.Context) ([]*Subscription, error) {
 }
 
 func (s *SQLStore) GetSub(ctx context.Context, id string) (*Subscription, error) {
-	subs, err := s.subs(ctx, `WHERE s.id = ?`, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(subs) == 0 {
-		return nil, model.NotFound("webhook %s not found", id)
-	}
-	return subs[0], nil
+	return store.ViewSQL(ctx, s.st, func(q store.SQL) (*Subscription, error) {
+		return store.QueryOne(q, scanSub, model.NotFound("webhook %s not found", id), `SELECT `+subCols+` FROM outbound_webhooks s WHERE s.id = ?`, id)
+	})
 }
 
 func (s *SQLStore) DeleteSub(ctx context.Context, id string, audit AuditFn) error {
@@ -182,14 +148,14 @@ func (s *SQLStore) DeleteSub(ctx context.Context, id string, audit AuditFn) erro
 
 func (s *SQLStore) Enqueue(ctx context.Context, d *Delivery, build func(id string) string, maxPending int) error {
 	return s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
-		exists, err := count(q, `SELECT COUNT(*) FROM outbound_webhooks WHERE id = ?`, d.WebhookID)
+		exists, err := store.Scalar[int](q, `SELECT COUNT(*) FROM outbound_webhooks WHERE id = ?`, d.WebhookID)
 		if err != nil {
 			return err
 		}
 		if exists == 0 {
 			return model.NotFound("webhook %s not found", d.WebhookID)
 		}
-		pending, err := count(q, `SELECT COUNT(*) FROM outbound_webhook_deliveries WHERE webhook_id = ? AND state = 'pending'`, d.WebhookID)
+		pending, err := store.Scalar[int](q, `SELECT COUNT(*) FROM outbound_webhook_deliveries WHERE webhook_id = ? AND state = 'pending'`, d.WebhookID)
 		if err != nil {
 			return err
 		}
@@ -207,19 +173,24 @@ func (s *SQLStore) Enqueue(ctx context.Context, d *Delivery, build func(id strin
 		}
 		_, err = q.Exec(`INSERT INTO outbound_webhook_deliveries (id, webhook_id, event, payload, state, attempts, next_at, last_status, last_error, created_at, updated_at)
 			VALUES (?, ?, ?, ?, ?, 0, ?, 0, ?, ?, ?)`,
-			d.ID, d.WebhookID, d.Event, string(d.Payload), d.State, nextMS(d.NextAttemptAt), d.LastError, d.CreatedAt.UnixMilli(), d.UpdatedAt.UnixMilli())
+			d.ID, d.WebhookID, d.Event, string(d.Payload), d.State, store.MillisPtr(d.NextAttemptAt), d.LastError, d.CreatedAt.UnixMilli(), d.UpdatedAt.UnixMilli())
 		return err
 	}))
 }
 
-func nextMS(t *time.Time) int64 {
-	if t == nil {
-		return 0
+func scanDelivery(rows *sql.Rows) (*Delivery, error) { return scanDeliveryTo(rows) }
+
+func scanDue(rows *sql.Rows) (*Due, error) {
+	var u Due
+	d, err := scanDeliveryTo(rows, &u.URL, &u.Secret)
+	if err != nil {
+		return nil, err
 	}
-	return t.UnixMilli()
+	u.Delivery = *d
+	return &u, nil
 }
 
-func scanDelivery(rows *sql.Rows, extra ...any) (*Delivery, error) {
+func scanDeliveryTo(rows *sql.Rows, extra ...any) (*Delivery, error) {
 	var (
 		d                  Delivery
 		payload            string
@@ -248,26 +219,10 @@ func scanDelivery(rows *sql.Rows, extra ...any) (*Delivery, error) {
 }
 
 func (s *SQLStore) Due(ctx context.Context, now time.Time, limit int) ([]*Due, error) {
-	var out []*Due
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+delCols+`, s.url, s.secret FROM outbound_webhook_deliveries d JOIN outbound_webhooks s ON s.id = d.webhook_id
+	return store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Due, error) {
+		return store.QueryAll(q, scanDue, `SELECT `+delCols+`, s.url, s.secret FROM outbound_webhook_deliveries d JOIN outbound_webhooks s ON s.id = d.webhook_id
 			WHERE d.state = 'pending' AND d.next_at <= ? ORDER BY d.next_at, length(d.id), d.id LIMIT ?`, now.UnixMilli(), limit)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			var u Due
-			d, err := scanDelivery(rows, &u.URL, &u.Secret)
-			if err != nil {
-				return err
-			}
-			u.Delivery = *d
-			out = append(out, &u)
-		}
-		return rows.Err()
-	}))
-	return out, err
+	})
 }
 
 func (s *SQLStore) Complete(ctx context.Context, d *Delivery, keep int) error {
@@ -278,7 +233,7 @@ func (s *SQLStore) Complete(ctx context.Context, d *Delivery, keep int) error {
 	return s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		res, err := q.Exec(`UPDATE outbound_webhook_deliveries SET state = ?, attempts = ?, next_at = ?, last_status = ?, last_error = ?, updated_at = ?, delivered_at = ?
 			WHERE id = ? AND state = 'pending'`,
-			d.State, d.Attempts, nextMS(d.NextAttemptAt), status, d.LastError, d.UpdatedAt.UnixMilli(), store.NullMillis(d.DeliveredAt), d.ID)
+			d.State, d.Attempts, store.MillisPtr(d.NextAttemptAt), status, d.LastError, d.UpdatedAt.UnixMilli(), store.NullMillis(d.DeliveredAt), d.ID)
 		if err != nil {
 			return err
 		}
@@ -302,44 +257,18 @@ func (s *SQLStore) Deliveries(ctx context.Context, subID, state string, limit in
 		args = append(args, state)
 	}
 	args = append(args, limit)
-	out := []*Delivery{}
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+delCols+` FROM outbound_webhook_deliveries d `+query+` ORDER BY length(d.id) DESC, d.id DESC LIMIT ?`, args...)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		for rows.Next() {
-			d, err := scanDelivery(rows)
-			if err != nil {
-				return err
-			}
-			out = append(out, d)
-		}
-		return rows.Err()
-	}))
-	return out, err
+	return store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Delivery, error) {
+		return store.QueryAll(q, scanDelivery, `SELECT `+delCols+` FROM outbound_webhook_deliveries d `+query+` ORDER BY length(d.id) DESC, d.id DESC LIMIT ?`, args...)
+	})
 }
 
 func (s *SQLStore) Requeue(ctx context.Context, subID, id string, now time.Time, audit AuditFn) (*Delivery, error) {
 	var out *Delivery
 	err := s.st.Atomic(ctx, store.WithSQL(func(t store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+delCols+` FROM outbound_webhook_deliveries d WHERE d.id = ? AND d.webhook_id = ?`, id, subID)
+		cur, err := store.QueryOne(q, scanDelivery, model.NotFound("delivery %s not found", id),
+			`SELECT `+delCols+` FROM outbound_webhook_deliveries d WHERE d.id = ? AND d.webhook_id = ?`, id, subID)
 		if err != nil {
 			return err
-		}
-		var cur *Delivery
-		if rows.Next() {
-			cur, err = scanDelivery(rows)
-		}
-		if cerr := rows.Close(); err == nil {
-			err = errors.Join(cerr, rows.Err())
-		}
-		if err != nil {
-			return err
-		}
-		if cur == nil {
-			return model.NotFound("delivery %s not found", id)
 		}
 		if cur.State != StateDead {
 			return model.Conflict("delivery %s is %s, only dead deliveries can be redelivered", id, cur.State)

@@ -85,20 +85,7 @@ func scan(rows *sql.Rows) (*Subscription, error) {
 }
 
 func query(q store.SQL, where string, args ...any) ([]*Subscription, error) {
-	rows, err := q.Query(`SELECT `+cols+` FROM push_subscriptions `+where, args...)
-	if err != nil {
-		return nil, err
-	}
-	defer func() { _ = rows.Close() }()
-	var out []*Subscription
-	for rows.Next() {
-		s, err := scan(rows)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, s)
-	}
-	return out, rows.Err()
+	return store.QueryAll(q, scan, `SELECT `+cols+` FROM push_subscriptions `+where, args...)
 }
 
 func (d db) list(ctx context.Context) ([]*Subscription, error) {

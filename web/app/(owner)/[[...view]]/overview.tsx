@@ -14,6 +14,7 @@ import { OwnerChat } from "./chat";
 import { Clock, Feedback, Heartbeat, staleAt } from "./components";
 import { ForecastPanel } from "./forecast";
 import { InsightsTile } from "./insights";
+import { IncidentButton } from "./incident";
 import type { Revisions } from "./live";
 import { Metrics } from "./metrics";
 import { VirtualList } from "./virtual";
@@ -227,6 +228,7 @@ export const SwarmOverview = memo(function SwarmOverview({ id, architecture, rev
   return <>
     <div className="heading">
       <h1>Swarm overview</h1>
+      <IncidentButton revision={revisions.control} />
       {!!items.length && <label className="project-picker">Project<select value={selected} onChange={(event) => router.push(`/briefs/${encodeURIComponent(event.target.value)}`)}>
         {items.map((brief) => <option key={brief.id} value={brief.id}>{brief.title}</option>)}
       </select></label>}

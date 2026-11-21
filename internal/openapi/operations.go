@@ -22,6 +22,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/incident"
 	"github.com/SigmaUno/subspace/internal/insights"
 	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/knowledge"
@@ -79,6 +80,9 @@ var operations = []Op{
 	post("/api/v1/reload", "Re-read SUBSPACE_CONFIG_FILE and the capacity file and apply them atomically", Free{}, reload.Result{}),
 	post("/api/v1/backup", "Create a verified database backup", Free{}, BackupResult{}),
 	get("/api/v1/backups", "List backups, newest first", list[backup.Info]("backups")),
+	get("/api/v1/incident", "List incidents, newest first", list[incident.Incident]("incidents")).Q("limit:integer"),
+	post("/api/v1/incident", "Declare an incident or add actions to the active one; rotated tokens are shown once", incident.Request{}, incident.StartOutcome{}).S(created),
+	post("/api/v1/incident/{id}/end", "End an incident: resume all and optionally re-enable paused agents", incident.EndRequest{}, incident.EndOutcome{}),
 	get("/api/v1/limits", "Organization spend caps and their windows", spendguard.View{}),
 	put("/api/v1/limits", "Replace the daily and weekly spend caps", spendguard.Limits{}, spendguard.View{}),
 	get("/api/v1/metrics", "Prometheus metrics", "").As(mediaText),

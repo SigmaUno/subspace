@@ -68,6 +68,8 @@ func New(name string, env func(string) string) (Spawner, error) {
 	switch name {
 	case "", "noop", "log":
 		return Noop{}, nil
+	case "fake":
+		return &Fake{}, nil
 	case "hc":
 		bin := env("SUBSPACE_HC_BIN")
 		if bin == "" {
@@ -108,6 +110,6 @@ func New(name string, env func(string) string) (Spawner, error) {
 		}
 		return NewDocker(cfg)
 	default:
-		return nil, fmt.Errorf("spawner: unknown spawner %q (want noop, hc, opencode or docker)", name)
+		return nil, fmt.Errorf("spawner: unknown spawner %q (want noop, fake, hc, opencode or docker)", name)
 	}
 }

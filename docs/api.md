@@ -228,6 +228,7 @@ Template variables are `{{name}}` placeholders. Values substituted into the fron
 |---|---|---|
 | GET | `/api/v1/plans?status=proposed&brief_id=&cursor=&limit=` | → `{"plans":[Plan],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/plans/{id}` | → Plan |
+| GET | `/api/v1/plans/{id}/estimates` | → Estimates for the plan's tasks that are neither `done`, `approved` nor `cancelled`, with `totals`. 404 for an unknown plan. See Estimates. |
 | POST | `/api/v1/plans/{id}/approve` | `{"note":""}` → Plan. Tasks `backlog → ready`. 409 if not `proposed`. |
 | POST | `/api/v1/plans/{id}/reject` | `{"reason":"..."}` → Plan. Tasks → `cancelled`; reason posted to the brief thread. |
 | POST | `/api/v1/plans/{id}/tasks` | `{"title","spec","acceptance_criteria":[],"repo","role":"worker|tester","depends_on":["T-1"],"budget":{},"priority":0,"component_id":"","paths":[]}` → Plan (201). Adds a `backlog` task to a `proposed` plan. 409 if the plan is not `proposed`; 400 on invalid fields, a repo outside the brief, or an unknown, cancelled, foreign-brief or cyclic dependency. |
@@ -653,6 +654,7 @@ The feed turns audit events and `system` thread messages into short sentences (`
 |---|---|---|
 | GET | `/api/v1/briefs/{id}/report` | → Report. 404 for an unknown brief. |
 | GET | `/api/v1/briefs/{id}/report.md` | → the same report as `text/markdown`. |
+| GET | `/api/v1/briefs/{id}/estimates` | → Estimates for the brief's tasks that are neither `done`, `approved` nor `cancelled`, with `totals`. 404 for an unknown brief. See Estimates. |
 
 ```jsonc
 // Report
@@ -674,6 +676,33 @@ The feed turns audit events and `system` thread messages into short sentences (`
 ```
 
 Components are held in memory per server process. Tasks created with a `component_id` and without `paths` copy the component's paths at creation time. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
+
+### Estimates
+Expected cost and duration learned from completed tasks (`approved` or `done`), shown on the plan approval screen.
+
+```jsonc
+// Estimates
+{"id":"P-1","sufficient":true,"history":42,        // id: plan or brief id; history: completed tasks learned from
+ "tasks":[{"task_id":"T-3","title":"...","role":"worker",
+           "estimate":{"sufficient":true,"confidence":"medium",   // none|low|medium|high
+                       "minutes":{"median":35,"p80":52},"cost_eur":{"median":1.8,"p80":2.9},
+                       "tokens":{"median":0,"p80":0},"review_rounds":{"median":1,"p80":1.4},
+                       "basis":[{"group":"role","key":"worker","samples":30},{"group":"size","key":"medium","samples":11}]},
+           "exceeds_budget":["max_cost_eur"]}],                   // max_minutes|max_cost_eur: the median is above the task budget
+ "totals":{"tasks":4,"estimated":4,
+           "minutes":{"low":120,"expected":150,"high":190},       // sum of the tasks' work minutes
+           "critical_path_minutes":{"low":60,"expected":75,"high":100},   // longest dependency chain inside the plan or brief
+           "cost_eur":{"low":6,"expected":7.5,"high":9.4},
+           "tokens":{"low":0,"expected":0,"high":0}}}
+```
+
+A sample is one completed task with an assignee. Its minutes are the time its audit trail shows it `in_progress` (claim until submit, block or release, summed over claims), its cost is `cost_used`, its review rounds `review_rounds`, its tokens the reported usage tokens (in + out) when usage records exist. Minutes, cost and tokens of `0` are treated as unknown and left out of that metric; review rounds of `0` count.
+
+A task is grouped by role, size class, the assignee's `kind/model` (only once assigned) and repo. The size class comes from the length of spec plus acceptance criteria (up to 200, 600, 1500, 4000 characters, more), the number of criteria (1, 3, 6, more) and the number of paths (0, 2, 9, more): each gives a bucket score and the sum is `small` (0-2), `medium` (3-5) or `large`. The estimate starts at the median and 80th percentile of all samples and refines them group by group (role, size, agent, repo), each group's median and p80 pulled toward the previous level with weight `n / (n + 3)` for `n` samples, so groups with few samples stay near their parent. `basis` lists the groups that had samples. `confidence` follows the samples of the deepest group: below 3 `low`, below 10 `medium`, else `high`. Everything is deterministic and uses medians and percentiles only.
+
+With fewer than 5 completed tasks nothing is estimated: `sufficient` is `false`, `confidence` is `none` and the numbers are `0`. A metric without any usable sample is `0`. `exceeds_budget` names the budget fields (`max_minutes`, `max_cost_eur`; a budget of `0` is unlimited) that the median estimate is above. In `totals`, `expected` is the sum of the medians; `low` and `high` add and subtract the root of the summed squared gaps between each p80 and median (independent tasks), `low` not below `0`. The critical path follows the longest chain of dependencies between the listed tasks. `estimated` counts the tasks that have an estimate.
+
+When enough history exists, `GET /api/v1/briefs/{id}/forecast` uses the estimate of each open task instead of the brief's own averages (median and p80 give the lognormal spread). A task that already reports progress keeps its extrapolation, and without enough history the forecast behaves as before.
 
 ### Replay
 | Method | Path | Body → Response |

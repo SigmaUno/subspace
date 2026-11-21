@@ -21,6 +21,14 @@ type rule struct {
 var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {tool}{task? on }"}
 
 var rules = map[string]rule{
+	"add_knowledge":         {icon: "book", text: "{actor} added knowledge entry {a.id}{note?: }"},
+	"approve_knowledge":     {icon: "check", text: "{actor} approved knowledge entry {a.id}"},
+	"create_token":          {icon: "key", text: "{actor} created API token {a.id}{note?: }"},
+	"delete_knowledge":      {icon: "x", severity: SevWarning, text: "{actor} deleted knowledge entry {a.id}"},
+	"pin_knowledge":         {icon: "book", text: "{actor} pinned knowledge entry {a.id}"},
+	"revoke_token":          {icon: "x", severity: SevWarning, text: "{actor} revoked API token {a.id}"},
+	"supersede_knowledge":   {icon: "book", text: "{actor} superseded knowledge entry {a.id}"},
+	"update_knowledge":      {icon: "book", text: "{actor} updated knowledge entry {a.id}"},
 	"accept_split":          {icon: "split", text: "{actor} accepted split {a.request_id} of {task} into {a.created}"},
 	"add_plan_task":         {icon: "plan", text: "{actor} added {task} to plan {a.plan_id}"},
 	"answer_question":       {icon: "question", text: "{actor} answered question {a.question_id}"},

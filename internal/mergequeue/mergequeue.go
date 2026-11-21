@@ -26,17 +26,19 @@ const (
 const maxLog = 64 << 10
 
 type Candidate struct {
-	ID         string    `json:"id"`
-	Repo       string    `json:"repo"`
-	PR         int       `json:"pr"`
-	Head       string    `json:"head"`
-	Base       string    `json:"base"`
-	TaskID     string    `json:"task_id"`
-	State      string    `json:"state"`
-	MergedSHA  string    `json:"merged_sha,omitempty"`
-	Log        string    `json:"log,omitempty"`
-	EnqueuedAt time.Time `json:"enqueued_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	ID          string    `json:"id"`
+	Repo        string    `json:"repo"`
+	PR          int       `json:"pr"`
+	Head        string    `json:"head"`
+	Base        string    `json:"base"`
+	TaskID      string    `json:"task_id"`
+	State       string    `json:"state"`
+	MergedSHA   string    `json:"merged_sha,omitempty"`
+	Log         string    `json:"log,omitempty"`
+	DeployState string    `json:"deploy_state,omitempty"`
+	DeployLog   string    `json:"deploy_log,omitempty"`
+	EnqueuedAt  time.Time `json:"enqueued_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 func (c *Candidate) finished() bool {
@@ -44,15 +46,17 @@ func (c *Candidate) finished() bool {
 }
 
 type RepoConfig struct {
-	Remote   string
-	Verify   []string
-	Auto     bool
-	MaxTrain int
-	Required []string
-	WorkDir  string
-	Host     string
-	TokenEnv string
-	Token    string
+	Remote        string
+	Verify        []string
+	Auto          bool
+	MaxTrain      int
+	Required      []string
+	WorkDir       string
+	Host          string
+	TokenEnv      string
+	Token         string
+	Deploy        []string
+	DeployTimeout time.Duration
 }
 
 type Runner interface {
@@ -84,6 +88,7 @@ type Config struct {
 	Gate     Gate
 	Tasks    Tasks
 	Finisher Finisher
+	Deploys  Deploys
 	Trains   TrainStore
 	Deps     Deps
 	Checks   Checks
@@ -107,6 +112,9 @@ func New(cfg Config) (*Queue, error) {
 		}
 		if rc.MaxTrain < 0 {
 			return nil, fmt.Errorf("mergequeue: repo %q has a negative MaxTrain", name)
+		}
+		if rc.DeployTimeout < 0 {
+			return nil, fmt.Errorf("mergequeue: repo %q has a negative DeployTimeout", name)
 		}
 		if rc.MaxTrain > 0 && cfg.Trains == nil {
 			ts, ok := cfg.Store.(TrainStore)
@@ -150,7 +158,7 @@ func (q *Queue) Enqueue(ctx context.Context, c Candidate) (Candidate, error) {
 		}
 	}
 	now := q.cfg.Now()
-	c.ID, c.State, c.MergedSHA, c.Log = "", StateQueued, "", ""
+	c.ID, c.State, c.MergedSHA, c.Log, c.DeployState, c.DeployLog = "", StateQueued, "", "", "", ""
 	c.EnqueuedAt, c.UpdatedAt = now, now
 	if err := q.cfg.Store.Insert(ctx, &c); err != nil {
 		return Candidate{}, err
@@ -290,10 +298,20 @@ func (q *Queue) run(ctx context.Context, repo string, rc RepoConfig, c *Candidat
 		return q.fail(ctx, c, fmt.Errorf("mergequeue: push %s#%d: %w", c.Repo, c.PR, err))
 	}
 	c.MergedSHA = sha
-	return errors.Join(
+	err = errors.Join(
 		q.save(ctx, c, StateMerged),
 		q.notify(ctx, c, fmt.Sprintf("merge queue: PR #%d rebased onto %s, `%s` passed, merged (fast-forward) as %s.", c.PR, c.Base, verify, short(sha))+q.finish(ctx, c, sha)),
 	)
+	if len(rc.Deploy) == 0 {
+		return err
+	}
+	c.DeployState = DeployRunning
+	if serr := q.save(ctx, c, StateMerged); serr != nil {
+		return errors.Join(err, serr)
+	}
+	d := q.deploy(ctx, dir, rc, Deployment{Repo: c.Repo, Base: c.Base, SHA: sha, Candidates: []string{c.ID}, Tasks: []string{c.TaskID}, PRs: []int{c.PR}})
+	c.DeployState, c.DeployLog = d.State, d.Log
+	return errors.Join(err, q.save(ctx, c, StateMerged), q.deployed(ctx, d, []*Candidate{c}))
 }
 
 func (q *Queue) finish(ctx context.Context, c *Candidate, sha string) string {

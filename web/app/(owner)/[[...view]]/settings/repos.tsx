@@ -20,6 +20,7 @@ function RepoForm({ repo, done, cancel }: { repo?: Repo; done: () => void; cance
       default_branch: value(fields, "default_branch"), protected_branches: commaList(value(fields, "protected_branches")),
       merge_test_command: value(fields, "merge_test_command").split(/\s+/).filter(Boolean),
       merge_work_dir: value(fields, "merge_work_dir"), token_env: value(fields, "token_env"),
+      deploy_command: value(fields, "deploy_command").split(/\s+/).filter(Boolean),
       agent_token_env: value(fields, "agent_token_env"),
       enabled: fields.get("enabled") === "on",
     };
@@ -46,6 +47,8 @@ function RepoForm({ repo, done, cancel }: { repo?: Repo; done: () => void; cance
         defaultValue={repo?.merge_test_command.join(" ")} /></label>
       <label>Merge work directory<input name="merge_work_dir" placeholder="/data/mergequeue" maxLength={500}
         defaultValue={repo?.merge_work_dir} /></label>
+      <label>Deploy command<input name="deploy_command" placeholder="make deploy"
+        defaultValue={repo?.deploy_command?.join(" ")} /></label>
     </div>
     <label><input name="enabled" type="checkbox" defaultChecked={repo?.enabled ?? true} /> Enabled</label>
     <p className="meta">The token variable is the name of an environment variable on the server, never the token itself. The agent token variable names a separate bot token limited to non-protected branches; spawned agents get it to push their task branch and open the PR.</p>

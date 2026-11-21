@@ -2,10 +2,19 @@ package mergequeue
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
+	"io"
+	"net/http"
+	"net/http/httptest"
 	"path/filepath"
 	"strings"
+	"sync"
 	"testing"
+	"time"
+
+	"github.com/SigmaUno/subspace/internal/githost/github"
 )
 
 type finisherCall struct {
@@ -54,6 +63,69 @@ func TestFinisherRunsAfterThePush(t *testing.T) {
 	}
 	if strings.Contains(e.rec.notes[0], "Warning") {
 		t.Fatalf("note: %s", e.rec.notes[0])
+	}
+}
+
+type fakeGitHub struct {
+	mu       sync.Mutex
+	e        *env
+	detect   bool
+	state    string
+	closed   int
+	requests []string
+}
+
+func (f *fakeGitHub) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.requests = append(f.requests, r.Method+" "+r.URL.Path)
+	if r.URL.Path != "/repos/"+repo+"/pulls/7" || r.Header.Get("Authorization") != "Bearer gh-test" {
+		http.NotFound(w, r)
+		return
+	}
+	if r.Method == http.MethodPatch {
+		body, _ := io.ReadAll(r.Body)
+		if string(body) != `{"state":"closed"}` {
+			http.Error(w, "bad body", http.StatusUnprocessableEntity)
+			return
+		}
+		f.state = "closed"
+		f.closed++
+		_, _ = w.Write([]byte(`{}`))
+		return
+	}
+	merged := false
+	if f.detect && f.state == "open" {
+		merged = f.e.isAncestor(f.e.ref("feature"), "refs/heads/main")
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{"number": 7, "state": f.state, "merged": merged,
+		"head": map[string]string{"ref": "feature"}, "base": map[string]string{"ref": "main"}})
+}
+
+func TestGitHubFinisherEndsWithThePRMergedOrClosed(t *testing.T) {
+	for _, detect := range []bool{true, false} {
+		t.Run(fmt.Sprint("detect=", detect), func(t *testing.T) {
+			e := newEnv(t)
+			e.branch("feature", "feature.txt", "x\n")
+			gh := &fakeGitHub{e: e, detect: detect, state: "open"}
+			srv := httptest.NewServer(gh)
+			defer srv.Close()
+			client := github.New(github.Config{APIURL: srv.URL, Token: "gh-test"})
+			q := e.queueWithFinisher(Finishers{repo: GitHubFinisher{Client: client, Settle: 50 * time.Millisecond, Poll: 10 * time.Millisecond}})
+			e.enqueue(q, 7, "feature", "T-1")
+
+			c := e.process(q)
+			if c.State != StateMerged || strings.Contains(e.rec.notes[0], "Warning") {
+				t.Fatalf("state %s notes %q", c.State, e.rec.notes)
+			}
+			pr, err := client.GetPR(context.Background(), github.PRRef{Repo: repo, Number: 7})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if detect && (!pr.Merged || gh.closed != 0) || !detect && (pr.State != "closed" || gh.closed != 1) {
+				t.Fatalf("pr %+v closed %d requests %v", pr, gh.closed, gh.requests)
+			}
+		})
 	}
 }
 

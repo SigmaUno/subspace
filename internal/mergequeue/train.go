@@ -30,17 +30,19 @@ const (
 )
 
 type Train struct {
-	ID        string        `json:"id"`
-	Repo      string        `json:"repo"`
-	Base      string        `json:"base"`
-	State     string        `json:"state"`
-	BaseSHA   string        `json:"base_sha"`
-	Tip       string        `json:"tip"`
-	Members   []TrainMember `json:"members"`
-	Runs      int           `json:"runs"`
-	Log       string        `json:"log,omitempty"`
-	CreatedAt time.Time     `json:"created_at"`
-	UpdatedAt time.Time     `json:"updated_at"`
+	ID          string        `json:"id"`
+	Repo        string        `json:"repo"`
+	Base        string        `json:"base"`
+	State       string        `json:"state"`
+	BaseSHA     string        `json:"base_sha"`
+	Tip         string        `json:"tip"`
+	Members     []TrainMember `json:"members"`
+	Runs        int           `json:"runs"`
+	Log         string        `json:"log,omitempty"`
+	DeployState string        `json:"deploy_state,omitempty"`
+	DeployLog   string        `json:"deploy_log,omitempty"`
+	CreatedAt   time.Time     `json:"created_at"`
+	UpdatedAt   time.Time     `json:"updated_at"`
 }
 
 type TrainMember struct {
@@ -505,7 +507,41 @@ func (r *trainRun) finalize(ctx context.Context) error {
 		m.Result = MemberMerged
 		r.progress = true
 	}
+	if err := r.deploy(ctx); err != nil {
+		return err
+	}
 	return r.save(ctx, final)
+}
+
+func (r *trainRun) deploy(ctx context.Context) error {
+	q, t := r.q, r.t
+	if len(r.rc.Deploy) == 0 || (t.DeployState != "" && t.DeployState != DeployRunning) {
+		return nil
+	}
+	d := Deployment{Repo: t.Repo, Base: t.Base, SHA: t.Tip, TrainID: t.ID}
+	var cands []*Candidate
+	for _, m := range t.Members {
+		if m.Result == MemberMerged {
+			d.Candidates, d.Tasks, d.PRs = append(d.Candidates, m.CandidateID), append(d.Tasks, m.TaskID), append(d.PRs, m.PR)
+			cands = append(cands, r.cands[m.CandidateID])
+		}
+	}
+	if len(cands) == 0 {
+		return nil
+	}
+	t.DeployState = DeployRunning
+	if err := r.save(ctx, ""); err != nil {
+		return err
+	}
+	d = q.deploy(ctx, r.dir, r.rc, d)
+	t.DeployState, t.DeployLog = d.State, d.Log
+	if err := r.save(ctx, ""); err != nil {
+		return err
+	}
+	if err := q.deployed(ctx, d, cands); err != nil {
+		q.cfg.Logger.Warn("mergequeue: deploy report", "train", t.ID, "err", err)
+	}
+	return nil
 }
 
 func (r *trainRun) eject(ctx context.Context, m *TrainMember, reason, detail string) error {

@@ -137,6 +137,8 @@ export interface Candidate {
   state: string;
   merged_sha?: string;
   log?: string;
+  deploy_state?: string;
+  deploy_log?: string;
   enqueued_at: string;
   updated_at: string;
 }

@@ -20,15 +20,18 @@ const mqTrainSchema = `
 CREATE TABLE IF NOT EXISTS mq_trains (
   id TEXT PRIMARY KEY, repo TEXT NOT NULL, base TEXT NOT NULL, state TEXT NOT NULL,
   base_sha TEXT NOT NULL DEFAULT '', tip TEXT NOT NULL DEFAULT '', members TEXT NOT NULL DEFAULT '[]',
-  runs INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
+  runs INTEGER NOT NULL DEFAULT 0, log TEXT NOT NULL DEFAULT '', created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL,
+  deploy_state TEXT NOT NULL DEFAULT '', deploy_log TEXT NOT NULL DEFAULT ''
 );
 CREATE INDEX IF NOT EXISTS mq_trains_repo ON mq_trains(repo, state);
 `
 
-const mqTrainCols = `id,repo,base,state,base_sha,tip,members,runs,log,created_at,updated_at`
+const mqTrainCols = `id,repo,base,state,base_sha,tip,members,runs,log,created_at,updated_at,deploy_state,deploy_log`
 
 func init() {
 	registerSchema(mqTrainSchema, "mq_trains")
+	registerColumn("mq_trains", "deploy_state", "TEXT NOT NULL DEFAULT ''")
+	registerColumn("mq_trains", "deploy_log", "TEXT NOT NULL DEFAULT ''")
 	registerMount(mountMergeTrains)
 }
 
@@ -57,9 +60,9 @@ func (s mqStore) InsertTrain(ctx context.Context, t *mergequeue.Train) error {
 		if err != nil {
 			return err
 		}
-		if _, err := q.Exec(`INSERT INTO mq_trains(`+mqTrainCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?)`,
+		if _, err := q.Exec(`INSERT INTO mq_trains(`+mqTrainCols+`) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 			id, t.Repo, t.Base, t.State, t.BaseSHA, t.Tip, string(members), t.Runs, t.Log,
-			t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli()); err != nil {
+			t.CreatedAt.UnixMilli(), t.UpdatedAt.UnixMilli(), t.DeployState, t.DeployLog); err != nil {
 			return err
 		}
 		t.ID = id
@@ -73,8 +76,8 @@ func (s mqStore) UpdateTrain(ctx context.Context, t *mergequeue.Train) error {
 		return err
 	}
 	return s.st.Atomic(ctx, withSQL(func(_ store.Tx, q sqlTx) error {
-		res, err := q.Exec(`UPDATE mq_trains SET state=?, base_sha=?, tip=?, members=?, runs=?, log=?, updated_at=? WHERE id=?`,
-			t.State, t.BaseSHA, t.Tip, string(members), t.Runs, t.Log, t.UpdatedAt.UnixMilli(), t.ID)
+		res, err := q.Exec(`UPDATE mq_trains SET state=?, base_sha=?, tip=?, members=?, runs=?, log=?, deploy_state=?, deploy_log=?, updated_at=? WHERE id=?`,
+			t.State, t.BaseSHA, t.Tip, string(members), t.Runs, t.Log, t.DeployState, t.DeployLog, t.UpdatedAt.UnixMilli(), t.ID)
 		if err != nil {
 			return err
 		}
@@ -125,7 +128,7 @@ func (s mqStore) trains(ctx context.Context, tail string, args ...any) ([]*merge
 			var t mergequeue.Train
 			var members string
 			var created, updated int64
-			if err := rows.Scan(&t.ID, &t.Repo, &t.Base, &t.State, &t.BaseSHA, &t.Tip, &members, &t.Runs, &t.Log, &created, &updated); err != nil {
+			if err := rows.Scan(&t.ID, &t.Repo, &t.Base, &t.State, &t.BaseSHA, &t.Tip, &members, &t.Runs, &t.Log, &created, &updated, &t.DeployState, &t.DeployLog); err != nil {
 				return err
 			}
 			if err := json.Unmarshal([]byte(members), &t.Members); err != nil {

@@ -2343,6 +2343,12 @@
           "base": {
             "type": "string"
           },
+          "deploy_log": {
+            "type": "string"
+          },
+          "deploy_state": {
+            "type": "string"
+          },
           "enqueued_at": {
             "format": "date-time",
             "type": "string"
@@ -7296,6 +7302,15 @@
           "default_branch": {
             "type": "string"
           },
+          "deploy_command": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
           "enabled": {
             "type": "boolean"
           },
@@ -7339,6 +7354,7 @@
           "base_url",
           "created_at",
           "default_branch",
+          "deploy_command",
           "enabled",
           "host",
           "merge_test_command",
@@ -7360,6 +7376,15 @@
           },
           "default_branch": {
             "type": "string"
+          },
+          "deploy_command": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
           },
           "enabled": {
             "type": [
@@ -9516,6 +9541,12 @@
           },
           "created_at": {
             "format": "date-time",
+            "type": "string"
+          },
+          "deploy_log": {
+            "type": "string"
+          },
+          "deploy_state": {
             "type": "string"
           },
           "id": {

@@ -54,6 +54,7 @@ type Repo struct {
 	ProtectedBranches []string  `json:"protected_branches"`
 	MergeTestCommand  []string  `json:"merge_test_command"`
 	MergeWorkDir      string    `json:"merge_work_dir"`
+	DeployCommand     []string  `json:"deploy_command"`
 	TokenEnv          string    `json:"token_env"`
 	AgentTokenEnv     string    `json:"agent_token_env"`
 	Enabled           bool      `json:"enabled"`
@@ -69,6 +70,7 @@ type Input struct {
 	ProtectedBranches []string `json:"protected_branches"`
 	MergeTestCommand  []string `json:"merge_test_command"`
 	MergeWorkDir      string   `json:"merge_work_dir"`
+	DeployCommand     []string `json:"deploy_command"`
 	TokenEnv          string   `json:"token_env"`
 	AgentTokenEnv     string   `json:"agent_token_env"`
 	Enabled           *bool    `json:"enabled"`
@@ -81,7 +83,7 @@ type Source interface {
 func (in Input) Repo() Repo {
 	return Repo{Name: in.Name, Host: in.Host, BaseURL: in.BaseURL, DefaultBranch: in.DefaultBranch,
 		ProtectedBranches: in.ProtectedBranches, MergeTestCommand: in.MergeTestCommand, MergeWorkDir: in.MergeWorkDir,
-		TokenEnv: in.TokenEnv, AgentTokenEnv: in.AgentTokenEnv, Enabled: in.Enabled == nil || *in.Enabled}
+		DeployCommand: in.DeployCommand, TokenEnv: in.TokenEnv, AgentTokenEnv: in.AgentTokenEnv, Enabled: in.Enabled == nil || *in.Enabled}
 }
 
 func (r *Repo) Validate() error {
@@ -173,16 +175,29 @@ func (r *Repo) validateHost() error {
 	return nil
 }
 
-func (r *Repo) validateMerge() error {
-	if len(r.MergeTestCommand) > maxCommand {
-		return model.BadRequest("merge_test_command has at most %d arguments", maxCommand)
+func validCommand(field string, cmd []string) error {
+	if len(cmd) > maxCommand {
+		return model.BadRequest("%s has at most %d arguments", field, maxCommand)
 	}
-	for _, a := range r.MergeTestCommand {
+	for _, a := range cmd {
 		if a == "" || len(a) > maxArg || strings.ContainsAny(a, "\x00\r\n") {
-			return model.BadRequest("merge_test_command arguments must be non-empty single lines of at most %d bytes", maxArg)
+			return model.BadRequest("%s arguments must be non-empty single lines of at most %d bytes", field, maxArg)
 		}
 	}
-	r.MergeTestCommand = nz(r.MergeTestCommand)
+	return nil
+}
+
+func (r *Repo) validateMerge() error {
+	if err := validCommand("merge_test_command", r.MergeTestCommand); err != nil {
+		return err
+	}
+	if err := validCommand("deploy_command", r.DeployCommand); err != nil {
+		return err
+	}
+	if len(r.DeployCommand) > 0 && len(r.MergeTestCommand) == 0 {
+		return model.BadRequest("deploy_command needs a merge_test_command: only the merge queue deploys")
+	}
+	r.MergeTestCommand, r.DeployCommand = nz(r.MergeTestCommand), nz(r.DeployCommand)
 	if r.MergeWorkDir == "" {
 		return nil
 	}
@@ -350,7 +365,7 @@ func SupportsSQL(ctx context.Context, st store.Store) bool {
 	return ok
 }
 
-const cols = `name, host, base_url, default_branch, protected_branches, merge_test_command, merge_work_dir, token_env, agent_token_env, enabled, created_at, updated_at`
+const cols = `name, host, base_url, default_branch, protected_branches, merge_test_command, merge_work_dir, token_env, agent_token_env, enabled, created_at, updated_at, deploy_command`
 
 func (s *Store) now() time.Time {
 	if s.Now != nil {
@@ -364,16 +379,17 @@ func scan(rows *sql.Rows) ([]Repo, error) {
 	out := []Repo{}
 	for rows.Next() {
 		var r Repo
-		var protected, command string
+		var protected, command, deploy string
 		var enabled int
 		var created, updated int64
-		if err := rows.Scan(&r.Name, &r.Host, &r.BaseURL, &r.DefaultBranch, &protected, &command, &r.MergeWorkDir, &r.TokenEnv, &r.AgentTokenEnv, &enabled, &created, &updated); err != nil {
+		if err := rows.Scan(&r.Name, &r.Host, &r.BaseURL, &r.DefaultBranch, &protected, &command, &r.MergeWorkDir, &r.TokenEnv, &r.AgentTokenEnv, &enabled, &created, &updated, &deploy); err != nil {
 			return nil, err
 		}
-		if err := errors.Join(json.Unmarshal([]byte(protected), &r.ProtectedBranches), json.Unmarshal([]byte(command), &r.MergeTestCommand)); err != nil {
+		if err := errors.Join(json.Unmarshal([]byte(protected), &r.ProtectedBranches), json.Unmarshal([]byte(command), &r.MergeTestCommand),
+			json.Unmarshal([]byte(deploy), &r.DeployCommand)); err != nil {
 			return nil, fmt.Errorf("repos: stored repository %s: %w", r.Name, err)
 		}
-		r.ProtectedBranches, r.MergeTestCommand = nz(r.ProtectedBranches), nz(r.MergeTestCommand)
+		r.ProtectedBranches, r.MergeTestCommand, r.DeployCommand = nz(r.ProtectedBranches), nz(r.MergeTestCommand), nz(r.DeployCommand)
 		r.Enabled = enabled != 0
 		r.CreatedAt, r.UpdatedAt = time.UnixMilli(created).UTC(), time.UnixMilli(updated).UTC()
 		out = append(out, r)
@@ -404,10 +420,11 @@ func load(tx store.Tx, name string) (*Repo, error) {
 	return &rs[0], nil
 }
 
-func encode(r Repo) (protected, command string) {
+func encode(r Repo) (protected, command, deploy string) {
 	p, _ := json.Marshal(nz(r.ProtectedBranches))
 	c, _ := json.Marshal(nz(r.MergeTestCommand))
-	return string(p), string(c)
+	d, _ := json.Marshal(nz(r.DeployCommand))
+	return string(p), string(c), string(d)
 }
 
 func flag(b bool) int {
@@ -442,7 +459,7 @@ func (s *Store) Get(ctx context.Context, name string) (Repo, error) {
 func snapshot(r *Repo) map[string]any {
 	return map[string]any{"name": r.Name, "host": r.Host, "base_url": r.BaseURL, "default_branch": r.DefaultBranch,
 		"protected_branches": r.ProtectedBranches, "merge_test_command": r.MergeTestCommand, "merge_work_dir": r.MergeWorkDir,
-		"token_env": r.TokenEnv, "agent_token_env": r.AgentTokenEnv, "enabled": r.Enabled}
+		"deploy_command": r.DeployCommand, "token_env": r.TokenEnv, "agent_token_env": r.AgentTokenEnv, "enabled": r.Enabled}
 }
 
 func (s *Store) audit(ctx context.Context, tx store.Tx, tool string, before, after *Repo) error {
@@ -475,10 +492,10 @@ func (s *Store) Create(ctx context.Context, r Repo) (Repo, error) {
 		if err != nil {
 			return err
 		}
-		protected, command := encode(r)
-		if _, err := q.Exec(`INSERT INTO repos (`+cols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+		protected, command, deploy := encode(r)
+		if _, err := q.Exec(`INSERT INTO repos (`+cols+`) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			r.Name, r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, r.AgentTokenEnv, flag(r.Enabled),
-			r.CreatedAt.UnixMilli(), r.UpdatedAt.UnixMilli()); err != nil {
+			r.CreatedAt.UnixMilli(), r.UpdatedAt.UnixMilli(), deploy); err != nil {
 			return err
 		}
 		return s.audit(ctx, tx, "create_repo", nil, &r)
@@ -502,10 +519,10 @@ func (s *Store) Update(ctx context.Context, name string, r Repo) (Repo, error) {
 		if err != nil {
 			return err
 		}
-		protected, command := encode(r)
+		protected, command, deploy := encode(r)
 		if _, err := q.Exec(`UPDATE repos SET host = ?, base_url = ?, default_branch = ?, protected_branches = ?, merge_test_command = ?,
-			merge_work_dir = ?, token_env = ?, agent_token_env = ?, enabled = ?, updated_at = ? WHERE name = ?`,
-			r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, r.TokenEnv, r.AgentTokenEnv, flag(r.Enabled), r.UpdatedAt.UnixMilli(), old.Name); err != nil {
+			merge_work_dir = ?, deploy_command = ?, token_env = ?, agent_token_env = ?, enabled = ?, updated_at = ? WHERE name = ?`,
+			r.Host, r.BaseURL, r.DefaultBranch, protected, command, r.MergeWorkDir, deploy, r.TokenEnv, r.AgentTokenEnv, flag(r.Enabled), r.UpdatedAt.UnixMilli(), old.Name); err != nil {
 			return err
 		}
 		out = r

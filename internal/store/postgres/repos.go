@@ -7,5 +7,6 @@ CREATE TABLE IF NOT EXISTS repos (
   protected_branches TEXT NOT NULL DEFAULT '[]', merge_test_command TEXT NOT NULL DEFAULT '[]', merge_work_dir TEXT NOT NULL DEFAULT '',
   token_env TEXT NOT NULL DEFAULT '', enabled INTEGER NOT NULL DEFAULT 1, created_at BIGINT NOT NULL, updated_at BIGINT NOT NULL
 );
-ALTER TABLE repos ADD COLUMN IF NOT EXISTS agent_token_env TEXT NOT NULL DEFAULT '';`, "repos")
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS agent_token_env TEXT NOT NULL DEFAULT '';
+ALTER TABLE repos ADD COLUMN IF NOT EXISTS deploy_command TEXT NOT NULL DEFAULT '[]';`, "repos")
 }

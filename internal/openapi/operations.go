@@ -4,6 +4,7 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/about"
 	"github.com/SigmaUno/subspace/internal/activity"
 	"github.com/SigmaUno/subspace/internal/agentstats"
 	"github.com/SigmaUno/subspace/internal/alerts"
@@ -80,6 +81,7 @@ var operations = []Op{
 	post("/api/v1/reload", "Re-read SUBSPACE_CONFIG_FILE and the capacity file and apply them atomically", Free{}, reload.Result{}),
 	post("/api/v1/backup", "Create a verified database backup", Free{}, BackupResult{}),
 	get("/api/v1/backups", "List backups, newest first", list[backup.Info]("backups")),
+	get("/api/v1/about", "Version, uptime, database size and backup state", about.Info{}),
 	get("/api/v1/incident", "List incidents, newest first", list[incident.Incident]("incidents")).Q("limit:integer"),
 	post("/api/v1/incident", "Declare an incident or add actions to the active one; rotated tokens are shown once", incident.Request{}, incident.StartOutcome{}).S(created),
 	post("/api/v1/incident/{id}/end", "End an incident: resume all and optionally re-enable paused agents", incident.EndRequest{}, incident.EndOutcome{}),

@@ -55,7 +55,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs.IntVar(&cfg.Messages, "messages", 0, "thread-heavy: messages per agent thread (0 = 500)")
 	fs.BoolVar(&asJSON, "json", false, "print the report as JSON")
 	fs.StringVar(&outPath, "out", "", "also write the JSON report to this file")
-	fs.StringVar(&profileDir, "profile", "", "write cpu.pprof and heap.pprof to this directory (covers the in-process server too)")
+	fs.StringVar(&profileDir, "profile", "", "write cpu, heap, block and mutex profiles to this directory (covers the in-process server too)")
 	if err := fs.Parse(args); err != nil {
 		return 2
 	}
@@ -113,22 +113,33 @@ func startProfile(dir string) (func() error, error) {
 		_ = cpu.Close()
 		return nil, err
 	}
+	runtime.SetBlockProfileRate(int(time.Millisecond))
+	runtime.SetMutexProfileFraction(100)
 	return func() error {
 		pprof.StopCPUProfile()
 		if err := cpu.Close(); err != nil {
 			return err
 		}
 		runtime.GC()
-		heap, err := os.Create(filepath.Join(dir, "heap.pprof")) //nolint:gosec
-		if err != nil {
-			return err
+		for _, name := range []string{"heap", "block", "mutex"} {
+			if err := writeProfile(filepath.Join(dir, name+".pprof"), name); err != nil {
+				return err
+			}
 		}
-		werr := pprof.WriteHeapProfile(heap)
-		if cerr := heap.Close(); werr == nil {
-			werr = cerr
-		}
-		return werr
+		return nil
 	}, nil
+}
+
+func writeProfile(path, name string) error {
+	f, err := os.Create(path) //nolint:gosec
+	if err != nil {
+		return err
+	}
+	werr := pprof.Lookup(name).WriteTo(f, 0)
+	if cerr := f.Close(); werr == nil {
+		werr = cerr
+	}
+	return werr
 }
 
 func writeJSON(path string, v any) error {

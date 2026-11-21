@@ -2,8 +2,10 @@ package client
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"net/url"
@@ -35,33 +37,46 @@ func newEventReader(r io.Reader) *eventReader {
 	return &eventReader{br: bufio.NewReaderSize(r, 64<<10)}
 }
 
+func (r *eventReader) line() ([]byte, error) {
+	l, err := r.br.ReadSlice('\n')
+	if !errors.Is(err, bufio.ErrBufferFull) {
+		return l, err
+	}
+	buf := append([]byte(nil), l...)
+	for errors.Is(err, bufio.ErrBufferFull) {
+		l, err = r.br.ReadSlice('\n')
+		buf = append(buf, l...)
+	}
+	return buf, err
+}
+
 func (r *eventReader) next() (Event, error) {
 	var cur Event
 	var data []string
 	for {
-		line, err := r.br.ReadString('\n')
+		line, err := r.line()
 		if err != nil {
 			return Event{}, err
 		}
-		line = strings.TrimRight(line, "\r\n")
+		line = bytes.TrimRight(line, "\r\n")
 		switch {
-		case line == "":
+		case len(line) == 0:
 			if len(data) > 0 || cur.Name != "" {
 				cur.Data = strings.Join(data, "\n")
 				return cur, nil
 			}
 			cur, data = Event{}, data[:0]
-		case strings.HasPrefix(line, ":"):
+		case line[0] == ':':
 		default:
-			k, v, _ := strings.Cut(line, ":")
-			v = strings.TrimPrefix(v, " ")
-			switch k {
+			k, v, _ := bytes.Cut(line, []byte(":"))
+			v = bytes.TrimPrefix(v, []byte(" "))
+			switch string(k) {
 			case "id":
-				cur.ID = v
+				cur.ID = string(v)
 			case "event":
-				cur.Name = v
+				cur.Name = string(v)
 			case "data":
-				data = append(data, v)
+				data = append(data, string(v))
 			}
 		}
 	}

@@ -8,6 +8,7 @@ import (
 	"io"
 	"net/http"
 	"strconv"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -126,7 +127,11 @@ func (f *sseFleet) subscribe(ctx context.Context, last *int64, lifetime time.Dur
 		t := time.AfterFunc(lifetime, cancel)
 		defer t.Stop()
 	}
-	var hello int64
+	var (
+		hello int64
+		local sseLocal
+	)
+	defer local.flush(f)
 	for {
 		ev, err := stream.Next()
 		if err != nil {
@@ -136,7 +141,7 @@ func (f *sseFleet) subscribe(ctx context.Context, last *int64, lifetime time.Dur
 			return ctx.Err() == nil && (cctx.Err() != nil || f.persist)
 		}
 		f.track(ev, last, &hello)
-		f.handle(ev, ready)
+		f.handle(ev, ready, &local)
 	}
 }
 
@@ -167,18 +172,28 @@ func (f *sseFleet) track(ev client.Event, last, hello *int64) {
 	*last = id
 }
 
-func (f *sseFleet) handle(ev client.Event, ready func()) {
+type sseLocal struct {
+	lag    Histogram
+	events int64
+}
+
+func (l *sseLocal) flush(f *sseFleet) {
+	f.lag.Merge(&l.lag)
+	f.events.Add(l.events)
+}
+
+func (f *sseFleet) handle(ev client.Event, ready func(), local *sseLocal) {
 	now := time.Now()
-	env, _ := ev.Envelope()
-	typ := ev.Name
-	if typ == "" {
-		typ = env.Type
+	typ, ts := envelopeHead(ev.Data)
+	if ev.Name != "" {
+		typ = ev.Name
 	}
 	switch typ {
 	case "hello":
 		ready()
 		return
 	case "lagged":
+		env, _ := ev.Envelope()
 		var d struct {
 			Dropped int64 `json:"dropped"`
 		}
@@ -187,10 +202,33 @@ func (f *sseFleet) handle(ev client.Event, ready func()) {
 		f.dropped.Add(d.Dropped)
 		return
 	}
-	f.events.Add(1)
-	if !env.TS.IsZero() {
-		f.lag.Record(now.Sub(env.TS))
+	local.events++
+	if !ts.IsZero() {
+		local.lag.Record(now.Sub(ts))
 	}
+}
+
+func envelopeHead(data string) (typ string, ts time.Time) {
+	typ, _ = jsonStringField(data, `"type":"`)
+	if v, ok := jsonStringField(data, `"ts":"`); ok {
+		ts, _ = time.Parse(time.RFC3339Nano, v)
+		return typ, ts
+	}
+	env, _ := client.Event{Data: data}.Envelope()
+	return env.Type, env.TS
+}
+
+func jsonStringField(data, key string) (string, bool) {
+	i := strings.Index(data, key)
+	if i < 0 {
+		return "", false
+	}
+	v := data[i+len(key):]
+	j := strings.IndexAny(v, `"\`)
+	if j < 0 || v[j] != '"' {
+		return "", false
+	}
+	return v[:j], true
 }
 
 // Report returns the current SSE statistics.

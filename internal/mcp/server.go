@@ -63,6 +63,7 @@ type Server struct {
 	Registry   *Registry
 	Guard      audit.LoopGuard
 	Hooks      Hooks
+	Surface    *Surface
 	OwnerToken string
 	Now        func() time.Time
 
@@ -217,8 +218,12 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Mcp-Session-Id", s.newSession(agent.ID))
 		resp.Result = map[string]any{
 			"protocolVersion": ProtocolVersion,
-			"capabilities":    map[string]any{"tools": map[string]any{"listChanged": false}},
-			"serverInfo":      map[string]any{"name": "subspace", "version": "0.1.0"},
+			"capabilities": map[string]any{
+				"tools":     map[string]any{"listChanged": false},
+				"prompts":   map[string]any{"listChanged": false},
+				"resources": map[string]any{"subscribe": false, "listChanged": false},
+			},
+			"serverInfo": map[string]any{"name": "subspace", "version": "0.1.0"},
 		}
 	case "ping":
 		resp.Result = map[string]any{}
@@ -230,6 +235,8 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Result = map[string]any{"tools": tools}
 	case "tools/call":
 		resp.Result, resp.Error = s.call(r.Context(), agent, req.Params)
+	case "prompts/list", "prompts/get", "resources/list", "resources/read", "resources/templates/list":
+		resp.Result, resp.Error = s.surface(r.Context(), actor, req.Method, req.Params)
 	default:
 		resp.Error = &rpcErr{-32601, "method not found"}
 	}

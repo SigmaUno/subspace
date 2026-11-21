@@ -16,7 +16,7 @@ const (
 	maxSplitTasks = 20
 )
 
-func normalize(orig *model.Task, br *model.Brief, in []Proposed) ([]Proposed, error) {
+func normalize(orig *model.Task, br *model.Brief, in []Proposed, scrub func(string) string) ([]Proposed, error) {
 	if len(in) < minSplitTasks || len(in) > maxSplitTasks {
 		return nil, model.BadRequest("proposed_tasks needs %d to %d tasks", minSplitTasks, maxSplitTasks)
 	}
@@ -51,8 +51,11 @@ func normalize(orig *model.Task, br *model.Brief, in []Proposed) ([]Proposed, er
 			}
 			refs[p.Ref] = true
 		}
-		p.Title, p.Spec = board.Redact(p.Title), board.Redact(p.Spec)
+		p.Title, p.Spec = scrub(p.Title), scrub(p.Spec)
 		p.AcceptanceCriteria, p.DependsOn = nzStrings(p.AcceptanceCriteria), nzStrings(p.DependsOn)
+		for j, c := range p.AcceptanceCriteria {
+			p.AcceptanceCriteria[j] = scrub(c)
+		}
 		out[i] = p
 	}
 	for i, p := range out {

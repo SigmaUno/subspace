@@ -9,12 +9,12 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/spawner"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func startHTTP(t *testing.T, body, idle time.Duration) (*env, string) {
@@ -25,7 +25,7 @@ func startHTTP(t *testing.T, body, idle time.Duration) (*env, string) {
 
 func newEnvCfg(t *testing.T, cfg Config) *env {
 	t.Helper()
-	cfg.DBPath, cfg.OwnerToken, cfg.PublicURL = filepath.Join(t.TempDir(), "t.db"), ownerTok, "http://sub.test"
+	cfg.DBPath, cfg.DataDir, cfg.OwnerToken, cfg.PublicURL = testdb.Path(t, "t.db"), testdb.DataDir(t), ownerTok, "http://sub.test"
 	cfg.FlushEvery, cfg.SweepEvery, cfg.Lease = 50*time.Millisecond, 50*time.Millisecond, time.Minute
 	ctx, cancel := context.WithCancel(context.Background())
 	s, err := New(ctx, cfg)

@@ -9,7 +9,6 @@ import (
 	"net"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -17,7 +16,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type live struct {
@@ -36,7 +35,7 @@ type live struct {
 func startLive(t *testing.T) *live {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	db := filepath.Join(t.TempDir(), "t.db")
+	db := testdb.Path(t, "t.db")
 	s, err := New(ctx, Config{DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: time.Minute,
 		FlushEvery: time.Hour, SweepEvery: time.Hour, BackupInterval: 0, ShutdownTimeout: 10 * time.Second,
 		Log: slog.New(slog.DiscardHandler)})
@@ -106,12 +105,7 @@ func (l *live) shutdown(t *testing.T) {
 
 func reopen(t *testing.T, db string) store.Store {
 	t.Helper()
-	st, err := sqlite.Open(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = st.Close() })
-	return st
+	return testdb.Open(t, db)
 }
 
 type held struct {

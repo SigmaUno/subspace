@@ -4,13 +4,13 @@ import (
 	"bytes"
 	"encoding/json"
 	"net/http"
-	"path/filepath"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type idemResp struct {
@@ -207,7 +207,7 @@ func TestIdempotencyConcurrentDuplicates(t *testing.T) {
 }
 
 func TestIdempotencyKeyRowCommitsAfterEffect_AtLeastOnceIfCrashInBetween_ReplaysAfterRestart(t *testing.T) {
-	db := filepath.Join(t.TempDir(), "idem.db")
+	db := testdb.Path(t, "idem.db")
 	cfg := server.Config{DBPath: db, PublicURL: "http://sub.test", FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute}
 	e := servertest.Start(t, cfg)
 	wk := e.Register("w1", "worker", "claude-code")

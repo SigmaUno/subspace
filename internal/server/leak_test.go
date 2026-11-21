@@ -15,7 +15,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 func settleGoroutines(t *testing.T, base int) {
@@ -62,7 +62,7 @@ func TestRunShutdownEndsStreamsAndFlushes(t *testing.T) {
 	addr := l.Addr().String()
 	_ = l.Close()
 
-	db := filepath.Join(t.TempDir(), "t.db")
+	db := testdb.Path(t, "t.db")
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	s, err := New(ctx, Config{Addr: addr, DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test",
@@ -119,11 +119,7 @@ func TestRunShutdownEndsStreamsAndFlushes(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	st, err := sqlite.Open(db)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = st.Close() }()
+	st := testdb.Open(t, db)
 	var seen *time.Time
 	err = st.View(context.Background(), func(tx store.Tx) error {
 		a, err := tx.GetAgent("w1")

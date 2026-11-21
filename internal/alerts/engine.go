@@ -6,11 +6,13 @@ import (
 	"log/slog"
 	"slices"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/notify"
+	"github.com/SigmaUno/subspace/internal/reload"
 )
 
 const (
@@ -38,6 +40,7 @@ type Options struct {
 
 type Engine struct {
 	opt     Options
+	th      atomic.Pointer[Thresholds]
 	mu      sync.Mutex
 	active  map[string]*Alert
 	history []*Alert
@@ -50,7 +53,26 @@ func New(o Options) *Engine {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Engine{opt: o, active: map[string]*Alert{}}
+	e := &Engine{opt: o, active: map[string]*Alert{}}
+	e.th.Store(&o.Thresholds)
+	return e
+}
+
+func (e *Engine) Thresholds() Thresholds { return *e.th.Load() }
+
+func (e *Engine) SetThresholds(t Thresholds) { e.th.Store(&t) }
+
+func (e *Engine) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	t, err := Parse(getenv)
+	if err != nil {
+		return reload.Plan{}, err
+	}
+	var ignored []reload.Ignored
+	if cur := e.Thresholds(); t.Interval != cur.Interval {
+		ignored = append(ignored, reload.Ignored{Key: EnvInterval, Reason: reload.ReasonRestart})
+		t.Interval = cur.Interval
+	}
+	return reload.Plan{Commit: func() { e.SetThresholds(t) }, Ignored: ignored}, nil
 }
 
 func (e *Engine) Run(ctx context.Context, ticks <-chan time.Time) {
@@ -72,7 +94,7 @@ func (e *Engine) Evaluate(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	findings := Evaluate(snap, e.opt.Thresholds)
+	findings := Evaluate(snap, e.Thresholds())
 
 	e.mu.Lock()
 	defer e.mu.Unlock()

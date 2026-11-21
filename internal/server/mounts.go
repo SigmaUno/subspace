@@ -4,6 +4,7 @@ import (
 	"context"
 	"log/slog"
 	"net/http"
+	"os"
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -13,6 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/mcp"
+	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -31,6 +33,23 @@ type Deps struct {
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
 	Components components.Store
+
+	Env    func(string) string
+	Reload *reload.Manager
+	Trust  *proxyTrust
+}
+
+func (d Deps) getenv() func(string) string {
+	if d.Env != nil {
+		return d.Env
+	}
+	return os.Getenv
+}
+
+func (d Deps) reloadable(name string, keys []string, r reload.Reloadable) {
+	if d.Reload != nil {
+		d.Reload.Register(name, keys, r)
+	}
 }
 
 var extraMounts []func(Deps)

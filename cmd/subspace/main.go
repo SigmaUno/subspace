@@ -92,7 +92,7 @@ func main() {
 		PublicURL: env("SUBSPACE_PUBLIC_URL", "http://localhost:8080"), CapacityFile: os.Getenv("SUBSPACE_CAPACITY_FILE"), PromptsDir: os.Getenv("SUBSPACE_PROMPTS_DIR"),
 		Lease: dur("SUBSPACE_LEASE", "15m"), PoisonExpiries: count("SUBSPACE_POISON_EXPIRIES", board.DefaultPoisonExpiries), BackupInterval: dur("SUBSPACE_BACKUP_INTERVAL", "24h"),
 		BackupDir: os.Getenv("SUBSPACE_BACKUP_DIR"), BackupKeep: count("SUBSPACE_BACKUP_KEEP", 14),
-		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), Log: log, LogPipe: pipe,
+		ShutdownTimeout: dur("SUBSPACE_SHUTDOWN_TIMEOUT", "20s"), ConfigFile: os.Getenv("SUBSPACE_CONFIG_FILE"), Log: log, LogPipe: pipe,
 	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
@@ -102,6 +102,7 @@ func main() {
 		os.Exit(1)
 	}
 	defer func() { _ = s.Close() }()
+	defer reloadOnSIGHUP(ctx, s, log)()
 	log.Info("subspace listening", "addr", cfg.Addr, "db", cfg.DBPath)
 	if err := s.Run(ctx); err != nil {
 		log.Error("server", "err", err)

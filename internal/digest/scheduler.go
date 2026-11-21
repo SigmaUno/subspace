@@ -5,9 +5,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
+	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/notify"
+	"github.com/SigmaUno/subspace/internal/reload"
 )
 
 const (
@@ -55,7 +59,12 @@ type ruleState struct {
 }
 
 type Scheduler struct {
-	o Options
+	o     Options
+	rules atomic.Pointer[[]Rule]
+	wake  chan struct{}
+
+	mu     sync.Mutex
+	rebase map[string]bool
 }
 
 func NewScheduler(o Options) *Scheduler {
@@ -65,7 +74,56 @@ func NewScheduler(o Options) *Scheduler {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Scheduler{o: o}
+	s := &Scheduler{o: o, wake: make(chan struct{}, 1), rebase: map[string]bool{}}
+	s.rules.Store(&o.Rules)
+	return s
+}
+
+func (s *Scheduler) Rules() []Rule { return *s.rules.Load() }
+
+func (s *Scheduler) SetRules(rules []Rule) {
+	old := s.Rules()
+	s.mu.Lock()
+	for _, r := range rules {
+		if i := slices.IndexFunc(old, func(o Rule) bool { return o.Name == r.Name }); i < 0 || !sameRule(old[i], r) {
+			s.rebase[r.Name] = true
+		}
+	}
+	s.mu.Unlock()
+	s.rules.Store(&rules)
+	select {
+	case s.wake <- struct{}{}:
+	default:
+	}
+}
+
+func (s *Scheduler) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	cfg, err := ConfigFromEnv(getenv)
+	if err != nil {
+		return reload.Plan{}, err
+	}
+	return reload.Plan{Commit: func() { s.SetRules(cfg.Rules) }}, nil
+}
+
+func sameRule(a, b Rule) bool {
+	return a.Loc.String() == b.Loc.String() && slices.Equal(a.Slots, b.Slots)
+}
+
+func (s *Scheduler) rebasing(name string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.rebase[name]
+}
+
+func (s *Scheduler) rebased(name string) {
+	s.mu.Lock()
+	delete(s.rebase, name)
+	s.mu.Unlock()
+}
+
+func (s *Scheduler) enabled() bool {
+	e, ok := s.o.Sink.(interface{ Enabled() bool })
+	return !ok || e.Enabled()
 }
 
 func (s *Scheduler) Run(ctx context.Context) {
@@ -73,7 +131,7 @@ func (s *Scheduler) Run(ctx context.Context) {
 		now := s.o.Clock.Now()
 		s.Step(ctx, now)
 		wait := maxWait
-		for _, r := range s.o.Rules {
+		for _, r := range s.Rules() {
 			if next, ok := r.Next(now); ok {
 				wait = min(wait, next.Sub(now))
 			}
@@ -81,13 +139,17 @@ func (s *Scheduler) Run(ctx context.Context) {
 		select {
 		case <-ctx.Done():
 			return
+		case <-s.wake:
 		case <-s.o.Clock.After(wait):
 		}
 	}
 }
 
 func (s *Scheduler) Step(ctx context.Context, now time.Time) {
-	for _, r := range s.o.Rules {
+	if !s.enabled() {
+		return
+	}
+	for _, r := range s.Rules() {
 		if err := s.step(ctx, r, now); err != nil && ctx.Err() == nil {
 			s.o.Log.Error("digest", "rule", r.Name, "err", err)
 		}
@@ -111,6 +173,14 @@ func (s *Scheduler) step(ctx context.Context, r Rule, now time.Time) error {
 		}
 	}
 	if found && !due.After(time.Unix(st.Slot, 0)) {
+		return nil
+	}
+	if found && s.rebasing(r.Name) {
+		st.Slot, st.At = due.Unix(), now.UnixMilli()
+		if err := s.save(ctx, key, st); err != nil {
+			return err
+		}
+		s.rebased(r.Name)
 		return nil
 	}
 	if !found {

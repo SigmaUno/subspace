@@ -3,13 +3,14 @@ package server
 import (
 	"context"
 	"net/http"
-	"os"
 	"strings"
+	"sync/atomic"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/actionlink"
 	"github.com/SigmaUno/subspace/internal/notify"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
+	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -25,7 +26,7 @@ func init() {
 }
 
 func actionIssuer(d Deps) (*actionlink.Issuer, error) {
-	secret := os.Getenv(envActionSecret)
+	secret := d.getenv()(envActionSecret)
 	if secret == "" {
 		secret = d.Cfg.OwnerToken
 	}
@@ -76,28 +77,47 @@ func actionMinter(d Deps) notify.Minter {
 	}
 }
 
+type actionRate struct {
+	next    http.Handler
+	ips     *allowlisted
+	limiter *ratelimit.Limiter
+	lim     atomic.Pointer[ratelimit.Limit]
+}
+
 func actionLinkRateLimit(next http.Handler, d Deps) http.Handler {
-	lim := envRate(d.Log, envRateActionLink, defaultRateActionLink)
-	if lim.PerMinute <= 0 {
-		return next
+	trust := d.Trust
+	if trust == nil {
+		trust = newProxyTrust(d.Log, d.getenv())
 	}
-	ips := &allowlisted{}
-	if v := strings.TrimSpace(os.Getenv(envTrustedProxies)); v != "" {
-		ips.trusted, _ = parsePrefixes(v)
+	lim := envRate(d.Log, d.getenv(), envRateActionLink, defaultRateActionLink)
+	h := &actionRate{next: next, ips: &allowlisted{trust: trust}, limiter: ratelimit.New(ratelimit.Options{Default: lim})}
+	h.lim.Store(&lim)
+	d.reloadable("actionlink-ratelimit", []string{envRateActionLink}, h)
+	return h
+}
+
+func (h *actionRate) PrepareReload(getenv func(string) string) (reload.Plan, error) {
+	lim, err := rateFrom(getenv, envRateActionLink, defaultRateActionLink)
+	if err != nil {
+		return reload.Plan{}, err
 	}
-	limiter := ratelimit.New(ratelimit.Options{Default: lim})
-	retry := time.Duration(60 / lim.PerMinute * float64(time.Second))
-	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if strings.HasPrefix(r.URL.Path, "/a/") {
-			key := "invalid"
-			if ip, ok := ips.client(r); ok {
-				key = ip.String()
-			}
-			if !limiter.Allow(key) {
-				deny(w, retry)
-				return
-			}
+	return reload.Plan{Commit: func() {
+		h.limiter.SetDefault(lim)
+		h.lim.Store(&lim)
+	}}, nil
+}
+
+func (h *actionRate) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	lim := *h.lim.Load()
+	if lim.PerMinute > 0 && strings.HasPrefix(r.URL.Path, "/a/") {
+		key := "invalid"
+		if ip, ok := h.ips.client(r); ok {
+			key = ip.String()
 		}
-		next.ServeHTTP(w, r)
-	})
+		if !h.limiter.Allow(key) {
+			deny(w, time.Duration(60/lim.PerMinute*float64(time.Second)))
+			return
+		}
+	}
+	h.next.ServeHTTP(w, r)
 }

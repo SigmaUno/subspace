@@ -119,6 +119,24 @@ func (l *Limiter) SetLimit(key string, lim Limit) {
 	b.mu.Unlock()
 }
 
+func (l *Limiter) SetDefault(lim Limit) {
+	lim = normalize(lim)
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.def = lim
+	now := l.clock.Now()
+	for key, b := range l.buckets {
+		if l.lookup(key) != lim {
+			continue
+		}
+		b.mu.Lock()
+		b.advance(now)
+		b.limit = lim
+		b.tokens = math.Min(b.tokens, float64(lim.Burst))
+		b.mu.Unlock()
+	}
+}
+
 // Len returns the number of live buckets.
 func (l *Limiter) Len() int {
 	l.mu.RLock()

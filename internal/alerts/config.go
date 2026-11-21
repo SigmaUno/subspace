@@ -1,7 +1,10 @@
 package alerts
 
 import (
+	"errors"
+	"fmt"
 	"log/slog"
+	"math"
 	"strconv"
 	"strings"
 	"time"
@@ -51,7 +54,22 @@ func Defaults() Thresholds {
 	}
 }
 
+var ReloadKeys = []string{
+	EnvInterval, EnvStallAfter, EnvProgressAfter, EnvReviewAfter, EnvPausedMax, EnvFlappingMax,
+	EnvBackupMaxAge, EnvDiskMinFree, EnvDBMaxBytes, EnvWALMaxBytes, EnvLaggedRatio,
+}
+
 func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
+	return parse(getenv, func(key string) { log.Warn("invalid alert setting, using default", "env", key) })
+}
+
+func Parse(getenv func(string) string) (Thresholds, error) {
+	var errs []error
+	t := parse(getenv, func(key string) { errs = append(errs, fmt.Errorf("%s: invalid value %q", key, getenv(key))) })
+	return t, errors.Join(errs...)
+}
+
+func parse(getenv func(string) string, invalid func(key string)) Thresholds {
 	t := Defaults()
 	duration := func(key string, dst *time.Duration) {
 		v := strings.TrimSpace(getenv(key))
@@ -64,7 +82,7 @@ func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
 		}
 		d, err := time.ParseDuration(v)
 		if err != nil || d < 0 {
-			log.Warn("invalid alert setting, using default", "env", key)
+			invalid(key)
 			return
 		}
 		*dst = d
@@ -76,7 +94,7 @@ func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
 		}
 		n, err := strconv.Atoi(v)
 		if err != nil || n < 0 {
-			log.Warn("invalid alert setting, using default", "env", key)
+			invalid(key)
 			return
 		}
 		*dst = n
@@ -88,7 +106,7 @@ func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
 		}
 		n, err := strconv.ParseUint(v, 10, 64)
 		if err != nil {
-			log.Warn("invalid alert setting, using default", "env", key)
+			invalid(key)
 			return
 		}
 		*dst = n
@@ -105,8 +123,8 @@ func FromEnv(getenv func(string) string, log *slog.Logger) Thresholds {
 	size(EnvWALMaxBytes, &t.WALMaxBytes)
 	if v := strings.TrimSpace(getenv(EnvLaggedRatio)); v != "" {
 		f, err := strconv.ParseFloat(v, 64)
-		if err != nil || f < 0 || f > 1 {
-			log.Warn("invalid alert setting, using default", "env", EnvLaggedRatio)
+		if err != nil || f < 0 || f > 1 || math.IsNaN(f) {
+			invalid(EnvLaggedRatio)
 		} else {
 			t.LaggedRatio = f
 		}

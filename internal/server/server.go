@@ -28,6 +28,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/prompts"
+	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -52,6 +53,7 @@ type Config struct {
 	Now             func() time.Time
 	IdleTimeout     time.Duration
 	ShutdownTimeout time.Duration
+	ConfigFile      string
 	Log             *slog.Logger
 	LogPipe         *logpipe.Pipeline
 }
@@ -64,6 +66,7 @@ type Server struct {
 	api     *api.API
 	handler http.Handler
 	backups *backup.Scheduler
+	reload  *reload.Manager
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -104,9 +107,19 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.BackupDir == "" && !isPostgres(cfg.DBPath) {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
 	}
+	rl := reload.New(cfg.ConfigFile, func(k string) string {
+		if v := os.Getenv(k); v != "" || k != board.EnvCapacityFile {
+			return v
+		}
+		return cfg.CapacityFile
+	})
+	env, err := rl.Load()
+	if err != nil {
+		return nil, err
+	}
 	var capCfg capacity.Config
-	if cfg.CapacityFile != "" {
-		c, err := capacity.Load(cfg.CapacityFile)
+	if path := env(board.EnvCapacityFile); path != "" {
+		c, err := capacity.Load(path)
 		if err != nil {
 			return nil, fmt.Errorf("capacity: %w", err)
 		}
@@ -188,7 +201,18 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		return nil, err
 	}
 	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
-		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore}
+		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore,
+		Env: env, Reload: rl, Trust: newProxyTrust(cfg.Log, env)}
+	rl.Register("capacity", board.CapacityReloadKeys, b)
+	rl.Register("trusted-proxies", []string{envTrustedProxies}, deps.Trust)
+	level := &reload.LogLevel{Pipe: cfg.LogPipe}
+	if v := env(reload.EnvLogLevel); v != "" {
+		if lv, err := logpipe.ParseLevel(v); err == nil {
+			cfg.LogPipe.SetLevel(lv)
+		}
+	}
+	level.Applied = env(reload.EnvLogLevel)
+	rl.Register("log-level", []string{reload.EnvLogLevel}, level)
 	for _, m := range extraMounts {
 		m(deps)
 	}
@@ -197,10 +221,18 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		h = w(h, deps)
 	}
 	h = newAllowlisted(h, deps)
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, drain: make(chan struct{})}
+	if err := rl.Check(); err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
+}
+
+func (s *Server) Reload(ctx context.Context, note string) (reload.Result, error) {
+	return reloadConfig(ctx, s.reload, s.Board, s.cfg.Log, note)
 }
 
 func (s *Server) beginDrain() { s.drainOnce.Do(func() { close(s.drain) }) }

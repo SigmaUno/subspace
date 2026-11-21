@@ -229,7 +229,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	rest := &api.API{B: b, Hub: hub, OwnerToken: cfg.OwnerToken, Agents: cache, Log: cfg.Log}
 	rest.Register(mux)
 
-	feed := decisions.New(decisions.StoreSource{Store: st}, decisionActions{b}, decisions.Options{Now: cfg.Now})
+	feed := decisions.New(decisions.StoreSource{Store: st, Overlay: b.OverlayAgent}, decisionActions{b}, decisions.Options{Now: cfg.Now})
 	rest.Mount(mux, "/api/v1/decisions", decisions.Handler(feed, cfg.Log))
 	rest.Mount(mux, "/api/v1/decisions/", decisions.Handler(feed, cfg.Log))
 

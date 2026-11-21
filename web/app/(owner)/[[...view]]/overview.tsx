@@ -6,6 +6,7 @@ import { useRouter } from "next/navigation";
 import { api, label, money, optionalResource, useResource } from "../../../lib/client";
 import type { Agent, Board, Brief, Capacity, Message, Task, Thread } from "../../../lib/types";
 import type { Component } from "../../../lib/swarm";
+import { ActivityFeed } from "./activity-feed";
 import { Architecture } from "./architecture";
 import { AutopilotPanel } from "./autopilot";
 import { Kanban } from "./board";
@@ -197,6 +198,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
             <ForecastPanel briefID={id} revision={revisions.board} />
             <Kanban board={board.data!} agents={agents} revision={revisions.board} openThread={openThread} />
             <Workload agents={agents} tasks={taskList} recent={recent} openThread={openThread} openChat={setChat} />
+            <ActivityFeed briefID={id} revision={revisions.activity} openThread={openThread} />
             <AutopilotPanel revision={revisions.board} spawnRevision={revisions.agents} />
             <div className="project-detail-grid">
               <CapacitySummary revision={revisions.capacity} />

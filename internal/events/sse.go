@@ -29,6 +29,8 @@ func shutdownFrom(ctx context.Context) <-chan struct{} {
 	return done
 }
 
+func ShutdownSignal(ctx context.Context) <-chan struct{} { return shutdownFrom(ctx) }
+
 type seqer interface{ Seq() int64 }
 
 type wireEvent struct {

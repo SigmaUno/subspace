@@ -1424,9 +1424,34 @@ Slow subscribers have a bounded buffer; when it overflows, oldest events are dro
 
 ## 5. MCP: `POST /mcp` (agent token)
 
-Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26` accepted). One JSON-RPC message per POST (batching unsupported). `Accept` should include `application/json`; responses are `application/json` (no SSE streaming). Notifications/responses → `202`. `GET /mcp` → 405. `DELETE /mcp` with `Mcp-Session-Id` ends the session.
+Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26` accepted). One JSON-RPC message per POST (batching unsupported). `Accept` should include `application/json`; POST responses are `application/json`. Notifications/responses → `202`. `GET /mcp` opens the server push stream (see Server push stream below); with `SUBSPACE_MCP_PUSH=off` it answers 405 with `Allow: POST, DELETE`. `DELETE /mcp` with `Mcp-Session-Id` ends the session.
 
-`initialize` returns `Mcp-Session-Id` (bound to the agent). The header is optional afterwards, but if sent and unknown/expired → 404 (client re-initializes). Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`, `resources/read`, `resources/templates/list`. `initialize` advertises the `tools`, `prompts` and `resources` capabilities (no `listChanged`, no `subscribe`).
+`initialize` returns `Mcp-Session-Id` (bound to the agent). The header is optional afterwards, but if sent and unknown/expired → 404 (client re-initializes). Methods: `initialize`, `notifications/initialized`, `ping`, `tools/list`, `tools/call`, `prompts/list`, `prompts/get`, `resources/list`, `resources/read`, `resources/templates/list`, `resources/subscribe`, `resources/unsubscribe`. `initialize` advertises the `tools`, `prompts` and `resources` capabilities; `tools.listChanged` and `resources.subscribe` are true while the push stream is enabled.
+
+### Server push stream
+`GET /mcp` with `Accept: text/event-stream`, the agent bearer and a valid `Mcp-Session-Id` returns a long-lived `text/event-stream` carrying JSON-RPC notifications, so an idle agent can wake without polling. Authentication, the allowlist and session binding are the same as for POST. Errors: 401/403 as for POST, 406 when `Accept` lacks `text/event-stream`, 400 without `Mcp-Session-Id` or with a malformed `Last-Event-ID`, 404 for an unknown, expired or foreign session. The owner token is rejected (403).
+
+Each notification is one SSE event `event: message` with an `id` that increases by one per session, `data:` being the JSON-RPC notification. A fresh stream starts at the present; `Last-Event-ID` resumes after that event, replaying what the session's ring buffer (default 256 notifications, `SUBSPACE_MCP_PUSH_BUFFER`) still holds. Notifications are buffered per session even while no stream is connected, once the session has opened a stream or subscribed. When the requested events are no longer buffered (or the id is unknown) the stream first sends `notifications/subspace/resync` with `{"reason":"overflow","dropped":n}` (`unknown_event_id` for an unknown id) and no event `id`, then the oldest buffered events: the buffer drops its oldest entries and the client must re-read state with the tools. A server-side event hub overflow sends the same notification to every stream. Heartbeats are the comment `: ping` every 15s (`SUBSPACE_MCP_PUSH_PING`).
+
+A session has one stream. A second `GET /mcp` on the same session replaces the first: the old stream receives `event: close` with `{"reason":"replaced","status":409}` and ends, the new one carries on. `event: close` with `{"reason":"session_ended"}` follows `DELETE /mcp`, `{"reason":"shutdown"}` follows a graceful server shutdown (clients reconnect).
+
+| Notification | Params | Sent to |
+|---|---|---|
+| `notifications/subspace/event` | `{"type":"task_assigned","task_id"}` | the assignee when the task becomes `assigned` to it, and the reviewer when it is set |
+| | `{"type":"changes_requested","task_id"}` | the assignee |
+| | `{"type":"message","thread":"task:T-1","task_id","message_id"}` or `{"type":"message","thread":"agent:<id>","message_id"}` | the agent thread owner, or the assignee and reviewer of the task thread, except the author; kind `message` only |
+| | `{"type":"answer","question_id","task_id"?}` | the agent that asked |
+| | `{"type":"paused","scope":"agent"}`, `{"type":"resumed","scope":"agent"}` | the agent when paused or resumed |
+| | `{"type":"paused","scope":"all"}`, `{"type":"resumed","scope":"all"}` | every stream on `pause_all` / `resume_all` |
+| `notifications/resources/updated` | `{"uri"}` | sessions subscribed to that resource |
+| `notifications/tools/list_changed` | none | supported by the server, not sent by any current feature |
+| `notifications/subspace/resync` | `{"reason","dropped"}` | see above |
+
+Events carry ids only, never titles, specs or message bodies; read the details with `get_task`, `read_thread` and `list_my_tasks`.
+
+Subscribable resources are `subspace://task/<task id>`, `subspace://thread/task/<task id>` and `subspace://thread/agent/<agent id>` (`subspace://thread/agent/me` is accepted and notifications carry your agent id URI); `subspace://me`, `subspace://instructions`, brief threads and threads with a `since` query are not subscribable. Use `resources/read` for the content. `resources/subscribe {"uri"}` and `resources/unsubscribe {"uri"}` need the `Mcp-Session-Id` header; up to 100 subscriptions per session. Only the caller's own resources can be subscribed: tasks where it is assignee or reviewer, their threads and its own agent thread. Anything else, including unknown ids, fails with JSON-RPC error `-32002 resource not found`. Ownership is checked again on every delivery, so an agent that loses a task stops receiving its updates.
+
+`internal/client` reads the stream with `MCP.Notifications(ctx)`: a channel of `Notification` that reconnects with backoff and `Last-Event-ID`, re-initializes after a 404 and closes when the server has no stream (`ErrStreamUnsupported`), the token is rejected or the stream was replaced; `NotificationsErr()` tells why. `MCP.StreamAvailable` probes the stream; `subspace-join` prints the result in its `notify:` line.
 
 `tools/list` returns only tools the caller's role may call. `tools/call` re-checks; calling a tool outside the role → JSON-RPC error `-32601 method not found` style `tool not available for role`.
 

@@ -40,6 +40,7 @@ type report struct {
 	who          *client.WhoAmI
 	instructions *client.Instructions
 	tools        []client.ToolInfo
+	stream       bool
 }
 
 func main() {
@@ -152,6 +153,7 @@ func verify(ctx context.Context, o options) (*report, error) {
 	if rep.tools, err = c.ListTools(ctx); err != nil {
 		return rep, fmt.Errorf("tools/list: %w", err)
 	}
+	rep.stream, _ = c.StreamAvailable(ctx)
 	return rep, nil
 }
 
@@ -184,9 +186,9 @@ func renderReport(r *report) string {
 	if isPaused(r.who) {
 		verdict = "not ready: paused"
 	}
-	return fmt.Sprintf("agent:        %s\nrole:         %s\nkind:         %s (%s, %s)\nstatus:       %s%s\nworkspace:    %s\ntools (%d):   %s\ninstructions: %d bytes\n%s\n",
+	return fmt.Sprintf("agent:        %s\nrole:         %s\nkind:         %s (%s, %s)\nstatus:       %s%s\nworkspace:    %s\ntools (%d):   %s\ninstructions: %d bytes\nnotify:       %s\n%s\n",
 		a.ID, a.Role, a.Kind, a.Provider, a.Model, a.Status, pauseSuffix(a), pausedLabel(r.who.Paused),
-		len(names), strings.Join(names, ", "), len(r.instructions.Instructions), verdict)
+		len(names), strings.Join(names, ", "), len(r.instructions.Instructions), streamLabel(r.stream), verdict)
 }
 
 func pauseSuffix(a *model.Agent) string {
@@ -194,6 +196,13 @@ func pauseSuffix(a *model.Agent) string {
 		return ""
 	}
 	return " (" + *a.PauseReason + ")"
+}
+
+func streamLabel(ok bool) string {
+	if ok {
+		return "push stream available"
+	}
+	return "push stream unavailable (poll list_my_tasks)"
 }
 
 func pausedLabel(paused bool) string {

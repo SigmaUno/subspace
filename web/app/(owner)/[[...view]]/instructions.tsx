@@ -1,12 +1,13 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, optionalResource, useResource, useSubmit, value } from "../../../lib/client";
 import type { Brief } from "../../../lib/types";
 import type { InstructionDiff, InstructionKind, InstructionLog, InstructionVersion } from "../../../lib/instructions-types";
 import { Feedback } from "./components";
-import { EmptyState, ResourceState } from "./states";
+import { EmptyState, PageHeading, ResourceState } from "./states";
+import { PageShell } from "./shell";
+import { useAction, useConfirm, useToast } from "./ui";
 
 const kinds: [InstructionKind, string][] = [["rules", "Rules"], ["style", "Style"], ["templates", "Templates"]];
 const diffMarks = { equal: " ", add: "+", delete: "-" };
@@ -29,8 +30,10 @@ function VersionDiff({ scope, kind, version }: { scope: string; kind: Instructio
 function Editor({ scope, kind, text, reload }: { scope: string; kind: InstructionKind; text: string; reload: () => void }) {
   const [draft, setDraft] = useState(text);
   const form = useSubmit();
+  const toast = useToast();
   return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     await api<InstructionVersion>(documentPath(scope, kind), "PUT", { text: draft, message: value(fields, "message") });
+    toast(`Saved ${kind} for ${scope}.`);
     reload();
   })}>
     <div className="form-grid">
@@ -51,8 +54,8 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
   const current = useResource(path, 0, optionalResource<InstructionVersion>);
   const log = useResource<InstructionLog>(`${path}/versions`, 0);
   const [selected, setSelected] = useState(0);
-  const [pending, setPending] = useState(false);
-  const [error, setError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
   const versions = log.data?.versions ?? [];
   const head = current.data?.version ?? 0;
   const focus = selected || head;
@@ -64,20 +67,16 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
   }
 
   async function rollback(to: number) {
-    setPending(true);
-    setError("");
-    try {
-      await api<InstructionVersion>(`${path}/rollback`, "POST", { to, message: "" });
-      reload();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Rollback failed.");
-    } finally {
-      setPending(false);
-    }
+    const accepted = await confirm({
+      title: `Roll back to v${to}?`,
+      message: "A new version with that text is saved. Earlier versions stay in the history.",
+      confirm: "Roll back",
+      danger: false,
+    });
+    if (accepted && await action.run(String(to), () => api<InstructionVersion>(`${path}/rollback`, "POST", { to, message: "" }), `Rolled back to v${to}.`)) reload();
   }
 
   return <section className="stack">
-    <Feedback error={error} />
     <ResourceState error={current.error || log.error} loading={current.data === undefined}
       retry={() => { current.refresh(); log.refresh(); }} rows={6} />
     {current.data !== undefined && <Editor key={head} scope={scope} kind={kind} text={current.data?.text ?? ""} reload={reload} />}
@@ -95,7 +94,7 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
               <td>{item.author}</td>
               <td>{item.message || "—"}</td>
               <td><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></td>
-              <td>{item.version !== head && <button data-write disabled={pending} onClick={() => rollback(item.version)}>Roll back</button>}</td>
+              <td>{item.version !== head && <button data-write disabled={action.busy !== ""} onClick={() => rollback(item.version)}>Roll back</button>}</td>
             </tr>
           ))}</tbody>
         </table>
@@ -106,14 +105,14 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
   </section>;
 }
 
-export function InstructionsView() {
+export function InstructionsView({ embedded }: { embedded?: boolean }) {
   const [scope, setScope] = useState("global");
   const [kind, setKind] = useState<InstructionKind>("rules");
   const briefs = useResource<{ briefs: Brief[] }>("briefs", 0);
   const scopes = [{ id: "global", name: "Global" }, ...(briefs.data?.briefs ?? []).map((brief) => ({ id: `project:${brief.id}`, name: brief.id }))];
 
   return <>
-    <div className="heading"><h1>Instructions</h1></div>
+    <PageHeading title="Instructions" embedded={embedded} />
     <ResourceState error={briefs.error} retry={briefs.refresh} />
     <div className="actions" role="group" aria-label="Scope">
       {scopes.map((item) => <button key={item.id} className="text-button" aria-pressed={item.id === scope}
@@ -128,16 +127,7 @@ export function InstructionsView() {
 }
 
 export function InstructionsPage() {
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/briefs">Briefs</Link>
-        <Link href="/instructions" aria-current="page">Instructions</Link>
-      </nav>
-    </header>
-    <main className="workspace stack">
-      <InstructionsView />
-    </main>
-  </>;
+  return <PageShell section="instructions" className="workspace stack">
+    <InstructionsView />
+  </PageShell>;
 }

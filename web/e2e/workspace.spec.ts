@@ -58,7 +58,11 @@ test("usage page renders cost and provider panels", async ({ page }) => {
   await signIn(page);
   await page.goto("/usage");
   await expect(page.getByRole("heading", { name: "Usage", level: 1 })).toBeVisible();
+  await page.getByRole("navigation", { name: "Workspace" }).getByRole("button", { name: "More" }).click();
   await expect(page.getByRole("link", { name: "Usage" })).toHaveAttribute("aria-current", "page");
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("navigation", { name: "Workspace" }).getByRole("link", { name: "Usage" })).toHaveCount(0);
+  await expect(page).toHaveTitle("Usage · Subspace");
   await expect(page.getByRole("heading", { name: "Provider availability" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Daily cost" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Brief budgets" })).toBeVisible();
@@ -96,8 +100,8 @@ test("files upload, list, download and delete round trip", async ({ page }) => {
   expect(download.suggestedFilename()).toBe(name);
   expect(await readFile(await download.path(), "utf8")).toBe(content);
 
-  page.once("dialog", (dialog) => dialog.accept());
   await row.getByRole("button", { name: "Delete" }).click();
+  await page.getByRole("alertdialog", { name: `Delete ${name}?` }).getByRole("button", { name: "Delete" }).click();
   await expect(row).toHaveCount(0);
   await expect(page.getByText("No files in this scope.")).toBeVisible();
 });

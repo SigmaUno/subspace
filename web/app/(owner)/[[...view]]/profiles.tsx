@@ -5,11 +5,8 @@ import { api, useSubmit, value } from "../../../lib/client";
 import type { AgentProfile } from "../../../lib/profiles-types";
 import { Feedback } from "./components";
 import { EmptyState } from "./states";
-
-export const profileRoles = ["leader", "worker", "tester", "reviewer"];
-export const profileKinds = [
-  ["claude-code", "Claude Code"], ["codex", "Codex"], ["opencode", "OpenCode"], ["other", "Other"],
-];
+import { useAction, useConfirm, useToast } from "./ui";
+import { agentKinds, agentRoles } from "../../../lib/types";
 
 function profilePath(name: string) {
   return `agent-profiles/${encodeURIComponent(name)}`;
@@ -17,6 +14,7 @@ function profilePath(name: string) {
 
 function ProfileForm({ profile, done, cancel }: { profile?: AgentProfile; done: () => void; cancel: () => void }) {
   const form = useSubmit();
+  const toast = useToast();
   return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     const body = {
       name: profile?.name ?? value(fields, "name"), role: value(fields, "role"), kind: value(fields, "kind"),
@@ -26,6 +24,7 @@ function ProfileForm({ profile, done, cancel }: { profile?: AgentProfile; done: 
     };
     if (profile) await api<AgentProfile>(profilePath(profile.name), "PUT", body);
     else await api<AgentProfile>("agent-profiles", "POST", body);
+    toast(`Saved profile ${body.name}.`);
     done();
   })}>
     <h3>{profile ? `Edit ${profile.name}` : "New profile"}</h3>
@@ -33,10 +32,10 @@ function ProfileForm({ profile, done, cancel }: { profile?: AgentProfile; done: 
       <label>Name<input name="name" pattern={"[a-z0-9][a-z0-9_\\-]*"} maxLength={63} required
         defaultValue={profile?.name} readOnly={!!profile} /></label>
       <label>Role<select name="role" defaultValue={profile?.role ?? "worker"}>
-        {profileRoles.map((role) => <option key={role} value={role}>{role}</option>)}
+        {agentRoles.map((role) => <option key={role} value={role}>{role}</option>)}
       </select></label>
       <label>Kind<select name="kind" defaultValue={profile?.kind ?? "claude-code"}>
-        {profileKinds.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
+        {agentKinds.map(([id, name]) => <option key={id} value={id}>{name}</option>)}
       </select></label>
       <label>Model<input name="model" placeholder="claude-sonnet-5-5" defaultValue={profile?.model} /></label>
       <label>Provider<input name="provider" placeholder="Derived from kind" defaultValue={profile?.provider} /></label>
@@ -59,18 +58,17 @@ export function ProfilesPanel({ profiles, refresh, use }: {
   use: (profile: AgentProfile) => void;
 }) {
   const [editing, setEditing] = useState<string | null>(null);
-  const [error, setError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
   const current = profiles.find((profile) => profile.name === editing);
 
   async function remove(profile: AgentProfile) {
-    if (!window.confirm(`Delete profile ${profile.name}?`)) return;
-    setError("");
-    try {
-      await api<void>(profilePath(profile.name), "DELETE");
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Request failed.");
-    }
+    const accepted = await confirm({
+      title: `Delete profile ${profile.name}?`,
+      message: "Bots already created from it keep working.",
+      confirm: "Delete",
+    });
+    if (accepted && await action.run(profile.name, () => api<void>(profilePath(profile.name), "DELETE"), `Deleted profile ${profile.name}.`)) refresh();
   }
 
   function finish() {
@@ -83,7 +81,6 @@ export function ProfilesPanel({ profiles, refresh, use }: {
       <button data-write onClick={() => setEditing(editing === "" ? null : "")}>{editing === "" ? "Close form" : "New profile"}</button></div>
     {editing === "" && <ProfileForm done={finish} cancel={() => setEditing(null)} />}
     {current && <ProfileForm key={current.name} profile={current} done={finish} cancel={() => setEditing(null)} />}
-    <Feedback error={error} />
     {!profiles.length && <EmptyState>No profiles.</EmptyState>}
     {!!profiles.length && <div className="table-wrap">
       <table>
@@ -99,7 +96,7 @@ export function ProfilesPanel({ profiles, refresh, use }: {
             <td><div className="actions" data-write>
               <button onClick={() => use(profile)}>Use for bulk add</button>
               <button onClick={() => setEditing(profile.name)}>Edit</button>
-              <button className="danger" onClick={() => remove(profile)}>Delete</button>
+              <button className="danger" disabled={action.busy === profile.name} onClick={() => remove(profile)}>Delete</button>
             </div></td>
           </tr>
         ))}</tbody>

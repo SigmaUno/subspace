@@ -3,11 +3,11 @@
 import Link from "next/link";
 import { label, optionalResource, useResource } from "../../../lib/client";
 import type { Insights } from "../../../lib/insights-types";
-import { Feedback } from "./components";
+import { utc as since } from "./format";
+import { EmptyState, ResourceState } from "./states";
 
 const severityClass = { warning: "paused", high: "revoked" } as const;
 
-const since = (iso: string) => `${new Date(iso).toLocaleString([], { dateStyle: "short", timeStyle: "short", timeZone: "UTC" })} UTC`;
 
 export function InsightsPanel({ id, revision }: { id: string; revision: number }) {
   const feed = useResource<Insights>(`agents/${encodeURIComponent(id)}/insights`, revision);
@@ -15,8 +15,8 @@ export function InsightsPanel({ id, revision }: { id: string; revision: number }
   return <section className="panel stack">
     <div className="heading"><h2>Insights</h2>
       {insights && <span className="meta">{insights.high} high · {insights.warning} warning</span>}</div>
-    <Feedback error={feed.error} loading={!insights && !feed.error} />
-    {insights && !insights.findings.length && <p className="empty">No behavior findings in the last 24 hours.</p>}
+    <ResourceState error={feed.error} loading={!insights && !feed.error} retry={feed.refresh} />
+    {insights && !insights.findings.length && <EmptyState>No behavior findings in the last 24 hours.</EmptyState>}
     {insights?.findings.map((finding) => <article key={finding.id} className="stack">
       <div className="actions">
         <span className={`pill ${severityClass[finding.severity]}`}>{finding.severity}</span>

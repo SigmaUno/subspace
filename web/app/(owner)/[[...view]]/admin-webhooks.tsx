@@ -4,32 +4,28 @@ import { useState } from "react";
 import { api, commaList, safeURL, useResource, useSubmit, value } from "../../../lib/client";
 import type { CreatedWebhook, DeliveryList, WebhookDelivery, WebhookList, WebhookOut } from "../../../lib/settings-types";
 import type { Brief } from "../../../lib/types";
-import { formatTime } from "./admin-shared";
-import { CopyBlock } from "./bots";
+import { formatTime } from "./format";
+import { CopyBlock } from "./copy";
 import { Feedback } from "./components";
 import { EmptyState, ResourceState } from "./states";
+import { useAction, useConfirm, useToast } from "./ui";
 
 const deliveryClass = { pending: "paused", delivered: "active", dead: "revoked" } as const;
 
 function Deliveries({ webhook, onChange }: { webhook: WebhookOut; onChange: () => void }) {
   const [state, setState] = useState("");
-  const [error, setError] = useState("");
-  const [busy, setBusy] = useState("");
+  const action = useAction();
   const path = `webhooks-out/${encodeURIComponent(webhook.id)}/deliveries?limit=50${state ? `&state=${state}` : ""}`;
   const list = useResource<DeliveryList>(path, 0);
   const deliveries = list.data?.deliveries ?? [];
 
   async function redeliver(delivery: WebhookDelivery) {
-    setBusy(delivery.id);
-    setError("");
-    try {
-      await api<WebhookDelivery>(`webhooks-out/${encodeURIComponent(webhook.id)}/deliveries/${encodeURIComponent(delivery.id)}/redeliver`, "POST", {});
+    const queued = await action.run(delivery.id, () => api<WebhookDelivery>(
+      `webhooks-out/${encodeURIComponent(webhook.id)}/deliveries/${encodeURIComponent(delivery.id)}/redeliver`, "POST", {}),
+    `Queued ${delivery.id} for redelivery.`);
+    if (queued) {
       list.refresh();
       onChange();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Redeliver failed.");
-    } finally {
-      setBusy("");
     }
   }
 
@@ -42,7 +38,6 @@ function Deliveries({ webhook, onChange }: { webhook: WebhookOut; onChange: () =
         <option value="dead">Dead</option>
       </select></label></div>
     <ResourceState error={list.error} loading={list.data === undefined} retry={list.refresh} rows={2} />
-    <Feedback error={error} />
     {list.data && !deliveries.length && <EmptyState>No deliveries.</EmptyState>}
     {!!deliveries.length && <div className="table-wrap">
       <table>
@@ -54,7 +49,7 @@ function Deliveries({ webhook, onChange }: { webhook: WebhookOut; onChange: () =
           <td>{delivery.attempts}</td>
           <td>{delivery.last_status ? `HTTP ${delivery.last_status}` : "—"}{delivery.last_error && <span className="meta"> · {delivery.last_error}</span>}</td>
           <td>{delivery.state === "pending" ? formatTime(delivery.next_attempt_at) : "—"}</td>
-          <td>{delivery.state === "dead" && <button type="button" data-write disabled={busy === delivery.id}
+          <td>{delivery.state === "dead" && <button type="button" data-write disabled={action.busy === delivery.id}
             onClick={() => redeliver(delivery)} aria-label={`Redeliver ${delivery.id}`}>Redeliver</button>}</td>
         </tr>)}</tbody>
       </table>
@@ -67,20 +62,23 @@ export function WebhooksPanel({ list, refresh }: { list: WebhookList; refresh: (
   const briefs = useResource<{ briefs: Brief[] | null }>("briefs?status=open&limit=1000", 0);
   const [created, setCreated] = useState<CreatedWebhook>();
   const [selected, setSelected] = useState("");
-  const [removeError, setRemoveError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
+  const toast = useToast();
   const form = useSubmit();
   const active = webhooks.find((webhook) => webhook.id === selected);
 
   async function remove(webhook: WebhookOut) {
-    if (!window.confirm(`Delete webhook ${webhook.id} and its deliveries?`)) return;
-    setRemoveError("");
-    try {
-      await api<void>(`webhooks-out/${encodeURIComponent(webhook.id)}`, "DELETE");
-      if (selected === webhook.id) setSelected("");
-      refresh();
-    } catch (cause) {
-      setRemoveError(cause instanceof Error ? cause.message : "Delete failed.");
-    }
+    const accepted = await confirm({
+      title: `Delete webhook ${webhook.id}?`,
+      message: "The webhook and its deliveries are removed.",
+      confirm: "Delete",
+    });
+    if (!accepted) return;
+    const removed = await action.run(webhook.id, () => api<void>(`webhooks-out/${encodeURIComponent(webhook.id)}`, "DELETE"), `Deleted webhook ${webhook.id}.`);
+    if (!removed) return;
+    if (selected === webhook.id) setSelected("");
+    refresh();
   }
 
   return <>
@@ -90,6 +88,7 @@ export function WebhooksPanel({ list, refresh }: { list: WebhookList; refresh: (
         const events = commaList(value(fields, "events"));
         const result = await api<CreatedWebhook>("webhooks-out", "POST", { url: value(fields, "url"), events, brief_id: value(fields, "brief_id") });
         setCreated(result);
+        toast(`Created webhook ${result.webhook.id}.`);
         setSelected(result.webhook.id);
         element.reset();
         refresh();
@@ -110,7 +109,6 @@ export function WebhooksPanel({ list, refresh }: { list: WebhookList; refresh: (
         <CopyBlock label="Signing secret" text={created.secret} />
         <div className="actions"><button type="button" onClick={() => setCreated(undefined)}>Dismiss secret</button></div>
       </div>}
-      <Feedback error={removeError} />
       {!webhooks.length && <EmptyState>No outbound webhooks.</EmptyState>}
       {!!webhooks.length && <div className="table-wrap">
         <table>
@@ -127,7 +125,7 @@ export function WebhooksPanel({ list, refresh }: { list: WebhookList; refresh: (
               <td><div className="actions">
                 <button type="button" aria-pressed={webhook.id === selected} onClick={() => setSelected(webhook.id === selected ? "" : webhook.id)}
                   aria-label={`Deliveries of ${webhook.id}`}>Deliveries</button>
-                <button type="button" className="danger" data-write onClick={() => remove(webhook)} aria-label={`Delete ${webhook.id}`}>Delete</button>
+                <button type="button" className="danger" data-write disabled={action.busy === webhook.id} onClick={() => remove(webhook)} aria-label={`Delete ${webhook.id}`}>Delete</button>
               </div></td>
             </tr>;
           })}</tbody>

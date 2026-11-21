@@ -3,7 +3,8 @@
 import { useContext, useMemo, useState } from "react";
 import type { Component } from "../../../lib/swarm";
 import { statuses, type Task, type Thread } from "../../../lib/types";
-import { Clock, Feedback, staleAt } from "./components";
+import { Clock, staleAt } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 const width = 216;
 const strideX = 280;
@@ -55,8 +56,8 @@ export function Architecture({ components, tasks, loading, error, openThread, op
 
   return <section className="panel stack">
     <div className="heading"><h2>Architecture</h2><span className="meta">{components.length} components</span></div>
-    <Feedback error={error} loading={loading} />
-    {!loading && !components.length && <p className="empty">No architecture published for this brief.</p>}
+    <ResourceState error={error} loading={loading} />
+    {!loading && !components.length && <EmptyState>No architecture published for this brief.</EmptyState>}
     {!!components.length && <div className="graph-scroll" role="region" tabIndex={0} aria-label="Component dependency graph">
       <div className="graph" style={{ width: graph.width, height: graph.height }}>
         <svg width={graph.width} height={graph.height} aria-hidden="true">

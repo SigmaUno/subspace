@@ -701,6 +701,38 @@ A 2xx answer marks a delivery `delivered`. Anything else (other status, timeout,
 
 Requests never follow redirects (a 3xx counts as a failure) and ignore proxy settings. The destination is resolved at connect time and refused when any resolved address is loopback, private, link-local, multicast, unspecified, carrier-grade NAT, documentation or reserved space, an IPv4 address embedded in NAT64 or 6to4 space that falls in one of those, or a cloud metadata address; the connection is then pinned to the checked address. `SUBSPACE_WEBHOOKS_OUT_ALLOW_CIDRS` (comma-separated CIDRs or addresses, default none) exempts networks for receivers inside a private network; metadata addresses stay blocked. Subscription secrets are stored in the database because they are needed to sign. Create, delete and redeliver append audit events (`create_webhook_out`, `delete_webhook_out`, `redeliver_webhook_out`) that carry the receiver's host, never its secret.
 
+### Web Push
+Notifications on the owner's phone or desktop browser through the browser's own push service (RFC 8030), with payload encryption (RFC 8291, `aes128gcm`) and VAPID (RFC 8292). No other relay is involved.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/push/vapid-key` | → `{"public_key":"BA1Hx..."}`, the VAPID public key (uncompressed P-256 point, base64url) to pass as `applicationServerKey` to `pushManager.subscribe`. |
+| GET | `/api/v1/push/subscriptions` | → `{"subscriptions":[PushSubscription]}` ascending by id. |
+| POST | `/api/v1/push/subscriptions` | `{"endpoint","expirationTime":null,"keys":{"p256dh","auth"},"name":""}` (the browser's `PushSubscription.toJSON()` plus an optional device `name`) → PushSubscription, 201 when new, 200 when the endpoint was already subscribed (its keys, name and expiry are replaced). 400 for an endpoint that fails the rules below, keys that are not a P-256 point and a 16-byte secret, an `expirationTime` (Unix milliseconds) in the past, a `name` above 100 characters or unknown fields; 409 above 20 subscriptions. |
+| DELETE | `/api/v1/push/subscriptions` | `{"id":"PS-1"}` or `{"endpoint":"https://..."}` → 204. 400 without exactly one of them, 404 when nothing matches. |
+
+```jsonc
+// PushSubscription
+{"id":"PS-1","name":"Pixel","host":"fcm.googleapis.com","created_at":"...",
+ "expires_at":null,"last_success_at":null,"failures":0}   // failures: consecutive failed deliveries
+```
+
+The endpoint URL and the keys are capabilities and are never returned. An endpoint must be `https` without credentials or fragment, at most 2048 bytes, on port 443, and its host must be a known push service: `fcm.googleapis.com`, `android.googleapis.com`, `*.push.services.mozilla.com`, `*.push.apple.com` or `*.notify.windows.com`. `SUBSPACE_WEBPUSH_ALLOW_HOSTS` (comma-separated `host`, `*.domain` or `host:port`) adds hosts for self-hosted push services. Literal IP hosts in blocked ranges are refused, and every delivery resolves the host and refuses loopback, private, link-local, CGNAT, multicast, documentation, reserved, NAT64/6to4-embedded and metadata addresses exactly like outbound webhooks; the connection is pinned to the vetted address, proxies are ignored and redirects are not followed. `SUBSPACE_WEBPUSH_ALLOW_CIDRS` exempts networks (metadata addresses stay blocked). Subscribing and removing append `create_push_subscription` and `delete_push_subscription` audit events with the subscription id and host.
+
+The VAPID key pair is generated on the first start and stored in the key-value table; only the public key leaves the server. Tokens are ES256 JWTs with `aud` set to the endpoint's origin, `exp` 12 hours ahead (reused until an hour before expiry) and `sub` from `SUBSPACE_WEBPUSH_SUBJECT` (default `SUBSPACE_PUBLIC_URL` when it is `https`, else `mailto:webpush@subspace.invalid`), sent as `Authorization: vapid t=<jwt>, k=<public key>`.
+
+The `webpush` notification sink receives the same notifications as the other sinks (see Notifications) and sends each to every subscription as one encrypted record (record size 4096, padded to a multiple of 256 bytes, at most 3993 bytes of plaintext) with `TTL` (`SUBSPACE_WEBPUSH_TTL`, default `12h`), `Urgency` (`high` for priority 4 and 5, `normal` for 3, else `low`) and `Topic` (a hash of the notification id, so a newer message for the same item replaces an undelivered one). The plaintext is JSON for the service worker:
+
+```jsonc
+{"title":"Question Q-7 needs an answer","body":"Agent w1 asked Q-7 (brief B-1)","tag":"Q-7",
+ "url":"/questions",                                        // page opened by a click on the notification
+ "ts":"...","actions":[{"action":"a0","title":"Option 1","url":"https://s.example.com/a/..."}]}   // signed action links, when available
+```
+
+Titles are cut to 80 characters and bodies to 240; actions are dropped first when the message would not fit. A `2xx` answer records `last_success_at`. `404` and `410` remove the subscription, as does a passed `expires_at` or 10 consecutive failed deliveries; removals append an `expire_push_subscription` audit event (actor `system`, note `gone`, `expired` or `failing`). `429` and `503` pause the subscription for `Retry-After` (at most 1h); network errors, `408`, `429` and `5xx` are retried by the notification service without sending twice to subscriptions that already received the message. Each subscription is limited to `SUBSPACE_RATE_WEBPUSH` messages (default `30/m:10`, `off` disables); messages above it are dropped.
+
+The web app registers the service worker `/sw.js`. It shows a notification for each push, opens the action link of a clicked action button or the message `url` otherwise, and has no `fetch` handler, so it never caches API responses. Settings → Notifications subscribes and unsubscribes the current browser.
+
 ### Audit
 | Method | Path | Body → Response |
 |---|---|---|

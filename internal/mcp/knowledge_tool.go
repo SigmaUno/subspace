@@ -11,7 +11,10 @@ import (
 
 var knowledgeServices sync.Map
 
-func BindKnowledge(b *board.Board, s *knowledge.Service) { knowledgeServices.Store(b, s) }
+func BindKnowledge(b *board.Board, s *knowledge.Service) (unbind func()) {
+	knowledgeServices.Store(b, s)
+	return func() { knowledgeServices.CompareAndDelete(b, s) }
+}
 
 func RegisterKnowledge(r *Registry, b *board.Board) {
 	service := func() *knowledge.Service {

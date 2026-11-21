@@ -15,6 +15,6 @@ func init() {
 		h := svc.Handler(d.Log)
 		d.API.Mount(d.Mux, "/api/v1/knowledge", h)
 		d.API.Mount(d.Mux, "/api/v1/knowledge/", h)
-		mcp.BindKnowledge(d.Board, svc)
+		unbindOnDone(d, mcp.BindKnowledge(d.Board, svc))
 	})
 }

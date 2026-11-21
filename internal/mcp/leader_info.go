@@ -28,7 +28,10 @@ type InfoSource interface {
 
 var infoSources sync.Map
 
-func BindLeaderInfo(b *board.Board, s InfoSource) { infoSources.Store(b, s) }
+func BindLeaderInfo(b *board.Board, s InfoSource) (unbind func()) {
+	infoSources.Store(b, s)
+	return func() { infoSources.Delete(b) }
+}
 
 func truncate[T any](xs []T) ([]T, bool) {
 	if xs == nil {

@@ -19,14 +19,14 @@ func init() {
 		if now == nil {
 			now = time.Now
 		}
-		mcp.BindLeaderInfo(d.Board, leaderInfo{
+		unbindOnDone(d, mcp.BindLeaderInfo(d.Board, leaderInfo{
 			d:        d,
 			forecast: forecast.NewService(forecast.StoreSource{Store: d.Store, Estimator: estimator(d)}, forecast.Options{}, now),
 			report:   report.NewService(report.StoreSource{Store: d.Store}, now),
 			search:   search.New(d.Store, d.Log),
 			feed:     d.Feed,
 			stats:    agentstats.NewService(agentstats.StoreSource{Store: d.Store}, now),
-		})
+		}))
 	})
 }
 

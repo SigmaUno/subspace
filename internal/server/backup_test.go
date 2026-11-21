@@ -18,6 +18,7 @@ func newBackupEnv(t *testing.T, keep int) (*env, string) {
 		DBPath: filepath.Join(dir, "t.db"), BackupDir: filepath.Join(dir, "bk"), BackupKeep: keep,
 		OwnerToken: ownerTok, PublicURL: "http://sub.test",
 		FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute,
+		Now: func() time.Time { return time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC) },
 	})
 	if err != nil {
 		t.Fatal(err)

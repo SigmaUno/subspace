@@ -25,7 +25,7 @@ func (l *listFlag) Set(v string) error {
 }
 
 var (
-	validDecision  = regexp.MustCompile(`^(q|plan|merge|unblock|stale):[a-zA-Z0-9_-]+$`)
+	validDecision  = regexp.MustCompile(`^(q|plan|merge|unblock|stale|policy):[a-zA-Z0-9_-]+$`)
 	validRecipient = regexp.MustCompile(`^(leader|(agent|brief|component):[a-zA-Z0-9_-]+)$`)
 )
 

@@ -10,22 +10,22 @@ import (
 
 type DryRunInput struct {
 	Action  string         `json:"action"`
-	ActorID string         `json:"actor_id"`
-	TaskID  string         `json:"task_id"`
-	AgentID string         `json:"agent_id"`
-	BriefID string         `json:"brief_id"`
-	PlanID  string         `json:"plan_id"`
-	As      string         `json:"as"`
-	Spawn   *Spawn         `json:"spawn"`
-	At      *time.Time     `json:"at"`
-	Facts   map[string]any `json:"facts"`
-	Policy  *Document      `json:"policy"`
+	ActorID string         `json:"actor_id,omitempty"`
+	TaskID  string         `json:"task_id,omitempty"`
+	AgentID string         `json:"agent_id,omitempty"`
+	BriefID string         `json:"brief_id,omitempty"`
+	PlanID  string         `json:"plan_id,omitempty"`
+	As      string         `json:"as,omitempty"`
+	Spawn   *Spawn         `json:"spawn,omitempty"`
+	At      *time.Time     `json:"at,omitempty"`
+	Facts   map[string]any `json:"facts,omitempty"`
+	Policy  *Document      `json:"policy,omitempty"`
 }
 
 type DryRunResult struct {
 	Result
 	Action   string    `json:"action"`
-	At       time.Time `json:"at"`
+	At       time.Time `json:"at,omitempty"`
 	Findings []Finding `json:"findings"`
 }
 

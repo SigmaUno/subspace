@@ -138,6 +138,17 @@ Commands:
   schedules edit SCHEDULE_ID --file FILE
   schedules runs SCHEDULE_ID [--limit N]
   schedules preview --cron EXPR [--timezone TZ] [--count N]
+  policies list|facts
+  policies show|versions|delete POLICY_ID
+  policies create --file FILE
+  policies update POLICY_ID --file FILE
+  policies lint --file FILE
+  policies evaluate --action ACTION [--actor ID] [--task ID] [--agent ID] [--brief ID] [--plan ID]
+                    [--at TIME] [--fact name=JSON ...] [--policy FILE]
+  policies decisions [--outcome O] [--action A] [--task-id ID] [--limit N]
+  policies holds [--status S] [--limit N]
+  policies hold HOLD_ID
+  policies approve|reject HOLD_ID [--note TEXT]
   incident list [--limit N]
   incident start --reason TEXT --actions pause_all,revoke_agents,rotate_leader_tokens,snapshot,notify
                  [--revoke-role ROLE] [--revoke-provider NAME]
@@ -327,6 +338,7 @@ func registry() map[string]entry {
 		"join-snippet":   {parse: byID("join-snippet", "agents/%s/connect")},
 		"completion":     {parse: parseCompletion, subs: []string{"bash", "zsh", "fish"}, local: true},
 		"schedules":      {parse: grouped("schedules", scheduleCommands), subs: names(scheduleCommands)},
+		"policies":       {parse: grouped("policies", policyCommands), subs: names(policyCommands)},
 		"incident":       {parse: grouped("incident", incidentCommands), subs: names(incidentCommands)},
 		"drills":         {parse: grouped("drills", drillCommands), subs: names(drillCommands)},
 		"costs":          {parse: parseCosts},

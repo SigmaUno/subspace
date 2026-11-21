@@ -750,6 +750,14 @@ export interface DigestTasks {
   done: number;
 }
 
+export interface Document {
+  description: string;
+  enabled: boolean;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+}
+
 export interface DrillResult {
   backup: string;
   backup_bytes: number;
@@ -760,6 +768,32 @@ export interface DrillResult {
   started_at: string;
   status: string;
   trigger: string;
+}
+
+export interface DryRunInput {
+  action: string;
+  actor_id?: string;
+  agent_id?: string;
+  as?: string;
+  at?: string | null;
+  brief_id?: string;
+  facts?: Record<string, unknown> | null;
+  plan_id?: string;
+  policy?: Document | null;
+  spawn?: PolicySpawn | null;
+  task_id?: string;
+}
+
+export interface DryRunResult {
+  action: string;
+  at?: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  findings: Finding[] | null;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  steps: number;
 }
 
 export interface EndOutcome {
@@ -839,9 +873,23 @@ export interface Expiry {
   expires_in: string;
 }
 
+export interface FactInfo {
+  actions: string[] | null;
+  description: string;
+  name: string;
+  type: string;
+}
+
 export interface Failure {
   agent_id: string;
   error: string;
+}
+
+export interface Finding {
+  code: string;
+  message: string;
+  rule?: string;
+  severity: string;
 }
 
 export interface Forecast {
@@ -983,6 +1031,26 @@ export interface HillclimbPoint {
   measured_at: string;
   n: number;
   value: number | null;
+}
+
+export interface Hold {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  args: Record<string, string> | null;
+  brief_id: string;
+  created_at: string;
+  decided_at: string | null;
+  expires_at: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  note: string;
+  plan_id: string;
+  result: string;
+  status: string;
+  target: string;
+  task_id: string;
 }
 
 export interface Ignored {
@@ -1154,6 +1222,16 @@ export interface LogLine {
   ts: string;
 }
 
+export interface Match {
+  applied: boolean;
+  effect: string;
+  message: string;
+  policy: string;
+  policy_id: string;
+  rule: string;
+  version: number;
+}
+
 export interface Me {
   role: string;
   scope: string;
@@ -1302,6 +1380,59 @@ export interface PlaybookInput {
   instructions: string;
   name: string;
   required_tasks?: RequiredTask[] | null;
+}
+
+export interface Policy {
+  created_at: string;
+  description: string;
+  enabled: boolean;
+  id: string;
+  name: string;
+  rules: Rule[] | null;
+  timezone: string;
+  updated_at: string;
+  version: number;
+  warnings: Finding[] | null;
+}
+
+export interface PolicyDecision {
+  action: string;
+  actor_id: string;
+  actor_role: string;
+  brief_id: string;
+  errors: string[] | null;
+  facts: Record<string, unknown> | null;
+  hold_id: string;
+  id: string;
+  matched: Match[] | null;
+  message: string;
+  outcome: string;
+  target: string;
+  task_id: string;
+  ts: string;
+}
+
+export interface PolicyFacts {
+  actions: string[] | null;
+  effects: string[] | null;
+  facts: FactInfo[] | null;
+}
+
+export interface PolicyHoldDecision {
+  note?: string;
+}
+
+export interface PolicyLint {
+  findings: Finding[] | null;
+  ok: boolean;
+}
+
+export interface PolicySpawn {
+  model: string;
+  n: number;
+  provider: string;
+  role: string;
+  worker_kind: string;
 }
 
 export interface Preview {
@@ -1736,6 +1867,12 @@ export interface RetentionVerification {
   segments: number;
 }
 
+export interface Rule {
+  id: string;
+  then: Then;
+  when: When;
+}
+
 export interface Run {
   brief_id: string;
   detail: string;
@@ -2010,6 +2147,15 @@ export interface TestResult {
   reported_at: string;
 }
 
+export interface Then {
+  effect: string;
+  max?: number;
+  message?: string;
+  per?: string;
+  provider?: string;
+  timeout?: string;
+}
+
 export interface ThreadPost {
   body: string;
 }
@@ -2060,6 +2206,12 @@ export interface TrainMember {
   task_id: string;
 }
 
+export interface Version {
+  created_at: string;
+  document: Document;
+  version: number;
+}
+
 export interface WebhookCreated {
   secret: string;
   webhook: WebhookSubscription | null;
@@ -2095,4 +2247,9 @@ export interface WebhookSubscription {
   id: string;
   pending: number;
   url: string;
+}
+
+export interface When {
+  actions: string[] | null;
+  match: string;
 }

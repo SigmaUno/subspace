@@ -15,10 +15,11 @@ import (
 )
 
 type BoardSystem struct {
-	st    *sqlite.Store
-	b     *board.Board
-	clock *Clock
-	roles map[string]string
+	st     *sqlite.Store
+	b      *board.Board
+	clock  *Clock
+	roles  map[string]string
+	tokens map[string]string
 }
 
 func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, error) {
@@ -35,7 +36,7 @@ func NewBoardSystem(dir string, clock *Clock, lease time.Duration) (System, erro
 		_ = st.Close()
 		return nil, err
 	}
-	return &BoardSystem{st: st, b: b, clock: clock, roles: map[string]string{}}, nil
+	return &BoardSystem{st: st, b: b, clock: clock, roles: map[string]string{}, tokens: map[string]string{}}, nil
 }
 
 func (s *BoardSystem) actor(id string) model.Actor {
@@ -51,10 +52,12 @@ func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	}
 	agents := append([]AgentSpec{{ID: w.Leader, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"}}, w.Agents...)
 	for _, a := range agents {
-		if _, err := s.b.RegisterAgent(ctx, board.AgentInput{ID: a.ID, Role: a.Role, Kind: a.Kind, Provider: a.Provider, Model: "sim"}); err != nil {
+		r, err := s.b.RegisterAgent(ctx, board.AgentInput{ID: a.ID, Role: a.Role, Kind: a.Kind, Provider: a.Provider, Model: "sim"})
+		if err != nil {
 			return out, err
 		}
 		s.roles[a.ID] = a.Role
+		s.tokens[a.ID] = r.Connect.Token
 	}
 	in := board.PlanInput{BriefID: br.ID}
 	for _, t := range w.Tasks {

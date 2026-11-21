@@ -2,6 +2,7 @@
 
 import { api, optionalResource, useResource, useSubmit, value } from "../../../lib/client";
 import { Feedback } from "./components";
+import { EmptyState } from "./states";
 
 export type GateResult = { gate: string; enabled: boolean; passed: boolean; overridden: boolean; evidence: string };
 
@@ -38,7 +39,7 @@ const enabledGates = (report: GateReport) => (report.gates ?? []).filter((gate) 
 
 export function GateChecklist({ report }: { report: GateReport }) {
   const gates = enabledGates(report);
-  if (!gates.length) return <p className="empty">No quality gates on this brief.</p>;
+  if (!gates.length) return <EmptyState>No quality gates on this brief.</EmptyState>;
   return <ul className="stack" aria-label="Quality gates">
     {gates.map((gate) => {
       const state = gate.passed ? "Pass" : gate.overridden ? "Overridden" : "Fail";

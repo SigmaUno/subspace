@@ -6,6 +6,7 @@ import { api, label, useResource, useSubmit, value } from "../../../lib/client";
 import type { HillclimbJob, HillclimbPoint, HillclimbSeries } from "../../../lib/hillclimb-types";
 import { Feedback } from "./components";
 import { EmptyState, ResourceState } from "./states";
+import { PageShell } from "./shell";
 
 function CreateJobForm({ created }: { created: (job: HillclimbJob) => void }) {
   const form = useSubmit();
@@ -121,13 +122,7 @@ function HillclimbView() {
 }
 
 export function HillclimbPage() {
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace"><Link href="/briefs">Briefs</Link></nav>
-    </header>
-    <main className="workspace">
-      <HillclimbView />
-    </main>
-  </>;
+  return <PageShell section="hillclimb">
+    <HillclimbView />
+  </PageShell>;
 }

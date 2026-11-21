@@ -3,6 +3,7 @@
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useId, useRef, useState, type KeyboardEvent } from "react";
 import { api } from "../../../lib/client";
+import { moreNav, primaryNav } from "./nav";
 import type { SearchKind, SearchResponse, SearchResult } from "../../../lib/search-types";
 
 type Item = { key: string; group: string; label: string; detail?: string; href: string };
@@ -16,9 +17,10 @@ const kinds: Record<SearchKind, { group: string; path: string } | null> = {
 
 const commands = [
   { id: "board", name: "Go to board", href: "/briefs" },
-  { id: "agents", name: "Go to agents", href: "/agents" },
   { id: "decisions", name: "Go to decisions", href: "/" },
-  { id: "usage", name: "Go to usage", href: "/usage" },
+  ...[...primaryNav, ...moreNav.flatMap((group) => group.items)]
+    .filter((item) => item.href !== "/" && item.id !== "briefs")
+    .map((item) => ({ id: item.id, name: `Go to ${item.name.toLowerCase()}`, href: item.href })),
 ];
 
 function resultItems(results: SearchResult[]): Item[] {

@@ -1,37 +1,30 @@
 "use client";
 
-import { useState } from "react";
 import { api } from "../../../lib/client";
 import type { Breaker, BreakerList } from "../../../lib/settings-types";
-import { formatTime } from "./admin-shared";
-import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState } from "./states";
+import { useAction, useConfirm } from "./ui";
 
 const stateClass = { closed: "active", open: "revoked", half_open: "paused" } as const;
 
 export function BreakersPanel({ list, refresh }: { list: BreakerList; refresh: () => void }) {
   const breakers: Breaker[] = list.breakers ?? [];
-  const [resetting, setResetting] = useState("");
-  const [error, setError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
 
   async function reset(provider: string) {
-    if (!window.confirm(`Close every breaker of ${provider} and clear its samples?`)) return;
-    setResetting(provider);
-    setError("");
-    try {
-      await api<BreakerList>(`breakers/${encodeURIComponent(provider)}/reset`, "POST", {});
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Reset failed.");
-    } finally {
-      setResetting("");
-    }
+    const accepted = await confirm({
+      title: `Reset breakers of ${provider}?`,
+      message: "Every breaker of the provider is closed and its samples are cleared.",
+      confirm: "Reset",
+    });
+    if (accepted && await action.run(provider, () => api<BreakerList>(`breakers/${encodeURIComponent(provider)}/reset`, "POST", {}), `Reset breakers of ${provider}.`)) refresh();
   }
 
   return <section className="panel stack">
     <div className="heading"><h2>Provider breakers</h2></div>
     <p className="meta">An open breaker stops new spawns and autopilot assignments for that provider and model. Running agents continue.</p>
-    <Feedback error={error} />
     {!breakers.length && <EmptyState>No provider has reported usage yet.</EmptyState>}
     {!!breakers.length && <div className="table-wrap">
       <table>
@@ -43,7 +36,7 @@ export function BreakersPanel({ list, refresh }: { list: BreakerList; refresh: (
           <td>{Math.round(breaker.error_rate * 100)}% <span className="meta">of {Math.round(breaker.threshold * 100)}% limit</span></td>
           <td>{breaker.errors} / {breaker.samples}</td>
           <td>{formatTime(breaker.opened_at)}</td>
-          <td><button type="button" data-write disabled={resetting === breaker.provider} onClick={() => reset(breaker.provider)}
+          <td><button type="button" data-write disabled={action.busy === breaker.provider} onClick={() => reset(breaker.provider)}
             aria-label={`Reset breakers of ${breaker.provider}`}>Reset</button></td>
         </tr>)}</tbody>
       </table>

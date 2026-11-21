@@ -9,7 +9,7 @@ import type { Control } from "../../../lib/types";
 import { AlertsPanel } from "./admin-alerts";
 import { BreakersPanel } from "./admin-breakers";
 import { RetentionPanel } from "./admin-retention";
-import { formatSize, formatTime } from "./admin-shared";
+import { formatSize, formatTime } from "./format";
 import { TokensPanel } from "./admin-tokens";
 import { WebhooksPanel } from "./admin-webhooks";
 import { AnnouncementsView } from "./announcements";
@@ -22,7 +22,8 @@ import { OrgBudget } from "./org-budget";
 import { PushPanel } from "./push";
 import { RepositoriesView } from "./repos";
 import { SchedulesView } from "./schedules";
-import { EmptyState, ResourceState } from "./states";
+import { EmptyState, PageHeading, ResourceState } from "./states";
+import { useToast } from "./ui";
 
 function formatDuration(seconds: number) {
   const days = Math.floor(seconds / 86400);
@@ -36,6 +37,7 @@ function formatDuration(seconds: number) {
 function NotificationsPanel({ status }: { status: NotifyStatus }) {
   const [results, setResults] = useState<SinkResult[]>();
   const form = useSubmit();
+  const toast = useToast();
   return <section className="panel stack">
     <div className="heading"><h2>Notifications</h2>
       <span className={`pill ${status.enabled ? "active" : ""}`}>{status.enabled ? "enabled" : "no sinks configured"}</span></div>
@@ -47,6 +49,7 @@ function NotificationsPanel({ status }: { status: NotifyStatus }) {
     <form className="stack" onSubmit={(event) => form.submit(event, async () => {
       const response = await api<{ results: SinkResult[] }>("notify/test", "POST", {});
       setResults(response.results);
+      toast(`Test notification sent to ${response.results.length} ${response.results.length === 1 ? "sink" : "sinks"}.`);
     })}>
       <div className="actions">
         <button className="primary" disabled={form.busy || !status.sinks.length}>Send test notification</button>
@@ -64,11 +67,13 @@ function NotificationsPanel({ status }: { status: NotifyStatus }) {
 
 function BackupsPanel({ list, refresh }: { list: BackupList; refresh: () => void }) {
   const form = useSubmit();
+  const toast = useToast();
   const backups: Backup[] = list.backups ?? [];
   return <section className="panel stack">
     <div className="heading"><h2>Backups</h2></div>
     <form className="stack" onSubmit={(event) => form.submit(event, async () => {
-      await api<{ path: string; bytes: number }>("backup", "POST", {});
+      const result = await api<{ path: string; bytes: number }>("backup", "POST", {});
+      toast(`Backup created: ${result.path.split("/").pop()}.`);
       refresh();
     })}>
       <div className="actions"><button className="primary" disabled={form.busy}>Create backup now</button></div>
@@ -137,19 +142,20 @@ export function SettingsView({ revisions }: { revisions: Revisions }) {
   const active = tabs.some((tab) => tab.id === selected) ? selected : "charter";
 
   return <>
+    <PageHeading title="Settings" />
     <div className="actions" role="group" aria-label="Settings">
       {tabs.map((tab) => <button key={tab.id} className="text-button" aria-pressed={tab.id === active}
         onClick={() => setSelected(tab.id)}>{tab.name}</button>)}
     </div>
-    {active === "charter" && <CharterView />}
+    {active === "charter" && <CharterView embedded />}
     {active === "capacity" && <>
-      <CapacityView revision={revisions.capacity} />
+      <CapacityView revision={revisions.capacity} embedded />
       <OrgBudget revision={revisions.capacity} />
     </>}
     {active === "repositories" && <RepositoriesView />}
-    {active === "instructions" && <InstructionsView />}
-    {active === "announcements" && <AnnouncementsView />}
-    {active === "schedules" && <SchedulesView />}
+    {active === "instructions" && <InstructionsView embedded />}
+    {active === "announcements" && <AnnouncementsView embedded />}
+    {active === "schedules" && <SchedulesView embedded />}
     {active === "notifications" && <>
       <ResourceState error={notify.error} loading={notify.data === undefined} retry={notify.refresh} rows={2} />
       {notify.data && <NotificationsPanel status={notify.data} />}

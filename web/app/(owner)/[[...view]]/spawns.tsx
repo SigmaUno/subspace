@@ -3,8 +3,9 @@
 import { useContext, useState } from "react";
 import { api, label, optionalResource, useResource } from "../../../lib/client";
 import type { Spawn, SpawnList } from "../../../lib/spawns-types";
-import { Clock, Feedback } from "./components";
+import { Clock } from "./components";
 import { EmptyState, ResourceState } from "./states";
+import { useAction, useConfirm } from "./ui";
 
 const connectTimeout = 5 * 60_000;
 const idleTTL = 15 * 60_000;
@@ -41,8 +42,8 @@ export function SpawnsPanel({ revision }: { revision: number }) {
   const feed = useResource("spawns", revision, optionalResource<SpawnList>);
   const now = useContext(Clock);
   const [finished, setFinished] = useState(false);
-  const [busy, setBusy] = useState("");
-  const [error, setError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
   if (feed.data === null) return null;
 
   const all = (feed.data?.spawns ?? []).slice().sort((a, b) => Date.parse(b.created_at) - Date.parse(a.created_at));
@@ -50,17 +51,12 @@ export function SpawnsPanel({ revision }: { revision: number }) {
   const spawns = finished ? all : running;
 
   async function stop(spawn: Spawn) {
-    if (!window.confirm(`Stop ${spawn.id}? ${spawn.agent_id} is revoked and its process is asked to stop.`)) return;
-    setBusy(spawn.id);
-    setError("");
-    try {
-      await api(`spawns/${encodeURIComponent(spawn.id)}/stop`, "POST", {});
-      feed.refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Could not stop the spawn.");
-    } finally {
-      setBusy("");
-    }
+    const accepted = await confirm({
+      title: `Stop ${spawn.id}?`,
+      message: `${spawn.agent_id} is revoked and its process is asked to stop.`,
+      confirm: "Stop",
+    });
+    if (accepted && await action.run(spawn.id, () => api(`spawns/${encodeURIComponent(spawn.id)}/stop`, "POST", {}), `Stopped ${spawn.id}.`)) feed.refresh();
   }
 
   return <section className="stack" aria-label="Spawns">
@@ -70,7 +66,6 @@ export function SpawnsPanel({ revision }: { revision: number }) {
       </label>
     </div>
     <ResourceState error={feed.error} loading={!feed.data} retry={feed.refresh} rows={3} />
-    <Feedback error={error} />
     {feed.data && !spawns.length && <EmptyState>{all.length ? "No running spawns." : "No spawns yet."}</EmptyState>}
     {!!spawns.length && <div className="table-wrap">
       <table>
@@ -89,7 +84,7 @@ export function SpawnsPanel({ revision }: { revision: number }) {
             <td><time dateTime={spawn.created_at} title={spawn.created_at}>{now ? age(spawn, now) : "—"}</time></td>
             <td>{timer ?? "—"}</td>
             <td>{spawn.status === "spawned"
-              ? <button type="button" className="danger" data-write disabled={busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
+              ? <button type="button" className="danger" data-write disabled={action.busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
               : "—"}</td>
           </tr>;
         })}</tbody>

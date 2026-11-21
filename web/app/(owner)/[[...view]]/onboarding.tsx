@@ -7,7 +7,7 @@ import type { Agent, Brief, Plan, Registration } from "../../../lib/types";
 import type { Charter, OnboardingMemory, OnboardingProgress, OnboardingState, OnboardingStep } from "../../../lib/onboarding-types";
 import { Feedback } from "./components";
 import type { Revisions } from "./live";
-import { Secret } from "./operations";
+import { CopyBlock } from "./copy";
 
 const storageKey = "subspace.onboarding";
 const listeners = new Set<() => void>();
@@ -102,11 +102,11 @@ function Credentials({ items, dismiss }: { items: Registration[]; dismiss: () =>
     {items.map(({ agent, connect }, index) => (
       <details key={agent.id} open={index === 0}>
         <summary>{agent.id}</summary>
-        <Secret label="Agent token" value={connect.token} />
-        <Secret label="Join line" value={connect.join_line} />
-        <Secret label="Claude Code" value={connect.snippets.claude_code} />
-        <Secret label="Codex config.toml" value={connect.snippets.codex_toml} />
-        <Secret label="OpenCode opencode.json" value={connect.snippets.opencode_json} />
+        <CopyBlock label="Agent token" text={connect.token} />
+        <CopyBlock label="Join line" text={connect.join_line} />
+        <CopyBlock label="Claude Code" text={connect.snippets.claude_code} />
+        <CopyBlock label="Codex config.toml" text={connect.snippets.codex_toml} />
+        <CopyBlock label="OpenCode opencode.json" text={connect.snippets.opencode_json} />
       </details>
     ))}
   </section>;

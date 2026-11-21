@@ -5,7 +5,9 @@ import (
 	"crypto/sha256"
 	"database/sql"
 	"encoding/hex"
+	"errors"
 	"fmt"
+	"net/http"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -514,4 +516,58 @@ func numberMap(v any) map[string]int {
 		}
 	}
 	return out
+}
+
+func TestUpgradeFixturesSchemaVersionGuard(t *testing.T) {
+	for _, src := range fixturePaths(t) {
+		t.Run(strings.TrimSuffix(filepath.Base(src), ".db"), func(t *testing.T) {
+			path := copyFixture(t, src)
+			openClose(t, path, nil)
+			db := rawDB(t, path)
+			var got store.Schema
+			if err := db.QueryRow(`SELECT version, hash FROM schema_version WHERE id = 1`).Scan(&got.Version, &got.Hash); err != nil {
+				t.Fatal(err)
+			}
+			if got != sqlite.BinarySchema() {
+				t.Fatalf("schema_version %+v, binary %+v", got, sqlite.BinarySchema())
+			}
+			if _, err := db.Exec(`UPDATE schema_version SET version = version + 1`); err != nil {
+				t.Fatal(err)
+			}
+			if err := db.Close(); err != nil {
+				t.Fatal(err)
+			}
+			before := snapshot(t, path)
+
+			if s, err := sqlite.Open(path); !errors.Is(err, store.ErrSchemaNewer) {
+				if s != nil {
+					_ = s.Close()
+				}
+				t.Fatalf("opened a newer schema: %v", err)
+			}
+			cfg := server.Config{PublicURL: "http://sub.test", DBPath: path, OwnerToken: servertest.OwnerToken, Now: func() time.Time { return fixtureNow }}
+			if s, err := server.New(context.Background(), cfg); !errors.Is(err, store.ErrSchemaNewer) {
+				if s != nil {
+					_ = s.Close()
+				}
+				t.Fatalf("server started against a newer schema: %v", err)
+			}
+
+			cfg.SchemaReadOnly = true
+			env := servertest.Start(t, cfg)
+			if code, _ := env.REST("GET", "/readyz", nil); code != http.StatusServiceUnavailable {
+				t.Fatalf("read-only readyz %d", code)
+			}
+			if code, state := env.REST("GET", "/api/v1/state", nil); code != http.StatusOK || numberMap(state["counts"].(map[string]any)["tasks"])["done"] != 1 {
+				t.Fatalf("read-only state: %d %v", code, state)
+			}
+			if code, _ := env.REST("POST", "/api/v1/briefs", map[string]any{"title": "nope", "repos": []string{"o/r"}}); code < 400 {
+				t.Fatalf("read-only server accepted a write: %d", code)
+			}
+			env.Stop()
+			if after := snapshot(t, path); after != before {
+				t.Fatal("read-only open changed the database")
+			}
+		})
+	}
 }

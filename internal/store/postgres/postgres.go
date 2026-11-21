@@ -205,6 +205,8 @@ func (s *Store) DatabaseSize(ctx context.Context) (int64, error) {
 
 func (s *Store) Done() <-chan struct{} { return s.quit }
 
+func (s *Store) ReadOnly() bool { return s.readOnly }
+
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
 	if s.readOnly {
 		return store.ErrReadOnly

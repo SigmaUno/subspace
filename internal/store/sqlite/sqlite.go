@@ -114,6 +114,8 @@ func (s *Store) Close() error {
 
 func (s *Store) Done() <-chan struct{} { return s.quit }
 
+func (s *Store) ReadOnly() bool { return s.readOnly }
+
 func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
 	return t.q.ExecContext(t.ctx, q, args...)
 }

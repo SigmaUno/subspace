@@ -61,6 +61,8 @@ type Config struct {
 	InstanceID      string
 	LeaderInterval  time.Duration
 	LeaderTTL       time.Duration
+	DrainDelay      time.Duration
+	SchemaReadOnly  bool
 }
 
 type Server struct {
@@ -136,7 +138,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		}
 		capCfg = c
 	}
-	st, err := openStore(cfg.DBPath)
+	st, err := openStore(cfg.DBPath, store.OpenOptions{ReadOnlyNewer: cfg.SchemaReadOnly})
 	if err != nil {
 		return nil, err
 	}
@@ -233,6 +235,15 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		w.Header().Set("Content-Type", "application/json")
 		_, _ = fmt.Fprintf(w, `{"status":"ok","version":%q,"paused":%v}`+"\n", board.Version, p)
 	})
+	drain := make(chan struct{})
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Cache-Control", "no-store")
+		if !ready(st, drain) {
+			w.WriteHeader(http.StatusServiceUnavailable)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+	})
 	brkCfg, err := breaker.ConfigFromEnv(os.Getenv)
 	if err != nil {
 		cl.close()
@@ -265,7 +276,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		_ = st.Close()
 		return nil, err
 	}
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, drain: make(chan struct{})}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, reload: rl, reg: reg, Leader: cl.elector, cluster: cl, drain: drain}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -273,6 +284,24 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 
 func (s *Server) Reload(ctx context.Context, note string) (reload.Result, error) {
 	return reloadConfig(ctx, s.reload, s.Board, s.cfg.Log, note)
+}
+
+func ready(st store.Store, drain <-chan struct{}) bool {
+	if ro, ok := st.(interface{ ReadOnly() bool }); ok && ro.ReadOnly() {
+		return false
+	}
+	var closed <-chan struct{}
+	if d, ok := st.(interface{ Done() <-chan struct{} }); ok {
+		closed = d.Done()
+	}
+	select {
+	case <-drain:
+		return false
+	case <-closed:
+		return false
+	default:
+		return true
+	}
 }
 
 func (s *Server) beginDrain() { s.drainOnce.Do(func() { close(s.drain) }) }
@@ -320,6 +349,7 @@ func (s *Server) ToolNames() map[string][]string {
 
 func (s *Server) Close() error {
 	s.beginDrain()
+	s.resign(context.Background())
 	s.cluster.close()
 	return s.Store.Close()
 }
@@ -359,9 +389,14 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	case serveErr = <-errc:
 	}
 	s.cfg.Log.Info("shutting down", "timeout", s.cfg.ShutdownTimeout)
+	drained := time.After(s.cfg.DrainDelay)
 	s.beginDrain()
 	stopBg()
 	bg.Wait()
+	s.resign(ctx)
+	if serveErr == nil {
+		<-drained
+	}
 
 	sctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
 	defer cancel()
@@ -376,6 +411,14 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	stopFlush()
 	flusher.Wait()
 	return serveErr
+}
+
+func (s *Server) resign(ctx context.Context) {
+	rctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), s.cfg.ShutdownTimeout)
+	defer cancel()
+	if err := s.Leader.Resign(rctx); err != nil {
+		s.cfg.Log.Warn("leader hand-off timed out", "err", err)
+	}
 }
 
 func (s *Server) RunBackground(ctx context.Context) {

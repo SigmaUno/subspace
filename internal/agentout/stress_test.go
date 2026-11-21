@@ -15,10 +15,12 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/servertest"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
+var stressAgents = testmode.Size(100, 200)
+
 const (
-	stressAgents   = 200
 	stressFollowed = 20
 	stressChunks   = 20
 	stressMemory   = 256 << 10

@@ -12,13 +12,14 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/servertest"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
-const (
-	httpSeedRows  = 5000
-	httpHeavyRows = 500
-	httpExtraRows = 100
-	httpPageSize  = 100
+var (
+	httpSeedRows  = testmode.Size(600, 5000)
+	httpHeavyRows = testmode.Size(150, 500)
+	httpExtraRows = testmode.Size(60, 100)
+	httpPageSize  = testmode.Size(25, 100)
 )
 
 type httpKind struct {

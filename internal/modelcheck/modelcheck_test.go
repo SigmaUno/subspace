@@ -7,11 +7,13 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 var (
 	depth   = flag.Int("modelcheck.depth", 3, "exhaustive depth from the initial state; seeded roots use two less")
-	deep    = flag.Bool("modelcheck.deep", false, "explore two levels deeper from every root")
+	deep    = flag.Bool("modelcheck.deep", testmode.Full(), "explore two levels deeper from every root")
 	workers = flag.Int("modelcheck.workers", runtime.GOMAXPROCS(0), "parallel board instances")
 )
 

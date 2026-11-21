@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 func handoffCtx(t *testing.T, res map[string]any) map[string]any {
@@ -171,7 +172,7 @@ func TestHandoffContextSizeLimits(t *testing.T) {
 	id := e.approvedPlan(lead, bid, planTask("Build", nil))[0]
 	e.must(lead, "assign", map[string]any{"task_id": id, "agent_id": "claude-1"})
 	e.must(w1, "claim_task", map[string]any{"task_id": id})
-	for i := 0; i < 40; i++ {
+	for i := range testmode.Size(25, 40) {
 		e.must(w1, "add_note", map[string]any{"task_id": id, "body": fmt.Sprintf("%02d ", i) + strings.Repeat("n", 12000)})
 	}
 	e.submit(w1, id)

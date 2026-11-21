@@ -1,6 +1,6 @@
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report release-dist release-dry clean
 .PHONY: all build test vet lint fmt gen-ts run loadtest loadtest-short loadtest-1000 loadtest-report clean
-.PHONY: all build test vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
+.PHONY: all build test test-full vet lint fmt run seed demo loadtest loadtest-short loadtest-1000 loadtest-report clean
 .PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-3000 loadtest-report loadtest-scenarios loadtest-contention loadtest-big-plan loadtest-many-briefs loadtest-thread-heavy loadtest-reconnect-storm loadtest-restart clean
 
 .PHONY: sync
@@ -23,7 +23,10 @@ build:
 	@if [ -d cmd/loadtest ]; then CGO_ENABLED=0 $(GO) build -trimpath -ldflags "$(LDFLAGS)" -o $(BIN)/loadtest ./cmd/loadtest; fi
 
 test:
-	$(GO) test -race -count=1 ./...
+	$(GO) test -race -count=1 -gcflags=all=-d=checkptr=0 ./...
+
+test-full:
+	SUBSPACE_FULL=1 $(GO) test -race -count=1 ./...
 
 vet:
 	$(GO) vet ./...

@@ -7,6 +7,9 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"github.com/SigmaUno/subspace/internal/testmain"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 const (
@@ -15,6 +18,8 @@ const (
 	freshSeeds      = 8
 	freshSteps      = 200
 )
+
+func TestMain(m *testing.M) { testmain.Run(m) }
 
 var mcpFaults = MCPOptions{FaultSeed: 1, DropPct: 10, DupPct: 10}
 
@@ -46,7 +51,7 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 
 func TestSimulation(t *testing.T) {
 	seeds, steps, fresh := 5, 300, freshSeeds
-	if testing.Short() {
+	if !testmode.Full() {
 		seeds, steps, fresh = 3, 200, 4
 	}
 	var regs []Regression
@@ -68,7 +73,7 @@ func TestSimulation(t *testing.T) {
 
 func TestServerSimulation(t *testing.T) {
 	seeds, steps := 4, 400
-	if testing.Short() {
+	if !testmode.Full() {
 		seeds, steps = 4, 300
 	}
 	r := ServerRunner(t.TempDir())
@@ -82,7 +87,7 @@ func TestServerSimulation(t *testing.T) {
 
 func TestSimulationWithLeaderHandoffs(t *testing.T) {
 	seeds, steps := 3, 300
-	if testing.Short() {
+	if !testmode.Full() {
 		seeds, steps = 3, 200
 	}
 	runners := map[string]*Runner{
@@ -152,7 +157,7 @@ func TestDeterministic(t *testing.T) {
 
 func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
 	seeds, steps := 4, 300
-	if testing.Short() {
+	if !testmode.Full() {
 		seeds, steps = 3, 200
 	}
 	r := mcpRunner(t.TempDir(), mcpFaults)

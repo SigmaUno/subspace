@@ -18,6 +18,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/guardhint"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/spawner"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 const contractToolsHeader = "| Tool | leader | worker | tester | reviewer |"
@@ -259,18 +260,6 @@ func (s *contractStream) read(r io.Reader) {
 	}
 }
 
-func (s *contractStream) missing(want []string) []string {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	var out []string
-	for _, w := range want {
-		if !s.seen[w] {
-			out = append(out, w)
-		}
-	}
-	return out
-}
-
 func (s *contractStream) types() []string {
 	s.mu.Lock()
 	defer s.mu.Unlock()
@@ -330,7 +319,7 @@ func TestContractSSEEventsEmitted(t *testing.T) {
 	slow := e.contractEvents(ctx, "board")
 	defer func() { _ = slow.Body.Close() }()
 	pad := strings.Repeat("x", 128<<10)
-	for range 800 {
+	for range testmode.Size(300, 800) {
 		e.srv.Hub.Publish([]string{"board"}, "task.updated", map[string]string{"pad": pad})
 	}
 	lagged := &contractStream{seen: map[string]bool{}}
@@ -342,10 +331,10 @@ func TestContractSSEEventsEmitted(t *testing.T) {
 
 	e.contractEmitAll()
 
-	wantMain := slices.DeleteFunc(slices.Clone(want), func(w string) bool { return w == "lagged" })
 	deadline := time.Now().Add(10 * time.Second)
 	for time.Now().Before(deadline) {
-		if len(main.missing(wantMain)) == 0 && len(lagged.missing([]string{"lagged"})) == 0 {
+		seen := slices.Concat(main.types(), lagged.types())
+		if !slices.ContainsFunc(want, func(w string) bool { return !slices.Contains(seen, w) }) {
 			break
 		}
 		time.Sleep(20 * time.Millisecond)

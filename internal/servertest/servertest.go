@@ -16,6 +16,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"
 
 	"github.com/SigmaUno/subspace/internal/server"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
 	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
@@ -42,6 +43,9 @@ func Start(t *testing.T, cfg server.Config) *Env {
 		if _, ok := os.LookupEnv(k); !ok {
 			_ = os.Setenv(k, "off")
 		}
+	}
+	if err := sqlite.EnableTemplate(); err != nil {
+		t.Fatal(err)
 	}
 	if cfg.DBPath == "" {
 		cfg.DBPath = DB(t)

@@ -11,13 +11,17 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 const (
-	pageSeedRows  = 5000
-	pageSize      = 97
-	pageExtraRows = 100
-	pageAll       = 1 << 20
+	pageSize = 97
+	pageAll  = 1 << 20
+)
+
+var (
+	pageSeedRows  = testmode.Size(600, 5000)
+	pageExtraRows = testmode.Size(60, 100)
 )
 
 type pagedKind struct {

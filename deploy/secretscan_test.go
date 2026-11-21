@@ -27,19 +27,20 @@ const (
 
 type secretRule struct {
 	name string
+	lits []string
 	re   *regexp.Regexp
 }
 
 var secretRules = []secretRule{
-	{"private-key", regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
-	{"anthropic-key", regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{20,}`)},
-	{"openai-key", regexp.MustCompile(`\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}`)},
-	{"github-token", regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
-	{"slack-token", regexp.MustCompile(`\bxox[abeoprs]-[A-Za-z0-9-]{10,}`)},
-	{"aws-access-key", regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[0-9A-Z]{16}\b`)},
-	{"stripe-key", regexp.MustCompile(`\b(?:[sr]k|whsec)_(?:live_|test_)?[0-9A-Za-z]{16,}`)},
-	{"basic-auth-url", regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@'"<>{}$]+:[^\s/@'"<>{}$]+@[^\s/'"]+`)},
-	{"jwt", regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
+	{"private-key", []string{"PRIVATE KEY"}, regexp.MustCompile(`-----BEGIN (?:[A-Z0-9]+ )*PRIVATE KEY(?: BLOCK)?-----`)},
+	{"anthropic-key", []string{"sk-ant-"}, regexp.MustCompile(`sk-ant-[A-Za-z0-9_-]{20,}`)},
+	{"openai-key", []string{"sk-"}, regexp.MustCompile(`\bsk-(?:proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}`)},
+	{"github-token", []string{"gh", "github_pat_"}, regexp.MustCompile(`\b(?:gh[pousr]_[A-Za-z0-9]{36,}|github_pat_[A-Za-z0-9_]{22,})`)},
+	{"slack-token", []string{"xox"}, regexp.MustCompile(`\bxox[abeoprs]-[A-Za-z0-9-]{10,}`)},
+	{"aws-access-key", []string{"AKIA", "ASIA", "AGPA", "AIDA", "AROA"}, regexp.MustCompile(`\b(?:AKIA|ASIA|AGPA|AIDA|AROA)[0-9A-Z]{16}\b`)},
+	{"stripe-key", []string{"k_", "whsec_"}, regexp.MustCompile(`\b(?:[sr]k|whsec)_(?:live_|test_)?[0-9A-Za-z]{16,}`)},
+	{"basic-auth-url", []string{"://"}, regexp.MustCompile(`\b[A-Za-z][A-Za-z0-9+.-]*://[^\s/:@'"<>{}$]+:[^\s/@'"<>{}$]+@[^\s/'"]+`)},
+	{"jwt", []string{"eyJ"}, regexp.MustCompile(`\beyJ[A-Za-z0-9_-]{8,}\.eyJ[A-Za-z0-9_-]{8,}\.[A-Za-z0-9_-]{8,}`)},
 }
 
 var genericAssign = regexp.MustCompile(`(?i)\b[\w.-]*(?:token|secret|password|passwd|key)[\w.-]*["']?\s*(?::=|[:=])\s*["']?([A-Za-z0-9+_=-]+)`)
@@ -69,12 +70,26 @@ func shannon(s string) float64 {
 	return h
 }
 
+var genericWords = []string{"token", "secret", "password", "passwd", "key"}
+
+func containsAny(s string, subs []string) bool {
+	for _, sub := range subs {
+		if strings.Contains(s, sub) {
+			return true
+		}
+	}
+	return false
+}
+
 func detectLine(line string) []string {
 	var found []string
 	for _, r := range secretRules {
-		if r.re.MatchString(line) {
+		if containsAny(line, r.lits) && r.re.MatchString(line) {
 			found = append(found, r.name)
 		}
+	}
+	if !containsAny(strings.ToLower(line), genericWords) {
+		return found
 	}
 	for _, m := range genericAssign.FindAllStringSubmatch(line, -1) {
 		v := m[1]

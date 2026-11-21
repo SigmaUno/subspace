@@ -1,30 +1,16 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Prompt, PromptList, RenderedPrompt } from "../../../lib/prompts-types";
 import { Feedback } from "./components";
+import { useCopy } from "./copy";
 import { EmptyState, ResourceState } from "./states";
-
-function CopyButton({ text }: { text: string }) {
-  const [feedback, setFeedback] = useState("");
-  async function copy() {
-    try {
-      await navigator.clipboard.writeText(text);
-      setFeedback("Copied");
-    } catch {
-      setFeedback("Select and copy the text.");
-    }
-  }
-  return <div className="actions">
-    <button type="button" onClick={copy}>Copy to clipboard</button>
-    {feedback && <span className="meta" role="status">{feedback}</span>}
-  </div>;
-}
+import { PageShell } from "./shell";
 
 function PromptDetail({ prompt }: { prompt: Prompt }) {
   const [rendered, setRendered] = useState<RenderedPrompt | null>(null);
+  const copy = useCopy();
   const form = useSubmit();
   return <section className="panel stack">
     <div className="heading">
@@ -45,7 +31,7 @@ function PromptDetail({ prompt }: { prompt: Prompt }) {
     {rendered && <div className="stack">
       <h2>Preview</h2>
       <pre>{rendered.text}</pre>
-      <CopyButton text={rendered.text} />
+      <div className="actions"><button type="button" onClick={() => copy(rendered.text, prompt.title)}>Copy to clipboard</button></div>
     </div>}
   </section>;
 }
@@ -58,41 +44,32 @@ export function PromptsPage() {
   const tags = [...new Set(all.data?.prompts.flatMap((prompt) => prompt.tags) ?? [])].sort();
   const current = list.data?.prompts.find((prompt) => prompt.id === selected);
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/briefs"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/briefs">Briefs</Link>
-        <Link href="/prompts" aria-current="page">Prompts</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <h1>Prompts</h1>
-        <label className="inline">Tag
-          <select value={tag} onChange={(event) => setTag(event.target.value)}>
-            <option value="">All tags</option>
-            {tags.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
-        </label>
-      </div>
-      <ResourceState error={all.error || list.error} loading={!list.data} retry={() => { all.refresh(); list.refresh(); }} rows={4} />
-      {list.data && !list.data.prompts.length && <EmptyState>No prompts match this tag.</EmptyState>}
-      {!!list.data?.prompts.length && <div className="table-wrap">
-        <table>
-          <thead><tr><th>Prompt</th><th>Tags</th><th>Variables</th></tr></thead>
-          <tbody>{list.data.prompts.map((prompt) => (
-            <tr key={prompt.id}>
-              <th scope="row"><button className="text-button" aria-pressed={prompt.id === selected}
-                onClick={() => setSelected(prompt.id)}>{prompt.title}</button>
-                <div className="meta">{prompt.id}</div></th>
-              <td>{prompt.tags.join(", ") || "—"}</td>
-              <td>{prompt.variables.join(", ") || "—"}</td>
-            </tr>
-          ))}</tbody>
-        </table>
-      </div>}
-      {current && <PromptDetail key={current.id} prompt={current} />}
-    </main>
-  </>;
+  return <PageShell section="prompts">
+    <div className="heading">
+      <h1>Prompts</h1>
+      <label className="inline">Tag
+        <select value={tag} onChange={(event) => setTag(event.target.value)}>
+          <option value="">All tags</option>
+          {tags.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </label>
+    </div>
+    <ResourceState error={all.error || list.error} loading={!list.data} retry={() => { all.refresh(); list.refresh(); }} rows={4} />
+    {list.data && !list.data.prompts.length && <EmptyState>No prompts match this tag.</EmptyState>}
+    {!!list.data?.prompts.length && <div className="table-wrap">
+      <table>
+        <thead><tr><th>Prompt</th><th>Tags</th><th>Variables</th></tr></thead>
+        <tbody>{list.data.prompts.map((prompt) => (
+          <tr key={prompt.id}>
+            <th scope="row"><button className="text-button" aria-pressed={prompt.id === selected}
+              onClick={() => setSelected(prompt.id)}>{prompt.title}</button>
+              <div className="meta">{prompt.id}</div></th>
+            <td>{prompt.tags.join(", ") || "—"}</td>
+            <td>{prompt.variables.join(", ") || "—"}</td>
+          </tr>
+        ))}</tbody>
+      </table>
+    </div>}
+    {current && <PromptDetail key={current.id} prompt={current} />}
+  </PageShell>;
 }

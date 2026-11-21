@@ -4,11 +4,11 @@ import { useEffect, useId, useRef, useState } from "react";
 import { api, useResource, useSubmit } from "../../../lib/client";
 import type { Incident, IncidentEnded, IncidentList, IncidentStarted } from "../../../lib/incident-types";
 import { Feedback } from "./components";
+import { useConfirm, useToast } from "./ui";
 import "./incident.css";
+import { agentRoles } from "../../../lib/types";
 
 const changed = "subspace:incident";
-
-const roles = ["leader", "worker", "tester", "reviewer"];
 
 const options = [
   { id: "pause_all", name: "Pause everything" },
@@ -45,6 +45,8 @@ export function IncidentBanner({ revision }: { revision: number }) {
   const { active } = useIncidents(revision);
   const [resumeAgents, setResumeAgents] = useState(false);
   const form = useSubmit();
+  const confirm = useConfirm();
+  const toast = useToast();
   if (!active) return null;
   return <section className="incident-banner" role="alert">
     <div>
@@ -52,8 +54,14 @@ export function IncidentBanner({ revision }: { revision: number }) {
       <p>{active.reason} · since {new Date(active.started_at).toLocaleString()} · {active.actions.join(", ")}</p>
     </div>
     <form className="actions" data-write onSubmit={(event) => form.submit(event, async () => {
-      if (!window.confirm(`End incident ${active.id}? Everything is resumed${resumeAgents ? " and paused agents are re-enabled" : ""}. Revoked agents stay revoked.`)) return;
+      if (!await confirm({
+        title: `End incident ${active.id}?`,
+        message: `Everything is resumed${resumeAgents ? " and paused agents are re-enabled" : ""}. Revoked agents stay revoked.`,
+        confirm: "End incident",
+        danger: false,
+      })) return;
       await api<IncidentEnded>(`incident/${encodeURIComponent(active.id)}/end`, "POST", { resume_agents: resumeAgents });
+      toast(`Ended incident ${active.id}.`);
       window.dispatchEvent(new Event(changed));
     })}>
       <label><input type="checkbox" checked={resumeAgents} onChange={(event) => setResumeAgents(event.target.checked)} />Re-enable paused agents</label>
@@ -144,7 +152,7 @@ function IncidentDialog({ active, close }: { active?: Incident; close: () => voi
         {revoking && <div className="actions">
           <label>Revoke role
             <select value={role} onChange={(event) => setRole(event.target.value)}>
-              <option value="">All roles</option>{roles.map((item) => <option key={item} value={item}>{item}</option>)}
+              <option value="">All roles</option>{agentRoles.map((item) => <option key={item} value={item}>{item}</option>)}
             </select>
           </label>
           <label>Revoke provider

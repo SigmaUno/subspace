@@ -5,7 +5,8 @@ import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Preview, Run, RunList, Schedule, ScheduleList, TemplateList, TemplateSummary } from "../../../lib/schedule-types";
 import type { Brief } from "../../../lib/types";
 import { Feedback } from "./components";
-import { EmptyState, ResourceState } from "./states";
+import { EmptyState, PageHeading, ResourceState } from "./states";
+import { useAction, useConfirm, useToast } from "./ui";
 
 function inZone(iso: string, zone: string) {
   try {
@@ -62,6 +63,7 @@ function ScheduleForm({ done }: { done: () => void }) {
   const taskTemplates = useResource<TemplateList>("task-templates", 0);
   const briefs = useResource<{ briefs: Brief[] | null }>("briefs?status=open&limit=1000", 0);
   const form = useSubmit();
+  const toast = useToast();
   const briefOptions = briefTemplates.data?.templates ?? [];
   const taskOptions = taskTemplates.data?.templates ?? [];
   const selectedBrief = briefOptions.find((template) => template.id === briefTemplate) ?? briefOptions[0];
@@ -83,7 +85,8 @@ function ScheduleForm({ done }: { done: () => void }) {
         repo: value(fields, "repo"), priority: Number(value(fields, "priority") || 0),
       }];
     }
-    await api<Schedule>("schedules", "POST", body);
+    const created = await api<Schedule>("schedules", "POST", body);
+    toast(`Created schedule ${created.name}.`);
     element.reset();
     done();
   })}>
@@ -172,20 +175,21 @@ function describe(schedule: Schedule) {
 
 function ScheduleItem({ schedule, refresh }: { schedule: Schedule; refresh: () => void }) {
   const [showRuns, setShowRuns] = useState(false);
-  const [busy, setBusy] = useState(false);
-  const [error, setError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
+  const busy = action.busy !== "";
 
-  async function change(run: () => Promise<unknown>) {
-    setBusy(true);
-    setError("");
-    try {
-      await run();
-      refresh();
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : "Request failed.");
-    } finally {
-      setBusy(false);
-    }
+  async function change(key: string, run: () => Promise<unknown>, success: string) {
+    if (await action.run(key, run, success)) refresh();
+  }
+
+  async function remove() {
+    const accepted = await confirm({
+      title: `Delete schedule ${schedule.name}?`,
+      message: "It stops creating briefs or tasks. Runs already created stay.",
+      confirm: "Delete",
+    });
+    if (accepted) await change("delete", () => api<void>(path, "DELETE"), `Deleted schedule ${schedule.name}.`);
   }
 
   const path = `schedules/${encodeURIComponent(schedule.id)}`;
@@ -195,27 +199,25 @@ function ScheduleItem({ schedule, refresh }: { schedule: Schedule; refresh: () =
       <span className={`pill ${schedule.enabled ? "active" : ""}`}>{schedule.enabled ? "enabled" : "disabled"}</span>
       <div className="actions">
         <button type="button" data-write disabled={busy}
-          onClick={() => change(() => api<Schedule>(path, "PATCH", { enabled: !schedule.enabled }))}>{schedule.enabled ? "Disable" : "Enable"}</button>
+          onClick={() => change("toggle", () => api<Schedule>(path, "PATCH", { enabled: !schedule.enabled }),
+            `${schedule.enabled ? "Disabled" : "Enabled"} schedule ${schedule.name}.`)}>{schedule.enabled ? "Disable" : "Enable"}</button>
         <button type="button" aria-expanded={showRuns} onClick={() => setShowRuns(!showRuns)}>Runs</button>
-        <button type="button" className="danger" data-write disabled={busy} onClick={() => {
-          if (window.confirm(`Delete schedule ${schedule.name}?`)) change(() => api<void>(path, "DELETE"));
-        }}>Delete</button>
+        <button type="button" className="danger" data-write disabled={busy} onClick={remove}>Delete</button>
       </div>
     </div>
     <p className="meta">
       <code>{schedule.cron}</code> · {schedule.timezone} · {describe(schedule)} · max {schedule.max_active || "unlimited"} active · missed runs: {schedule.catch_up}
     </p>
     <p className="meta">Next run {formatTime(schedule.next_run_at, schedule.timezone)} · last run {formatTime(schedule.last_run_at, schedule.timezone)}</p>
-    <Feedback error={error} />
     {showRuns && <RunsTable schedule={schedule} />}
   </article>;
 }
 
-export function SchedulesView() {
+export function SchedulesView({ embedded }: { embedded?: boolean }) {
   const list = useResource<ScheduleList>("schedules", 0);
   const schedules = list.data?.schedules ?? [];
   return <>
-    <div className="heading"><h1>Schedules</h1></div>
+    <PageHeading title="Schedules" embedded={embedded} />
     <p className="meta">A schedule creates a brief, or adds tasks to a brief, from templates on a cron timetable.</p>
     <ScheduleForm done={list.refresh} />
     <ResourceState error={list.error} loading={list.data === undefined} retry={list.refresh} rows={3} />

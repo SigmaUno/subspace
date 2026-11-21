@@ -3,9 +3,10 @@
 import { useState } from "react";
 import { api, label, useSubmit } from "../../../lib/client";
 import type { RetentionReport, RetentionSegment, RetentionStatus, RetentionVerify } from "../../../lib/settings-types";
-import { formatSize, formatTime } from "./admin-shared";
+import { formatSize, formatTime } from "./format";
 import { Feedback } from "./components";
 import { EmptyState } from "./states";
+import { useAction, useConfirm, useToast } from "./ui";
 
 const statusClass = { pending: "paused", archived: "active", restored: "" } as const;
 const shown = 50;
@@ -22,25 +23,23 @@ function Run({ report }: { report: RetentionReport }) {
 
 export function RetentionPanel({ status, refresh }: { status: RetentionStatus; refresh: () => void }) {
   const [verify, setVerify] = useState<RetentionVerify>();
-  const [restoring, setRestoring] = useState("");
-  const [restoreError, setRestoreError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
+  const toast = useToast();
   const run = useSubmit();
   const check = useSubmit();
   const segments = [...(status.segments ?? [])].sort((a, b) => b.id - a.id);
   const policy = Object.entries(status.policy);
 
   async function restore(segment: RetentionSegment) {
-    if (!window.confirm(`Restore segment ${segment.id} (${segment.kind}, ${segment.rows} rows) into the database?`)) return;
-    setRestoring(String(segment.id));
-    setRestoreError("");
-    try {
-      await api<RetentionSegment>(`retention/segments/${segment.id}/restore`, "POST", {});
-      refresh();
-    } catch (cause) {
-      setRestoreError(cause instanceof Error ? cause.message : "Restore failed.");
-    } finally {
-      setRestoring("");
-    }
+    const accepted = await confirm({
+      title: `Restore segment ${segment.id}?`,
+      message: `${segment.rows} ${segment.kind} rows are written back into the database.`,
+      confirm: "Restore",
+      danger: false,
+    });
+    if (accepted && await action.run(String(segment.id), () => api<RetentionSegment>(`retention/segments/${segment.id}/restore`, "POST", {}),
+      `Restored segment ${segment.id}.`)) refresh();
   }
 
   return <>
@@ -60,6 +59,7 @@ export function RetentionPanel({ status, refresh }: { status: RetentionStatus; r
       <div className="actions">
         <form data-write onSubmit={(event) => run.submit(event, async () => {
           await api<RetentionReport>("retention/run", "POST", {});
+          toast("Archive run finished.");
           refresh();
         })}><button className="primary" disabled={run.busy}>Run now</button></form>
         <form onSubmit={(event) => check.submit(event, async () => {
@@ -76,7 +76,6 @@ export function RetentionPanel({ status, refresh }: { status: RetentionStatus; r
     <section className="panel stack">
       <div className="heading"><h2>Segments</h2>
         {segments.length > shown && <span className="meta">Newest {shown} of {segments.length}</span>}</div>
-      <Feedback error={restoreError} />
       {!segments.length && <EmptyState>Nothing archived yet.</EmptyState>}
       {!!segments.length && <div className="table-wrap">
         <table>
@@ -89,7 +88,7 @@ export function RetentionPanel({ status, refresh }: { status: RetentionStatus; r
             <td>{formatSize(segment.bytes)}</td>
             <td>{formatTime(segment.cutoff)}</td>
             <td>{formatTime(segment.created_at)}</td>
-            <td>{segment.status === "archived" && <button type="button" data-write disabled={restoring === String(segment.id)}
+            <td>{segment.status === "archived" && <button type="button" data-write disabled={action.busy === String(segment.id)}
               onClick={() => restore(segment)} aria-label={`Restore segment ${segment.id}`}>Restore</button>}</td>
           </tr>)}</tbody>
         </table>

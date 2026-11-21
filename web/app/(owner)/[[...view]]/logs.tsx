@@ -1,11 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import { logLevels, type LogLevel, type LogLevelInfo, type LogLine, type LogList } from "../../../lib/logs-types";
 import { Feedback } from "./components";
 import { VirtualList } from "./virtual";
+import { PageShell } from "./shell";
+import { EmptyState, ResourceState } from "./states";
 
 const pollInterval = 2_000;
 const initialLines = 500;
@@ -116,45 +117,36 @@ export function LogsPage() {
     });
   }
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/logs" aria-current="page">Logs</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <h1>Server logs</h1>
-        <div className="actions">
-          <label className="inline">
-            <input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />
-            Live tail
-          </label>
-          <button onClick={() => setLoaded({ level, lines: [] })} disabled={!ready}>Clear</button>
-        </div>
+  return <PageShell section="logs">
+    <div className="heading">
+      <h1>Server logs</h1>
+      <div className="actions">
+        <label className="inline">
+          <input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />
+          Live tail
+        </label>
+        <button onClick={() => setLoaded({ level, lines: [] })} disabled={!ready}>Clear</button>
       </div>
+    </div>
 
-      <section className="panel stack">
-        <div className="form-grid">
-          <label>Minimum level
-            <select value={level} onChange={(event) => { if (isLevel(event.target.value)) setLevel(event.target.value); }}>
-              {logLevels.map((name) => <option key={name}>{name}</option>)}
-            </select>
-          </label>
-          <label>Contains<input value={text} onChange={(event) => setText(event.target.value)} placeholder="route, request id, agent" /></label>
-        </div>
-        <LevelControl />
-      </section>
+    <section className="panel stack">
+      <div className="form-grid">
+        <label>Minimum level
+          <select value={level} onChange={(event) => { if (isLevel(event.target.value)) setLevel(event.target.value); }}>
+            {logLevels.map((name) => <option key={name}>{name}</option>)}
+          </select>
+        </label>
+        <label>Contains<input value={text} onChange={(event) => setText(event.target.value)} placeholder="route, request id, agent" /></label>
+      </div>
+      <LevelControl />
+    </section>
 
-      <Feedback error={error} loading={!ready && !error} />
-      {ready && !items.length && <p className="empty">No log lines.</p>}
-      {!!items.length && <section className="stack">
-        <p className="meta" role="status">{items.length} lines, newest first.</p>
-        <VirtualList name="Log lines" items={items} estimate={64} className="agent-list"
-          render={(line) => <LogRow line={line} expanded={expanded.has(line.id)} toggle={() => toggle(line.id)} />} />
-      </section>}
-    </main>
-  </>;
+    <ResourceState error={error} loading={!ready && !error} />
+    {ready && !items.length && <EmptyState>No log lines.</EmptyState>}
+    {!!items.length && <section className="stack">
+      <p className="meta" role="status">{items.length} lines, newest first.</p>
+      <VirtualList name="Log lines" items={items} estimate={64} className="agent-list"
+        render={(line) => <LogRow line={line} expanded={expanded.has(line.id)} toggle={() => toggle(line.id)} />} />
+    </section>}
+  </PageShell>;
 }

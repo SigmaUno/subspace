@@ -30,7 +30,7 @@ Errors (REST): HTTP status + body
 ```json
 {"error": {"code": "not_found", "message": "task T-9 not found"}}
 ```
-Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded`: 409 when an agent's daily quota blocks `claim_task` or `assign` (see Agent quotas), 507 for artifact uploads. Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
+Codes: `bad_request` 400, `unauthorized` 401, `token_expired` 401 (agent token past `token_expires_at`), `forbidden` 403, `not_found` 404, `conflict` 409 (invalid transition / duplicate), `gates_failed` 409 (quality gates hold an approval; the error carries `details`, see Quality gates), `paused` 423, `capacity` 409, `rate_limited` 429, `internal` 500, plus `too_large` 413 and `quota_exceeded`: 409 when an agent's daily quota blocks `claim_task` or `assign` (see Agent quotas), 507 for artifact uploads. Unknown `/api/v1/` paths return `not_found` with message `no such endpoint`.
 
 Missing/invalid bearer → 401 with `WWW-Authenticate: Bearer`. An agent token past its `token_expires_at` is rejected like a revoked one, but on `/mcp` the 401 body is `{"error":{"code":"token_expired","message":"agent token expired"}}` and `WWW-Authenticate` carries `error="invalid_token"`.
 
@@ -46,6 +46,8 @@ In the Compose deployment, Caddy routes `/api/v1/*` (including SSE) through Next
  "cross_review":true,"auto_done_on_merge":false,
  "cost_used":3.2,"plan_status":"approved",                 // none|proposed|approved|rejected; cost_used includes cancelled tasks
  "leader_id":null,                                         // leader agent that owns the brief; null = any leader
+ "quality_gates":{"tests":false,"min_tests_passed":0,"checks":false,"scope":false,   // see Quality gates; all off by default
+                  "questions":false,"review":false,"budget":false,"max_pr_age_hours":0},
  "created_at":"..."}
 
 // Task
@@ -202,10 +204,10 @@ At 80% of a cap the guard raises a `budget` decision (`budget:org-daily`, `budge
 ### Briefs
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":""}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader. |
+| POST | `/api/v1/briefs` | `{"title","body","repos":[],"max_cost_eur":50,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,"leader_id":"","quality_gates":{}}` → Brief (201). `cross_review` defaults to `true`; `leader_id` empty or absent = any leader; `quality_gates` absent = all gates off. |
 | GET | `/api/v1/briefs?status=&cursor=&limit=` | → `{"briefs":[Brief],"next_cursor":null}` ordered by `created_at`, then id. |
 | GET | `/api/v1/briefs/{id}` | → Brief |
-| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id` → Brief (set_budget). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
+| PATCH | `/api/v1/briefs/{id}` | any of `max_cost_eur, max_parallel_agents, allowed_providers, cross_review, auto_done_on_merge, status, leader_id, quality_gates` → Brief (set_budget). `quality_gates` replaces the whole gate setting (400 on invalid values, see Quality gates). `leader_id` `""` = any leader; it hands the brief off like `POST /leader`. |
 | | | `status` is `open` or `closed`. Closing cancels `backlog`/`ready`/`assigned` tasks and moves `in_progress` tasks to `blocked` (`blocked_reason` `brief_closed`, lease released), each with a system message in the task thread; `submitted`, `in_review`, `approved` and every other status stay for the owner to finish. A closed brief rejects claims, spawns, plans and new tasks (409), and its board stays readable. The brief thread gets a system summary (cancelled/blocked counts, tasks per status, cost used). Reopening posts a brief-thread message; tasks cancelled by closing stay cancelled and `brief_closed` tasks stay blocked until unblocked. Setting the current status again changes nothing. Audit events: `close_brief` (one for the brief, one per affected task) and `reopen_brief`. |
 | POST | `/api/v1/briefs/{id}/leader` | `{"agent_id":"rex"}` → Brief. Hands the brief to that leader; `null` or `""` = any leader. 400 without `agent_id` or for an agent that is not a leader, 404 for an unknown brief or agent, 409 for a revoked agent. See Leader scoping. |
 | GET | `/api/v1/briefs/{id}/board` | → `{"brief":Brief,"columns":{"backlog":[Task],"ready":[...],...all 12 statuses...}}`; tasks in each column and in task lists are ordered by `priority` descending, then id. |
@@ -229,6 +231,11 @@ leader_id: rex                          # absent = any leader
 task_budget:
   max_minutes: 120
   max_cost_eur: 10
+quality_gates:                          # optional; absent = all off, see Quality gates
+  tests: true
+  min_tests_passed: 10
+  checks: true
+  max_pr_age_hours: 72
 components:                             # optional; same rules as PUT components
   - name: store
     paths: [internal/store]
@@ -248,6 +255,7 @@ The frontmatter is a strict YAML subset: block mappings and lists indented with 
 {"title":"...","body":"...","repos":[],"max_cost_eur":0,"max_parallel_agents":10,"allowed_providers":[],"cross_review":true,
  "leader_id":null,                                      // null when absent
  "task_budget":{"max_minutes":120,"max_cost_eur":10},   // null when absent
+ "quality_gates":null,                                  // QualityGates or null when absent
  "components":[{"name","description","paths":[],"depends_on":[]}]}
 
 // BriefTemplate
@@ -282,6 +290,37 @@ Plan edits post a system message to the brief thread and append an audit event (
 | POST | `/api/v1/tasks/{id}/cancel` | `{"reason":""}` → Task |
 | POST | `/api/v1/tasks/{id}/reopen` | `{"status":"ready|assigned","note":""}` → Task. From `needs_owner`/`blocked`/`cancelled`. Resets `review_rounds` if `needs_owner`. |
 | POST | `/api/v1/tasks/bulk` | `{"ids":["T-1","T-2"],"action":"cancel","params":{}}` → `{"action","results":[{"id","ok","error"?:{"code","message"}}],"succeeded","failed"}`. See Bulk operations. |
+| GET | `/api/v1/tasks/{id}/gates` | → GateReport, every quality gate of the task's brief evaluated now. 404 for an unknown task. |
+| POST | `/api/v1/tasks/{id}/gates/override` | `{"reason":"...","gates":[]}` → GateReport. Owner scope only. Overrides the listed gates (`[]` or absent = all) for this task; replaces an earlier override. 400 without `reason`, for a reason above 2000 bytes, an unknown gate or an unknown field; 404 for an unknown task. Appends an `override_gates` audit event (reason as note) and a `system` message to the task thread, then approves a held `cross_review:false` submission when the gates now pass. |
+
+### Quality gates
+A brief's `quality_gates` decide what must hold before a task of the brief becomes `approved` or merge-ready. All gates are off by default, so existing briefs behave as before. Gates are set on create, with `PATCH /api/v1/briefs/{id}` or in the `quality_gates` mapping of an imported brief document.
+
+| gate | setting | passes when |
+|---|---|---|
+| `tests` | `tests: true`, `min_tests_passed` (default 0, needs `tests`) | the latest `report_tests` result of the task itself or of a non-cancelled `tester` task of the same brief with the same `branch` or `pr_url` has 0 failed and at least `min_tests_passed` passed |
+| `checks` | `checks: true` | the task's PR snapshot (see Pull request status) is for its current `pr_url` and has checks `success` |
+| `scope` | `scope: true` | the PR snapshot has a scope report without `error` findings |
+| `questions` | `questions: true` | no `open` owner question is attached to the task |
+| `review` | `review: true` | the approving reviewer (or the task's `reviewer`) uses a different provider than the assignee and none of the per-criterion results in the approving review comments (`criterion 2: fail`, `AC1 = unmet`, see Review comments on the PR) is failed; criteria without a result count as met |
+| `budget` | `budget: true` | neither the task's `cost_used` / `minutes_used` nor the brief's cost is above its budget |
+| `pr_age` | `max_pr_age_hours` above 0 (at most 8760) | the PR head commit has been unchanged (not rebased or pushed) for at most that many hours, counted from the PR sync that first saw it |
+
+Enforcement:
+- `review` with `approve`: when an enabled gate fails the task does not become `approved`. A `submitted` task moves to `in_review`, an `in_review` task stays, the reviewer is recorded, a `system` message lists the failed gates and the call fails with `gates_failed`; `details` is `{"task_id","gates":[GateResult]}` with the failing gates only.
+- `submit` on a brief with `cross_review:false`: with a failing gate the task becomes `submitted` instead of `approved` and the call fails with `gates_failed` (same `details`). The server approves it (audit tool `gates_passed`, actor `system`) as soon as the gates pass on a later PR sync or after an owner override; a reviewer may also review it.
+- The `merge-ready` decision and merge queue enqueueing (and keeping a queued PR) also need passing gates; a failing gate makes enqueueing a 409 `conflict` naming the gates.
+- The owner's `mark done` is not gated.
+
+```jsonc
+// GateReport
+{"task_id":"T-3","brief_id":"B-1","passed":false,"evaluated_at":"...",
+ "override":null,                                  // or {"gates":["checks"],"reason":"...","by":"owner","at":"..."}; gates [] = all
+ "gates":[{"gate":"tests","enabled":true,"passed":false,"overridden":false,"evidence":"7 passed, 1 failed (report of T-4)"},
+          {"gate":"checks","enabled":false,"passed":true,"overridden":false,"evidence":"disabled"}]}   // every gate, in the order of the table above
+```
+
+An overridden failing gate keeps `passed:false` with `overridden:true` and does not hold the task; `passed` of the report is true when every enabled gate passed or is overridden.
 
 ### Pull request status
 | Method | Path | Body → Response |
@@ -316,7 +355,7 @@ A PR is only fetched when its repo is the task's `repo` and, for a mapped repo, 
 
 `token_env` reads the token from that environment variable; tokens are only sent as `Authorization` headers and never logged or stored. Requests are conditional (`If-None-Match` with the last `ETag`, cached in memory). Each request takes a token from the global and the host bucket; when one is empty the task waits for the next cycle. A host answering 429 (or 403 with `X-RateLimit-Remaining: 0`) is paused for `Retry-After` / until `X-RateLimit-Reset`. Other failures set `error` and back the task off with jitter: a random delay between half and all of `interval × 2^(failures-1)`, capped at 32 intervals.
 
-When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
+When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board`, `brief:<id>`, `task:<id>`). Transitions post a `system` message by `prsync` to the task thread: checks failed, head force-pushed (the previous head is no longer in the PR's commits), closed without merging, and merged. On merge a brief with `auto_done_on_merge` marks the task `done` (from `approved` or `needs_owner`; otherwise the message says why it was not). An `approved` task whose PR is open, not a draft, mergeable, with checks `success` and no `changes_requested` review has `merge_ready` and, when its quality gates pass, appears in the decisions feed as kind `merge-ready` (id `merge-ready:<task id>`, links to the PR, action `skip` only).
 
 ### Review comments on the PR
 With `SUBSPACE_REVIEWSYNC` set, a reviewer's `review` is also posted to the task's pull request as one comment. The value is `changes_requested` (post when changes are requested; an `approve` only updates a comment that already exists) or `all` (also post on `approve`); empty or `off` disables it. It needs `SUBSPACE_PRSYNC_CONFIG`: hosts, tokens and the repo-to-host mapping are the ones of the PR status sync, and a PR is only commented on when it passes the same repo and host checks. The comment is created through the host's issue comment API (`POST /repos/{owner}/{repo}/issues/{n}/comments`) and edited on later rounds (`PATCH /repos/{owner}/{repo}/issues/comments/{id}`), so a PR carries one Subspace review comment per task. A task with a new `pr_url` gets a new comment on the new PR; a comment deleted on the host is recreated.
@@ -366,7 +405,7 @@ Task `paths` are the repo-relative files or directories the task will touch (`[]
  "runs":1,"log":"$ git fetch ...","created_at":"...","updated_at":"..."}
 ```
 
-The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's; a task that loses that state waits (`waiting`) and is never merged.
+The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's and whose quality gates pass; a task that loses that state waits (`waiting`) and is never merged.
 
 ```jsonc
 {"workdir":"/data/mergequeue","interval":"30s",
@@ -1334,7 +1373,7 @@ All tools return an object; `task` = Task object above.
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.
 - `release_task {"task_id","reason?"}` → `{"task":Task}` (→ `assigned`)
-- `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`, or → `approved` when the brief has `cross_review:false`; releases lease; `pr_url` required for worker, optional for tester)
+- `submit {"task_id","pr_url","summary"}` → `{"task":Task}` (→ `submitted`, or → `approved` when the brief has `cross_review:false`; releases lease; `pr_url` required for worker, optional for tester). With `cross_review:false` and a failing quality gate the task is `submitted` and the call fails with `gates_failed` (see Quality gates).
 
 **Tester**
 - `report_tests {"task_id","passed":int,"failed":int,"log_excerpt?"}` → `{"task":Task}`. Requires an `in_progress` task of mine (409 otherwise).
@@ -1349,7 +1388,7 @@ All tools return an object; `task` = Task object above.
 
 **Reviewer**
 - `list_reviews {}` → `{"tasks":[Task],"scope_findings":{"T-3":[{"rule","severity","message","paths?"}]}}` — `submitted`/`in_review` tasks where `reviewer` is me or unset, and the worker's provider differs from mine. `scope_findings` maps task ids to the findings of the task's latest scope report (see Pull request status); tasks without findings are absent and the object is empty when no PR was synced.
-- `review {"task_id","verdict":"approve|changes_requested","comments"}` → `{"task":Task}`. approve → `approved`; changes_requested → `changes_requested` (`review_rounds`+1); at 3 rounds → `needs_owner`.
+- `review {"task_id","verdict":"approve|changes_requested","comments"}` → `{"task":Task}`. approve → `approved`; changes_requested → `changes_requested` (`review_rounds`+1); at 3 rounds → `needs_owner`. An approve held by quality gates leaves the task `in_review` and fails with `gates_failed` and `details` (see Quality gates).
 
 **Leader**
 - `get_brief {"brief_id"}` / `list_briefs {"status?"}` → Brief(s). Every leader tool is limited to briefs the caller may lead, see Leader scoping.

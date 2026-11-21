@@ -19,16 +19,17 @@ type TaskBudget struct {
 }
 
 type Doc struct {
-	Title            string            `json:"title"`
-	Body             string            `json:"body"`
-	Repos            []string          `json:"repos"`
-	MaxCostEUR       float64           `json:"max_cost_eur"`
-	MaxParallel      int               `json:"max_parallel_agents"`
-	AllowedProviders []string          `json:"allowed_providers"`
-	CrossReview      bool              `json:"cross_review"`
-	LeaderID         *string           `json:"leader_id"`
-	TaskBudget       *TaskBudget       `json:"task_budget"`
-	Components       []components.Spec `json:"components"`
+	Title            string              `json:"title"`
+	Body             string              `json:"body"`
+	Repos            []string            `json:"repos"`
+	MaxCostEUR       float64             `json:"max_cost_eur"`
+	MaxParallel      int                 `json:"max_parallel_agents"`
+	AllowedProviders []string            `json:"allowed_providers"`
+	CrossReview      bool                `json:"cross_review"`
+	LeaderID         *string             `json:"leader_id"`
+	TaskBudget       *TaskBudget         `json:"task_budget"`
+	QualityGates     *model.QualityGates `json:"quality_gates"`
+	Components       []components.Spec   `json:"components"`
 }
 
 func Parse(src []byte) (*Doc, error) {
@@ -72,10 +73,12 @@ func Parse(src []byte) (*Doc, error) {
 			}
 		case "task_budget":
 			d.TaskBudget, err = taskBudget(v)
+		case "quality_gates":
+			d.QualityGates, err = qualityGates(v)
 		case "components":
 			d.Components, err = componentList(v, e.pos)
 		default:
-			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, task_budget, components)", e.key)
+			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, task_budget, quality_gates, components)", e.key)
 		}
 		if err != nil {
 			return nil, err
@@ -102,7 +105,7 @@ func (d *Doc) BriefInput() board.BriefInput {
 	}
 	cross := d.CrossReview
 	in := board.BriefInput{Title: d.Title, Body: body, Repos: d.Repos, MaxCostEUR: d.MaxCostEUR, MaxParallel: d.MaxParallel,
-		AllowedProviders: d.AllowedProviders, CrossReview: &cross}
+		AllowedProviders: d.AllowedProviders, CrossReview: &cross, QualityGates: d.QualityGates}
 	if d.LeaderID != nil {
 		in.LeaderID = *d.LeaderID
 	}

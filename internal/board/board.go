@@ -60,6 +60,7 @@ type Board struct {
 	capGate capacity.Gate
 	gate    Gate
 	capDB   bool
+	quality QualityGate
 
 	expiries map[string][]time.Time
 

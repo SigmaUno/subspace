@@ -64,6 +64,7 @@ var registry = []entry{
 	{"PlanFinding", model.PlanFinding{}},
 	{"Prompt", prompts.Template{}},
 	{"ProviderStatus", usage.ProviderStatus{}},
+	{"QualityGates", model.QualityGates{}},
 	{"Question", model.Question{}},
 	{"ReportBucket", report.Bucket{}},
 	{"ReportCost", report.Cost{}},

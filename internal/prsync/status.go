@@ -135,7 +135,7 @@ func (s *Service) Decisions(ctx context.Context) ([]*decisions.Decision, error) 
 	var out []*decisions.Decision
 	for _, st := range all {
 		t := approved[st.TaskID]
-		if t == nil || !st.ready(t.Status) {
+		if t == nil || !st.ready(t.Status) || s.b.CheckQuality(ctx, t.ID) != nil {
 			continue
 		}
 		d := &decisions.Decision{

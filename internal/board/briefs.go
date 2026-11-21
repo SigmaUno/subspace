@@ -158,14 +158,15 @@ func (b *Board) ListBackups(ctx context.Context) ([]backup.Info, error) {
 }
 
 type BriefInput struct {
-	Title            string   `json:"title"`
-	Body             string   `json:"body"`
-	Repos            []string `json:"repos"`
-	MaxCostEUR       float64  `json:"max_cost_eur"`
-	MaxParallel      int      `json:"max_parallel_agents"`
-	AllowedProviders []string `json:"allowed_providers"`
-	CrossReview      *bool    `json:"cross_review"`
-	LeaderID         string   `json:"leader_id,omitempty"`
+	Title            string              `json:"title"`
+	Body             string              `json:"body"`
+	Repos            []string            `json:"repos"`
+	MaxCostEUR       float64             `json:"max_cost_eur"`
+	MaxParallel      int                 `json:"max_parallel_agents"`
+	AllowedProviders []string            `json:"allowed_providers"`
+	CrossReview      *bool               `json:"cross_review"`
+	LeaderID         string              `json:"leader_id,omitempty"`
+	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
 }
 
 func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, error) {
@@ -177,6 +178,13 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 	}
 	if in.MaxParallel == 0 {
 		in.MaxParallel = 10
+	}
+	var gates model.QualityGates
+	if in.QualityGates != nil {
+		if err := checkQualityGates(*in.QualityGates); err != nil {
+			return nil, err
+		}
+		gates = *in.QualityGates
 	}
 	var out *model.Brief
 	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
@@ -190,7 +198,7 @@ func (b *Board) CreateBrief(ctx context.Context, in BriefInput) (*model.Brief, e
 		}
 		br := &model.Brief{ID: id, Title: in.Title, Body: in.Body, Repos: nz(in.Repos), Status: "open", PlanStatus: "none", LeaderID: leader,
 			Budget:           model.BriefBudget{MaxCostEUR: in.MaxCostEUR, MaxParallelAgent: in.MaxParallel},
-			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, CreatedAt: b.now()}
+			AllowedProviders: nz(in.AllowedProviders), CrossReview: in.CrossReview == nil || *in.CrossReview, QualityGates: gates, CreatedAt: b.now()}
 		if err := tx.InsertBrief(br); err != nil {
 			return err
 		}
@@ -210,13 +218,14 @@ func (b *Board) GetBrief(ctx context.Context, id string) (*model.Brief, error) {
 }
 
 type BriefPatch struct {
-	MaxCostEUR       *float64  `json:"max_cost_eur"`
-	MaxParallel      *int      `json:"max_parallel_agents"`
-	AllowedProviders *[]string `json:"allowed_providers"`
-	CrossReview      *bool     `json:"cross_review"`
-	AutoDoneOnMerge  *bool     `json:"auto_done_on_merge"`
-	Status           *string   `json:"status"`
-	LeaderID         *string   `json:"leader_id,omitempty"`
+	MaxCostEUR       *float64            `json:"max_cost_eur"`
+	MaxParallel      *int                `json:"max_parallel_agents"`
+	AllowedProviders *[]string           `json:"allowed_providers"`
+	CrossReview      *bool               `json:"cross_review"`
+	AutoDoneOnMerge  *bool               `json:"auto_done_on_merge"`
+	Status           *string             `json:"status"`
+	LeaderID         *string             `json:"leader_id,omitempty"`
+	QualityGates     *model.QualityGates `json:"quality_gates,omitempty"`
 }
 
 func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*model.Brief, error) {
@@ -248,6 +257,12 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		if p.AutoDoneOnMerge != nil {
 			br.AutoDoneOnMerge = *p.AutoDoneOnMerge
 		}
+		if p.QualityGates != nil {
+			if err := checkQualityGates(*p.QualityGates); err != nil {
+				return err
+			}
+			br.QualityGates = *p.QualityGates
+		}
 		if p.Status != nil {
 			if *p.Status != "open" && *p.Status != "closed" {
 				return model.BadRequest("status must be open or closed")
@@ -278,7 +293,11 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 			return err
 		}
 		out = br
-		return w.audit(tx, model.Owner, "set_budget", "", nil, map[string]any{"brief_id": id}, "")
+		after := map[string]any{"brief_id": id}
+		if p.QualityGates != nil {
+			after["quality_gates"] = br.QualityGates
+		}
+		return w.audit(tx, model.Owner, "set_budget", "", nil, after, "")
 	})
 	return out, err
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
-const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id`
+const briefColumns = `id, title, body, repos, status, max_cost_eur, max_parallel, allowed_providers, plan_status, created_at, cross_review, auto_done_on_merge, leader_id, quality_gates`
 
 type briefScanner interface {
 	Scan(dest ...any) error
@@ -44,8 +44,13 @@ func briefScan(s briefScanner) (*model.Brief, error) {
 		crossReview        bool
 		autoDone           bool
 		leader             sql.NullString
+		gates              string
 	)
-	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS, &crossReview, &autoDone, &leader); err != nil {
+	if err := s.Scan(&id, &title, &body, &repos, &status, &maxCost, &maxParallel, &allowed, &planStatus, &createdMS, &crossReview, &autoDone, &leader, &gates); err != nil {
+		return nil, err
+	}
+	var err error
+	if b.QualityGates, err = gatesUnJSON(gates); err != nil {
 		return nil, err
 	}
 	b.ID, b.Title, b.Body, b.Status, b.PlanStatus, b.CrossReview = id, title, body, status, planStatus, crossReview
@@ -81,9 +86,13 @@ func (t *tx) InsertBrief(b *model.Brief) error {
 	if err != nil {
 		return err
 	}
-	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+	gates, err := gatesJSON(b.QualityGates)
+	if err != nil {
+		return err
+	}
+	_, err = t.q.ExecContext(t.ctx, `INSERT INTO briefs (`+briefColumns+`) VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
 		b.ID, b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID)
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates)
 	if err != nil && strings.Contains(err.Error(), "UNIQUE constraint failed") {
 		return store.ErrDuplicate
 	}
@@ -107,10 +116,14 @@ func (t *tx) UpdateBrief(b *model.Brief) error {
 	if err != nil {
 		return err
 	}
+	gates, err := gatesJSON(b.QualityGates)
+	if err != nil {
+		return err
+	}
 	res, err := t.q.ExecContext(t.ctx, `UPDATE briefs SET title=?, body=?, repos=?, status=?, max_cost_eur=?,
-		max_parallel=?, allowed_providers=?, plan_status=?, created_at=?, cross_review=?, auto_done_on_merge=?, leader_id=? WHERE id=?`,
+		max_parallel=?, allowed_providers=?, plan_status=?, created_at=?, cross_review=?, auto_done_on_merge=?, leader_id=?, quality_gates=? WHERE id=?`,
 		b.Title, b.Body, repos, b.Status, b.Budget.MaxCostEUR, b.Budget.MaxParallelAgent,
-		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, b.ID)
+		allowed, b.PlanStatus, briefMillis(b.CreatedAt), b.CrossReview, b.AutoDoneOnMerge, b.LeaderID, gates, b.ID)
 	if err != nil {
 		return err
 	}

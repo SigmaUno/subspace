@@ -6,6 +6,7 @@ import { api, optionalResource, safeURL, useResource, useSubmit, value } from ".
 import type { Decision } from "../../../lib/swarm";
 import type { Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+import { DecisionGates } from "./gates";
 import { EmptyState, ResourceState, Skeleton } from "./states";
 
 export type DecisionFeed = { decisions: Decision[]; count?: number };
@@ -86,6 +87,7 @@ function DecisionCard({ item, acting, next, openThread }: {
     <div className="meta">{labels[item.kind] ?? item.kind}{item.brief_id && ` · ${item.brief_id}`}{item.task_id && ` · ${item.task_id}`}</div>
     <h3 tabIndex={-1} ref={heading}>{item.title}</h3>
     {item.body && <p className="preserve">{item.body}</p>}
+    {item.task_id && ["merge", "merge-ready"].includes(String(item.kind)) && <DecisionGates taskID={item.task_id} />}
     <div className="actions">
       {thread && <button type="button" onClick={() => openThread(thread)}>Open thread <kbd>T</kbd></button>}
       {pr && <a href={pr.href} target="_blank" rel="noreferrer">PR diff</a>}

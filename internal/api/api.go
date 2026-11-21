@@ -35,6 +35,7 @@ type errBody struct {
 	Error struct {
 		Code    string `json:"code"`
 		Message string `json:"message"`
+		Details any    `json:"details,omitempty"`
 	} `json:"error"`
 }
 
@@ -44,7 +45,7 @@ func (a *API) fail(w http.ResponseWriter, err error) {
 		a.Log.Error("api error", "err", err)
 	}
 	var b errBody
-	b.Error.Code, b.Error.Message = e.Code, e.Message
+	b.Error.Code, b.Error.Message, b.Error.Details = e.Code, e.Message, e.Details
 	writeJSON(w, e.HTTPStatus(), b)
 }
 

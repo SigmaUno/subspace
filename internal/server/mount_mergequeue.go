@@ -270,6 +270,12 @@ func (g mqGate) check(ctx context.Context, taskID string) (*model.Task, error) {
 	if rv.Provider == wk.Provider {
 		return nil, model.Conflict("task %s was reviewed by %s on the worker's provider %s", t.ID, rv.ID, rv.Provider)
 	}
+	if err := g.b.CheckQuality(ctx, t.ID); err != nil {
+		if me := model.AsError(err); me.Code == board.CodeGatesFailed {
+			return nil, model.Conflict("task %s: %s", t.ID, me.Message)
+		}
+		return nil, err
+	}
 	return t, nil
 }
 

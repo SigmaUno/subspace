@@ -20,6 +20,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/digest"
 	"github.com/SigmaUno/subspace/internal/estimate"
 	"github.com/SigmaUno/subspace/internal/forecast"
+	"github.com/SigmaUno/subspace/internal/gates"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/incident"
@@ -130,6 +131,8 @@ var operations = []Op{
 	post("/api/v1/tasks/{id}/reopen", "Reopen a blocked, needs_owner or cancelled task", Reopen{}, model.Task{}),
 	post("/api/v1/tasks/bulk", "Apply one action to many tasks", BulkRequest{}, BulkResponse{}),
 	get("/api/v1/tasks/{id}/pr", "Latest pull request snapshot of a task", prsync.Status{}),
+	get("/api/v1/tasks/{id}/gates", "Quality gate results of a task with evidence", gates.Report{}),
+	post("/api/v1/tasks/{id}/gates/override", "Override failing quality gates of a task with a reason (audited)", gates.OverrideInput{}, gates.Report{}),
 	get("/api/v1/prs", "Pull request snapshots", list[prsync.Status]("prs")).Q("brief_id state limit:integer"),
 
 	get("/api/v1/agents", "List agents with their daily quota", list[Agent]("agents")).Q("role status"),

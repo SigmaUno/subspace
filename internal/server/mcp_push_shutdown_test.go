@@ -10,9 +10,10 @@ import (
 
 func TestMCPPushStreamClosesGracefullyOnShutdown(t *testing.T) {
 	l := startLive(t)
+	hc := &http.Client{Transport: &http.Transport{DisableKeepAlives: true}}
 	init, _ := http.NewRequest(http.MethodPost, l.base+"/mcp", strings.NewReader(`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}`))
 	init.Header.Set("Authorization", "Bearer "+l.tok)
-	ir, err := http.DefaultClient.Do(init)
+	ir, err := hc.Do(init)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -21,7 +22,7 @@ func TestMCPPushStreamClosesGracefullyOnShutdown(t *testing.T) {
 	req.Header.Set("Authorization", "Bearer "+l.tok)
 	req.Header.Set("Mcp-Session-Id", ir.Header.Get("Mcp-Session-Id"))
 	req.Header.Set("Accept", "text/event-stream")
-	resp, err := http.DefaultClient.Do(req)
+	resp, err := hc.Do(req)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -49,7 +50,7 @@ func TestMCPPushStreamClosesGracefullyOnShutdown(t *testing.T) {
 	}
 	select {
 	case <-l.done:
-	case <-time.After(5 * time.Second):
+	case <-time.After(3 * time.Second):
 		t.Fatal("server did not stop with an open stream")
 	}
 	if d := time.Since(start); d > 5*time.Second {

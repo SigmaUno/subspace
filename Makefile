@@ -1,4 +1,4 @@
-.PHONY: all build test vet lint fmt run loadtest loadtest-short loadtest-1000 loadtest-report clean
+.PHONY: all build test vet lint fmt gen-ts run loadtest loadtest-short loadtest-1000 loadtest-report clean
 
 GO ?= go
 BIN := bin
@@ -23,6 +23,9 @@ lint:
 
 fmt:
 	gofmt -w .
+
+gen-ts:
+	$(GO) run ./cmd/gen-ts -o web/lib/generated-types.ts
 
 run: build
 	SUBSPACE_OWNER_TOKEN=$${SUBSPACE_OWNER_TOKEN:-dev-owner-token} SUBSPACE_DB=$${SUBSPACE_DB:-./data/subspace.db} SUBSPACE_ADDR=$${SUBSPACE_ADDR:-:8080} $(BIN)/subspace

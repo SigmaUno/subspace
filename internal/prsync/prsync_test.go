@@ -600,3 +600,36 @@ func TestMountPollsWithEnvConfig(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestPollerForgetsTasksThatLeaveReview(t *testing.T) {
+	gh, fj := newFakeHost(t, prsync.KindGitHub), newFakeHost(t, prsync.KindForgejo)
+	for n := 1; n <= 3; n++ {
+		gh.set("o/gh", n, func(p *fakePR) { p.Status = "failure" })
+	}
+	h := newHarness(t, gh, fj, servertest.DB(t), `{"per_minute": 6000, "burst": 1000}`)
+	ids := h.setup(3)
+	for i, id := range ids {
+		h.submit(id, ghURL(i+1))
+	}
+	h.sync()
+	if n := h.p.Tracked(); n != 3 {
+		t.Fatalf("tracked %d tasks in review, want 3", n)
+	}
+	for _, id := range ids {
+		if code, out := h.e.REST("POST", "/api/v1/tasks/"+id+"/cancel", map[string]any{"reason": "dropped"}); code != 200 {
+			t.Fatalf("cancel %s: %d %v", id, code, out)
+		}
+	}
+	h.sync()
+	if n := h.p.Tracked(); n != 0 {
+		t.Fatalf("still tracking %d cancelled tasks", n)
+	}
+	if code, out := h.e.REST("POST", "/api/v1/tasks/"+ids[0]+"/reopen", map[string]any{"status": "ready"}); code != 200 {
+		t.Fatalf("reopen: %d %v", code, out)
+	}
+	h.submit(ids[0], ghURL(1))
+	h.sync()
+	if msgs := h.syncMessages(ids[0]); len(msgs) != 1 {
+		t.Fatalf("transition repeated after the task returned to review: %v", msgs)
+	}
+}

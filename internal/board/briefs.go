@@ -235,6 +235,7 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 		if err != nil {
 			return err
 		}
+		var transition func(store.Tx, *wctx, *model.Brief) error
 		if p.MaxCostEUR != nil {
 			if *p.MaxCostEUR < 0 {
 				return model.BadRequest("max_cost_eur must be >= 0")
@@ -260,10 +261,22 @@ func (b *Board) UpdateBrief(ctx context.Context, id string, p BriefPatch) (*mode
 			if *p.Status != "open" && *p.Status != "closed" {
 				return model.BadRequest("status must be open or closed")
 			}
+			prev := br.Status
 			br.Status = *p.Status
+			if prev != br.Status {
+				transition = b.closeBrief
+				if br.Status == "open" {
+					transition = b.reopenBrief
+				}
+			}
 		}
 		if err := tx.UpdateBrief(br); err != nil {
 			return err
+		}
+		if transition != nil {
+			if err := transition(tx, w, br); err != nil {
+				return err
+			}
 		}
 		if br.CostUsed, err = tx.BriefCost(id); err != nil {
 			return err

@@ -241,11 +241,11 @@ func loadAllowlist(t *testing.T) allowlist {
 	t.Helper()
 	b, err := os.ReadFile("secretscan.allow")
 	if err != nil {
-		t.Fatalf("read allowlist: %v", err)
+		t.Fatalf("deploy/secretscan.allow: cannot read: %v", err)
 	}
 	allow, err := parseAllowlist(b)
 	if err != nil {
-		t.Fatalf("allowlist: %v", err)
+		t.Fatalf("deploy/secretscan.allow: %v; fix the entry in deploy/secretscan.allow", err)
 	}
 	return allow
 }
@@ -273,7 +273,7 @@ func TestNoSecretsInTrackedFiles(t *testing.T) {
 		findings = append(findings, scanText(name, string(b), allow)...)
 	}
 	for _, f := range findings {
-		t.Errorf("likely secret: %s", f)
+		t.Errorf("likely secret: %s; remove it from that file, or for a documented sample add an entry with a reason to deploy/secretscan.allow", f)
 	}
 }
 
@@ -300,7 +300,7 @@ func TestNoSecretsInRecentHistory(t *testing.T) {
 	}
 	seen := map[string]bool{}
 	for _, f := range findings {
-		t.Errorf("likely secret in history: %s", f)
+		t.Errorf("likely secret in history: %s; rotate it, and add a commit-scoped entry with a reason to deploy/secretscan.allow", f)
 		seen[f.commit] = true
 	}
 	if len(seen) > 0 {
@@ -320,7 +320,7 @@ func TestNoSecretsInStagedChanges(t *testing.T) {
 		t.Fatal(err)
 	}
 	for _, f := range findings {
-		t.Errorf("likely secret staged: %s", f)
+		t.Errorf("likely secret staged: %s; unstage it, or for a documented sample add an entry with a reason to deploy/secretscan.allow", f)
 	}
 }
 

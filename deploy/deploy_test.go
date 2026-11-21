@@ -39,7 +39,7 @@ func readRepoFile(t *testing.T, name string) string {
 	t.Helper()
 	b, err := os.ReadFile(filepath.Join("..", name))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("cannot read %s: %v", name, err)
 	}
 	return string(b)
 }
@@ -57,7 +57,7 @@ func loadCompose(t *testing.T) composeProject {
 	}
 	var p composeProject
 	if err := json.Unmarshal(out, &p); err != nil {
-		t.Fatal(err)
+		t.Fatalf("docker-compose.yml: cannot parse `docker compose config` output: %v", err)
 	}
 	return p
 }
@@ -67,19 +67,19 @@ func TestComposeHardening(t *testing.T) {
 	for _, name := range []string{"server", "web", "caddy", "backup"} {
 		s, ok := p.Services[name]
 		if !ok {
-			t.Fatalf("service %s missing", name)
+			t.Fatalf("docker-compose.yml: service %s missing", name)
 		}
 		if !s.ReadOnly {
-			t.Errorf("%s: rootfs is writable", name)
+			t.Errorf("docker-compose.yml: %s: rootfs is writable; set read_only: true", name)
 		}
 		if !slices.Contains(s.CapDrop, "ALL") {
-			t.Errorf("%s: capabilities not dropped: %v", name, s.CapDrop)
+			t.Errorf("docker-compose.yml: %s: capabilities not dropped (%v); add cap_drop: [ALL]", name, s.CapDrop)
 		}
 		if !slices.Contains(s.SecurityOpt, "no-new-privileges:true") {
-			t.Errorf("%s: no-new-privileges missing", name)
+			t.Errorf("docker-compose.yml: %s: no-new-privileges missing; add it to security_opt", name)
 		}
 		if s.Healthcheck == nil || len(s.Healthcheck.Test) == 0 {
-			t.Errorf("%s: no healthcheck", name)
+			t.Errorf("docker-compose.yml: %s: no healthcheck; add one", name)
 		}
 	}
 }
@@ -91,33 +91,33 @@ func TestComposeExposure(t *testing.T) {
 			switch name {
 			case "server", "web":
 				if port.HostIP != "127.0.0.1" {
-					t.Errorf("%s publishes %s on %q", name, port.Published, port.HostIP)
+					t.Errorf("docker-compose.yml: %s publishes %s on %q; bind it to 127.0.0.1", name, port.Published, port.HostIP)
 				}
 			case "caddy":
 				if port.Published != "80" && port.Published != "443" {
-					t.Errorf("caddy publishes unexpected port %s", port.Published)
+					t.Errorf("docker-compose.yml: caddy publishes unexpected port %s; only 80 and 443 are allowed", port.Published)
 				}
 			default:
-				t.Errorf("%s must not publish ports", name)
+				t.Errorf("docker-compose.yml: %s must not publish ports; remove its ports section", name)
 			}
 		}
 		if s.NetworkMode == "host" {
-			t.Errorf("%s uses host networking", name)
+			t.Errorf("docker-compose.yml: %s uses host networking; remove network_mode: host", name)
 		}
 	}
 	if p.Services["backup"].NetworkMode != "none" {
-		t.Error("backup must run with network_mode none")
+		t.Error("docker-compose.yml: backup must run with network_mode: none")
 	}
 	if !p.Networks["internal"].Internal {
-		t.Error("internal network must be internal")
+		t.Error("docker-compose.yml: the internal network must set internal: true")
 	}
 	for _, name := range []string{"server", "web"} {
 		if _, ok := p.Services[name].Networks["internal"]; !ok {
-			t.Errorf("%s is not on the internal network", name)
+			t.Errorf("docker-compose.yml: %s must join the internal network", name)
 		}
 	}
 	if _, ok := p.Services["caddy"].Networks["internal"]; ok {
-		t.Error("caddy must not join the internal network")
+		t.Error("docker-compose.yml: caddy must not join the internal network")
 	}
 }
 
@@ -127,12 +127,12 @@ func TestComposeNoInlineSecrets(t *testing.T) {
 	for name, s := range p.Services {
 		for k, v := range s.Environment {
 			if secret.MatchString(k) && v != "" {
-				t.Errorf("%s: %s carries an inline value", name, k)
+				t.Errorf("docker-compose.yml: %s: %s carries an inline value; read it from a file or the environment of the host instead", name, k)
 			}
 		}
 	}
 	if p.Services["server"].Environment["SUBSPACE_OWNER_TOKEN_FILE"] == "" {
-		t.Error("server must read the owner token from a file")
+		t.Error("docker-compose.yml: server must set SUBSPACE_OWNER_TOKEN_FILE")
 	}
 }
 
@@ -146,7 +146,7 @@ func TestImagesPinned(t *testing.T) {
 				continue
 			}
 			if !stages[f[1]] && !pinned.MatchString(f[1]) {
-				t.Errorf("%s: %s is not pinned by digest", name, f[1])
+				t.Errorf("%s: %s is not pinned by digest; append @sha256:<digest> in %s", name, f[1], name)
 			}
 			if len(f) >= 4 {
 				stages[f[3]] = true
@@ -155,7 +155,7 @@ func TestImagesPinned(t *testing.T) {
 	}
 	for name, s := range loadCompose(t).Services {
 		if s.Image != "" && !pinned.MatchString(s.Image) {
-			t.Errorf("service %s image %s is not pinned by digest", name, s.Image)
+			t.Errorf("docker-compose.yml: service %s image %s is not pinned by digest; append @sha256:<digest>", name, s.Image)
 		}
 	}
 }
@@ -174,15 +174,15 @@ func TestCaddyfiles(t *testing.T) {
 			"@agent path /mcp* /healthz",
 		} {
 			if !strings.Contains(src, want) {
-				t.Errorf("%s: missing %q", name, want)
+				t.Errorf("%s: missing %q; add it to %s", name, want, name)
 			}
 		}
 		if got := strings.Count(src, "subspace-server:8080"); got != 1 {
-			t.Errorf("%s: %d routes to the Go server, want only the agent route", name, got)
+			t.Errorf("%s: %d routes to the Go server, want only the agent route; edit %s", name, got, name)
 		}
 	}
 	if !strings.Contains(readRepoFile(t, "Caddyfile"), "read_header") {
-		t.Error("Caddyfile: server timeouts missing")
+		t.Error("Caddyfile: server timeouts missing; add read_header to Caddyfile")
 	}
 }
 
@@ -190,7 +190,7 @@ func TestBackupScriptPermissionsAndRetention(t *testing.T) {
 	src := readRepoFile(t, "deploy/backup.sh")
 	for _, want := range []string{"umask 077", "chmod 700", `"$#" -gt "$keep"`} {
 		if !strings.Contains(src, want) {
-			t.Errorf("backup.sh: missing %q", want)
+			t.Errorf("deploy/backup.sh: missing %q; add it to deploy/backup.sh", want)
 		}
 	}
 }
@@ -198,18 +198,18 @@ func TestBackupScriptPermissionsAndRetention(t *testing.T) {
 func TestWorkflowLeastPrivilege(t *testing.T) {
 	src := readRepoFile(t, ".github/workflows/ci.yml")
 	if !regexp.MustCompile(`(?m)^permissions:\n\s+contents: read$`).MatchString(src) {
-		t.Error("workflow must default to contents: read")
+		t.Error(".github/workflows/ci.yml: workflow must default to contents: read; propose the change in ci-proposals/ci.yml, the leader installs it")
 	}
 	if regexp.MustCompile(`(?m)^\s+[a-z-]+: write$`).MatchString(src) {
-		t.Error("workflow grants a write permission")
+		t.Error(".github/workflows/ci.yml: workflow grants a write permission; propose the change in ci-proposals/ci.yml, the leader installs it")
 	}
 	sha := regexp.MustCompile(`@[0-9a-f]{40}( |$)`)
 	for _, line := range strings.Split(src, "\n") {
 		if i := strings.Index(line, "uses: "); i >= 0 && !sha.MatchString(line[i:]) {
-			t.Errorf("action not pinned to a commit: %s", strings.TrimSpace(line))
+			t.Errorf(".github/workflows/ci.yml: action not pinned to a commit: %s; propose the change in ci-proposals/ci.yml, the leader installs it", strings.TrimSpace(line))
 		}
 	}
 	if strings.Contains(src, "version: latest") {
-		t.Error("tool versions must be pinned")
+		t.Error(".github/workflows/ci.yml: tool versions must be pinned, not `latest`; propose the change in ci-proposals/ci.yml, the leader installs it")
 	}
 }

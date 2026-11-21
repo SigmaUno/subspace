@@ -234,6 +234,7 @@ func taskFull(id string) *model.Task {
 	x.BlockedReason = ptr("budget_exceeded")
 	x.Priority = 3
 	x.ComponentID = ptr("C-1")
+	x.Paths = model.Paths{"internal/api/**", "cmd"}
 	return x
 }
 

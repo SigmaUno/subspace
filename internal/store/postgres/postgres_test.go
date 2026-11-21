@@ -12,6 +12,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/tokens"
 )
 
 func TestPGAuditAppendOnly(t *testing.T) {
@@ -191,4 +192,70 @@ func TestPGBackupRestore(t *testing.T) {
 	if !errors.Is(err, store.ErrDuplicate) {
 		t.Fatalf("restored brief: %v", err)
 	}
+}
+
+func TestPGRestoreAdvancesNonIDIdentityColumns(t *testing.T) {
+	src, _ := openPG(t)
+	ctx := context.Background()
+	audit := func(tk *tokens.Token) *model.AuditEvent {
+		return &model.AuditEvent{TS: tk.CreatedAt, AgentID: "owner", Role: "owner", Tool: "create_token"}
+	}
+	for i, name := range []string{"ci", "ops"} {
+		tk := &tokens.Token{Name: name, Scope: "owner", CreatedAt: time.UnixMilli(int64(1000 + i)).UTC()}
+		if err := src.CreateAPIToken(ctx, tk, "hash-"+name, audit); err != nil {
+			t.Fatal(err)
+		}
+	}
+	path := filepath.Join(t.TempDir(), "b.jsonl")
+	if err := src.Backup(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	dst, _ := openPG(t)
+	if err := dst.Restore(ctx, path); err != nil {
+		t.Fatal(err)
+	}
+	next := &tokens.Token{Name: "new", Scope: "viewer", CreatedAt: time.UnixMilli(2000).UTC()}
+	if err := dst.CreateAPIToken(ctx, next, "hash-new", audit); err != nil {
+		t.Fatal(err)
+	}
+	if next.ID != "K-3" {
+		t.Fatalf("token id after restore: %s", next.ID)
+	}
+	all, err := dst.ListAPITokens(ctx)
+	if err != nil || len(all) != 3 || all[0].Name != "ci" {
+		t.Fatalf("tokens: %v %v", all, err)
+	}
+}
+
+func TestPGMigrationBackfillsTaskOrder(t *testing.T) {
+	dsn, raw := pgSchemaDSN(t)
+	first := openPGAt(t, dsn)
+	write(t, first, func(tx store.Tx) error {
+		for _, id := range []string{"T-10", "T-2", "T-1", "T-100"} {
+			if err := tx.InsertTask(taskMin(id, "B-1")); err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if _, err := raw.Exec(`UPDATE tasks SET id_num = 0`); err != nil {
+		t.Fatal(err)
+	}
+	reopened := openPGAt(t, dsn)
+	read(t, reopened, func(tx store.Tx) error {
+		got, err := tx.ListTasks(store.TaskFilter{})
+		if err != nil {
+			return err
+		}
+		var ids []string
+		for _, x := range got {
+			ids = append(ids, x.ID)
+		}
+		same(t, []string{"T-1", "T-2", "T-10", "T-100"}, ids)
+		after, err := tx.ListTasks(store.TaskFilter{AfterID: "T-2"})
+		if err != nil || len(after) != 2 || after[0].ID != "T-10" {
+			t.Fatalf("after T-2: %v %v", after, err)
+		}
+		return nil
+	})
 }

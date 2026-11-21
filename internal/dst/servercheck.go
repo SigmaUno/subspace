@@ -108,6 +108,9 @@ func (c *Checker) checkAutopilot(op Op, res Result, pre, post *State) *Violation
 	if res.Actions > 0 && !post.Server.Autopilot {
 		return violation(InvAutopilot, "autopilot took %d actions while disabled", res.Actions)
 	}
+	if res.Actions > 0 && !slices.ContainsFunc(pre.Briefs, func(b *model.Brief) bool { return b.LeaderID == nil }) {
+		return violation(InvLeaderScope, "autopilot took %d actions although every brief has a leader", res.Actions)
+	}
 	if res.Spawned == 0 {
 		return nil
 	}

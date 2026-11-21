@@ -180,3 +180,38 @@ func TestAutopilotAssignsAndSetsReviewer(t *testing.T) {
 		t.Fatalf("state while paused: %v", st["state"])
 	}
 }
+
+func TestAutopilotLeavesLedBriefsToTheirLeader(t *testing.T) {
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	srv, err := server.New(ctx, server.Config{DBPath: filepath.Join(t.TempDir(), "t.db"), OwnerToken: ownerTok,
+		PublicURL: "http://sub.test", FlushEvery: 50 * time.Millisecond, SweepEvery: 50 * time.Millisecond, Lease: time.Minute})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = srv.Close() }()
+	go srv.Board.Run(ctx)
+	ap := autopilot.New(srv.Board, autopilot.Options{})
+	ts := httptest.NewServer(srv.Handler())
+	defer ts.Close()
+	e := &env{t: t, ts: ts}
+
+	lead := e.register("rex", "leader", "other")
+	e.register("claude-1", "worker", "claude-code")
+	bid := e.rest("POST", "/api/v1/briefs", map[string]any{"title": "Led", "repos": []string{"o/r"}, "leader_id": "rex"})["id"].(string)
+	plan := e.call(lead, "propose_plan", map[string]any{"brief_id": bid, "tasks": []any{
+		map[string]any{"title": "One", "spec": "s", "repo": "o/r"},
+	}})["plan"].(map[string]any)
+	e.rest("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{})
+	ap.SetEnabled(bid, true)
+
+	res, err := ap.Tick(ctx)
+	if err != nil || len(res) != 0 {
+		t.Fatalf("autopilot acted on a brief led by rex: %v %v", res, err)
+	}
+	e.rest("POST", "/api/v1/briefs/"+bid+"/leader", map[string]any{"agent_id": nil})
+	if res, err = ap.Tick(ctx); err != nil || len(res) != 1 || res[0].Error != "" {
+		t.Fatalf("autopilot on a shared brief: %v %v", res, err)
+	}
+	e.waitTasks("assigned", func(ts map[string]map[string]any) bool { return ts["T-1"]["status"] == "assigned" })
+}

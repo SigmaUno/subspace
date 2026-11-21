@@ -58,10 +58,12 @@ type agentSim struct {
 
 type Gen struct {
 	r       *rand.Rand
+	scope   *rand.Rand
 	w       World
 	setup   Setup
 	serial  bool
 	leader  *agentSim
+	rival   *agentSim
 	agents  []*agentSim
 	known   map[string]bool
 	queue   []Op
@@ -78,6 +80,10 @@ func NewGen(seed int64, w World, s Setup, serial bool) *Gen {
 		g.queue = append(g.queue, Op{Kind: OpApprove, Target: s.PlanID})
 	}
 	g.leader = &agentSim{spec: AgentSpec{ID: w.Leader, Role: model.RoleLeader}}
+	if w.Rival != "" {
+		g.rival = &agentSim{spec: AgentSpec{ID: w.Rival, Role: model.RoleLeader}}
+		g.scope = rand.New(rand.NewSource(seed ^ 0x1ead)) //nolint:gosec // deterministic simulation
+	}
 	return g
 }
 
@@ -98,6 +104,27 @@ func (g *Gen) sync(s *State) {
 	}
 }
 
+func (g *Gen) leaderSim() *agentSim {
+	if g.rival != nil && g.scope.Intn(2) == 0 {
+		return g.rival
+	}
+	return g.leader
+}
+
+func (g *Gen) handoff(s *State) (Op, bool) {
+	if g.rival == nil || len(s.Briefs) == 0 || g.scope.Intn(100) >= 4 {
+		return Op{}, false
+	}
+	cur := deref(s.Briefs[0].LeaderID)
+	var cand []string
+	for _, id := range []string{g.w.Leader, g.w.Rival, ""} {
+		if id != cur {
+			cand = append(cand, id)
+		}
+	}
+	return Op{Kind: OpHandoff, Target: cand[g.scope.Intn(len(cand))]}, true
+}
+
 func (g *Gen) pick(n int) int { return g.r.Intn(n) }
 
 func (g *Gen) chance(p int) bool { return g.r.Intn(100) < p }
@@ -105,7 +132,9 @@ func (g *Gen) chance(p int) bool { return g.r.Intn(100) < p }
 func (g *Gen) Next(s *State) Op {
 	g.sync(s)
 	op := g.next(s)
-	g.last, g.hasLast = op, true
+	if op.Kind != OpHandoff {
+		g.last, g.hasLast = op, true
+	}
 	return op
 }
 
@@ -113,6 +142,9 @@ func (g *Gen) next(s *State) Op {
 	if len(g.queue) > 0 {
 		op := g.queue[0]
 		g.queue = g.queue[1:]
+		return op
+	}
+	if op, ok := g.handoff(s); ok {
 		return op
 	}
 	if g.hasLast && g.last.Mutating() && g.chance(5) {
@@ -223,6 +255,9 @@ func (g *Gen) race(s *State) (Op, bool) {
 func (g *Gen) knownToken(id string) int {
 	if id == g.leader.spec.ID {
 		return g.leader.token
+	}
+	if g.rival != nil && id == g.rival.spec.ID {
+		return g.rival.token
 	}
 	for _, a := range g.agents {
 		if a.spec.ID == id {
@@ -359,6 +394,9 @@ func (g *Gen) owner(s *State) Op {
 		return Op{Kind: OpReopen, Task: g.choose(g.tasksIn(s, model.StatusNeedsOwner, model.StatusBlocked, model.StatusCancelled), s)}
 	case p < 82:
 		ids := []string{g.leader.spec.ID}
+		if g.rival != nil {
+			ids = append(ids, g.rival.spec.ID)
+		}
 		for _, a := range g.agents {
 			ids = append(ids, a.spec.ID)
 		}
@@ -382,7 +420,7 @@ func (g *Gen) owner(s *State) Op {
 }
 
 func (g *Gen) leaderOp(s *State) Op {
-	l := g.leader
+	l := g.leaderSim()
 	g.refresh(s, l)
 	op := Op{Actor: l.spec.ID}
 	if br := s.Brief(g.firstBrief(s)); br != nil && br.PlanStatus == model.PlanRejected && g.chance(60) {

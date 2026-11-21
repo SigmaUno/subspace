@@ -61,6 +61,8 @@ func (s *BoardSystem) touch(op Op) {
 		mark("plans")
 	case OpSetCapacity:
 		mark("capacity")
+	case OpHandoff:
+		mark("briefs")
 	}
 }
 
@@ -156,12 +158,20 @@ func (s *BoardSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	}
 	s.brief = br.ID
 	agents := append([]AgentSpec{{ID: w.Leader, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"}}, w.Agents...)
+	if w.Rival != "" {
+		agents = append(agents, AgentSpec{ID: w.Rival, Role: model.RoleLeader, Kind: model.KindOther, Provider: "anthropic"})
+	}
 	for _, a := range agents {
 		r, err := s.b.RegisterAgent(ctx, board.AgentInput{ID: a.ID, Role: a.Role, Kind: a.Kind, Provider: a.Provider, Model: "sim"})
 		if err != nil {
 			return out, err
 		}
 		s.tokens[a.ID] = []string{r.Connect.Token}
+	}
+	if w.Rival != "" {
+		if _, err := s.b.SetBriefLeader(ctx, br.ID, w.Leader); err != nil {
+			return out, err
+		}
 	}
 	p, err := s.propose(ctx, model.Actor{ID: w.Leader, Role: model.RoleLeader})
 	if err != nil {
@@ -273,6 +283,8 @@ func (s *BoardSystem) Do(ctx context.Context, op Op) Result {
 		_, err = s.b.SetCapacity(ctx, op.capacityConfig())
 	case OpPropose:
 		_, err = s.propose(ctx, a)
+	case OpHandoff:
+		_, err = s.b.SetBriefLeader(ctx, s.brief, op.Target)
 	case OpAssign:
 		_, err = s.b.Assign(ctx, a, op.Task, op.Target, "assignee")
 	case OpAssignReviewer:
@@ -374,7 +386,7 @@ func (s *BoardSystem) Snapshot(ctx context.Context) (*State, error) {
 		}
 		sort.Slice(out.Tasks, func(i, j int) bool { return idLess(out.Tasks[i].ID, out.Tasks[j].ID) })
 	}
-	if all || s.dirty["plans"] {
+	if all || s.dirty["plans"] || s.dirty["briefs"] {
 		if out.Briefs, err = s.b.ListBriefs(ctx, ""); err != nil {
 			return nil, err
 		}

@@ -224,7 +224,7 @@ func (b *Board) readRefPage(ctx context.Context, a model.Actor, ref threads.Ref,
 		limit = MaxPage
 	}
 	var rows []*model.Message
-	err = b.read(ctx, func(tx store.Tx) error {
+	err = b.readAs(ctx, a, func(tx store.Tx) error {
 		if err := canAccessThread(tx, a, ref); err != nil {
 			return err
 		}

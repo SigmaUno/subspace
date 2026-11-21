@@ -125,7 +125,7 @@ func (s *Service) ReportBlocker(ctx context.Context, a model.Actor, taskID, reas
 		return nil, err
 	}
 	if needs == NeedsLeader {
-		return r, s.notifyLeaders(ctx, a, body)
+		return r, s.notifyLeaders(ctx, a, t.BriefID, body)
 	}
 	return r, nil
 }
@@ -171,6 +171,18 @@ func (s *Service) SuggestSplit(ctx context.Context, a model.Actor, taskID string
 }
 
 func (s *Service) List(ctx context.Context, f Filter) ([]*Request, error) {
+	return s.ListFor(ctx, model.Owner, f)
+}
+
+func (s *Service) ListFor(ctx context.Context, a model.Actor, f Filter) ([]*Request, error) {
+	briefs, err := s.b.BriefsFor(ctx, a, "")
+	if err != nil {
+		return nil, err
+	}
+	visible := make(map[string]bool, len(briefs))
+	for _, br := range briefs {
+		visible[br.ID] = true
+	}
 	status := f.Status
 	if status == "" {
 		status = StatusOpen
@@ -180,7 +192,7 @@ func (s *Service) List(ctx context.Context, f Filter) ([]*Request, error) {
 		limit = 1000
 	}
 	var out []*Request
-	err := s.view(ctx, func(tx store.Tx, q sqlTx) error {
+	err = s.view(ctx, func(tx store.Tx, q sqlTx) error {
 		where, args := `WHERE 1=1`, []any{}
 		if f.BriefID != "" {
 			where += ` AND brief_id=?`
@@ -195,6 +207,9 @@ func (s *Service) List(ctx context.Context, f Filter) ([]*Request, error) {
 			return err
 		}
 		for _, r := range rs {
+			if !visible[r.BriefID] {
+				continue
+			}
 			t, err := tx.GetTask(r.TaskID)
 			if err != nil {
 				return err
@@ -274,12 +289,19 @@ func (s *Service) announce(ctx context.Context, a model.Actor, t *model.Task, bo
 	return err
 }
 
-func (s *Service) notifyLeaders(ctx context.Context, a model.Actor, body string) error {
+func (s *Service) notifyLeaders(ctx context.Context, a model.Actor, briefID, body string) error {
 	leaders, err := s.b.ListAgents(ctx, model.RoleLeader, model.AgentActive)
 	if err != nil {
 		return err
 	}
 	for _, l := range leaders {
+		ok, err := s.b.BriefVisible(ctx, model.Actor{ID: l.ID, Role: l.Role}, briefID)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			continue
+		}
 		m := model.Message{AuthorID: a.ID, AuthorRole: a.Role, Kind: model.MsgMessage, Body: body}
 		if _, err := s.b.AppendMessage(ctx, model.ThreadAgent, l.ID, m); err != nil {
 			return err

@@ -69,6 +69,7 @@ const (
 	OpInstrSave      Kind = "instructions_save"
 	OpInstrRollback  Kind = "instructions_rollback"
 	OpSearch         Kind = "search"
+	OpHandoff        Kind = "set_brief_leader"
 )
 
 type Op struct {
@@ -213,6 +214,7 @@ type World struct {
 	BriefCost        float64
 	MaxParallel      int
 	Leader           string
+	Rival            string
 	Agents           []AgentSpec
 	Tasks            []TaskSpec
 }

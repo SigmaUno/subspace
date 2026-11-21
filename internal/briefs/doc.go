@@ -26,6 +26,7 @@ type Doc struct {
 	MaxParallel      int               `json:"max_parallel_agents"`
 	AllowedProviders []string          `json:"allowed_providers"`
 	CrossReview      bool              `json:"cross_review"`
+	LeaderID         *string           `json:"leader_id"`
 	TaskBudget       *TaskBudget       `json:"task_budget"`
 	Components       []components.Spec `json:"components"`
 }
@@ -61,12 +62,20 @@ func Parse(src []byte) (*Doc, error) {
 			d.AllowedProviders, err = textList(v, e.key)
 		case "cross_review":
 			d.CrossReview, err = boolean(v, e.key)
+		case "leader_id":
+			var id string
+			if id, err = text(v, e.key); err == nil {
+				if id = strings.TrimSpace(id); id == "" {
+					err = errAt(v.pos, "leader_id must not be empty")
+				}
+				d.LeaderID = &id
+			}
 		case "task_budget":
 			d.TaskBudget, err = taskBudget(v)
 		case "components":
 			d.Components, err = componentList(v, e.pos)
 		default:
-			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, task_budget, components)", e.key)
+			err = errAt(e.pos, "unknown key %q (allowed: title, repos, max_cost_eur, max_parallel_agents, allowed_providers, cross_review, leader_id, task_budget, components)", e.key)
 		}
 		if err != nil {
 			return nil, err
@@ -92,8 +101,12 @@ func (d *Doc) BriefInput() board.BriefInput {
 		body += section
 	}
 	cross := d.CrossReview
-	return board.BriefInput{Title: d.Title, Body: body, Repos: d.Repos, MaxCostEUR: d.MaxCostEUR, MaxParallel: d.MaxParallel,
+	in := board.BriefInput{Title: d.Title, Body: body, Repos: d.Repos, MaxCostEUR: d.MaxCostEUR, MaxParallel: d.MaxParallel,
 		AllowedProviders: d.AllowedProviders, CrossReview: &cross}
+	if d.LeaderID != nil {
+		in.LeaderID = *d.LeaderID
+	}
+	return in
 }
 
 func text(n *node, field string) (string, error) {

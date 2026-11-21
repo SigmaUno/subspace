@@ -63,7 +63,7 @@ func canSee(a model.Actor, t *model.Task) bool {
 
 func (b *Board) GetTask(ctx context.Context, a model.Actor, id string) (*model.Task, error) {
 	var out *model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
+	err := b.readAs(ctx, a, func(tx store.Tx) error {
 		t, err := tx.GetTask(id)
 		if err != nil {
 			return err
@@ -90,7 +90,7 @@ func (b *Board) ListTasks(ctx context.Context, q TaskQuery) ([]*model.Task, erro
 
 func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []string) ([]*model.Task, error) {
 	var out []*model.Task
-	err := b.read(ctx, func(tx store.Tx) error {
+	err := b.readAs(ctx, a, func(tx store.Tx) error {
 		seen := map[string]bool{}
 		for _, f := range []store.TaskFilter{{Assignee: a.ID, Status: statuses}, {Reviewer: a.ID, Status: statuses}} {
 			ts, err := tx.ListTasks(f)
@@ -111,7 +111,7 @@ func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []strin
 
 func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*model.Task, error) {
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)
 		if err != nil {
 			return err
@@ -153,7 +153,7 @@ type TaskPatch struct {
 
 func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p TaskPatch) (*model.Task, error) {
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(id)
 		if err != nil {
 			return err
@@ -283,7 +283,7 @@ func (b *Board) assign(ctx context.Context, a model.Actor, tool, taskID, agentID
 		return nil, model.BadRequest("as must be assignee or reviewer")
 	}
 	var out *model.Task
-	err := b.write(ctx, func(tx store.Tx, w *wctx) error {
+	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(taskID)
 		if err != nil {
 			return err

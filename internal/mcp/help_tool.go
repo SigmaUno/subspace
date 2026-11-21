@@ -129,7 +129,7 @@ func RegisterHelp(r *Registry, b *board.Board) {
 			if err != nil {
 				return nil, err
 			}
-			rs, err := s.List(ctx, helpreq.Filter{Status: in.Status, BriefID: in.BriefID, TaskID: in.TaskID, Limit: in.Limit})
+			rs, err := s.ListFor(ctx, c.Actor, helpreq.Filter{Status: in.Status, BriefID: in.BriefID, TaskID: in.TaskID, Limit: in.Limit})
 			return map[string]any{"requests": rs}, err
 		},
 	})

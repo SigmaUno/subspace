@@ -563,3 +563,36 @@ func TestUsageErrors(t *testing.T) {
 		}
 	}
 }
+
+func TestTokenCutAtALimitLeaksNoPart(t *testing.T) {
+	r := newRig(t)
+	head, rest := r.token[:len(r.token)-12], r.token[len(r.token)-12:]
+	r.ok("", "note", "-task", r.taskID, strings.Repeat("n", maxNote-len(head))+r.token)
+	r.clock.advance(time.Hour)
+	r.ok(bashPayload(strings.Repeat("c", maxCommand-len(head))+r.token, "", ""), "log", "-task", r.taskID)
+	r.clock.advance(time.Hour)
+	r.ok(bashPayload("ls", r.token+strings.Repeat("p", maxChunk-20), ""), "log", "-task", r.taskID)
+	r.clock.advance(time.Hour)
+	r.ok(`{"hook_event_name":"Notification","message":"`+strings.Repeat("m", maxNote-len("Claude Code notification: ")-len(head))+r.token+`"}`, "note", "-task", r.taskID)
+
+	if r.tap.count() < 4 {
+		t.Fatalf("calls: %v", r.tap.tools())
+	}
+	for _, c := range r.tap.calls {
+		b, _ := json.Marshal(c.args)
+		if strings.Contains(string(b), head) || strings.Contains(string(b), rest) {
+			t.Fatalf("%s sent part of the token: %s", c.tool, b)
+		}
+	}
+}
+
+func TestLogReadsRawTextFromStdinWithoutTheToken(t *testing.T) {
+	r := newRig(t)
+	r.ok("[bash] env\ntoken "+r.token+"\nok\n", "log", "-task", r.taskID, "--", "-")
+	if got := r.tap.last(); got.tool != "log_output" || got.args["text"] != "[bash] env\ntoken "+redacted+"\nok" {
+		t.Fatalf("log call: %s %v", got.tool, got.args)
+	}
+	if n := len(r.output()); n != 3 {
+		t.Fatalf("output lines: %d", n)
+	}
+}

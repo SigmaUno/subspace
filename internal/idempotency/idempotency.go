@@ -126,6 +126,7 @@ func (h *handler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		writeRPC(w, req.ID, toolError("bad_request", "idempotency key longer than 255 bytes"), false)
 		return
 	}
+	key = keyHash(key)
 	sum := ArgsHash(req.Params.Arguments)
 	unlock := h.lock(agent.ID + "\x00" + key)
 	defer unlock()
@@ -206,6 +207,11 @@ func (h *handler) lock(k string) func() {
 		}
 		h.mu.Unlock()
 	}
+}
+
+func keyHash(key string) string {
+	sum := sha256.Sum256([]byte(key))
+	return hex.EncodeToString(sum[:])
 }
 
 func ArgsHash(raw json.RawMessage) string {

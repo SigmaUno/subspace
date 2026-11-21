@@ -63,6 +63,7 @@ type Board struct {
 	capDB   bool
 	quality QualityGate
 	rules   PlaybookRules
+	policy  Policy
 
 	repoCheck RepoCheck
 	leak      LeakScanner
@@ -161,6 +162,7 @@ type wctx struct {
 	events []pending
 	inval  []string
 	forget []string
+	policy []policyCheck
 }
 
 type pending struct {
@@ -225,7 +227,10 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
 	w := &wctx{b: b, ctx: ctx}
-	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget = nil, nil, nil; return fn(tx, w) })
+	err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval, w.forget, w.policy = nil, nil, nil, nil; return fn(tx, w) })
+	if len(w.policy) > 0 {
+		err = b.settlePolicy(ctx, w.policy, err)
+	}
 	if b.o.Invalidate != nil {
 		for _, id := range w.inval {
 			b.o.Invalidate(id)

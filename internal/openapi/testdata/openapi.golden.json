@@ -1332,6 +1332,16 @@
           "path": {
             "type": "string"
           },
+          "remote": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/BackupRemote"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "verified": {
             "type": "boolean"
           }
@@ -1342,6 +1352,34 @@
           "created_at",
           "name",
           "path",
+          "verified"
+        ],
+        "type": "object"
+      },
+      "BackupRemote": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "error": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "uploaded_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "verified": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "bytes",
+          "error",
+          "object",
+          "uploaded_at",
           "verified"
         ],
         "type": "object"
@@ -2140,6 +2178,21 @@
           "markdown",
           "title",
           "variables"
+        ],
+        "type": "object"
+      },
+      "Budget": {
+        "properties": {
+          "max_calls_per_day": {
+            "type": "integer"
+          },
+          "max_result_bytes_per_day": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "max_calls_per_day",
+          "max_result_bytes_per_day"
         ],
         "type": "object"
       },
@@ -3061,6 +3114,82 @@
         ],
         "type": "object"
       },
+      "Discovered": {
+        "properties": {
+          "allowed": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "exposed_as": {
+            "type": "string"
+          },
+          "flags": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "input_schema": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "name": {
+            "type": "string"
+          },
+          "refused": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allowed",
+          "description",
+          "exposed_as",
+          "flags",
+          "name"
+        ],
+        "type": "object"
+      },
+      "Document": {
+        "properties": {
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "description",
+          "enabled",
+          "name",
+          "rules",
+          "timezone"
+        ],
+        "type": "object"
+      },
       "DrillResult": {
         "properties": {
           "backup": {
@@ -3109,6 +3238,134 @@
           "started_at",
           "status",
           "trigger"
+        ],
+        "type": "object"
+      },
+      "DryRunInput": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "agent_id": {
+            "type": "string"
+          },
+          "as": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "policy": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Document"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "spawn": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/PolicySpawn"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action"
+        ],
+        "type": "object"
+      },
+      "DryRunResult": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "steps": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "action",
+          "errors",
+          "facts",
+          "findings",
+          "matched",
+          "message",
+          "outcome",
+          "steps"
         ],
         "type": "object"
       },
@@ -3402,6 +3659,35 @@
         ],
         "type": "object"
       },
+      "FactInfo": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "description": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "description",
+          "name",
+          "type"
+        ],
+        "type": "object"
+      },
       "Failure": {
         "properties": {
           "agent_id": {
@@ -3414,6 +3700,28 @@
         "required": [
           "agent_id",
           "error"
+        ],
+        "type": "object"
+      },
+      "Finding": {
+        "properties": {
+          "code": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "severity"
         ],
         "type": "object"
       },
@@ -3642,6 +3950,221 @@
           "gate",
           "overridden",
           "passed"
+        ],
+        "type": "object"
+      },
+      "Gateway": {
+        "properties": {
+          "allow_private_hosts": {
+            "type": "boolean"
+          },
+          "allow_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "allowed_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "audit_arguments": {
+            "type": "boolean"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/Budget"
+          },
+          "command": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "credential_env": {
+            "type": "string"
+          },
+          "deny_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "max_result_bytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate_limits": {
+            "items": {
+              "$ref": "#/components/schemas/RateLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "type": "integer"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allow_private_hosts",
+          "allow_tools",
+          "allowed_roles",
+          "args",
+          "audit_arguments",
+          "budget",
+          "command",
+          "created_at",
+          "credential_env",
+          "deny_tools",
+          "enabled",
+          "max_result_bytes",
+          "name",
+          "rate_limits",
+          "timeout_ms",
+          "transport",
+          "updated_at",
+          "url"
+        ],
+        "type": "object"
+      },
+      "GatewayInput": {
+        "properties": {
+          "allow_private_hosts": {
+            "type": "boolean"
+          },
+          "allow_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "allowed_roles": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "args": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "audit_arguments": {
+            "type": "boolean"
+          },
+          "budget": {
+            "$ref": "#/components/schemas/Budget"
+          },
+          "command": {
+            "type": "string"
+          },
+          "credential_env": {
+            "type": "string"
+          },
+          "deny_tools": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "enabled": {
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "max_result_bytes": {
+            "type": "integer"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rate_limits": {
+            "items": {
+              "$ref": "#/components/schemas/RateLimit"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timeout_ms": {
+            "type": "integer"
+          },
+          "transport": {
+            "type": "string"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "allow_private_hosts",
+          "allow_tools",
+          "allowed_roles",
+          "args",
+          "audit_arguments",
+          "budget",
+          "command",
+          "credential_env",
+          "deny_tools",
+          "enabled",
+          "max_result_bytes",
+          "name",
+          "rate_limits",
+          "timeout_ms",
+          "transport",
+          "url"
         ],
         "type": "object"
       },
@@ -3951,6 +4474,99 @@
           "measured_at",
           "n",
           "value"
+        ],
+        "type": "object"
+      },
+      "Hold": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "actor_role": {
+            "type": "string"
+          },
+          "args": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "decided_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "note": {
+            "type": "string"
+          },
+          "plan_id": {
+            "type": "string"
+          },
+          "result": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "actor_id",
+          "actor_role",
+          "args",
+          "brief_id",
+          "created_at",
+          "decided_at",
+          "expires_at",
+          "id",
+          "matched",
+          "message",
+          "note",
+          "plan_id",
+          "result",
+          "status",
+          "target",
+          "task_id"
         ],
         "type": "object"
       },
@@ -4600,6 +5216,33 @@
         },
         "type": "object"
       },
+      "List": {
+        "properties": {
+          "commands": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "gateways": {
+            "items": {
+              "$ref": "#/components/schemas/Gateway"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "commands",
+          "gateways"
+        ],
+        "type": "object"
+      },
       "LogLevel": {
         "properties": {
           "level": {
@@ -4642,6 +5285,41 @@
           "level",
           "msg",
           "ts"
+        ],
+        "type": "object"
+      },
+      "Match": {
+        "properties": {
+          "applied": {
+            "type": "boolean"
+          },
+          "effect": {
+            "type": "string"
+          },
+          "message": {
+            "type": "string"
+          },
+          "policy": {
+            "type": "string"
+          },
+          "policy_id": {
+            "type": "string"
+          },
+          "rule": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "applied",
+          "effect",
+          "message",
+          "policy",
+          "policy_id",
+          "rule",
+          "version"
         ],
         "type": "object"
       },
@@ -5305,6 +5983,240 @@
         ],
         "type": "object"
       },
+      "Policy": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "description": {
+            "type": "string"
+          },
+          "enabled": {
+            "type": "boolean"
+          },
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "rules": {
+            "items": {
+              "$ref": "#/components/schemas/Rule"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "timezone": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "created_at",
+          "description",
+          "enabled",
+          "id",
+          "name",
+          "rules",
+          "timezone",
+          "updated_at",
+          "version",
+          "warnings"
+        ],
+        "type": "object"
+      },
+      "PolicyDecision": {
+        "properties": {
+          "action": {
+            "type": "string"
+          },
+          "actor_id": {
+            "type": "string"
+          },
+          "actor_role": {
+            "type": "string"
+          },
+          "brief_id": {
+            "type": "string"
+          },
+          "errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "additionalProperties": {},
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "hold_id": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "matched": {
+            "items": {
+              "$ref": "#/components/schemas/Match"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "message": {
+            "type": "string"
+          },
+          "outcome": {
+            "type": "string"
+          },
+          "target": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "action",
+          "actor_id",
+          "actor_role",
+          "brief_id",
+          "errors",
+          "facts",
+          "hold_id",
+          "id",
+          "matched",
+          "message",
+          "outcome",
+          "target",
+          "task_id",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "PolicyFacts": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "effects": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "facts": {
+            "items": {
+              "$ref": "#/components/schemas/FactInfo"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "actions",
+          "effects",
+          "facts"
+        ],
+        "type": "object"
+      },
+      "PolicyHoldDecision": {
+        "properties": {
+          "note": {
+            "type": "string"
+          }
+        },
+        "type": "object"
+      },
+      "PolicyLint": {
+        "properties": {
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/Finding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "ok": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "findings",
+          "ok"
+        ],
+        "type": "object"
+      },
+      "PolicySpawn": {
+        "properties": {
+          "model": {
+            "type": "string"
+          },
+          "n": {
+            "type": "integer"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "role": {
+            "type": "string"
+          },
+          "worker_kind": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "model",
+          "n",
+          "provider",
+          "role",
+          "worker_kind"
+        ],
+        "type": "object"
+      },
       "Preview": {
         "properties": {
           "cron": {
@@ -5889,6 +6801,21 @@
         ],
         "type": "object"
       },
+      "RateLimit": {
+        "properties": {
+          "per_minute": {
+            "type": "integer"
+          },
+          "tool": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "per_minute",
+          "tool"
+        ],
+        "type": "object"
+      },
       "Reason": {
         "properties": {
           "reason": {
@@ -6050,6 +6977,9 @@
             "type": "string"
           },
           "tool": {
+            "type": "string"
+          },
+          "transcript": {
             "type": "string"
           }
         },
@@ -6866,6 +7796,9 @@
           "segment_rows": {
             "type": "integer"
           },
+          "transcripts_days": {
+            "type": "integer"
+          },
           "usage_days": {
             "type": "integer"
           },
@@ -6884,6 +7817,7 @@
           "interval",
           "messages_days",
           "segment_rows",
+          "transcripts_days",
           "usage_days",
           "vacuum_pages",
           "wal_autocheckpoint"
@@ -7082,6 +8016,25 @@
           "ok",
           "rows",
           "segments"
+        ],
+        "type": "object"
+      },
+      "Rule": {
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "then": {
+            "$ref": "#/components/schemas/Then"
+          },
+          "when": {
+            "$ref": "#/components/schemas/When"
+          }
+        },
+        "required": [
+          "id",
+          "then",
+          "when"
         ],
         "type": "object"
       },
@@ -8334,6 +9287,32 @@
         ],
         "type": "object"
       },
+      "Then": {
+        "properties": {
+          "effect": {
+            "type": "string"
+          },
+          "max": {
+            "type": "integer"
+          },
+          "message": {
+            "type": "string"
+          },
+          "per": {
+            "type": "string"
+          },
+          "provider": {
+            "type": "string"
+          },
+          "timeout": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "effect"
+        ],
+        "type": "object"
+      },
       "ThreadPost": {
         "properties": {
           "body": {
@@ -8447,6 +9426,31 @@
         ],
         "type": "object"
       },
+      "Tools": {
+        "properties": {
+          "error": {
+            "type": "string"
+          },
+          "gateway": {
+            "type": "string"
+          },
+          "tools": {
+            "items": {
+              "$ref": "#/components/schemas/Discovered"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "error",
+          "gateway",
+          "tools"
+        ],
+        "type": "object"
+      },
       "Train": {
         "properties": {
           "base": {
@@ -8533,6 +9537,103 @@
           "result",
           "sha",
           "task_id"
+        ],
+        "type": "object"
+      },
+      "TranscriptLine": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "offset": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "offset",
+          "stream",
+          "text",
+          "ts"
+        ],
+        "type": "object"
+      },
+      "TranscriptPage": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "first_offset": {
+            "type": "integer"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "last_offset": {
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/TranscriptLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "next_since": {
+            "type": "integer"
+          },
+          "segments": {
+            "type": "integer"
+          },
+          "task_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "first_offset",
+          "gap",
+          "last_offset",
+          "lines",
+          "more",
+          "next_since",
+          "segments",
+          "task_id"
+        ],
+        "type": "object"
+      },
+      "Version": {
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "document": {
+            "$ref": "#/components/schemas/Document"
+          },
+          "version": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "created_at",
+          "document",
+          "version"
         ],
         "type": "object"
       },
@@ -8695,6 +9796,27 @@
           "id",
           "pending",
           "url"
+        ],
+        "type": "object"
+      },
+      "When": {
+        "properties": {
+          "actions": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "match": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "actions",
+          "match"
         ],
         "type": "object"
       }
@@ -12266,6 +13388,197 @@
         ]
       }
     },
+    "/api/v1/gateways": {
+      "get": {
+        "operationId": "getGateways",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/List"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List MCP gateways and the stdio commands the server allows",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "post": {
+        "operationId": "postGateways",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatewayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Add an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      }
+    },
+    "/api/v1/gateways/{name}": {
+      "delete": {
+        "operationId": "deleteGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Remove an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "get": {
+        "operationId": "getGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      },
+      "put": {
+        "operationId": "putGatewaysByName",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GatewayInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Gateway"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace an MCP gateway",
+        "tags": [
+          "gateways"
+        ]
+      }
+    },
+    "/api/v1/gateways/{name}/tools": {
+      "get": {
+        "operationId": "getGatewaysByNameTools",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Tools"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Fetch the upstream tools of a gateway with the vetting result of each",
+        "tags": [
+          "gateways"
+        ]
+      }
+    },
     "/api/v1/ha": {
       "get": {
         "operationId": "getHa",
@@ -14425,6 +15738,567 @@
         ]
       }
     },
+    "/api/v1/policies": {
+      "get": {
+        "operationId": "getPolicies",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "policies": {
+                      "items": {
+                        "$ref": "#/components/schemas/Policy"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "policies"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List owner policies with their lint warnings",
+        "tags": [
+          "policies"
+        ]
+      },
+      "post": {
+        "operationId": "postPolicies",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Create a policy; documents with lint errors are rejected",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/decisions": {
+      "get": {
+        "operationId": "getPoliciesDecisions",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "outcome",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "action",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "decisions": {
+                      "items": {
+                        "$ref": "#/components/schemas/PolicyDecision"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "decisions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Policy decisions taken on real actions, newest first",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/evaluate": {
+      "post": {
+        "operationId": "postPoliciesEvaluate",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/DryRunInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DryRunResult"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Dry-run the stored policies, or a draft, against a sample action; nothing is recorded",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/facts": {
+      "get": {
+        "operationId": "getPoliciesFacts",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyFacts"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Facts, actions and effects available to policy rules",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/lint": {
+      "post": {
+        "operationId": "postPoliciesLint",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PolicyLint"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Lint a policy document without saving it",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/{id}": {
+      "delete": {
+        "operationId": "deletePoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete a policy and its versions",
+        "tags": [
+          "policies"
+        ]
+      },
+      "get": {
+        "operationId": "getPoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a policy",
+        "tags": [
+          "policies"
+        ]
+      },
+      "put": {
+        "operationId": "putPoliciesById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/Document"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Policy"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Replace a policy; the version increases by one",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policies/{id}/versions": {
+      "get": {
+        "operationId": "getPoliciesByIdVersions",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "versions": {
+                      "items": {
+                        "$ref": "#/components/schemas/Version"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "versions"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Stored versions of a policy, newest first",
+        "tags": [
+          "policies"
+        ]
+      }
+    },
+    "/api/v1/policy-holds": {
+      "get": {
+        "operationId": "getPolicyHolds",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "holds": {
+                      "items": {
+                        "$ref": "#/components/schemas/Hold"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "holds"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Actions held for owner approval by a policy, newest first",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}": {
+      "get": {
+        "operationId": "getPolicyHoldsById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get a policy hold",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}/approve": {
+      "post": {
+        "operationId": "postPolicyHoldsByIdApprove",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyHoldDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Approve a held action; assign and approve_plan are carried out at once, other actions pass on the next try",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
+    "/api/v1/policy-holds/{id}/reject": {
+      "post": {
+        "operationId": "postPolicyHoldsByIdReject",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/PolicyHoldDecision"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Hold"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Reject a held action",
+        "tags": [
+          "policy-holds"
+        ]
+      }
+    },
     "/api/v1/prompts": {
       "get": {
         "operationId": "getPrompts",
@@ -16194,6 +18068,102 @@
         ]
       }
     },
+    "/api/v1/tasks/{id}/transcript": {
+      "get": {
+        "operationId": "getTasksByIdTranscript",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "at",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "q",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TranscriptPage"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Persisted agent output of a task, oldest first; since is an exclusive line offset, at jumps to the first line at or after a time, q filters lines by text",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/transcript/download": {
+      "get": {
+        "operationId": "getTasksByIdTranscriptDownload",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/gzip": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Download the whole transcript of a task as gzip-compressed NDJSON",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
     "/api/v1/threads/{kind}/{id}/messages": {
       "get": {
         "operationId": "getThreadsByKindByIdMessages",
@@ -16963,6 +18933,25 @@
           "mcp"
         ]
       }
+    },
+    "/readyz": {
+      "get": {
+        "operationId": "getReadyz",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "security": [],
+        "summary": "Readiness: 200 while this instance takes traffic, 503 with an empty body while it migrates, drains or runs read-only",
+        "tags": [
+          "system"
+        ]
+      }
     }
   },
   "security": [
@@ -17038,6 +19027,9 @@
       "name": "drills"
     },
     {
+      "name": "gateways"
+    },
+    {
       "name": "ha"
     },
     {
@@ -17087,6 +19079,12 @@
     },
     {
       "name": "playbooks"
+    },
+    {
+      "name": "policies"
+    },
+    {
+      "name": "policy-holds"
     },
     {
       "name": "prompts"

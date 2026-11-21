@@ -1,0 +1,15 @@
+{
+  "Content-Type": "application/json",
+  "X-Forgejo-Delivery": "43c6a939-d6a4-403e-81e8-4c89532dc622",
+  "X-Forgejo-Event": "pull_request",
+  "X-Forgejo-Event-Type": "pull_request_sync",
+  "X-GitHub-Delivery": "43c6a939-d6a4-403e-81e8-4c89532dc622",
+  "X-GitHub-Event": "pull_request",
+  "X-GitHub-Event-Type": "pull_request_sync",
+  "X-Gitea-Delivery": "43c6a939-d6a4-403e-81e8-4c89532dc622",
+  "X-Gitea-Event": "pull_request",
+  "X-Gitea-Event-Type": "pull_request_sync",
+  "X-Gogs-Delivery": "43c6a939-d6a4-403e-81e8-4c89532dc622",
+  "X-Gogs-Event": "pull_request",
+  "X-Gogs-Event-Type": "pull_request_sync"
+}

@@ -308,16 +308,18 @@ func (e *Error) HTTPStatus() int {
 		return http.StatusBadRequest
 	case "unauthorized", "token_expired":
 		return http.StatusUnauthorized
-	case "forbidden", "not_assigned":
+	case "forbidden", "not_assigned", "policy_denied":
 		return http.StatusForbidden
 	case "not_found":
 		return http.StatusNotFound
-	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed":
+	case "conflict", "capacity", "budget_exceeded", "lease_expired", "quota_exceeded", "gates_failed", "policy_hold":
 		return http.StatusConflict
 	case "paused", "agent_paused":
 		return http.StatusLocked
 	case "rate_limited":
 		return http.StatusTooManyRequests
+	case "upstream_error":
+		return http.StatusBadGateway
 	}
 	return http.StatusInternalServerError
 }

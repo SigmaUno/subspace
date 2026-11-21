@@ -604,6 +604,11 @@ func (b *Board) decidePlan(ctx context.Context, id string, approve bool, note st
 		if err != nil {
 			return err
 		}
+		if approve {
+			if err := b.checkPolicy(tx, w, PolicyRequest{Action: "approve_plan", Actor: model.Owner, Plan: p, Brief: br, Args: map[string]string{"note": note}}); err != nil {
+				return err
+			}
+		}
 		now := b.now()
 		p.DecidedAt = &now
 		p.Note = strp(note)

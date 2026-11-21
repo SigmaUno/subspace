@@ -262,7 +262,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		resp.Result = map[string]any{}
 	case "tools/list":
 		tools := []map[string]any{}
-		for _, t := range s.Registry.List(actor.Role) {
+		for _, t := range s.Registry.Visible(r.Context(), actor.Role) {
 			tools = append(tools, map[string]any{"name": t.Name, "description": t.Description, "inputSchema": t.Schema})
 		}
 		resp.Result = map[string]any{"tools": tools}
@@ -291,7 +291,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 	if err := json.Unmarshal(params, &p); err != nil || p.Name == "" {
 		return nil, &rpcErr{-32602, "invalid params"}
 	}
-	t, ok := s.Registry.Get(p.Name, a.Role)
+	t, ok := s.Registry.Lookup(ctx, p.Name, a.Role)
 	if !ok {
 		return nil, &rpcErr{-32601, "tool not available for role"}
 	}

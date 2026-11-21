@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"log/slog"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strconv"
@@ -15,9 +16,11 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/githost/forgejo"
 	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/prsync"
 	"github.com/SigmaUno/subspace/internal/repos"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -149,6 +152,7 @@ func startMergeQueue(d Deps, f mqFile) error {
 		Notifier: mqNotifier{d.Board},
 		Gate:     gate,
 		Tasks:    mqTasks{d.Board},
+		Finisher: mqFinisher(d, f),
 		Deps:     mqDeps{d.Board},
 		Checks:   checks,
 		Logger:   d.Log,
@@ -170,6 +174,39 @@ func startMergeQueue(d Deps, f mqFile) error {
 	}()
 	d.Leader.Go(ctx, func(ctx context.Context) { q.Run(ctx, interval) })
 	return nil
+}
+
+func mqFinisher(d Deps, f mqFile) mergequeue.Finisher {
+	cfg, ok, err := prsync.Resolve(d.Ctx, repoSource(d), d.Log)
+	if err != nil || !ok {
+		return nil
+	}
+	clients := mergequeue.ForgejoFinisher{}
+	for name, r := range f.Repos {
+		remote, err := url.Parse(r.Remote)
+		if err != nil {
+			continue
+		}
+		for _, h := range cfg.Hosts {
+			base, found := strings.CutSuffix(h.APIURL, "/api/v1")
+			if h.Kind == prsync.KindForgejo && found && strings.EqualFold(hostOf(h.URL), remote.Host) {
+				clients[strings.ToLower(name)] = forgejo.New(base, h.Token, nil)
+				break
+			}
+		}
+	}
+	if len(clients) == 0 {
+		return nil
+	}
+	return clients
+}
+
+func hostOf(raw string) string {
+	u, err := url.Parse(raw)
+	if err != nil {
+		return ""
+	}
+	return u.Host
 }
 
 type sqlTx interface {

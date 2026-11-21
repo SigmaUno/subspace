@@ -24,6 +24,7 @@ const (
 	KindBreaker  = "breaker"
 	KindAlert    = "alert"
 	KindLeak     = "token_leak"
+	KindPolicy   = "policy"
 )
 
 const (
@@ -58,6 +59,7 @@ var impact = map[string]int{
 	KindExpiry:   55,
 	KindAlert:    75,
 	KindLeak:     90,
+	KindPolicy:   70,
 }
 
 type Links struct {

@@ -1,10 +1,10 @@
-export type BriefSpec = {
+type BriefSpec = {
   template_id: string;
   markdown: string;
   vars: Record<string, string>;
 };
 
-export type TaskSpec = {
+type TaskSpec = {
   template_id: string;
   vars: Record<string, string>;
   repo: string;

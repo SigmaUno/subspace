@@ -30,6 +30,7 @@ type Policy struct {
 	MessagesDays      int      `json:"messages_days"`
 	UsageDays         int      `json:"usage_days"`
 	IdempotencyDays   int      `json:"idempotency_days"`
+	TranscriptsDays   int      `json:"transcripts_days"`
 	Interval          Duration `json:"interval"`
 	Batch             int      `json:"batch"`
 	SegmentRows       int      `json:"segment_rows"`
@@ -52,6 +53,8 @@ func (p Policy) Days(k Kind) int {
 		return p.UsageDays
 	case Idempotency:
 		return p.IdempotencyDays
+	case Transcripts:
+		return p.TranscriptsDays
 	}
 	return 0
 }
@@ -72,6 +75,7 @@ func PolicyFromEnv(getenv func(string) string) (Policy, error) {
 		"SUBSPACE_RETAIN_MESSAGES_DAYS":      &p.MessagesDays,
 		"SUBSPACE_RETAIN_USAGE_DAYS":         &p.UsageDays,
 		"SUBSPACE_RETAIN_IDEMPOTENCY_DAYS":   &p.IdempotencyDays,
+		"SUBSPACE_RETAIN_TRANSCRIPTS_DAYS":   &p.TranscriptsDays,
 		"SUBSPACE_RETAIN_BATCH":              &p.Batch,
 		"SUBSPACE_RETAIN_SEGMENT_ROWS":       &p.SegmentRows,
 		"SUBSPACE_RETAIN_WAL_AUTOCHECKPOINT": &p.WALAutocheckpoint,

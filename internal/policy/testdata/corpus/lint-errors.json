@@ -1,0 +1,26 @@
+{
+  "policy": {
+    "name": "broken",
+    "enabled": true,
+    "timezone": "Mars/Olympus",
+    "rules": [
+      {"id": "typo", "when": {"actions": ["assign"], "match": "task.labelz == \"x\""}, "then": {"effect": "deny"}},
+      {"id": "types", "when": {"actions": ["assign"], "match": "task.priority == \"high\""}, "then": {"effect": "deny"}},
+      {"id": "act", "when": {"actions": ["merge"], "match": ""}, "then": {"effect": "deny"}},
+      {"id": "eff", "when": {"actions": ["assign"], "match": ""}, "then": {"effect": "explode"}},
+      {"id": "route", "when": {"actions": ["assign"], "match": ""}, "then": {"effect": "route_to_provider"}},
+      {"id": "re", "when": {"actions": ["assign"], "match": "regex(task.title, \"(a{1,1000}){1,1000}\")"}, "then": {"effect": "deny"}},
+      {"id": "typo", "when": {"actions": ["assign"], "match": "task.priority > 1"}, "then": {"effect": "deny"}}
+    ]
+  },
+  "lint": [
+    {"code": "invalid_timezone"},
+    {"code": "unknown_fact", "rule": "typo"},
+    {"code": "invalid_match", "rule": "types"},
+    {"code": "unknown_action", "rule": "act"},
+    {"code": "unknown_effect", "rule": "eff"},
+    {"code": "invalid_effect", "rule": "route"},
+    {"code": "invalid_match", "rule": "re"},
+    {"code": "duplicate_rule", "rule": "typo"}
+  ]
+}

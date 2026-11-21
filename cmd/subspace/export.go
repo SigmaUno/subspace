@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"strconv"
 	"strings"
 	"time"
@@ -136,6 +137,11 @@ func (b *backend) ph(n int) string {
 func (b *backend) tables() []tableSpec {
 	out := append([]tableSpec(nil), coreTables...)
 	if b.postgres {
+		for _, name := range postgres.SchemaTables() {
+			if !slices.ContainsFunc(coreTables, func(c tableSpec) bool { return c.name == name }) {
+				out = append(out, tableSpec{name, "1"})
+			}
+		}
 		return out
 	}
 	for _, name := range sqlite.ExtensionTables() {

@@ -102,7 +102,11 @@ func New(name string, env func(string) string) (Spawner, error) {
 			Bin:      env("SUBSPACE_OPENCODE_BIN"),
 		}, nil
 	case "docker":
-		return Docker{}, nil
+		cfg, err := DockerConfigFromEnv(env)
+		if err != nil {
+			return nil, err
+		}
+		return NewDocker(cfg)
 	default:
 		return nil, fmt.Errorf("spawner: unknown spawner %q (want noop, hc, opencode or docker)", name)
 	}

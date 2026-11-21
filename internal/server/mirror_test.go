@@ -176,7 +176,7 @@ func newMirrorEnv(t *testing.T, dbPath string) *env {
 	}
 	go s.Board.Run(ctx)
 	ts := httptest.NewServer(s.Handler())
-	e := &env{t: t, ts: ts, srv: s}
+	e := &env{t: t, ts: ts, srv: s, cancel: cancel}
 	t.Cleanup(func() { ts.Close(); cancel(); _ = s.Close() })
 	return e
 }
@@ -226,6 +226,7 @@ func TestMirrorFollowsTaskLifecycleAcrossRestart(t *testing.T) {
 
 	awaitMirrorLink(t, e, first)
 	e.ts.Close()
+	e.cancel()
 	if err := e.srv.Close(); err != nil {
 		t.Fatal(err)
 	}

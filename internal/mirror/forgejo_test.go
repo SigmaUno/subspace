@@ -127,6 +127,8 @@ func (f *fakeForgejo) handle(w http.ResponseWriter, r *http.Request) {
 		case len(rest) == 2 && rest[1] == "labels" && r.Method == http.MethodPut:
 			i.Labels = ids(body["labels"])
 			write([]any{})
+		case len(rest) == 1 && r.Method == http.MethodGet:
+			write(f.issueJSON(i))
 		case len(rest) == 1 && r.Method == http.MethodPatch:
 			if v, ok := body["title"].(string); ok {
 				i.Title = v

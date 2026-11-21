@@ -7,10 +7,13 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"net"
 	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -306,5 +309,52 @@ func TestPreflightReportsGoNoGo(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "NO-GO  owner_token") || !strings.Contains(out.String(), "NO-GO  owner_auth") {
 		t.Fatalf("weak token output:\n%s", out.String())
+	}
+}
+
+func TestPreflightNeverSendsTheOwnerTokenOverPlainHTTP(t *testing.T) {
+	var host string
+	addrs, _ := net.InterfaceAddrs()
+	for _, a := range addrs {
+		if n, ok := a.(*net.IPNet); ok && n.IP.To4() != nil && !n.IP.IsLoopback() {
+			host = n.IP.String()
+			break
+		}
+	}
+	if host == "" {
+		t.Skip("no non-loopback address")
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort(host, "0"))
+	if err != nil {
+		t.Skip(err)
+	}
+	var seen atomic.Int64
+	srv := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("Authorization") != "" {
+			seen.Add(1)
+		}
+		w.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(w, `{"status":"ok","version":"x","paused":false,"scope":"owner"}`)
+	}))
+	_ = srv.Listener.Close()
+	srv.Listener = ln
+	srv.Start()
+	t.Cleanup(srv.Close)
+
+	prev := doctorEnv
+	doctorEnv = stubDoctor
+	t.Cleanup(func() { doctorEnv = prev })
+	getenv := func(k string) string {
+		return map[string]string{"SUBSPACE_URL": srv.URL, "SUBSPACE_OWNER_TOKEN": servertest.OwnerToken}[k]
+	}
+	var out bytes.Buffer
+	if code := run(t.Context(), []string{"preflight", "-skip-notify"}, getenv, &out, io.Discard); code != exitFailure {
+		t.Fatalf("plain HTTP to %s: exit %d\n%s", host, code, out.String())
+	}
+	if n := seen.Load(); n != 0 {
+		t.Fatalf("preflight sent the owner token over plain HTTP %d times although it reports NO-GO:\n%s", n, out.String())
+	}
+	if !strings.Contains(out.String(), "NO-GO  transport") {
+		t.Fatalf("output:\n%s", out.String())
 	}
 }

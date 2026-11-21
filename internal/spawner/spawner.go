@@ -24,7 +24,15 @@ type Request struct {
 	JoinLine string
 	MCPURL   string
 	Token    string
+	Image    string
+	Limits   Limits
 	Env      map[string]string
+}
+
+type Limits struct {
+	CPUs        float64
+	MemoryBytes int64
+	Pids        int64
 }
 
 type Nudger interface {

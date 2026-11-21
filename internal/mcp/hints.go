@@ -12,10 +12,13 @@ var codeHints = map[string]string{
 	"budget_exceeded": "The budget is used up; stop spending and call ask_owner with options such as raising the budget, narrowing the scope or cancelling.",
 	"lease_expired":   "Your lease on this task expired; call claim_task again, then continue.",
 	"quota_exceeded":  "A quota is used up; do not retry, and use ask_owner to request more or wait for the next UTC day.",
+	"policy_denied":   "An owner policy forbids this action; do not retry, read the message, and use ask_owner if the work needs it.",
+	"policy_hold":     "An owner policy holds this action for owner approval; do not retry now, work on something else and watch your thread for the decision.",
 	"paused":          "Subspace is paused by the owner; call heartbeat until paused is false, then claim_task again.",
 	"agent_paused":    "You are paused and write tools, including ask_owner, are refused; use read-only tools such as whoami and wait for the owner to resume you.",
 	"rate_limited":    "You are calling too fast; wait a few seconds before retrying and avoid repeating identical calls.",
 	"too_large":       "The input is too large; shorten it or split it across several calls.",
+	"upstream_error":  "An external tool behind a Subspace gateway failed; retry later or continue without it, and use ask_owner if it blocks your task.",
 	"internal":        "The server failed; retry once after a short wait, and if it repeats use ask_owner and name the tool.",
 }
 

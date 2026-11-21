@@ -1,0 +1,8 @@
+{
+  "invariant": "secret_in_response",
+  "detail": "a Subspace token in the pause_all reason was returned to agents in claim errors and stored in the audit note",
+  "ops": [
+    {"actor": "owner", "kind": "rest", "method": "POST", "path": "/api/v1/pause-all", "body": "{\"reason\":\"key {{c:6}} end\"}"},
+    {"actor": "w2", "kind": "mcp", "tool": "claim_task", "body": "{\"task_id\":\"T-2\"}"}
+  ]
+}

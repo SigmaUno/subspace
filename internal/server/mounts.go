@@ -8,6 +8,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/api"
 	"github.com/SigmaUno/subspace/internal/auth"
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/components"
@@ -31,6 +32,9 @@ type Deps struct {
 	Auth  auth.AgentLookup
 	Feed  *decisions.Feed
 
+	Backups *backup.Scheduler
+	Offsite *offsiteSetup
+
 	MCP        *mcp.Server
 	Registry   *mcp.Registry
 	Breakers   *breaker.Set
@@ -38,6 +42,8 @@ type Deps struct {
 	LocalHub   events.Hub
 	Leader     *ha.Elector
 	KeyLock    func(ctx context.Context, key string) (func(), error)
+
+	OnClose func(func())
 
 	Env    func(string) string
 	Reload *reload.Manager

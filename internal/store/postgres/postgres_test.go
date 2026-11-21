@@ -238,8 +238,10 @@ func TestPGMigrationBackfillsTaskOrder(t *testing.T) {
 		}
 		return nil
 	})
-	if _, err := raw.Exec(`UPDATE tasks SET id_num = 0`); err != nil {
-		t.Fatal(err)
+	for _, q := range []string{`UPDATE tasks SET id_num = 0`, `DELETE FROM schema_version`} {
+		if _, err := raw.Exec(q); err != nil {
+			t.Fatal(err)
+		}
 	}
 	reopened := openPGAt(t, dsn)
 	read(t, reopened, func(tx store.Tx) error {

@@ -45,6 +45,7 @@ var rules = compile([]rule{
 	{re: regexp.MustCompile(`\bsk-ant-[A-Za-z0-9_-]{16,}`), hint: has("sk-ant-")},
 	{re: regexp.MustCompile(`\bsk-proj-[A-Za-z0-9_-]{20,}`), hint: has("sk-proj-")},
 	{re: regexp.MustCompile(`\bsk-[A-Za-z0-9_-]{20,}`), hint: has("sk-")},
+	{re: regexp.MustCompile(`ss[pu]_[A-Za-z0-9_-]{43}`), hint: has("ssp_", "ssu_")},
 	// AWS access key IDs.
 	{re: regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), hint: has("AKIA")},
 	// JWTs: three base64url segments separated by dots, header starts with "eyJ".

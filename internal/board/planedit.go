@@ -277,3 +277,34 @@ func liveTasks(ts []*model.Task) []*model.Task {
 	}
 	return out
 }
+
+func hasCycle(ts []*model.Task) bool {
+	deps := map[string][]string{}
+	for _, t := range ts {
+		deps[t.ID] = t.DependsOn
+	}
+	state := map[string]int{}
+	var visit func(string) bool
+	visit = func(id string) bool {
+		switch state[id] {
+		case 1:
+			return true
+		case 2:
+			return false
+		}
+		state[id] = 1
+		for _, d := range deps[id] {
+			if visit(d) {
+				return true
+			}
+		}
+		state[id] = 2
+		return false
+	}
+	for id := range deps {
+		if visit(id) {
+			return true
+		}
+	}
+	return false
+}

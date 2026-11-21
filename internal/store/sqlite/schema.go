@@ -99,6 +99,11 @@ func migrate(db *sql.DB) error {
 			return err
 		}
 	}
+	for _, c := range extraColumns {
+		if err := addColumn(db, c.table, c.column, c.def); err != nil {
+			return err
+		}
+	}
 	return migrateAuditChain(db)
 }
 
@@ -169,4 +174,12 @@ func addColumn(db *sql.DB, table, column, def string) error {
 	}
 	_, err = db.Exec(`ALTER TABLE ` + table + ` ADD COLUMN ` + column + ` ` + def)
 	return err
+}
+
+type columnDef struct{ table, column, def string }
+
+var extraColumns []columnDef
+
+func RegisterColumn(table, column, def string) {
+	extraColumns = append(extraColumns, columnDef{table, column, def})
 }

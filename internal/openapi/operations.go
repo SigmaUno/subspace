@@ -21,6 +21,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/insights"
 	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
@@ -133,6 +134,8 @@ var operations = []Op{
 	put("/api/v1/agents/{id}/quota", "Replace the daily quota of an agent", quota.Quota{}, quota.Status{}),
 	post("/api/v1/agents/quota-bulk", "Apply one daily quota to many agents", QuotaBulk{}, QuotaBulkResponse{}),
 	get("/api/v1/agent-stats", "Performance statistics of every agent", list[agentstats.Stats]("agents")).Q("role"),
+	get("/api/v1/agents/{id}/insights", "Behavior findings of an agent", insights.Report{}),
+	get("/api/v1/insights", "Behavior findings of every agent", insights.Report{}).Q("severity"),
 
 	get("/api/v1/agent-profiles", "List agent profiles", list[profiles.Profile]("profiles")),
 	post("/api/v1/agent-profiles", "Create an agent profile", ProfileInput{}, profiles.Profile{}).S(created),

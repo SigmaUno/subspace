@@ -25,9 +25,22 @@ type Tool struct {
 	Handler  Handler
 }
 
-type Registry struct{ tools map[string]*Tool }
+type ErrorHook func(actor model.Actor, tool, code, message string, args json.RawMessage)
+
+type Registry struct {
+	tools map[string]*Tool
+	hooks []ErrorHook
+}
 
 func NewRegistry0() *Registry { return &Registry{tools: map[string]*Tool{}} }
+
+func (r *Registry) OnError(h ErrorHook) { r.hooks = append(r.hooks, h) }
+
+func (r *Registry) fail(actor model.Actor, tool, code, message string, args json.RawMessage) {
+	for _, h := range r.hooks {
+		h(actor, tool, code, message, args)
+	}
+}
 
 func (r *Registry) Register(t *Tool) { r.tools[t.Name] = t }
 

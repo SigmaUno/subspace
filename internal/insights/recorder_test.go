@@ -1,0 +1,53 @@
+package insights_test
+
+import (
+	"context"
+	"path/filepath"
+	"testing"
+	"time"
+
+	"github.com/SigmaUno/subspace/internal/insights"
+	"github.com/SigmaUno/subspace/internal/store/sqlite"
+)
+
+func TestRecorderRetentionIsBounded(t *testing.T) {
+	st, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = st.Close() })
+	clock := time.Date(2026, 11, 21, 12, 0, 0, 0, time.UTC)
+	rec := insights.NewRecorder(st, insights.RecorderOptions{
+		Now: func() time.Time { return clock }, Retention: time.Hour, MaxRows: 5,
+	})
+	ctx := context.Background()
+
+	clock = clock.Add(-2 * time.Hour)
+	for range 3 {
+		rec.Observe("a", "claim_task", "not_assigned", "old", []byte(`{"task_id":"T-1"}`))
+	}
+	clock = clock.Add(2 * time.Hour)
+	for range 8 {
+		rec.Observe("a", "claim_task", "not_assigned", "new", []byte(`{"task_id":"T-2"}`))
+	}
+	if err := rec.Flush(ctx); err != nil {
+		t.Fatal(err)
+	}
+	all, err := st.ListToolErrors(ctx, clock.Add(-24*time.Hour), 100)
+	if err != nil || len(all) != 11 || all[0].TaskID != "T-1" || all[10].Fingerprint != insights.Fingerprint("claim_task", "not_assigned", "new") {
+		t.Fatalf("stored: %d %v", len(all), err)
+	}
+
+	if err := rec.Prune(ctx); err != nil {
+		t.Fatal(err)
+	}
+	left, err := st.ListToolErrors(ctx, clock.Add(-24*time.Hour), 100)
+	if err != nil || len(left) != 5 {
+		t.Fatalf("after prune: %d %v", len(left), err)
+	}
+	for _, e := range left {
+		if e.TaskID != "T-2" || e.ID <= all[5].ID {
+			t.Fatalf("kept the wrong rows: %+v", left)
+		}
+	}
+}

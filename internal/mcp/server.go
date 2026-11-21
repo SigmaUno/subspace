@@ -264,6 +264,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 			if s.Hooks != nil {
 				_ = s.Hooks.PauseAgent(ctx, a.ID, "loop: same call repeated too often")
 			}
+			s.Registry.fail(a, t.Name, "agent_paused", "loop protection", p.Arguments)
 			return toolResult(errBody("agent_paused", "loop protection: identical "+t.Name+" calls repeated too often; you are paused"), true), nil
 		}
 	}
@@ -273,6 +274,7 @@ func (s *Server) call(ctx context.Context, agent *model.Agent, params json.RawMe
 		if e.Code == "internal" {
 			slog.Error("mcp tool failed", "tool", t.Name, "agent", a.ID, "err", err)
 		}
+		s.Registry.fail(a, t.Name, e.Code, e.Message, p.Arguments)
 		return toolResult(errBody(e.Code, e.Message), true), nil
 	}
 	return toolResult(res, false), nil

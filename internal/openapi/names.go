@@ -17,6 +17,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/forecast"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
+	"github.com/SigmaUno/subspace/internal/insights"
 	"github.com/SigmaUno/subspace/internal/instructions"
 	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/lifecycle"
@@ -98,6 +99,9 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[digest.Preview]():         "DigestPreview",
 	reflect.TypeFor[digest.Risk]():            "DigestRisk",
 	reflect.TypeFor[digest.Tasks]():           "DigestTasks",
+	reflect.TypeFor[insights.Report]():        "InsightsReport",
+	reflect.TypeFor[insights.Finding]():       "InsightFinding",
+	reflect.TypeFor[insights.Evidence]():      "InsightEvidence",
 	reflect.TypeFor[knowledge.Entry]():        "KnowledgeEntry",
 	reflect.TypeFor[knowledge.Input]():        "KnowledgeInput",
 	reflect.TypeFor[knowledge.Patch]():        "KnowledgePatch",

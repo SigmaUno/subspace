@@ -449,6 +449,38 @@ Owner-set daily limits per agent: `max_cost_eur_per_day`, `max_tasks_per_day` an
 
 `score` is `0.5 + (raw - 0.5) * n / (n + 3)` with `raw = 0.5 * first_pass_approval_rate + 0.3 * tasks_completed / n + 0.2 / (1 + review_rounds_per_task)` and `n = tasks_completed + blocked + expired` (a missing first-pass rate counts as 0.5). With `SUBSPACE_AUTOPILOT=on`, autopilot uses it to break ties between equally loaded eligible agents (higher first, then id); load, role, provider and capacity rules are never overridden. Scores used by autopilot are cached for 30s.
 
+### Agent insights
+Behavior findings per agent, computed on request from audit events, recorded tool errors and agent threads. Tool errors (code, tool, task and a fingerprint of the error text, never arguments or messages) are kept in the `tool_errors` table, retained for 7 days and at most 50000 rows.
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/insights?severity=` | → Insights for every agent, high severity first, then agent id and rule. `severity` is `warning` or `high` (400 otherwise). |
+| GET | `/api/v1/agents/{id}/insights` | → Insights of one agent. 404 for an unknown agent. |
+
+```jsonc
+// Insights
+{"generated_at":"...","high":1,"warning":2,"findings":[/* InsightFinding */]}
+
+// InsightFinding
+{"id":"claude-1:unassigned_claims","agent_id":"claude-1","rule":"unassigned_claims","severity":"high",   // severity: warning|high
+ "summary":"6 claim attempts on tasks not assigned to the agent","count":6,
+ "task_ids":["T-9"],"evidence":[{"kind":"error","id":"12"}],"since":"..."}   // evidence kind: error|audit|message|task
+```
+
+Rules, over the last 24 hours (warning / high):
+
+| rule | raised when |
+|---|---|
+| `repeated_errors` | one tool failed with the identical error (same code and text) 3 / 6 times; only the largest group per agent is reported |
+| `unassigned_claims` | `claim_task` failed with `not_assigned` 3 / 6 times |
+| `lease_expiries` | 2 / 3 leases expired while the agent held the task |
+| `silence` | an active agent has an `in_progress` task and no heartbeat, update or call for 20 minutes / 1 hour |
+| `changes_requested_ratio` | at least 3 reviews of the agent's tasks and `changes_requested` in 50% / 75% of them |
+| `loop_trips` | loop protection paused the agent 1 / 2 times |
+| `high_cost` | at least 2 completed tasks and a cost per task of 2x / 3x the median of its peers with the same role (at least 2 peers) |
+
+Each high finding appears in the decisions feed as kind `alert`, id `insight:<finding id>`, with the suggestion to pause the agent, reassign its tasks or change its instructions (`skip` only).
+
 ### Agent output
 Live terminal output that agents send with the MCP tool `log_output` (see §5). It is held in memory, never written to the audit log and never sent through notifications, callbacks or the main event stream.
 

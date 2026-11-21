@@ -324,6 +324,106 @@
         ],
         "type": "object"
       },
+      "AgentOutput": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "first_seq": {
+            "type": "integer"
+          },
+          "gap": {
+            "type": "boolean"
+          },
+          "last_seq": {
+            "type": "integer"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/AgentOutputLine"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "more": {
+            "type": "boolean"
+          },
+          "next_since": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "agent_id",
+          "first_seq",
+          "gap",
+          "last_seq",
+          "lines",
+          "more",
+          "next_since"
+        ],
+        "type": "object"
+      },
+      "AgentOutputLatest": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "line": {
+            "$ref": "#/components/schemas/AgentOutputLine"
+          },
+          "lines": {
+            "type": "integer"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "line",
+          "lines",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "AgentOutputLine": {
+        "properties": {
+          "agent_id": {
+            "type": "string"
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "stream": {
+            "type": "string"
+          },
+          "task_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          },
+          "ts": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "agent_id",
+          "seq",
+          "stream",
+          "task_id",
+          "text",
+          "ts"
+        ],
+        "type": "object"
+      },
       "AgentQuota": {
         "properties": {
           "max_concurrent_tasks": {
@@ -685,6 +785,61 @@
           "status",
           "summary",
           "title"
+        ],
+        "type": "object"
+      },
+      "Announcement": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "created_at",
+          "expires_at",
+          "id",
+          "text"
+        ],
+        "type": "object"
+      },
+      "AnnouncementInput": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "expires_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "expires_at",
+          "text"
         ],
         "type": "object"
       },
@@ -3135,34 +3290,6 @@
         ],
         "type": "object"
       },
-      "Finding": {
-        "properties": {
-          "message": {
-            "type": "string"
-          },
-          "paths": {
-            "items": {
-              "type": "string"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "rule": {
-            "type": "string"
-          },
-          "severity": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "message",
-          "rule",
-          "severity"
-        ],
-        "type": "object"
-      },
       "Forecast": {
         "properties": {
           "brief_id": {
@@ -3361,51 +3488,6 @@
           "p10",
           "p50",
           "p90"
-        ],
-        "type": "object"
-      },
-      "GatesReport": {
-        "properties": {
-          "brief_id": {
-            "type": "string"
-          },
-          "evaluated_at": {
-            "format": "date-time",
-            "type": "string"
-          },
-          "gates": {
-            "items": {
-              "$ref": "#/components/schemas/GatesResult"
-            },
-            "type": [
-              "array",
-              "null"
-            ]
-          },
-          "override": {
-            "oneOf": [
-              {
-                "$ref": "#/components/schemas/Override"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "passed": {
-            "type": "boolean"
-          },
-          "task_id": {
-            "type": "string"
-          }
-        },
-        "required": [
-          "brief_id",
-          "evaluated_at",
-          "gates",
-          "override",
-          "passed",
-          "task_id"
         ],
         "type": "object"
       },
@@ -4611,7 +4693,7 @@
           "scope": {
             "oneOf": [
               {
-                "$ref": "#/components/schemas/Report"
+                "$ref": "#/components/schemas/ScopeReport"
               },
               {
                 "type": "null"
@@ -5725,38 +5807,46 @@
       },
       "Report": {
         "properties": {
-          "additions": {
-            "type": "integer"
+          "brief_id": {
+            "type": "string"
           },
-          "deletions": {
-            "type": "integer"
+          "evaluated_at": {
+            "format": "date-time",
+            "type": "string"
           },
-          "files": {
-            "type": "integer"
-          },
-          "findings": {
+          "gates": {
             "items": {
-              "$ref": "#/components/schemas/Finding"
+              "$ref": "#/components/schemas/GatesResult"
             },
             "type": [
               "array",
               "null"
             ]
           },
-          "head_sha": {
-            "type": "string"
+          "override": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/Override"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
-          "truncated": {
+          "passed": {
             "type": "boolean"
+          },
+          "task_id": {
+            "type": "string"
           }
         },
         "required": [
-          "additions",
-          "deletions",
-          "files",
-          "findings",
-          "head_sha",
-          "truncated"
+          "brief_id",
+          "evaluated_at",
+          "gates",
+          "override",
+          "passed",
+          "task_id"
         ],
         "type": "object"
       },
@@ -6068,6 +6158,248 @@
         ],
         "type": "object"
       },
+      "RetentionPolicy": {
+        "properties": {
+          "audit_days": {
+            "type": "integer"
+          },
+          "batch": {
+            "type": "integer"
+          },
+          "dir": {
+            "type": "string"
+          },
+          "idempotency_days": {
+            "type": "integer"
+          },
+          "interval": {
+            "type": "string"
+          },
+          "messages_days": {
+            "type": "integer"
+          },
+          "segment_rows": {
+            "type": "integer"
+          },
+          "usage_days": {
+            "type": "integer"
+          },
+          "vacuum_pages": {
+            "type": "integer"
+          },
+          "wal_autocheckpoint": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "audit_days",
+          "batch",
+          "dir",
+          "idempotency_days",
+          "interval",
+          "messages_days",
+          "segment_rows",
+          "usage_days",
+          "vacuum_pages",
+          "wal_autocheckpoint"
+        ],
+        "type": "object"
+      },
+      "RetentionReport": {
+        "properties": {
+          "archived": {
+            "items": {
+              "$ref": "#/components/schemas/RetentionSegment"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "checkpointed": {
+            "type": "boolean"
+          },
+          "error": {
+            "type": "string"
+          },
+          "resumed": {
+            "type": "integer"
+          },
+          "rows": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "type": [
+              "object",
+              "null"
+            ]
+          },
+          "vacuumed_pages": {
+            "type": "integer"
+          },
+          "wal_frames": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "archived",
+          "at",
+          "checkpointed",
+          "resumed",
+          "rows",
+          "vacuumed_pages",
+          "wal_frames"
+        ],
+        "type": "object"
+      },
+      "RetentionSegment": {
+        "properties": {
+          "bytes": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "cutoff": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "file": {
+            "type": "string"
+          },
+          "first_id": {
+            "type": "integer"
+          },
+          "id": {
+            "type": "integer"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "last_hash": {
+            "type": "string"
+          },
+          "last_id": {
+            "type": "integer"
+          },
+          "prev_hash": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "seq": {
+            "type": "integer"
+          },
+          "sha256": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          }
+        },
+        "required": [
+          "bytes",
+          "created_at",
+          "cutoff",
+          "file",
+          "first_id",
+          "id",
+          "kind",
+          "last_hash",
+          "last_id",
+          "prev_hash",
+          "rows",
+          "seq",
+          "sha256",
+          "status",
+          "updated_at"
+        ],
+        "type": "object"
+      },
+      "RetentionStatus": {
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AuditHead"
+          },
+          "dir": {
+            "type": "string"
+          },
+          "last_run": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/RetentionReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "policy": {
+            "$ref": "#/components/schemas/RetentionPolicy"
+          },
+          "segments": {
+            "items": {
+              "$ref": "#/components/schemas/RetentionSegment"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "anchor",
+          "dir",
+          "last_run",
+          "policy",
+          "segments"
+        ],
+        "type": "object"
+      },
+      "RetentionVerification": {
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AuditHead"
+          },
+          "broken_segment": {
+            "type": "integer"
+          },
+          "chain": {
+            "$ref": "#/components/schemas/AuditCheck"
+          },
+          "error": {
+            "type": "string"
+          },
+          "ok": {
+            "type": "boolean"
+          },
+          "rows": {
+            "type": "integer"
+          },
+          "segments": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "anchor",
+          "broken_segment",
+          "chain",
+          "ok",
+          "rows",
+          "segments"
+        ],
+        "type": "object"
+      },
       "Run": {
         "properties": {
           "brief_id": {
@@ -6222,6 +6554,124 @@
             "type": "string"
           }
         },
+        "type": "object"
+      },
+      "ScopeFinding": {
+        "properties": {
+          "message": {
+            "type": "string"
+          },
+          "paths": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "rule": {
+            "type": "string"
+          },
+          "severity": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "message",
+          "rule",
+          "severity"
+        ],
+        "type": "object"
+      },
+      "ScopeReport": {
+        "properties": {
+          "additions": {
+            "type": "integer"
+          },
+          "deletions": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeFinding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "additions",
+          "deletions",
+          "files",
+          "findings",
+          "head_sha",
+          "truncated"
+        ],
+        "type": "object"
+      },
+      "ScopeStatus": {
+        "properties": {
+          "additions": {
+            "type": "integer"
+          },
+          "checked_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "deletions": {
+            "type": "integer"
+          },
+          "files": {
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/ScopeFinding"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "head_sha": {
+            "type": "string"
+          },
+          "merge_eligible": {
+            "type": "boolean"
+          },
+          "task_id": {
+            "type": "string"
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "additions",
+          "checked_at",
+          "deletions",
+          "files",
+          "findings",
+          "head_sha",
+          "merge_eligible",
+          "task_id",
+          "truncated"
+        ],
         "type": "object"
       },
       "SearchResult": {
@@ -7352,6 +7802,168 @@
           "task_id"
         ],
         "type": "object"
+      },
+      "WebhookCreated": {
+        "properties": {
+          "secret": {
+            "type": "string"
+          },
+          "webhook": {
+            "oneOf": [
+              {
+                "$ref": "#/components/schemas/WebhookSubscription"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "secret",
+          "webhook"
+        ],
+        "type": "object"
+      },
+      "WebhookDelivery": {
+        "properties": {
+          "attempts": {
+            "type": "integer"
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "delivered_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "event": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "last_error": {
+            "type": "string"
+          },
+          "last_status": {
+            "type": [
+              "integer",
+              "null"
+            ]
+          },
+          "next_attempt_at": {
+            "format": "date-time",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {},
+          "state": {
+            "type": "string"
+          },
+          "updated_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "webhook_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "attempts",
+          "created_at",
+          "delivered_at",
+          "event",
+          "id",
+          "last_error",
+          "last_status",
+          "next_attempt_at",
+          "payload",
+          "state",
+          "updated_at",
+          "webhook_id"
+        ],
+        "type": "object"
+      },
+      "WebhookInput": {
+        "properties": {
+          "brief_id": {
+            "type": "string"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "events",
+          "url"
+        ],
+        "type": "object"
+      },
+      "WebhookSubscription": {
+        "properties": {
+          "brief_id": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "created_at": {
+            "format": "date-time",
+            "type": "string"
+          },
+          "dead": {
+            "type": "integer"
+          },
+          "delivered": {
+            "type": "integer"
+          },
+          "events": {
+            "items": {
+              "type": "string"
+            },
+            "type": [
+              "array",
+              "null"
+            ]
+          },
+          "id": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "integer"
+          },
+          "url": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "brief_id",
+          "created_at",
+          "dead",
+          "delivered",
+          "events",
+          "id",
+          "pending",
+          "url"
+        ],
+        "type": "object"
       }
     },
     "securitySchemes": {
@@ -7557,6 +8169,45 @@
         "summary": "Activity feed, newest first",
         "tags": [
           "activity"
+        ]
+      }
+    },
+    "/api/v1/agent-output": {
+      "get": {
+        "operationId": "getAgentOutput",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "agents": {
+                      "items": {
+                        "$ref": "#/components/schemas/AgentOutputLatest"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "agents"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Newest output line of every active agent with buffered output",
+        "tags": [
+          "agent-output"
         ]
       }
     },
@@ -8082,6 +8733,61 @@
         ]
       }
     },
+    "/api/v1/agents/{id}/output": {
+      "get": {
+        "operationId": "getAgentsByIdOutput",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "since",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "query",
+            "name": "task_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AgentOutput"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Buffered terminal output of an agent; without since the newest lines",
+        "tags": [
+          "agents"
+        ]
+      }
+    },
     "/api/v1/agents/{id}/quota": {
       "put": {
         "operationId": "putAgentsByIdQuota",
@@ -8337,6 +9043,124 @@
         "summary": "Health alerts, active first",
         "tags": [
           "alerts"
+        ]
+      }
+    },
+    "/api/v1/announcements": {
+      "get": {
+        "operationId": "getAnnouncements",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "status",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "announcements": {
+                      "items": {
+                        "$ref": "#/components/schemas/Announcement"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "announcements"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List announcements, newest first",
+        "tags": [
+          "announcements"
+        ]
+      },
+      "post": {
+        "operationId": "postAnnouncements",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/AnnouncementInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "announcement": {
+                      "$ref": "#/components/schemas/Announcement"
+                    },
+                    "delivered": {
+                      "type": "integer"
+                    }
+                  },
+                  "required": [
+                    "announcement",
+                    "delivered"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Publish an announcement to every agent or the agents of a brief",
+        "tags": [
+          "announcements"
+        ]
+      }
+    },
+    "/api/v1/announcements/{id}": {
+      "delete": {
+        "operationId": "deleteAnnouncementsById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete an announcement",
+        "tags": [
+          "announcements"
         ]
       }
     },
@@ -12869,6 +13693,129 @@
         ]
       }
     },
+    "/api/v1/retention": {
+      "get": {
+        "operationId": "getRetention",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Retention policy, archived segments and the last run",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
+    "/api/v1/retention/run": {
+      "post": {
+        "operationId": "postRetentionRun",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionReport"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Archive expired rows now",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
+    "/api/v1/retention/segments/{id}/restore": {
+      "post": {
+        "operationId": "postRetentionSegmentsByIdRestore",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionSegment"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Restore the rows of an archived segment",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
+    "/api/v1/retention/verify": {
+      "get": {
+        "operationId": "getRetentionVerify",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RetentionVerification"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Verify archived segments against their manifest and the audit chain",
+        "tags": [
+          "retention"
+        ]
+      }
+    },
     "/api/v1/schedules": {
       "get": {
         "operationId": "getSchedules",
@@ -13645,7 +14592,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatesReport"
+                  "$ref": "#/components/schemas/Report"
                 }
               }
             },
@@ -13688,7 +14635,7 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/GatesReport"
+                  "$ref": "#/components/schemas/Report"
                 }
               }
             },
@@ -13776,6 +14723,40 @@
           }
         },
         "summary": "Reopen a blocked, needs_owner or cancelled task",
+        "tags": [
+          "tasks"
+        ]
+      }
+    },
+    "/api/v1/tasks/{id}/scope": {
+      "get": {
+        "operationId": "getTasksByIdScope",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ScopeStatus"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Scope report of the latest pull request snapshot of a task",
         "tags": [
           "tasks"
         ]
@@ -14067,6 +15048,247 @@
         ]
       }
     },
+    "/api/v1/webhooks-out": {
+      "get": {
+        "operationId": "getWebhooksOut",
+        "parameters": [],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "webhooks": {
+                      "items": {
+                        "$ref": "#/components/schemas/WebhookSubscription"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "webhooks"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "List outbound webhook subscriptions",
+        "tags": [
+          "webhooks-out"
+        ]
+      },
+      "post": {
+        "operationId": "postWebhooksOut",
+        "parameters": [],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WebhookInput"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookCreated"
+                }
+              }
+            },
+            "description": "Created"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Create an outbound webhook subscription; the secret is shown once",
+        "tags": [
+          "webhooks-out"
+        ]
+      }
+    },
+    "/api/v1/webhooks-out/{id}": {
+      "delete": {
+        "operationId": "deleteWebhooksOutById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "No Content"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Delete an outbound webhook subscription and its deliveries",
+        "tags": [
+          "webhooks-out"
+        ]
+      },
+      "get": {
+        "operationId": "getWebhooksOutById",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookSubscription"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Get an outbound webhook subscription",
+        "tags": [
+          "webhooks-out"
+        ]
+      }
+    },
+    "/api/v1/webhooks-out/{id}/deliveries": {
+      "get": {
+        "operationId": "getWebhooksOutByIdDeliveries",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "state",
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "limit",
+            "schema": {
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "properties": {
+                    "deliveries": {
+                      "items": {
+                        "$ref": "#/components/schemas/WebhookDelivery"
+                      },
+                      "type": [
+                        "array",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "deliveries"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Deliveries of an outbound webhook, newest first",
+        "tags": [
+          "webhooks-out"
+        ]
+      }
+    },
+    "/api/v1/webhooks-out/{id}/deliveries/{delivery}/redeliver": {
+      "post": {
+        "operationId": "postWebhooksOutByIdDeliveriesByDeliveryRedeliver",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "id",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "delivery",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {}
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WebhookDelivery"
+                }
+              }
+            },
+            "description": "OK"
+          },
+          "default": {
+            "$ref": "#/components/responses/Error"
+          }
+        },
+        "summary": "Queue a dead delivery again",
+        "tags": [
+          "webhooks-out"
+        ]
+      }
+    },
     "/healthz": {
       "get": {
         "operationId": "getHealthz",
@@ -14244,6 +15466,9 @@
       "name": "activity"
     },
     {
+      "name": "agent-output"
+    },
+    {
       "name": "agent-profiles"
     },
     {
@@ -14254,6 +15479,9 @@
     },
     {
       "name": "alerts"
+    },
+    {
+      "name": "announcements"
     },
     {
       "name": "artifacts"
@@ -14349,6 +15577,9 @@
       "name": "reload"
     },
     {
+      "name": "retention"
+    },
+    {
       "name": "schedules"
     },
     {
@@ -14374,6 +15605,9 @@
     },
     {
       "name": "tokens"
+    },
+    {
+      "name": "webhooks-out"
     }
   ],
   "x-mcp-tools": []

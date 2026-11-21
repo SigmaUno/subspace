@@ -5,6 +5,8 @@ type Limit struct {
 	Model          string `json:"model"`
 	MaxConcurrency int    `json:"max_concurrency"`
 	RequestsPerMin int    `json:"requests_per_min"`
+	KeyEnv         string `json:"key_env,omitempty"`
+	BaseURL        string `json:"base_url,omitempty"`
 }
 
 type Gate func(provider, model string, n int) error

@@ -198,7 +198,7 @@ export function QuestionsView({ revision, openThread }: { revision: number; open
   </>;
 }
 
-type LimitInput = Pick<CapacityLimit, "provider" | "model" | "max_concurrency" | "requests_per_min">;
+type LimitInput = Pick<CapacityLimit, "provider" | "model" | "max_concurrency" | "requests_per_min" | "key_env" | "base_url">;
 type Draft = { global_max_agents: number; limits: LimitInput[] };
 
 const whole = (amount: number) => Number.isInteger(amount) && amount >= 0;
@@ -234,8 +234,8 @@ export function CapacityView({ revision, embedded }: { revision: number; embedde
       if (problem) throw new Error(problem);
       const response = await api<Capacity>("capacity", "PUT", {
         global_max_agents: settings.global_max_agents,
-        limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min }) => ({
-          provider: provider.trim(), model: model.trim(), max_concurrency, requests_per_min,
+        limits: settings.limits.map(({ provider, model, max_concurrency, requests_per_min, key_env, base_url }) => ({
+          provider: provider.trim(), model: model.trim(), max_concurrency, requests_per_min, key_env, base_url,
         })),
       });
       capacity.setData(response);

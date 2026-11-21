@@ -570,7 +570,9 @@ export interface CapacityConfig {
 
 export interface CapacityLimit {
   available: number;
+  base_url?: string;
   in_use: number;
+  key_env?: string;
   max_concurrency: number;
   model: string;
   provider: string;
@@ -578,6 +580,8 @@ export interface CapacityLimit {
 }
 
 export interface CapacityLimitConfig {
+  base_url?: string;
+  key_env?: string;
   max_concurrency: number;
   model: string;
   provider: string;
@@ -1563,6 +1567,16 @@ export interface ProposedTask {
   title: string;
 }
 
+export interface ProviderProbe {
+  breaker: string;
+  checked_at: string | null;
+  error?: string;
+  latency_ms: number;
+  model: string;
+  ok: boolean;
+  provider: string;
+}
+
 export interface PushSubscription {
   created_at: string;
   expires_at: string | null;
@@ -2266,6 +2280,16 @@ export interface Tools {
   tools: Discovered[] | null;
 }
 
+export interface Totals {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
 export interface Train {
   base: string;
   base_sha: string;
@@ -2307,6 +2331,90 @@ export interface TranscriptPage {
   next_since: number;
   segments: number;
   task_id: string;
+}
+
+export interface UsageBriefBudget {
+  brief_id: string;
+  budget_eur: number;
+  budget_usd: number;
+  remaining_usd: number | null;
+  spent_usd: number;
+  status: string;
+  title: string;
+}
+
+export interface UsageCapacity {
+  agents_in_use: number;
+  credits_remaining_usd: number | null;
+  global_max_agents: number;
+  limits: CapacityLimit[] | null;
+  models: UsageModelCapacity[] | null;
+}
+
+export interface UsageCredits {
+  remaining_usd: number | null;
+  spent_usd: number;
+  total_usd: number | null;
+}
+
+export interface UsageGroup {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  key: string;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+}
+
+export interface UsageModelCapacity {
+  in_use: number;
+  limited_by: string;
+  model: string;
+  provider: string;
+  requests_1m: number;
+  spawnable: number;
+}
+
+export interface UsagePoint {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
+  ts: string;
+}
+
+export interface UsageProviderStatus {
+  concurrency_headroom: number;
+  in_use: number;
+  last_rate_limited_at: string | null;
+  max_concurrency: number;
+  provider: string;
+  rate_limited_1h: number;
+  rate_limited_5m: number;
+  requests_1m: number;
+  requests_per_min: number;
+  rpm_headroom: number;
+  status: string;
+}
+
+export interface UsageSeries {
+  key: string;
+  points: UsagePoint[] | null;
+}
+
+export interface UsageSummary {
+  briefs: UsageBriefBudget[] | null;
+  credits: UsageCredits;
+  from: string;
+  group_by: string;
+  groups: UsageGroup[] | null;
+  to: string;
+  totals: Totals;
 }
 
 export interface Version {

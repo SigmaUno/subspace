@@ -7,6 +7,7 @@ import (
 	"log/slog"
 
 	"github.com/SigmaUno/subspace/internal/breaker"
+	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -50,10 +51,19 @@ func init() {
 			})
 			return
 		}
+		svc.Capacity = usage.CapacityFunc(d.Board.CapacityUsage)
+		svc.Briefs = d.Board
+		svc.Now = d.Cfg.Now
+		uh := usage.NewHandler(svc)
+		for _, p := range []string{"summary", "series", "providers", "capacity"} {
+			d.API.Mount(d.Mux, "GET /api/v1/usage/"+p, uh)
+		}
 		for _, t := range svc.Tools() {
 			d.Registry.Register(t)
 		}
 		d.Registry.Register(providerErrorTool(d))
+
+		mountProbe(d)
 
 		detach := decisions.Attach(d.Store, breakerDecisions{d.Breakers})
 		go func() {
@@ -61,6 +71,32 @@ func init() {
 			detach()
 		}()
 	})
+}
+
+func mountProbe(d Deps) {
+	p := &breaker.Prober{
+		Set: d.Breakers, Getenv: d.getenv(), Now: d.Cfg.Now,
+		Targets: func(ctx context.Context) ([]capacity.Limit, error) {
+			v, err := d.Board.Capacity(ctx)
+			if err != nil {
+				return nil, err
+			}
+			out := make([]capacity.Limit, 0, len(v.Limits))
+			for _, r := range v.Limits {
+				out = append(out, r.Limit)
+			}
+			return out, nil
+		},
+	}
+	d.API.Mount(d.Mux, "GET /api/v1/providers", breaker.ProbeHandler(p))
+	every, err := breaker.ProbeIntervalFromEnv(d.getenv())
+	if err != nil {
+		d.Log.Error("provider probes disabled", "err", err)
+		return
+	}
+	if every > 0 {
+		go p.Run(d.Ctx, every)
+	}
 }
 
 func breakerLog(log *slog.Logger) func(breaker.Status) {

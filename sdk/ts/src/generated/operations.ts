@@ -691,6 +691,12 @@ export function getPromptsByIdRender(
   return r.request("GET", "/api/v1/prompts/{id}/render", { ...args, response: "json" });
 }
 
+export function getProviders(
+  r: Requester,
+): Promise<{ providers: T.ProviderProbe[] | null }> {
+  return r.request("GET", "/api/v1/providers", { response: "json" });
+}
+
 export function getPrs(
   r: Requester,
   args?: { query?: { brief_id?: string; state?: string; limit?: number } },
@@ -869,6 +875,32 @@ export function getTokens(
   r: Requester,
 ): Promise<{ tokens: T.APIToken[] | null }> {
   return r.request("GET", "/api/v1/tokens", { response: "json" });
+}
+
+export function getUsageCapacity(
+  r: Requester,
+): Promise<T.UsageCapacity> {
+  return r.request("GET", "/api/v1/usage/capacity", { response: "json" });
+}
+
+export function getUsageProviders(
+  r: Requester,
+): Promise<{ providers: T.UsageProviderStatus[] | null }> {
+  return r.request("GET", "/api/v1/usage/providers", { response: "json" });
+}
+
+export function getUsageSeries(
+  r: Requester,
+  args?: { query?: { bucket?: string; group_by?: string; from?: string; to?: string; agent_id?: string; brief_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<{ bucket: string; from: string; group_by: string; series: T.UsageSeries[] | null; to: string }> {
+  return r.request("GET", "/api/v1/usage/series", { ...args, response: "json" });
+}
+
+export function getUsageSummary(
+  r: Requester,
+  args?: { query?: { group_by?: string; from?: string; to?: string; agent_id?: string; brief_id?: string; task_id?: string; provider?: string; model?: string; source?: string } },
+): Promise<T.UsageSummary> {
+  return r.request("GET", "/api/v1/usage/summary", { ...args, response: "json" });
 }
 
 export function getWebhooksOut(

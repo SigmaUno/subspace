@@ -341,7 +341,7 @@ func scenarioTaskList(t *testing.T, s store.Store) {
 			model.StatusInProgress: 1, model.StatusAssigned: 1, model.StatusCancelled: 1,
 			model.StatusReady: 1, model.StatusInReview: 1,
 		}, counts)
-		if c, err := tx.BriefCost("B-1"); err != nil || c != 13 {
+		if c, err := tx.BriefCost("B-1"); err != nil || c != 16 {
 			t.Errorf("brief cost B-1: %v %v", c, err)
 		}
 		if c, err := tx.BriefCost("B-404"); err != nil || c != 0 {

@@ -239,7 +239,7 @@ func (m *ForgejoMirror) find(ctx context.Context, taskID string) (*issue, error)
 			return nil, err
 		}
 		for i := range found {
-			if strings.Contains(found[i].Body, marker) {
+			if strings.HasPrefix(found[i].Body, marker+"\n") {
 				return &found[i], nil
 			}
 		}

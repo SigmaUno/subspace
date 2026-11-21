@@ -142,8 +142,7 @@ func (t *tx) CountTasksByStatus() (map[string]int, error) {
 func (t *tx) BriefCost(briefID string) (float64, error) {
 	var c float64
 	err := t.q.QueryRowContext(t.ctx,
-		`SELECT COALESCE(SUM(cost_used), 0) FROM tasks WHERE brief_id = $1 AND status <> $2`,
-		briefID, model.StatusCancelled).Scan(&c)
+		`SELECT COALESCE(SUM(cost_used), 0) FROM tasks WHERE brief_id = $1`, briefID).Scan(&c)
 	return c, err
 }
 

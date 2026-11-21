@@ -134,6 +134,9 @@ func (b *Board) RequestSpawn(ctx context.Context, a model.Actor, in SpawnInput) 
 	if in.Provider == "" {
 		in.Provider = model.ProviderForKind(in.Kind)
 	}
+	if err := checkProvider(in.Kind, in.Provider); err != nil {
+		return nil, err
+	}
 	type launch struct {
 		sp  *model.Spawn
 		tok string

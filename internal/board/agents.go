@@ -82,7 +82,23 @@ func (in *AgentInput) validate() error {
 	}
 	var err error
 	in.expiresIn, err = ParseExpiresIn(in.ExpiresIn)
-	return err
+	if err != nil {
+		return err
+	}
+	return checkProvider(in.Kind, in.Provider)
+}
+
+func checkProvider(kind, provider string) error {
+	if !providerRe.MatchString(provider) {
+		return model.BadRequest("provider must match [a-z0-9][a-z0-9._-]{0,62}")
+	}
+	switch kind {
+	case model.KindClaudeCode, model.KindCodex:
+		if want := model.ProviderForKind(kind); provider != want {
+			return model.BadRequest("provider for kind %s must be %s", kind, want)
+		}
+	}
+	return nil
 }
 
 func (b *Board) newAgent(in AgentInput, spawned bool) (*model.Agent, string, error) {

@@ -232,7 +232,7 @@ func TestTaskListCountCost(t *testing.T) {
 			t.Errorf("counts: want %v got %v", wantCounts, counts)
 		}
 
-		if c, err := tx.BriefCost("B-1"); err != nil || c != 13 {
+		if c, err := tx.BriefCost("B-1"); err != nil || c != 16 {
 			t.Errorf("brief cost B-1: %v %v", c, err)
 		}
 		if c, err := tx.BriefCost("B-404"); err != nil || c != 0 {

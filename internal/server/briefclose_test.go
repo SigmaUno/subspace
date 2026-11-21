@@ -179,7 +179,9 @@ func TestBriefCloseAndReopenWithAgentsMidWork(t *testing.T) {
 	}
 
 	f.Must(f.tok["w6"], "claim_task", map[string]any{"task_id": changes})
-	f.Must(f.lead, "update_task", map[string]any{"task_id": active1, "status": "ready"})
+	if code, _ := f.REST("POST", "/api/v1/tasks/"+active1+"/reopen", map[string]any{"status": "assigned"}); code != 200 {
+		t.Fatalf("owner reopen: %d", code)
+	}
 	f.Must(f.tok["w1"], "claim_task", map[string]any{"task_id": active1})
 	if f.task(active1)["status"] != "in_progress" {
 		t.Fatalf("task after reopen and claim: %v", f.task(active1))

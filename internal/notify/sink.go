@@ -103,7 +103,7 @@ func NewNtfy(url string, c *http.Client) Sink {
 
 func NewSlack(url string, c *http.Client) Sink {
 	return &httpSink{name: "slack", url: url, client: c, build: func(n Notification) ([]byte, http.Header, error) {
-		text := "*" + n.Title + "*\n" + n.Text
+		text := "*" + slackEscape(n.Title) + "*\n" + slackEscape(n.Text)
 		body := map[string]any{"text": text}
 		if len(n.Actions) > 0 {
 			buttons := make([]map[string]any, len(n.Actions))
@@ -119,3 +119,7 @@ func NewSlack(url string, c *http.Client) Sink {
 		return b, http.Header{"Content-Type": {"application/json"}}, err
 	}}
 }
+
+var slackEscaper = strings.NewReplacer("&", "&amp;", "<", "&lt;", ">", "&gt;")
+
+func slackEscape(s string) string { return slackEscaper.Replace(s) }

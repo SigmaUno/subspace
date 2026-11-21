@@ -57,6 +57,9 @@ func verifySegment(dir string, seg Segment, anchor *model.AuditHead) string {
 	if err != nil {
 		return err.Error()
 	}
+	if seg.Kind == Transcripts && seg.Status == StatusArchived {
+		return verifyFiles(dir, rows)
+	}
 	if seg.Kind != Audit {
 		return ""
 	}

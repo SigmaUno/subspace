@@ -14,7 +14,8 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/model"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/store"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type fixtureRepo struct {
@@ -229,12 +230,9 @@ func TestRunnerCPULimit(t *testing.T) {
 }
 
 func TestSQLStoreSurvivesRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "hc.db")
-	open := func(outs ...string) (*sqlite.Store, *hillclimb.Measurer) {
-		st, err := sqlite.Open(path)
-		if err != nil {
-			t.Fatal(err)
-		}
+	path := testdb.Path(t, "hc.db")
+	open := func(outs ...string) (store.Store, *hillclimb.Measurer) {
+		st := testdb.Open(t, path)
 		m := hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), &fakeRunner{outs: outs})
 		c := &clock{t: time.Date(2026, 11, 20, 12, 0, 0, 0, time.UTC)}
 		m.Now = c.now

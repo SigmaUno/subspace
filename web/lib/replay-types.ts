@@ -11,7 +11,7 @@ export interface ReplayTask {
   changed_at: string | null;
 }
 
-export interface ReplayAgent {
+interface ReplayAgent {
   id: string;
   role: string;
   assigned: string[] | null;
@@ -45,6 +45,7 @@ export interface ReplayKeyEvent {
   task_id: string;
   from: string;
   to: string;
+  transcript?: string;
 }
 
 export interface ReplayTimeline {

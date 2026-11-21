@@ -1,0 +1,8 @@
+{
+  "invariant": "secret_in_response",
+  "detail": "a Subspace token in the owner charter reached every agent through get_instructions",
+  "ops": [
+    {"actor": "owner", "kind": "rest", "method": "PUT", "path": "/api/v1/charter", "body": "{\"text\":\"key {{c:7}} end\"}"},
+    {"actor": "rev1", "kind": "mcp", "tool": "get_instructions", "body": "{}"}
+  ]
+}

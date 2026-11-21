@@ -131,6 +131,9 @@ func providerErrorTool(d Deps) *mcp.Tool {
 					return nil, model.BadRequest("invalid arguments: %v", err)
 				}
 			}
+			if err := usage.CheckNames(in.Provider, in.Model); err != nil {
+				return nil, err
+			}
 			if in.Provider == "" || in.Model == "" {
 				a, err := d.Board.GetAgent(ctx, c.Actor.ID)
 				if err != nil {

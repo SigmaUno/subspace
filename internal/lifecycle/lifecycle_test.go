@@ -3,7 +3,6 @@ package lifecycle_test
 import (
 	"context"
 	"errors"
-	"path/filepath"
 	"slices"
 	"strings"
 	"sync"
@@ -15,7 +14,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type clock struct {
@@ -71,10 +70,15 @@ func (f *fakeSpawner) stops() []string {
 	return slices.Clone(f.stopped)
 }
 
-type records struct{ s *sqlite.Store }
+type lifecycleStore interface {
+	SpawnLifecycles(ctx context.Context) (map[string]store.SpawnLifecycle, error)
+	SaveSpawnLifecycle(ctx context.Context, l store.SpawnLifecycle, sp *model.Spawn, ev *model.AuditEvent) error
+}
+
+type records struct{ s store.Store }
 
 func (r records) Records(ctx context.Context) (map[string]lifecycle.Record, error) {
-	m, err := r.s.SpawnLifecycles(ctx)
+	m, err := r.s.(lifecycleStore).SpawnLifecycles(ctx)
 	out := make(map[string]lifecycle.Record, len(m))
 	for k, v := range m {
 		out[k] = lifecycle.Record(v)
@@ -83,7 +87,7 @@ func (r records) Records(ctx context.Context) (map[string]lifecycle.Record, erro
 }
 
 func (r records) Save(ctx context.Context, rec lifecycle.Record, sp *model.Spawn, ev *model.AuditEvent) error {
-	return r.s.SaveSpawnLifecycle(ctx, sqlite.SpawnLifecycle(rec), sp, ev)
+	return r.s.(lifecycleStore).SaveSpawnLifecycle(ctx, store.SpawnLifecycle(rec), sp, ev)
 }
 
 type sim struct {
@@ -92,7 +96,7 @@ type sim struct {
 	db  string
 	clk *clock
 	sp  *fakeSpawner
-	st  *sqlite.Store
+	st  store.Store
 	b   *board.Board
 	r   *lifecycle.Reaper
 	cfg lifecycle.Config
@@ -100,7 +104,7 @@ type sim struct {
 
 func newSim(t *testing.T, cfg lifecycle.Config) *sim {
 	t.Helper()
-	s := &sim{t: t, ctx: context.Background(), db: filepath.Join(t.TempDir(), "t.db"),
+	s := &sim{t: t, ctx: context.Background(), db: testdb.Path(t, "t.db"),
 		clk: &clock{t: time.Date(2026, 11, 21, 9, 0, 0, 0, time.UTC)}, sp: &fakeSpawner{}, cfg: cfg}
 	s.open()
 	return s
@@ -108,11 +112,7 @@ func newSim(t *testing.T, cfg lifecycle.Config) *sim {
 
 func (s *sim) open() {
 	s.t.Helper()
-	st, err := sqlite.Open(s.db)
-	if err != nil {
-		s.t.Fatal(err)
-	}
-	s.t.Cleanup(func() { _ = st.Close() })
+	st := testdb.Open(s.t, s.db)
 	b, err := board.New(s.ctx, st, board.Options{PublicURL: "http://sub.test", Lease: 15 * time.Minute, Spawner: s.sp, Now: s.clk.Now})
 	if err != nil {
 		s.t.Fatal(err)

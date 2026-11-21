@@ -1,0 +1,31 @@
+{
+  "charter": {"template": "../charters/solo-developer.md"},
+  "profiles": [
+    {"name": "solo-worker", "role": "worker", "kind": "claude-code", "model": "claude-sonnet-5-5", "provider": "anthropic",
+     "expires_in": "720h", "description": "Single Claude Code worker for a solo developer"},
+    {"name": "solo-reviewer", "role": "reviewer", "kind": "codex", "model": "gpt-5-codex", "provider": "openai",
+     "expires_in": "720h", "description": "Codex reviewer, a different provider than the worker"},
+    {"name": "solo-tester", "role": "tester", "kind": "opencode", "model": "deepseek/deepseek-chat", "provider": "deepseek",
+     "expires_in": "720h", "description": "Cheap tester on DeepSeek"}
+  ],
+  "leader": {"id": "lead", "kind": "claude-code", "model": "claude-opus-5-5", "provider": "anthropic", "expires_in": "2160h"},
+  "workers": [{"prefix": "worker", "count": 1, "profile": "solo-worker"}],
+  "reviewer": {"id": "review", "profile": "solo-reviewer"},
+  "tester": {"id": "test", "profile": "solo-tester"},
+  "repos": [
+    {"name": "example-owner/example-repo", "host": "github", "default_branch": "main", "protected_branches": ["main"],
+     "token_env": "GITHUB_TOKEN", "enabled": true}
+  ],
+  "capacity": {
+    "global_max_agents": 6,
+    "limits": [
+      {"provider": "anthropic", "model": "claude-opus-*", "max_concurrency": 1, "requests_per_min": 30},
+      {"provider": "anthropic", "model": "*", "max_concurrency": 5, "requests_per_min": 150}
+    ]
+  },
+  "limits": {"daily_cost_eur": 10, "weekly_cost_eur": 40},
+  "quality_gates": {"tests": true, "min_tests_passed": 1, "review": true, "budget": true},
+  "autopilot": {"enabled": false},
+  "brief": "solo-developer-brief.md",
+  "secrets_file": "solo-agents.secrets"
+}

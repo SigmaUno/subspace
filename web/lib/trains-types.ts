@@ -2,7 +2,7 @@ export type TrainState = "building" | "testing" | "merging" | "merged" | "failed
 
 export type MemberResult = "pending" | "merging" | "merged" | "ejected" | "requeued";
 
-export type TrainMember = {
+type TrainMember = {
   candidate_id: string;
   task_id: string;
   pr: number;

@@ -6,7 +6,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
-	"path/filepath"
 	"strings"
 	"sync"
 	"testing"
@@ -14,7 +13,7 @@ import (
 
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/model"
-	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testdb"
 )
 
 type clock struct {
@@ -82,11 +81,7 @@ type rig struct {
 
 func newRig(t *testing.T, mutate func(*Options)) *rig {
 	t.Helper()
-	db, err := sqlite.Open(filepath.Join(t.TempDir(), "t.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = db.Close() })
+	db := testdb.Open(t, testdb.Path(t, "t.db"))
 	return buildRig(t, NewSQLStore(db), mutate)
 }
 
@@ -322,11 +317,8 @@ func TestQueueIsBounded(t *testing.T) {
 }
 
 func TestPendingDeliveriesSurviveRestart(t *testing.T) {
-	path := filepath.Join(t.TempDir(), "t.db")
-	db, err := sqlite.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
+	path := testdb.Path(t, "t.db")
+	db := testdb.Open(t, path)
 	first := buildRig(t, NewSQLStore(db), nil)
 	sub := first.create(t, []string{"task.updated"}, "")
 	first.rcv.setStatus(http.StatusBadGateway)
@@ -340,11 +332,7 @@ func TestPendingDeliveriesSurviveRestart(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	db2, err := sqlite.Open(path)
-	if err != nil {
-		t.Fatal(err)
-	}
-	defer func() { _ = db2.Close() }()
+	db2 := testdb.Open(t, path)
 	second := buildRig(t, NewSQLStore(db2), nil)
 	second.clk.Set(first.clk.Now().Add(time.Hour))
 	second.rcv.Close()

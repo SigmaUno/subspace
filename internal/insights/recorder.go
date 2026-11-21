@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"log/slog"
+	"regexp"
 	"sync"
 	"time"
 )
@@ -18,6 +19,8 @@ const (
 	flushEvery       = time.Second
 	pruneEvery       = time.Minute
 )
+
+var taskIDRe = regexp.MustCompile(`^T-[0-9]+$`)
 
 type Store interface {
 	InsertToolErrors(ctx context.Context, errs []ToolError) error
@@ -66,7 +69,7 @@ func (r *Recorder) Observe(agentID, tool, code, message string, args json.RawMes
 		TaskID string `json:"task_id"`
 	}
 	_ = json.Unmarshal(args, &a)
-	if len(a.TaskID) > maxTaskID {
+	if len(a.TaskID) > maxTaskID || !taskIDRe.MatchString(a.TaskID) {
 		a.TaskID = ""
 	}
 	e := ToolError{

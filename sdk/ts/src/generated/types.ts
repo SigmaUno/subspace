@@ -509,6 +509,11 @@ export interface BriefTemplate {
   variables: string[] | null;
 }
 
+export interface Budget {
+  max_calls_per_day: number;
+  max_result_bytes_per_day: number;
+}
+
 export interface BulkError {
   code: string;
   message: string;
@@ -750,6 +755,16 @@ export interface DigestTasks {
   done: number;
 }
 
+export interface Discovered {
+  allowed: boolean;
+  description: string;
+  exposed_as: string;
+  flags: string[] | null;
+  input_schema?: Record<string, unknown> | null;
+  name: string;
+  refused?: string;
+}
+
 export interface DrillResult {
   backup: string;
   backup_bytes: number;
@@ -907,6 +922,46 @@ export interface GatesResult {
   gate: string;
   overridden: boolean;
   passed: boolean;
+}
+
+export interface Gateway {
+  allow_private_hosts: boolean;
+  allow_tools: string[] | null;
+  allowed_roles: string[] | null;
+  args: string[] | null;
+  audit_arguments: boolean;
+  budget: Budget;
+  command: string;
+  created_at: string;
+  credential_env: string;
+  deny_tools: string[] | null;
+  enabled: boolean;
+  max_result_bytes: number;
+  name: string;
+  rate_limits: RateLimit[] | null;
+  timeout_ms: number;
+  transport: string;
+  updated_at: string;
+  url: string;
+}
+
+export interface GatewayInput {
+  allow_private_hosts: boolean;
+  allow_tools?: string[] | null;
+  allowed_roles?: string[] | null;
+  args?: string[] | null;
+  audit_arguments: boolean;
+  budget: Budget;
+  command: string;
+  credential_env: string;
+  deny_tools?: string[] | null;
+  enabled?: boolean | null;
+  max_result_bytes: number;
+  name: string;
+  rate_limits?: RateLimit[] | null;
+  timeout_ms: number;
+  transport: string;
+  url: string;
 }
 
 export interface HAEventStats {
@@ -1140,6 +1195,11 @@ export interface KnowledgePin {
 
 export interface KnowledgeSupersede {
   by?: string;
+}
+
+export interface List {
+  commands: string[] | null;
+  gateways: Gateway[] | null;
 }
 
 export interface LogLevel {
@@ -1454,6 +1514,11 @@ export interface RPCResponse {
   result?: unknown;
 }
 
+export interface RateLimit {
+  per_minute: number;
+  tool: string;
+}
+
 export interface Reason {
   reason: string;
 }
@@ -1498,6 +1563,7 @@ export interface ReplayKeyEvent {
   task_id: string;
   to: string;
   tool: string;
+  transcript?: string;
 }
 
 export interface ReplayPoint {
@@ -1684,6 +1750,7 @@ export interface RetentionPolicy {
   interval: string;
   messages_days: number;
   segment_rows: number;
+  transcripts_days: number;
   usage_days: number;
   vacuum_pages: number;
   wal_autocheckpoint: number;
@@ -2037,6 +2104,12 @@ export interface TokenLeakReissued {
   token?: APIToken | null;
 }
 
+export interface Tools {
+  error: string;
+  gateway: string;
+  tools: Discovered[] | null;
+}
+
 export interface Train {
   base: string;
   base_sha: string;
@@ -2057,6 +2130,26 @@ export interface TrainMember {
   pr: number;
   result: string;
   sha: string;
+  task_id: string;
+}
+
+export interface TranscriptLine {
+  agent_id: string;
+  offset: number;
+  stream: string;
+  text: string;
+  ts: string;
+}
+
+export interface TranscriptPage {
+  bytes: number;
+  first_offset: number;
+  gap: boolean;
+  last_offset: number;
+  lines: TranscriptLine[] | null;
+  more: boolean;
+  next_since: number;
+  segments: number;
   task_id: string;
 }
 

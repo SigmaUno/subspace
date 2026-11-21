@@ -77,7 +77,7 @@ export function facets(tasks: Task[]) {
   };
 }
 
-export interface TaskMatcher {
+interface TaskMatcher {
   isStale(task: Task): boolean;
   isMergeReady(id: string): boolean;
 }

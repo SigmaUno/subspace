@@ -55,7 +55,11 @@ func mountSpendGuard(d Deps) {
 		d.Log.Error("spendguard disabled", "err", err)
 		return
 	}
+	shared := isPostgres(d.Cfg.DBPath)
 	h := spendguard.Handler(g)
+	if shared {
+		h = reloadingGuard(h, d, g)
+	}
 	d.API.Mount(d.Mux, "GET /api/v1/limits", h)
 	d.API.Mount(d.Mux, "PUT /api/v1/limits", h)
 	detach := decisions.Attach(d.Store, g)
@@ -65,7 +69,40 @@ func mountSpendGuard(d Deps) {
 		detach()
 		spendGuards.Delete(d.Mux)
 	}()
-	go g.Run(d.Ctx, spendguardInterval)
+	d.Leader.Go(d.Ctx, func(ctx context.Context) { runSpendGuard(ctx, d, g, shared) })
+}
+
+func runSpendGuard(ctx context.Context, d Deps, g *spendguard.Guard, shared bool) {
+	tick := time.NewTicker(spendguardInterval)
+	defer tick.Stop()
+	for {
+		var err error
+		if shared {
+			err = g.Reload(ctx)
+		}
+		if err == nil {
+			err = g.Reconcile(ctx)
+		}
+		if err != nil && ctx.Err() == nil {
+			d.Log.Error("spendguard sweep", "err", err)
+		}
+		select {
+		case <-ctx.Done():
+			return
+		case <-tick.C:
+		}
+	}
+}
+
+func reloadingGuard(next http.Handler, d Deps, g *spendguard.Guard) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := g.Reload(r.Context()); err != nil {
+			d.Log.Error("spendguard reload", "err", err)
+			writeAPIError(w, err)
+			return
+		}
+		next.ServeHTTP(w, r)
+	})
 }
 
 type readCloser struct {
@@ -97,8 +134,18 @@ func spendCostReports(next http.Handler, d Deps, g *spendguard.Guard) http.Handl
 		if json.Unmarshal(head, &call) != nil || call.Params.Name != "update_status" || call.Params.Arguments.TaskID == "" {
 			return
 		}
+		if !d.Leader.IsLeader() {
+			return
+		}
 		go func() {
-			if err := g.CheckTask(d.Ctx, call.Params.Arguments.TaskID); err != nil && d.Ctx.Err() == nil {
+			var err error
+			if isPostgres(d.Cfg.DBPath) {
+				err = g.Reload(d.Ctx)
+			}
+			if err == nil {
+				err = g.CheckTask(d.Ctx, call.Params.Arguments.TaskID)
+			}
+			if err != nil && d.Ctx.Err() == nil {
 				d.Log.Error("spendguard cost report", "task", call.Params.Arguments.TaskID, "err", err)
 			}
 		}()

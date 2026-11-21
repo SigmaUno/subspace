@@ -24,9 +24,11 @@ import (
 	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/events"
+	"github.com/SigmaUno/subspace/internal/ha"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/logpipe"
 	"github.com/SigmaUno/subspace/internal/mcp"
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/spawner"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -54,6 +56,9 @@ type Config struct {
 	ShutdownTimeout time.Duration
 	Log             *slog.Logger
 	LogPipe         *logpipe.Pipeline
+	InstanceID      string
+	LeaderInterval  time.Duration
+	LeaderTTL       time.Duration
 }
 
 type Server struct {
@@ -64,6 +69,8 @@ type Server struct {
 	api     *api.API
 	handler http.Handler
 	backups *backup.Scheduler
+	Leader  *ha.Elector
+	cluster *cluster
 
 	drain     chan struct{}
 	drainOnce sync.Once
@@ -101,6 +108,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if cfg.SweepEvery <= 0 {
 		cfg.SweepEvery = 5 * time.Second
 	}
+	if cfg.InstanceID == "" {
+		cfg.InstanceID = instanceID()
+	}
 	if cfg.BackupDir == "" && !isPostgres(cfg.DBPath) {
 		cfg.BackupDir = filepath.Join(filepath.Dir(cfg.DBPath), "backups")
 	}
@@ -116,7 +126,28 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	if err != nil {
 		return nil, err
 	}
-	hub := events.NewHub()
+	local := events.NewHub()
+	var (
+		b     *board.Board
+		cache *auth.Cache
+	)
+	cl, err := newCluster(cfg, local, func(_ []string, typ string, data any) {
+		switch typ {
+		case "agent.updated":
+			if a, ok := data.(*model.Agent); ok {
+				cache.Invalidate(a.ID)
+			}
+		case "control.paused", "control.resumed", "capacity.changed":
+			if err := b.Reload(ctx); err != nil && ctx.Err() == nil {
+				cfg.Log.Error("reload shared state", "err", err)
+			}
+		}
+	})
+	if err != nil {
+		_ = st.Close()
+		return nil, err
+	}
+	hub := cl.hub(local)
 	var backups *backup.Scheduler
 	if cfg.BackupDir != "" {
 		backups, err = backup.New(backup.Config{
@@ -124,25 +155,27 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 			Run: st.Backup, Verify: backupVerifier(cfg.DBPath), Logger: cfg.Log,
 		})
 		if err != nil {
+			cl.close()
 			_ = st.Close()
 			return nil, err
 		}
 	}
-	var cache *auth.Cache
-	b, err := board.New(ctx, st, board.Options{
+	b, err = board.New(ctx, st, board.Options{
 		PublicURL: cfg.PublicURL, Lease: cfg.Lease, PoisonExpiries: cfg.PoisonExpiries, Capacity: capCfg, Spawner: cfg.Spawner, Hub: hub, Now: cfg.Now,
 		Invalidate: func(id string) {
 			if cache != nil {
 				cache.Invalidate(id)
 			}
 		},
-		Log: cfg.Log, Backups: backups, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery,
+		Log: cfg.Log, Backups: backups, FlushEvery: cfg.FlushEvery, SweepEvery: cfg.SweepEvery, Shared: isPostgres(cfg.DBPath),
 	})
 	if err != nil {
+		cl.close()
 		_ = st.Close()
 		return nil, err
 	}
 	cache = auth.NewCacheClock(b.LoadByTokenHash, 30*time.Second, cfg.Now)
+	cl.start(ctx)
 
 	reg := mcp.NewRegistry(b)
 	climber := newHillclimb(st, b, reg, cfg.Log)
@@ -150,6 +183,9 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	m.Guard = audit.NewLoopGuard(audit.DefaultMaxRepeats, audit.DefaultWindow)
 	m.Hooks = b
 	m.OwnerToken = cfg.OwnerToken
+	if isPostgres(cfg.DBPath) {
+		m.Sessions = sqlSessions{st}
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/mcp", m)
@@ -184,10 +220,11 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	})
 	brkCfg, err := breaker.ConfigFromEnv(os.Getenv)
 	if err != nil {
+		cl.close()
 		_ = st.Close()
 		return nil, err
 	}
-	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
+	deps := Deps{Ctx: ctx, Board: b, Store: st, Hub: hub, LocalHub: local, Leader: cl.elector, KeyLock: cl.keyLock(), Cfg: cfg, Log: cfg.Log, API: rest, Mux: mux, Auth: cache, Feed: feed,
 		Registry: reg, Breakers: breaker.New(brkCfg, nil, breakerLog(cfg.Log)), Components: compStore}
 	for _, m := range extraMounts {
 		m(deps)
@@ -197,7 +234,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		h = w(h, deps)
 	}
 	h = newAllowlisted(h, deps)
-	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, drain: make(chan struct{})}
+	s := &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, Leader: cl.elector, cluster: cl, drain: make(chan struct{})}
 	s.handler = s.withDrain(bodyDeadline(h, cfg.BodyTimeout))
 	context.AfterFunc(ctx, s.beginDrain)
 	return s, nil
@@ -240,6 +277,7 @@ func (s *Server) Handler() http.Handler { return s.handler }
 
 func (s *Server) Close() error {
 	s.beginDrain()
+	s.cluster.close()
 	return s.Store.Close()
 }
 
@@ -262,9 +300,9 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	defer stopFlush()
 
 	var bg, flusher sync.WaitGroup
-	bg.Go(func() { s.sweepLoop(bgCtx) })
+	bg.Go(func() { s.Leader.Lead(bgCtx, s.sweepLoop) })
 	if s.backups != nil {
-		bg.Go(func() { s.backups.Run(bgCtx) })
+		bg.Go(func() { s.Leader.Lead(bgCtx, s.backups.Run) })
 	}
 	flusher.Go(func() { s.flushLoop(flushCtx) })
 
@@ -295,6 +333,13 @@ func (s *Server) Serve(ctx context.Context, ln net.Listener) error {
 	stopFlush()
 	flusher.Wait()
 	return serveErr
+}
+
+func (s *Server) RunBackground(ctx context.Context) {
+	var wg sync.WaitGroup
+	wg.Go(func() { s.Leader.Lead(ctx, s.sweepLoop) })
+	wg.Go(func() { s.flushLoop(ctx) })
+	wg.Wait()
 }
 
 func (s *Server) sweepLoop(ctx context.Context) {

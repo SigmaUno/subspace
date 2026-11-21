@@ -13,6 +13,6 @@ func init() {
 			d.Log.Error("idempotency keys disabled", "err", "store does not support idempotency keys")
 			return next
 		}
-		return idempotency.Wrap(next, idempotency.Options{Store: st, Agents: d.Auth, Log: d.Log})
+		return idempotency.Wrap(next, idempotency.Options{Store: st, Agents: d.Auth, Log: d.Log, Lock: d.KeyLock})
 	})
 }

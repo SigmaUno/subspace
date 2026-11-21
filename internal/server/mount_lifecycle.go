@@ -67,7 +67,7 @@ func init() {
 		d.API.Mount(d.Mux, "POST /api/v1/spawns/{id}/stop", mux)
 		listing := http.NewServeMux()
 		d.API.Mount(listing, "GET /api/v1/spawns", mux)
-		go r.Run(d.Ctx)
+		d.Leader.Go(d.Ctx, r.Run)
 		return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) {
 			if req.URL.Path == "/api/v1/spawns" && (req.Method == http.MethodGet || req.Method == http.MethodHead) {
 				listing.ServeHTTP(w, req)

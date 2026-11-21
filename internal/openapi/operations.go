@@ -19,6 +19,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/decisions"
 	"github.com/SigmaUno/subspace/internal/digest"
 	"github.com/SigmaUno/subspace/internal/forecast"
+	"github.com/SigmaUno/subspace/internal/ha"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/instructions"
@@ -74,6 +75,7 @@ var operations = []Op{
 	put("/api/v1/charter", "Replace the owner charter", CharterText{}, board.Charter{}),
 	post("/api/v1/backup", "Create a verified database backup", Free{}, BackupResult{}),
 	get("/api/v1/backups", "List backups, newest first", list[backup.Info]("backups")),
+	get("/api/v1/ha", "Leader election and cross-instance event status of this instance", ha.Status{}),
 	get("/api/v1/limits", "Organization spend caps and their windows", spendguard.View{}),
 	put("/api/v1/limits", "Replace the daily and weekly spend caps", spendguard.Limits{}, spendguard.View{}),
 	get("/api/v1/metrics", "Prometheus metrics", "").As(mediaText),

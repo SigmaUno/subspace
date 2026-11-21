@@ -45,5 +45,5 @@ func mountDigest(d Deps) {
 	sink := notify.New(ncfg)
 	sink.Run(d.Ctx)
 	sched := digest.NewScheduler(digest.Options{Rules: cfg.Rules, Source: src, Sink: sink, KV: spendKV{d.Store}, Log: d.Log})
-	go sched.Run(d.Ctx)
+	d.Leader.Go(d.Ctx, sched.Run)
 }

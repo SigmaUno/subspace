@@ -21,6 +21,7 @@ type rule struct {
 var fallback = rule{icon: "activity", severity: SevInfo, text: "{actor} used {tool}{task? on }"}
 
 var rules = map[string]rule{
+	"log_output":            {icon: "terminal", text: "{actor} streamed output{task? on }"},
 	"incident_start":        {icon: "alert", severity: SevError, text: "{actor} declared incident {a.id}: {a.reason}"},
 	"incident_end":          {icon: "check", severity: SevSuccess, text: "{actor} ended incident {a.id}{a.note?: }"},
 	"redeliver_webhook_out": {icon: "webhook", text: "{actor} redelivered outbound webhook delivery {a.id}"},

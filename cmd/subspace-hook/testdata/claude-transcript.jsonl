@@ -1,0 +1,6 @@
+{"type":"user","sessionId":"s-1","message":{"role":"user","content":"fix the bug"}}
+{"type":"assistant","sessionId":"s-1","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"thinking","thinking":"..."}],"usage":{"input_tokens":1000,"output_tokens":40,"cache_creation_input_tokens":2000,"cache_read_input_tokens":0}}}
+{"type":"assistant","sessionId":"s-1","requestId":"req_1","message":{"id":"msg_1","model":"claude-sonnet-5-5","content":[{"type":"tool_use","name":"Bash"}],"usage":{"input_tokens":1000,"output_tokens":120,"cache_creation_input_tokens":2000,"cache_read_input_tokens":0}}}
+{"type":"user","sessionId":"s-1","message":{"role":"user","content":[{"type":"tool_result","content":"ok"}]}}
+{"type":"assistant","sessionId":"s-1","isApiErrorMessage":true,"message":{"id":"msg_e","model":"<synthetic>","content":[{"type":"text","text":"API Error: 529 {\"type\":\"error\",\"error\":{\"type\":\"overloaded_error\"}}"}],"usage":{"input_tokens":0,"output_tokens":0}}}
+{"type":"assistant","sessionId":"s-1","requestId":"req_2","message":{"id":"msg_2","model":"claude-sonnet-5-5","content":[{"type":"text","text":"Fixed."}],"usage":{"input_tokens":50,"output_tokens":80,"cache_creation_input_tokens":0,"cache_read_input_tokens":3000}}}

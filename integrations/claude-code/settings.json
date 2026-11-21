@@ -24,7 +24,8 @@
     "Stop": [
       {
         "hooks": [
-          { "type": "command", "command": "subspace-hook status", "timeout": 3 }
+          { "type": "command", "command": "subspace-hook status", "timeout": 3 },
+          { "type": "command", "command": "subspace-hook usage", "timeout": 3 }
         ]
       }
     ],

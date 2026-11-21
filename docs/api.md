@@ -446,7 +446,7 @@ Owner scope writes, viewer scope reads. Every create, update and delete appends 
  "error":"","checked_at":"..."}
 ```
 
-`name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400 and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
+`name` is the full `owner/name` (letters, digits, `.`, `_`, `-`). `token_env` is the NAME of an environment variable on the server, `A-Z`, `0-9` and `_` only; anything that looks like a token is a 400, as is a `SUBSPACE_*` name unless it ends in `_GIT_TOKEN`, `_GITHUB_TOKEN` or `_FORGEJO_TOKEN` (server settings such as `SUBSPACE_OWNER_TOKEN` are never sent to a host), and tokens are never stored, returned, logged or put in an error. A `protected_branches` pattern that would match a task branch (`sub/<task>-<slug>`) is a 400.
 
 `health` calls `GET /repos/{owner}/{name}` and `GET /repos/{owner}/{name}/branches/{default_branch}` on the host's API, with the token read from `token_env` in an `Authorization` header. `reachable` is false when the host does not answer; `token_hint` says whether a token is configured, accepted and able to write (from the host's `permissions`, plus the `X-OAuth-Scopes` of a GitHub classic token); `ok` needs a reachable host, no `error` and an existing default branch. Responses carry no token.
 

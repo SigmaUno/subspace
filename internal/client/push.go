@@ -54,7 +54,9 @@ func (n Notification) ResourceURI() (string, bool) {
 	return p.URI, true
 }
 
-func (n Notification) Resync() bool { return n.Method == "notifications/subspace/resync" }
+const methodResync = "notifications/subspace/resync"
+
+func (n Notification) Resync() bool { return n.Method == methodResync }
 
 func (m *MCP) Subscribe(ctx context.Context, uri string) error {
 	_, err := m.rpc(ctx, "resources/subscribe", map[string]any{"uri": uri})
@@ -151,6 +153,7 @@ func (m *MCP) stopPump(err error) {
 func (m *MCP) pump(ctx context.Context) {
 	lastID := ""
 	backoff := reconnectMin
+	streamed, lost := false, false
 	for {
 		if ctx.Err() != nil {
 			m.stopPump(ctx.Err())
@@ -160,6 +163,17 @@ func (m *MCP) pump(ctx context.Context) {
 		switch status := StatusOf(err); {
 		case err == nil:
 			backoff = reconnectMin
+			streamed = true
+			if lost {
+				lost = false
+				select {
+				case m.push <- Notification{Method: methodResync, Params: json.RawMessage(`{"reason":"session_lost","dropped":0}`)}:
+				case <-ctx.Done():
+					_ = resp.Body.Close()
+					m.stopPump(ctx.Err())
+					return
+				}
+			}
 			reason, rerr := m.readStream(ctx, resp, &lastID)
 			if rerr != nil && ctx.Err() != nil {
 				m.stopPump(ctx.Err())
@@ -173,6 +187,7 @@ func (m *MCP) pump(ctx context.Context) {
 				m.mu.Lock()
 				m.session, lastID = "", ""
 				m.mu.Unlock()
+				lost = true
 			}
 		case status == http.StatusMethodNotAllowed || status == http.StatusNotAcceptable:
 			m.stopPump(ErrStreamUnsupported)
@@ -184,6 +199,7 @@ func (m *MCP) pump(ctx context.Context) {
 			m.mu.Lock()
 			m.session, lastID = "", ""
 			m.mu.Unlock()
+			lost = lost || streamed
 		}
 		if serr := m.cfg.sleep(ctx, backoff); serr != nil {
 			m.stopPump(serr)

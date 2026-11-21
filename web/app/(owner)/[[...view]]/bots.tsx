@@ -15,7 +15,7 @@ const kinds = [
   ["claude-code", "Claude Code"], ["codex", "Codex"], ["opencode", "OpenCode"], ["other", "Other"],
 ];
 
-function CopyBlock({ label, text }: { label: string; text: string }) {
+export function CopyBlock({ label, text }: { label: string; text: string }) {
   const [feedback, setFeedback] = useState("");
   async function copy() {
     try {

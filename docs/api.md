@@ -396,6 +396,38 @@ Samples are usage reports (`report_usage`; `rate_limited: true` counts as an err
 
 Components are held in memory per server process and are not linked to tasks yet, so architecture nodes always report empty `owners` and zero task counts. `PUT components` accepts only `name`, `description`, `paths` and `depends_on` (component names) per entry.
 
+### Replay
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/briefs/{id}/replay?at=` | → ReplaySnapshot, the brief's board as of `at`: an audit id (every brief event with a lower or equal id applied) or an RFC 3339 time (every brief event at or before it). Without `at` the latest state. 400 for a malformed `at`, 404 for an unknown brief. |
+| GET | `/api/v1/briefs/{id}/replay/timeline` | → ReplayTimeline. 404 for an unknown brief. |
+| GET | `/api/v1/briefs/{id}/replay/diff?from=&to=` | → ReplayDiff, every change caused by brief events after `from` up to and including `to` (each an audit id or RFC 3339 time as for `at`; `from` defaults to the beginning, `to` to the latest). At most 5000 transitions, then `truncated`. 400 when `from` is after `to` or malformed. |
+
+```jsonc
+// ReplaySnapshot
+{"brief_id":"B-1","audit_id":42,"at":"...",       // last brief event applied; 0 and null before the first
+ "events":17,"total":4,"counts":{"done":1,"in_progress":1,"ready":2},
+ "columns":{"backlog":[ReplayTask],...all 12 statuses...},   // ordered like the board
+ "agents":[{"id":"claude-1","role":"worker","assigned":["T-3"],"reviewing":[],   // open tasks held as of `at`
+            "events":6,"last_event_at":"..."}]}                                    // brief events by the agent up to `at`
+
+// ReplayTask
+{"id":"T-3","title":"...","role":"worker","status":"in_progress","assignee":"claude-1","reviewer":null,
+ "progress_pct":40,"cost_used":0.4,"changed_audit_id":41,"changed_at":"..."}   // title and role are current values
+
+// ReplayTimeline
+{"brief_id":"B-1","events":1200,"start":"...","end":"...",
+ "points":[{"audit_id":42,"at":"...","counts":{"ready":2}}],   // at most 500, evenly spread over the brief events, always ending with the last
+ "key_events":[{"audit_id":42,"at":"...","tool":"review","agent_id":"codex-r","task_id":"T-3","from":"in_review","to":"changes_requested"}]}
+
+// ReplayDiff
+{"brief_id":"B-1","from":12,"to":42,"truncated":false,
+ "transitions":[{"audit_id":13,"at":"...","task_id":"T-3","tool":"assign","agent_id":"rex",
+                 "changes":{"status":{"from":"ready","to":"assigned"},"assignee":{"from":null,"to":"claude-1"}}}]}
+```
+
+The state is rebuilt by folding the brief's audit events (task events plus `propose_plan`, `approve_plan` and `reject_plan`) over an empty board. Tracked fields are `status`, `assignee`, `reviewer`, `progress_pct` and `cost_used`; a task appears with the event that created it (a status `from` of `null`). Key events are plan decisions and moves to `approved`, `changes_requested`, `done`, `blocked` and `needs_owner` (at most 500, evenly spread). The server caches the folded history per brief in memory with checkpoints every 256 events.
+
 ### Decisions
 The owner inbox. Decisions are derived from open questions, proposed plans, `approved` tasks awaiting a merge, `blocked`/`needs_owner` tasks, stale agents (an active agent with a current task not seen for 10 minutes) and active agents whose token expires in less than 24 hours (or already has).
 

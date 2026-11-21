@@ -315,3 +315,18 @@ func (r *Repo) AllowManualMerge(t testing.TB) {
 	t.Helper()
 	r.I.Do(t, "", http.MethodPatch, r.path(""), map[string]any{"allow_manual_merge": true}, nil)
 }
+
+func (r *Repo) Merge(t testing.TB, n int64) {
+	t.Helper()
+	deadline := time.Now().Add(30 * time.Second)
+	for {
+		c := r.I.Raw(t, "", http.MethodPost, r.path(fmt.Sprintf("/pulls/%d/merge", n)), map[string]string{"Do": "merge"})
+		if c.Status == http.StatusOK {
+			return
+		}
+		if c.Status != http.StatusMethodNotAllowed || time.Now().After(deadline) {
+			t.Fatalf("merge pull request %d: status %d: %s", n, c.Status, c.Body)
+		}
+		time.Sleep(200 * time.Millisecond)
+	}
+}

@@ -93,12 +93,19 @@ up() {
     printf 'export SUBSPACE_FORGEJO_CONTAINER=%q\n' "$name"
 }
 
+CONTAINER=""
+
+cleanup() {
+  [ -z "$CONTAINER" ] || remove "$CONTAINER"
+}
+
 run() {
-  local exports container
+  local exports
   exports="$(up)"
   eval "$exports"
-  container="$SUBSPACE_FORGEJO_CONTAINER"
-  trap 'remove "$container"' EXIT INT TERM
+  CONTAINER="$SUBSPACE_FORGEJO_CONTAINER"
+  trap cleanup EXIT
+  trap 'exit 130' INT TERM
   cd "$ROOT"
   SUBSPACE_TEST_FORGEJO=1 GOMAXPROCS="${GOMAXPROCS:-4}" \
     go test -count=1 -p 1 -run 'Live' "$@" "${PACKAGES[@]}"

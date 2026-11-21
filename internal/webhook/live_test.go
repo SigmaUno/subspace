@@ -4,12 +4,13 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
-	"strconv"
+	"strings"
 	"sync"
 	"testing"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/forgejotest"
+	"github.com/SigmaUno/subspace/internal/forgejotest/serverrig"
 	"github.com/SigmaUno/subspace/internal/webhook"
 )
 
@@ -68,9 +69,10 @@ func TestLiveForgejoDeliveries(t *testing.T) {
 	repo.AddHook(t, srv.URL+"/hooks/forgejo", secret, "pull_request", "pull_request_sync")
 	repo.Commit(t, "feat-a", "main", "a.txt", "a\n")
 	pr := repo.OpenPR(t, "feat-a", "main", "Add a")
+	col.wait(t, 1)
 	repo.Commit(t, "feat-a", "main", "b.txt", "b\n")
-	repo.WaitMergeable(t, pr.Number)
-	inst.Do(t, "", http.MethodPost, repo.Path("/pulls/"+strconv.FormatInt(pr.Number, 10)+"/merge"), map[string]string{"Do": "merge"}, nil)
+	col.wait(t, 2)
+	repo.Merge(t, pr.Number)
 
 	base := webhook.Event{Provider: webhook.ProviderForgejo, Repo: repo.FullName(), Number: int(pr.Number), HeadBranch: "feat-a", URL: repo.PRURL(pr.Number)}
 	merged := base
@@ -140,5 +142,40 @@ func TestLiveForgejoRejectsWrongSecret(t *testing.T) {
 	defer col.mu.Unlock()
 	if len(col.events) != 0 {
 		t.Fatalf("events accepted with a wrong secret: %+v", col.events)
+	}
+}
+
+func TestLiveForgejoMergeMarksTaskDoneThroughTheServer(t *testing.T) {
+	inst := forgejotest.Start(t)
+	const secret = "live-server-hook-secret-0123456789"
+	repo := inst.NewRepo(t)
+	repo.Commit(t, "sub/t-1-a", "main", "a.txt", "a\n")
+	pr := repo.OpenPR(t, "sub/t-1-a", "main", "Add a")
+	rig := serverrig.New(t, inst, repo, map[string]string{"SUBSPACE_WEBHOOK_SECRET_FORGEJO": secret})
+	repo.AddHook(t, rig.E.TS.URL+"/hooks/forgejo", secret, "pull_request", "pull_request_sync")
+	if code, out := rig.E.REST("PATCH", "/api/v1/briefs/"+rig.Brief, map[string]any{"auto_done_on_merge": true}); code != 200 {
+		t.Fatalf("patch brief: %d %v", code, out)
+	}
+
+	id := rig.Task("Add a")
+	rig.Submit(id, pr)
+	rig.Review(id, "approve", "ok")
+	repo.Merge(t, pr.Number)
+
+	deadline := time.Now().Add(20 * time.Second)
+	for rig.Get(id)["status"] != "done" {
+		if time.Now().After(deadline) {
+			t.Fatalf("task = %v", rig.Get(id))
+		}
+		time.Sleep(100 * time.Millisecond)
+	}
+	merged := false
+	for _, m := range rig.Messages(id) {
+		if strings.Contains(m["body"].(string), "Pull request #1 merged: "+repo.PRURL(pr.Number)) {
+			merged = true
+		}
+	}
+	if !merged {
+		t.Fatalf("no merge note in %v", rig.Messages(id))
 	}
 }

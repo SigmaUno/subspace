@@ -95,8 +95,7 @@ func TestLivePollingAgainstForgejo(t *testing.T) {
 		t.Fatalf("messages: %v", msgs)
 	}
 
-	repo.WaitMergeable(t, pr.Number)
-	inst.Do(t, "", http.MethodPost, repo.Path("/pulls/"+strconv.FormatInt(pr.Number, 10)+"/merge"), map[string]string{"Do": "merge"}, nil)
+	repo.Merge(t, pr.Number)
 	r.sync()
 	if s := r.status(id); s["state"] != "merged" {
 		t.Fatalf("after merge: %v", s)

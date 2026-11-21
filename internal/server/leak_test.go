@@ -180,3 +180,39 @@ func TestSpawnSettledWhenRequestIsAborted(t *testing.T) {
 		time.Sleep(20 * time.Millisecond)
 	}
 }
+
+func TestHeartbeatLeaseIsFlushedToStore(t *testing.T) {
+	e := newEnv(t)
+	lead := e.register("rex", "leader", "other")
+	wk := e.register("w1", "worker", "claude-code")
+	id := e.approvedPlan(lead, e.brief(map[string]any{}), planTask("a", nil))[0]
+	e.must(lead, "assign", map[string]any{"task_id": id, "agent_id": "w1"})
+	e.must(wk, "claim_task", map[string]any{"task_id": id})
+	time.Sleep(20 * time.Millisecond)
+	hb, err := time.Parse(time.RFC3339Nano, e.must(wk, "heartbeat", map[string]any{"task_id": id})["lease_expires_at"].(string))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		var stored time.Time
+		err := e.srv.Store.View(context.Background(), func(tx store.Tx) error {
+			tk, err := tx.GetTask(id)
+			if err == nil && tk.LeaseExpiresAt != nil {
+				stored = *tk.LeaseExpiresAt
+			}
+			return err
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !stored.Before(hb.Truncate(time.Millisecond)) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("stored lease %v, heartbeat extended it to %v", stored, hb)
+		}
+		time.Sleep(20 * time.Millisecond)
+	}
+}

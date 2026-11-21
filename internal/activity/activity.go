@@ -47,7 +47,7 @@ func FromAudit(e *model.AuditEvent) Item {
 		f.task = *e.TaskID
 	}
 	if e.Note != nil {
-		f.note = clip(redact.String(*e.Note), maxNote)
+		f.note = clip(redact.String(stripTokenID(*e.Note)), maxNote)
 	}
 	r, ok := rules[e.Tool]
 	if !ok {
@@ -122,10 +122,10 @@ func (f auditFields) get(name string) string {
 		return prNumber(f.note)
 	}
 	if k, ok := strings.CutPrefix(name, "a."); ok {
-		return format(f.after[k])
+		return clip(redact.String(format(f.after[k])), maxNote)
 	}
 	if k, ok := strings.CutPrefix(name, "b."); ok {
-		return format(f.before[k])
+		return clip(redact.String(format(f.before[k])), maxNote)
 	}
 	return ""
 }
@@ -275,6 +275,18 @@ func prNumber(note string) string {
 		return ""
 	}
 	return n
+}
+
+func stripTokenID(note string) string {
+	rest, ok := strings.CutPrefix(note, "token=")
+	if !ok {
+		return note
+	}
+	id, tail, _ := strings.Cut(rest, "; ")
+	if id == "" || strings.ContainsAny(id, " \t\n") {
+		return note
+	}
+	return tail
 }
 
 func clip(s string, limit int) string {

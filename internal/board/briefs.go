@@ -2,9 +2,11 @@ package board
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"strings"
 
+	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/planlint"
 	"github.com/SigmaUno/subspace/internal/store"
@@ -132,14 +134,21 @@ func (b *Board) SetCharter(ctx context.Context, text string) (Charter, error) {
 }
 
 func (b *Board) Backup(ctx context.Context) (string, int64, error) {
-	if b.o.BackupDir == "" {
+	if b.o.Backups == nil {
 		return "", 0, model.BadRequest("backups are not configured")
 	}
-	path := fmt.Sprintf("%s/subspace-%s.db", strings.TrimRight(b.o.BackupDir, "/"), b.now().Format("20060102T150405Z"))
-	if err := b.st.Backup(ctx, path); err != nil {
-		return "", 0, err
+	info, err := b.o.Backups.RunOnce(ctx)
+	if errors.Is(err, backup.ErrExists) {
+		return "", 0, model.Errf("conflict", "a backup was already taken this second")
 	}
-	return path, fileSize(path), nil
+	return info.Path, info.Bytes, err
+}
+
+func (b *Board) ListBackups(ctx context.Context) ([]backup.Info, error) {
+	if b.o.Backups == nil {
+		return nil, model.BadRequest("backups are not configured")
+	}
+	return b.o.Backups.List(ctx)
 }
 
 type BriefInput struct {

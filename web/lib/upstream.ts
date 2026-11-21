@@ -14,13 +14,23 @@ export function upstream(path: string, token: string, options: RequestInit = {})
   });
 }
 
-export async function ownerStatus(token: string, signal?: AbortSignal) {
+export type OwnerSession = { status: number; scope?: string };
+
+export async function ownerSession(token: string, signal?: AbortSignal): Promise<OwnerSession> {
   const timeout = AbortSignal.timeout(8000);
-  const response = await upstream("/api/v1/state", token, {
+  const response = await upstream("/api/v1/me", token, {
     signal: signal ? AbortSignal.any([timeout, signal]) : timeout,
   });
-  await response.body?.cancel();
-  return response.status;
+  if (!response.ok) {
+    await response.body?.cancel();
+    return { status: response.status };
+  }
+  const body: { scope?: unknown } | null = await response.json().catch(() => null);
+  return { status: response.status, scope: typeof body?.scope === "string" ? body.scope : undefined };
+}
+
+export async function ownerStatus(token: string, signal?: AbortSignal) {
+  return (await ownerSession(token, signal)).status;
 }
 
 export function browserMutation(request: Request): boolean {

@@ -145,7 +145,7 @@ export function BulkBar({ kind, bulk, agents, actions }: {
   kind: "tasks" | "agents"; bulk: Bulk; agents?: Agent[]; actions: (TaskAction | AgentAction)[];
 }) {
   if (!bulk.selected.size) return null;
-  return <div className="bulk-bar" role="region" aria-label="Bulk actions">
+  return <div className="bulk-bar" data-write role="region" aria-label="Bulk actions">
     <strong>{bulk.selected.size} selected</strong>
     <button type="button" onClick={bulk.clear}>Clear</button>
     <BulkActions kind={kind} ids={[...bulk.selected]} agents={agents}
@@ -154,7 +154,7 @@ export function BulkBar({ kind, bulk, agents, actions }: {
 }
 
 export function QuickMenu({ taskID, agents, bulk }: { taskID: string; agents: Agent[]; bulk: Bulk }) {
-  return <details className="quick-menu">
+  return <details className="quick-menu" data-write>
     <summary>Quick actions</summary>
     <BulkActions kind="tasks" ids={[taskID]} agents={agents} actions={quickTaskActions} onResult={bulk.report} />
   </details>;

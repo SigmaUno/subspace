@@ -429,3 +429,5 @@ body { padding-inline: env(safe-area-inset-left) env(safe-area-inset-right); }
   .feed li { grid-template-columns: minmax(0, 1fr); gap: .1rem; }
   .project-stats strong { font-size: 1.15rem; }
 }
+.scope { display: contents; }
+.scope[data-scope="viewer"] [data-write] { display: none !important; }

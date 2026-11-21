@@ -27,7 +27,7 @@ function prNumber(url: string | null) {
 function EnqueueForm({ task, base, queued }: { task: Task; base: string; queued: () => void }) {
   const form = useSubmit();
   const pr = prNumber(task.pr_url);
-  return <form onSubmit={(event) => form.submit(event, async () => {
+  return <form data-write onSubmit={(event) => form.submit(event, async () => {
     const body: EnqueueRequest = { repo: task.repo, pr: pr ?? 0, head: task.branch, base: base.trim(), task_id: task.id };
     await api<Candidate>("mergequeue/candidates", "POST", body);
     queued();

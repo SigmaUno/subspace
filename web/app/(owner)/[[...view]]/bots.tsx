@@ -51,7 +51,7 @@ function Credentials({ items, dismiss }: { items: BotRegistration[]; dismiss: ()
 function AddBotForm({ complete }: { complete: (items: BotRegistration[]) => void }) {
   const [bulk, setBulk] = useState(false);
   const form = useSubmit();
-  return <form className="panel stack" onSubmit={(event) => form.submit(event, async (fields) => {
+  return <form className="panel stack" data-write onSubmit={(event) => form.submit(event, async (fields) => {
     const common = {
       role: value(fields, "role"), kind: value(fields, "kind"),
       model: value(fields, "model"), provider: value(fields, "provider"),
@@ -97,7 +97,7 @@ const endpoints: Record<BotAction, (id: string) => string> = {
 
 function BotActions({ bot, busy, run }: { bot: Bot; busy: boolean; run: (bot: Bot, action: BotAction) => void }) {
   const live = bot.status !== "revoked";
-  return <div className="actions">
+  return <div className="actions" data-write>
     {bot.status === "active" && <button disabled={busy} onClick={() => run(bot, "pause")}>Pause</button>}
     {bot.status === "paused" && <button disabled={busy} onClick={() => run(bot, "resume")}>Resume</button>}
     {bot.status === "active" && <button disabled={busy} onClick={() => run(bot, "spawn")}>Spawn</button>}
@@ -140,7 +140,7 @@ export function BotsView({ revision, openThread }: { revision: number; openThrea
   const items = bots.data?.agents ?? [];
   return <>
     <div className="heading"><h1>Bots</h1>
-      <button className="primary" disabled={!!credentials} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Add bot"}</button></div>
+      <button className="primary" data-write disabled={!!credentials} onClick={() => setShowForm(!showForm)}>{showForm ? "Close form" : "Add bot"}</button></div>
     {showForm && <AddBotForm complete={(added) => { setCredentials(added); setShowForm(false); bots.refresh(); }} />}
     {credentials && <Credentials items={credentials} dismiss={() => setCredentials(null)} />}
     <Feedback error={error} />

@@ -55,6 +55,11 @@ func Start(t *testing.T, cfg server.Config) *Env {
 
 func (e *Env) REST(method, path string, body any) (int, map[string]any) {
 	e.T.Helper()
+	return e.RESTAs(OwnerToken, method, path, body)
+}
+
+func (e *Env) RESTAs(tok, method, path string, body any) (int, map[string]any) {
+	e.T.Helper()
 	var rd *bytes.Reader
 	if body != nil {
 		b, _ := json.Marshal(body)
@@ -63,7 +68,9 @@ func (e *Env) REST(method, path string, body any) (int, map[string]any) {
 		rd = bytes.NewReader(nil)
 	}
 	req, _ := http.NewRequest(method, e.TS.URL+path, rd)
-	req.Header.Set("Authorization", "Bearer "+OwnerToken)
+	if tok != "" {
+		req.Header.Set("Authorization", "Bearer "+tok)
+	}
 	resp, err := http.DefaultClient.Do(req)
 	if err != nil {
 		e.T.Fatal(err)

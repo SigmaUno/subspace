@@ -32,7 +32,7 @@ function ConversationPanel({ target, revision }: { target: string; revision: num
       {!id && <EmptyState>No messages yet.</EmptyState>}
       {id && conversation.data === null && <EmptyState>Conversation history is unavailable.</EmptyState>}
     </div>
-    <form className="stack" onSubmit={(event) => form.submit(event, async (fields, element) => {
+    <form className="stack" data-write onSubmit={(event) => form.submit(event, async (fields, element) => {
       const body = value(fields, "body");
       if (!body) return;
       const result = await api<{ id: string }>("messages", "POST", { to: target, body });

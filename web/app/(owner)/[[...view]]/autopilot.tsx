@@ -80,7 +80,7 @@ function Spawns({ revision }: { revision: number }) {
       <span><span className="pill" data-status={spawn.status === "failed" ? "blocked" : spawn.status === "spawned" ? "in_progress" : "assigned"}>{spawn.status}</span></span>
       <span className="meta">{spawn.agent_id} · {spawn.kind} · {spawn.spawner} · {spawn.brief_id}{spawn.error && ` · ${spawn.error}`}</span>
       {spawn.status === "spawned" && !stopMissing
-        ? <button type="button" className="danger" disabled={busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
+        ? <button type="button" className="danger" data-write disabled={busy === spawn.id} onClick={() => stop(spawn)}>Stop</button>
         : <time className="meta" dateTime={spawn.created_at}>{stamp(spawn.created_at)}</time>}
     </div>)}
   </div>;
@@ -116,7 +116,7 @@ export function AutopilotPanel({ revision, spawnRevision }: { revision: number; 
       {state.last_error && <p className="error" role="alert">{state.last_error}</p>}
       {state.briefs?.length
         ? <div className="stack">{state.briefs.map((brief) => <label key={brief.id} className="actions">
-          <input type="checkbox" checked={brief.enabled} disabled={busy === brief.id}
+          <input type="checkbox" data-write checked={brief.enabled} disabled={busy === brief.id}
             onChange={(event) => toggle(brief.id, event.target.checked)} />
           <span>{brief.title}</span><span className="meta">{brief.id}</span></label>)}</div>
         : <p className="empty">No open briefs.</p>}

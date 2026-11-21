@@ -7,6 +7,8 @@ import type { Agent } from "../../../lib/types";
 import { Feedback } from "./components";
 import { EmptyState, ResourceState } from "./states";
 
+const roles = ["leader", "worker", "tester", "reviewer"];
+
 function ConversationPanel({ target, revision }: { target: string; revision: number }) {
   const [id, setID] = useState("");
   const [sent, setSent] = useState(false);
@@ -55,11 +57,13 @@ export function OwnerChat({ briefID, agents, components, target, select, revisio
   briefID: string; agents: Agent[]; components: Component[]; target: string; select: (target: string) => void;
   revision: number; close: () => void;
 }) {
-  const options = new Set(["leader", `brief:${briefID}`, ...agents.map((agent) => `agent:${agent.id}`), ...components.map((item) => `component:${item.id}`)]);
+  const options = new Set(["leader", "all", ...roles.map((role) => `role:${role}`), `brief:${briefID}`, ...agents.map((agent) => `agent:${agent.id}`), ...components.map((item) => `component:${item.id}`)]);
   return <section className="panel stack owner-chat" aria-label="Owner chat">
     <div className="heading"><h2>Owner chat</h2><button type="button" onClick={close}>Close chat</button></div>
     <label>Send to<select value={target} onChange={(event) => select(event.target.value)}>
       <option value="leader">Architect</option><option value={`brief:${briefID}`}>All agents on this brief</option>
+      <option value="all">Everyone</option>
+      <optgroup label="Roles">{roles.map((role) => <option key={role} value={`role:${role}`}>All {role}s</option>)}</optgroup>
       {!options.has(target) && <option value={target}>{target}</option>}
       {!!components.length && <optgroup label="Components">{components.map((item) => <option key={item.id} value={`component:${item.id}`}>{item.name}</option>)}</optgroup>}
       {!!agents.length && <optgroup label="Agents">{agents.map((agent) => <option key={agent.id} value={`agent:${agent.id}`}>{agent.id} · {agent.model}</option>)}</optgroup>}

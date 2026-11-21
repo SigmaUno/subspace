@@ -24,11 +24,12 @@ type Props = {
   revisions: Revisions;
   recent: Record<string, Message>;
   openThread: (thread: Thread) => void;
+  startTour: () => void;
 };
 
-export function Sections({ section, briefID, architecture, revisions, recent, openThread }: Props) {
+export function Sections({ section, briefID, architecture, revisions, recent, openThread, startTour }: Props) {
   return <>
-    {section === "swarm" && !briefID && <Onboarding revisions={revisions} />}
+    {section === "swarm" && !briefID && <Onboarding revisions={revisions} startTour={startTour} />}
     {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={openThread} />}
     {section === "swarm" && <OutputTile />}
     {section === "briefs" && <BriefsView revision={revisions.briefs} />}

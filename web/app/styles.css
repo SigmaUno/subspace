@@ -203,6 +203,11 @@ progress::-moz-progress-bar { background: var(--action); border-radius: 999px; }
 .shortcut-list > div { display: grid; grid-template-columns: minmax(0, 11rem) minmax(0, 1fr); align-items: center; gap: .75rem; }
 .shortcut-list dt, .shortcut-list dd { margin: 0; font-size: .875rem; }
 .shortcut-list dd { color: var(--text-secondary); }
+.tour-shade { position: fixed; inset: 0; z-index: 60; background: rgba(15, 23, 42, .32); }
+.tour-spot { position: fixed; z-index: 60; border-radius: var(--radius); box-shadow: 0 0 0 2px var(--accent), 0 0 0 100vmax rgba(15, 23, 42, .32); pointer-events: none; }
+.tour-card { position: fixed; z-index: 61; width: min(22rem, calc(100vw - 24px)); box-shadow: var(--shadow-lg); }
+.tour-card.centered { top: 50%; left: 50%; transform: translate(-50%, -50%); }
+.tour-card .actions { justify-content: flex-end; }
 
 /* Hillclimb loss curve */
 .hillclimb-chart { width: 100%; height: auto; overflow: visible; }

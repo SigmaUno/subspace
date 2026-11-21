@@ -3,6 +3,8 @@ package client
 import (
 	"bytes"
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,6 +21,9 @@ type config struct {
 	hc         *http.Client
 	obs        Observer
 	clientName string
+	retries    int
+	sleep      func(context.Context, time.Duration) error
+	newKey     func() string
 }
 
 type Option func(*config)
@@ -29,8 +34,16 @@ func WithObserver(o Observer) Option { return func(c *config) { c.obs = o } }
 
 func WithClientName(name string) Option { return func(c *config) { c.clientName = name } }
 
+func WithRetries(n int) Option { return func(c *config) { c.retries = max(n, 0) } }
+
+func WithSleep(f func(context.Context, time.Duration) error) Option {
+	return func(c *config) { c.sleep = f }
+}
+
+func WithIdempotencyKeys(f func() string) Option { return func(c *config) { c.newKey = f } }
+
 func newConfig(opts []Option) config {
-	c := config{clientName: "subspace-client"}
+	c := config{clientName: "subspace-client", retries: 3, sleep: sleepCtx, newKey: randomKey}
 	for _, o := range opts {
 		o(&c)
 	}
@@ -94,4 +107,21 @@ func decodeInto(body []byte, out any, what string) error {
 		return fmt.Errorf("decode %s: %w", what, err)
 	}
 	return nil
+}
+
+func sleepCtx(ctx context.Context, d time.Duration) error {
+	t := time.NewTimer(d)
+	defer t.Stop()
+	select {
+	case <-t.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+func randomKey() string {
+	b := make([]byte, 16)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
 }

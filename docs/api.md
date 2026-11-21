@@ -401,6 +401,15 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 
 `get_instructions` content is stable (see SPEC §6) and ends with the owner charter.
 
+### Idempotency keys
+`claim_task`, `release_task`, `submit`, `review`, `update_status`, `report_tests`, `ask_owner`, `post_message`, `add_note`, `assign`, `reassign`, `propose_plan`, `create_task` and `request_spawn` accept an optional idempotency key in `params._meta.idempotencyKey` of `tools/call` (or the `Idempotency-Key` header; `_meta` wins), at most 255 bytes. Keys are scoped per agent and kept for 24h together with the tool, a hash of the canonical `arguments` and the result.
+- A retry with the same key, tool and arguments returns the stored result (with the new JSON-RPC `id`) and the header `Idempotent-Replayed: true`; the call is not applied again. Concurrent duplicates wait for the first call.
+- The same key with another tool or other arguments → tool error `idempotency_conflict`.
+- Results with tool error codes `internal`, `agent_paused` and `rate_limited` are not stored, so a retry runs the call again.
+- The key row is written right after the call's own transaction commits: if the server stops between the two, a retry applies the call again (at-least-once in that window).
+
+`internal/client` sends a fresh key with every call to these tools and retries up to 3 times with the same key on transport errors; any call is retried on `429` after `Retry-After`.
+
 ### Tool permissions (✓ = in `tools/list` for the role)
 
 | Tool | leader | worker | tester | reviewer |

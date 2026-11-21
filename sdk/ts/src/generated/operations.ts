@@ -44,6 +44,13 @@ export function deletePlansByIdTasksByTaskId(
   return r.request("DELETE", "/api/v1/plans/{id}/tasks/{taskId}", { ...args, response: "json" });
 }
 
+export function deletePlaybooksByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<void> {
+  return r.request("DELETE", "/api/v1/playbooks/{name}", { ...args, response: "none" });
+}
+
 export function deletePushSubscriptions(
   r: Requester,
   args: { body: T.PushSubscriptionRemove },
@@ -369,6 +376,12 @@ export function getDigestPreview(
   return r.request("GET", "/api/v1/digest/preview", { ...args, response: "json" });
 }
 
+export function getHa(
+  r: Requester,
+): Promise<T.HAStatus> {
+  return r.request("GET", "/api/v1/ha", { response: "json" });
+}
+
 export function getHealthz(
   r: Requester,
 ): Promise<T.Health> {
@@ -548,6 +561,19 @@ export function getPlansByIdEstimates(
   args: { path: { id: string } },
 ): Promise<T.EstimateReport> {
   return r.request("GET", "/api/v1/plans/{id}/estimates", { ...args, response: "json" });
+}
+
+export function getPlaybooks(
+  r: Requester,
+): Promise<{ playbooks: T.Playbook[] | null }> {
+  return r.request("GET", "/api/v1/playbooks", { response: "json" });
+}
+
+export function getPlaybooksByName(
+  r: Requester,
+  args: { path: { name: string } },
+): Promise<T.Playbook> {
+  return r.request("GET", "/api/v1/playbooks/{name}", { ...args, response: "json" });
 }
 
 export function getPrompts(
@@ -1072,6 +1098,20 @@ export function postPlansByIdTasks(
   return r.request("POST", "/api/v1/plans/{id}/tasks", { ...args, response: "json" });
 }
 
+export function postPlaybooks(
+  r: Requester,
+  args: { body: T.PlaybookInput },
+): Promise<T.Playbook> {
+  return r.request("POST", "/api/v1/playbooks", { ...args, response: "json" });
+}
+
+export function postPlaybooksByNameClone(
+  r: Requester,
+  args: { path: { name: string }; body: T.PlaybookClone },
+): Promise<T.Playbook> {
+  return r.request("POST", "/api/v1/playbooks/{name}/clone", { ...args, response: "json" });
+}
+
 export function postPushSubscriptions(
   r: Requester,
   args: { body: T.PushSubscriptionInput },
@@ -1273,6 +1313,13 @@ export function putLogLevel(
   args: { body: T.LogLevel },
 ): Promise<T.LogLevel> {
   return r.request("PUT", "/api/v1/log-level", { ...args, response: "json" });
+}
+
+export function putPlaybooksByName(
+  r: Requester,
+  args: { path: { name: string }; body: T.PlaybookInput },
+): Promise<T.Playbook> {
+  return r.request("PUT", "/api/v1/playbooks/{name}", { ...args, response: "json" });
 }
 
 export function putReposByOwnerByName(

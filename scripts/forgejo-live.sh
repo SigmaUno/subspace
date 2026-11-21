@@ -1,5 +1,6 @@
 #!/usr/bin/env bash
 set -euo pipefail
+shopt -s inherit_errexit
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 IMAGE="${SUBSPACE_FORGEJO_IMAGE:-data.forgejo.org/forgejo/forgejo:11.0.6}"
@@ -47,7 +48,7 @@ up() {
   port="$(free_port)"
   password="$(head -c 24 /dev/urandom | base64 | tr -dc 'A-Za-z0-9')Aa1"
 
-  trap '[ "$started" = 1 ] && remove "$name"' ERR
+  trap '[ "$started" = 1 ] && remove "$name"' EXIT
   docker run -d --name "$name" --label "$LABEL" \
     --memory 1g --cpus 1 --pids-limit 512 \
     --network host \
@@ -86,11 +87,11 @@ up() {
   token="$(docker exec -u git "$name" forgejo admin user generate-access-token \
     --username "$ADMIN" --token-name live-tests --scopes all --raw)"
 
-  trap - ERR
+  trap - EXIT
   printf 'export SUBSPACE_FORGEJO_URL=%q\n' "http://127.0.0.1:$port"
   printf 'export SUBSPACE_FORGEJO_TOKEN=%q\n' "$token"
   printf 'export SUBSPACE_FORGEJO_ADMIN=%q\n' "$ADMIN"
-    printf 'export SUBSPACE_FORGEJO_CONTAINER=%q\n' "$name"
+  printf 'export SUBSPACE_FORGEJO_CONTAINER=%q\n' "$name"
 }
 
 CONTAINER=""

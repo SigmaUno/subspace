@@ -41,7 +41,7 @@ func run(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("subspace-gameday", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	var opt Options
-	url := fs.String("url", os.Getenv("SUBSPACE_URL"), "target Subspace URL; empty runs an in-process stack (env SUBSPACE_URL)")
+	url := fs.String("url", "", "target Subspace URL; empty runs an in-process stack")
 	tokenFile := fs.String("owner-token-file", os.Getenv("SUBSPACE_OWNER_TOKEN_FILE"), "file with the owner token (env SUBSPACE_OWNER_TOKEN_FILE, else SUBSPACE_OWNER_TOKEN)")
 	only := fs.String("scenario", "all", "comma-separated scenario names, or all")
 	asJSON := fs.Bool("json", false, "print the report as JSON")

@@ -4,8 +4,11 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
@@ -121,5 +124,21 @@ func TestUnknownScenario(t *testing.T) {
 	var out, errb bytes.Buffer
 	if code := run(context.Background(), []string{"-scenario", "nope"}, &out, &errb); code != 2 {
 		t.Fatalf("exit %d", code)
+	}
+}
+
+func TestEnvironmentNeverSelectsARemoteTarget(t *testing.T) {
+	var hits atomic.Int64
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hits.Add(1)
+		w.WriteHeader(http.StatusInternalServerError)
+	}))
+	defer srv.Close()
+	t.Setenv("SUBSPACE_URL", srv.URL)
+	t.Setenv("SUBSPACE_OWNER_TOKEN", strings.Repeat("o", 32))
+	var out, errb bytes.Buffer
+	run(context.Background(), []string{"-scenario", "runaway-agent", "-detect", "1ns"}, &out, &errb)
+	if n := hits.Load(); n != 0 {
+		t.Fatalf("gameday sent %d requests to the server named by SUBSPACE_URL", n)
 	}
 }

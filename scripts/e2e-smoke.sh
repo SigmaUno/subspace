@@ -68,7 +68,8 @@ do_request() {
   local -a args=(-sS -X "$method" -w '%{http_code}' \
     -o "$SS_TMP/body" -D "$SS_TMP/headers" -H "Accept: $ACCEPT")
   if [ "$token" != "-" ]; then
-    args+=(-H "Authorization: Bearer $token")
+    (umask 077; printf 'Authorization: Bearer %s\n' "$token" >"$SS_TMP/auth.hdr")
+    args+=(-H "@$SS_TMP/auth.hdr")
   fi
   if [ "$data" != "-" ]; then
     args+=(-H "Content-Type: application/json" --data "$data")

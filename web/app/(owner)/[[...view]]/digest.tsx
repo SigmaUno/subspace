@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { money } from "../../../lib/client";
 import type { DigestPreview } from "../../../lib/digest-types";
+import { EntityLink } from "./components";
 import { EmptyState } from "./states";
 
 export const digestWindows: [string, string][] = [
@@ -60,11 +60,11 @@ export function DigestPanel({ preview, range, setRange }: {
     </>}
     {!!flapping.length && <>
       <h3>Flapping agents</h3>
-      <ul>{flapping.map((id) => <li key={id}><Link href={`/agents/${encodeURIComponent(id)}`}>{id}</Link></li>)}</ul>
+      <ul>{flapping.map((id) => <li key={id}><EntityLink kind="agent" id={id} /></li>)}</ul>
     </>}
     {!!ready.length && <>
       <h3>Merge-ready</h3>
-      <ul>{ready.map((id) => <li key={id}><Link href={`/tasks/${encodeURIComponent(id)}`}>{id}</Link></li>)}</ul>
+      <ul>{ready.map((id) => <li key={id}><EntityLink kind="task" id={id} /></li>)}</ul>
     </>}
     <h3>Message text</h3>
     <pre>{preview.text}</pre>

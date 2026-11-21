@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { label, optionalResource, useResource } from "../../../lib/client";
 import type { HelpRequest, HelpRequestList, HelpStatus, ProposedTask } from "../../../lib/helpreq-types";
+import { EntityLink } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 type Filter = HelpStatus | "all";
@@ -40,8 +41,8 @@ function Detail({ request }: { request: HelpRequest }) {
     <p className="meta">
       {typeNames[request.type] ?? request.type} · {label(request.kind)}
       {request.needs && ` · needs ${request.needs}`} · {request.agent_id} ({request.role}) ·{" "}
-      <Link href={`/tasks/${encodeURIComponent(request.task_id)}`}>{request.task_id}</Link> ·{" "}
-      <Link href={`/briefs/${encodeURIComponent(request.brief_id)}`}>{request.brief_id}</Link>
+      <EntityLink kind="task" id={request.task_id} /> ·{" "}
+      <EntityLink kind="brief" id={request.brief_id} />
     </p>
     <p className="meta">Untrusted agent text: shown as plain text.</p>
     <p className="preserve">{request.details || "No details."}</p>
@@ -51,7 +52,7 @@ function Detail({ request }: { request: HelpRequest }) {
       {!!proposals.length && <ol className="stack">{proposals.map((task, index) => <Proposal key={index} task={task} index={index} />)}</ol>}
       {request.status === "open" && <p className="meta">The leader accepts a split proposal with accept_split; the original task is then cancelled.</p>}
       {!!created.length && <p>Created {created.map((id, index) => <span key={id}>
-        {index > 0 && ", "}<Link href={`/tasks/${encodeURIComponent(id)}`}>{id}</Link></span>)}</p>}
+        {index > 0 && ", "}<EntityLink kind="task" id={id} /></span>)}</p>}
     </>}
   </section>;
 }
@@ -80,10 +81,10 @@ export function HelpRequestsView({ revision }: { revision: number }) {
             <th scope="row"><button className="text-button" aria-pressed={request.id === selected}
               onClick={() => setSelected(request.id === selected ? "" : request.id)}>{request.id}</button></th>
             <td>{typeNames[request.type] ?? request.type}<div className="meta">{label(request.kind)}{request.needs && ` · needs ${request.needs}`}</div></td>
-            <td><Link href={`/tasks/${encodeURIComponent(request.task_id)}`}>{request.task_id}</Link></td>
+            <td><EntityLink kind="task" id={request.task_id} /></td>
             <td>{request.agent_id}</td>
             <td><span className={`pill ${statusClass[request.status] ?? ""}`}>{request.status}</span></td>
-            <td><time dateTime={request.created_at}>{new Date(request.created_at).toLocaleString()}</time></td>
+            <td>{formatTime(request.created_at)}</td>
           </tr>
         ))}</tbody>
       </table>

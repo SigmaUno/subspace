@@ -1,10 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, label, useResource, useSubmit, value } from "../../../lib/client";
 import type { HillclimbJob, HillclimbPoint, HillclimbSeries } from "../../../lib/hillclimb-types";
-import { Feedback } from "./components";
+import { EntityLink, Feedback } from "./components";
 import { EmptyState, ResourceState } from "./states";
 import { PageShell } from "./shell";
 
@@ -102,7 +101,7 @@ function HillclimbView() {
         <tbody>{jobs.data.jobs.map((job) => (
           <tr key={job.id}>
             <th scope="row"><button className="text-button" aria-pressed={job.id === active} onClick={() => setSelected(job.id)}>{job.id}</button></th>
-            <td><Link href={`/briefs/${encodeURIComponent(job.brief_id)}`}>{job.brief_id}</Link></td>
+            <td><EntityLink kind="brief" id={job.brief_id} /></td>
             <td>{job.repo}</td>
             <td>{job.direction}{job.target !== null && <div className="meta">target {formatValue(job.target)}</div>}</td>
             <td><span className="pill">{job.status}</span>{job.stop_reason && <div className="meta">{label(job.stop_reason)}</div>}</td>

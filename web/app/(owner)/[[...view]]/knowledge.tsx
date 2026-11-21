@@ -5,6 +5,7 @@ import { api, commaList, useResource, useSubmit, value } from "../../../lib/clie
 import type { Brief } from "../../../lib/types";
 import type { KnowledgeEntry, KnowledgeKind, KnowledgeList, KnowledgeStatus } from "../../../lib/knowledge-types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 import { PageShell } from "./shell";
 
@@ -74,7 +75,7 @@ function EntryDetail({ entry, changed, removed }: { entry: KnowledgeEntry; chang
       <div>
         <h2>{entry.title}</h2>
         <p className="meta">{entry.id} · {entry.brief_id} · {entry.kind} · by {entry.author} ({entry.author_role}) ·{" "}
-          <time dateTime={entry.created_at}>{new Date(entry.created_at).toLocaleString()}</time></p>
+          {formatTime(entry.created_at)}</p>
       </div>
       <div className="actions">
         <span className="pill">{entry.status}</span>

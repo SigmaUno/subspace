@@ -4,6 +4,7 @@ import { useContext, useMemo, useState } from "react";
 import type { Component } from "../../../lib/swarm";
 import { statuses, type Task, type Thread } from "../../../lib/types";
 import { Clock, staleAt } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 const width = 216;
@@ -98,7 +99,7 @@ export function Architecture({ components, tasks, loading, error, openThread, op
         {!!summary.stale && <span className="pill stale">{summary.stale} stale</span>}
       </div>
       <div className="actions"><span className="meta">Owners</span>{summary.owners.length ? summary.owners.map((id) => <button key={id} type="button" onClick={() => openThread({ kind: "agent", id })}>{id}</button>) : <span className="meta">Unassigned</span>}</div>
-      {summary.activity && <p className="meta">Last activity <time dateTime={summary.activity}>{new Date(summary.activity).toLocaleString()}</time></p>}
+      {summary.activity && <p className="meta">Last activity {formatTime(summary.activity)}</p>}
     </div>}
   </section>;
 }

@@ -1,9 +1,9 @@
 "use client";
 
-import Link from "next/link";
 import { useResource } from "../../../lib/client";
 import type { AgentStats, AgentTrendPoint } from "../../../lib/agent-stats-types";
 import { agentDuration } from "../../../lib/duration";
+import { EntityLink } from "./components";
 import { EmptyState, ResourceState } from "./states";
 
 const size = { width: 84, height: 24, pad: 3 };
@@ -36,7 +36,7 @@ export function Leaderboard({ revision }: { revision: number }) {
         <tbody>{rows.map((row, index) => (
           <tr key={row.agent_id}>
             <td>{index + 1}</td>
-            <th scope="row"><Link href={`/agents/${encodeURIComponent(row.agent_id)}`}>{row.agent_id}</Link>
+            <th scope="row"><EntityLink kind="agent" id={row.agent_id} />
               <div className="meta">{row.role} · {row.provider}</div></th>
             <td>{row.score.toFixed(2)}</td>
             <td>{row.tasks_completed}</td>

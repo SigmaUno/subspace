@@ -2,6 +2,7 @@
 
 import { optionalResource, useResource } from "../../../lib/client";
 import type { ScopeReport } from "../../../lib/scope-types";
+import { formatTime } from "./format";
 import { EmptyState } from "./states";
 
 const severityClass = { error: "revoked", warning: "paused" } as const;
@@ -23,7 +24,7 @@ export function ScopePanel({ taskID, revision }: { taskID: string; revision: num
       {current.files} {current.files === 1 ? "file" : "files"} · +{current.additions} −{current.deletions}
       {current.truncated && " · file list truncated"}
       {current.head_sha && <> · <code title={current.head_sha}>{current.head_sha.slice(0, 7)}</code></>}
-      {current.checked_at && <> · checked <time dateTime={current.checked_at}>{new Date(current.checked_at).toLocaleString()}</time></>}
+      {current.checked_at && <> · checked {formatTime(current.checked_at)}</>}
     </p>
     {!findings.length && <EmptyState>No scope findings.</EmptyState>}
     {!!findings.length && <div className="table-wrap">

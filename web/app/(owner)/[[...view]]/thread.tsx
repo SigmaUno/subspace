@@ -4,6 +4,7 @@ import { memo, useCallback, useEffect, useRef, useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Message, Thread } from "../../../lib/types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 const pageSize = 200;
@@ -12,7 +13,7 @@ const MessageItem = memo(function MessageItem({ message }: { message: Message })
   return (
     <article>
       <div className="message-meta"><strong>{message.author_id}</strong><span>{message.author_role} · {message.kind}</span>
-        <time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time>
+        {formatTime(message.created_at)}
       </div>
       <p className="preserve">{message.body}</p>
     </article>

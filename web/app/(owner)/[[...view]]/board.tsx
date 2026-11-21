@@ -11,7 +11,7 @@ import { BoardFilters, useBoardPrefs } from "./board-views";
 import { emptyQuery, facets, filterTasks, formatQuery, groupStatuses, haystack, parseQuery } from "../../../lib/board-query";
 import { ImportBrief } from "./brief-import";
 import { BulkBar, BulkToast, QuickMenu, SelectAll, SelectBox, taskActions, useBulk, type Bulk } from "./bulk";
-import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { Clock, EntityLink, Feedback, Heartbeat, staleAt } from "./components";
 import { PlaybookPicker, usePlaybooks } from "./playbooks";
 import { PRBadges, usePRs } from "./pr-status";
 import { typing } from "./shortcuts";
@@ -87,7 +87,7 @@ const TaskCard = memo(function TaskCard({ task, agent, agents, bulk, pr: prStatu
     <article className={`task ${attention ? "needs-attention" : ""}`}>
       <SelectBox id={task.id} bulk={bulk} name={task.title} />
       <button className="text-button task-title" onClick={() => openThread({ kind: "task", id: task.id, title: task.title })}>{task.title}</button>
-      <div className="meta"><Link href={`/tasks/${encodeURIComponent(task.id)}`}>{task.id}</Link> · {task.role}</div>
+      <div className="meta"><EntityLink kind="task" id={task.id} /> · {task.role}</div>
       <div>
         {task.assignee
           ? <button className="text-button" onClick={() => openThread({ kind: "agent", id: task.assignee! })}>{task.assignee}</button>

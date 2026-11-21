@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Agent, Capacity, CapacityLimit, Plan, Question, Registration, Thread } from "../../../lib/types";
 import { agentActions, BulkBar, BulkToast, SelectAll, SelectBox, useBulk } from "./bulk";
-import { Feedback, Heartbeat } from "./components";
+import { EntityLink, Feedback, Heartbeat } from "./components";
 import { CopyBlock } from "./copy";
 import { PlanEditor } from "./plan-edit";
 import { EmptyState, PageHeading, ResourceState } from "./states";
@@ -88,7 +87,7 @@ export function AgentsView({ revision, openThread }: { revision: number; openThr
         <VirtualList items={agents.data.agents} name="Registered agents" estimate={58} className="registry-list" render={(agent) => (
           <article className="registry-row selectable">
             <SelectBox id={agent.id} bulk={bulk} name={agent.id} />
-            <div><Link href={`/agents/${encodeURIComponent(agent.id)}`}>{agent.id}</Link>
+            <div><EntityLink kind="agent" id={agent.id} />
               <div><button className="text-button meta" onClick={() => openThread({ kind: "agent", id: agent.id })}>Thread</button></div></div>
             <div>{agent.role}</div><div>{agent.kind}<div className="meta">{agent.model} · {agent.provider}</div></div>
             <div><span className={`pill ${agent.status}`}>{agent.status}</span>{agent.pause_reason && <div className="meta">{agent.pause_reason}</div>}</div>
@@ -108,7 +107,7 @@ function PlanCard({ plan, decided, changed, openThread }: { plan: Plan; decided:
   const count = plan.tasks?.filter((task) => task.status !== "cancelled").length ?? 0;
   return <article className="panel stack">
     <div className="heading">
-      <div><h2>Plan {plan.id}</h2><p className="meta">Proposed by {plan.proposed_by} · <Link href={`/briefs/${encodeURIComponent(plan.brief_id)}`}>{plan.brief_id}</Link></p></div>
+      <div><h2>Plan {plan.id}</h2><p className="meta">Proposed by {plan.proposed_by} · <EntityLink kind="brief" id={plan.brief_id} /></p></div>
       <div className="actions"><span className="pill">{count} tasks</span><button onClick={() => openThread({ kind: "brief", id: plan.brief_id })}>Brief thread</button></div>
     </div>
     {plan.note && <p className="preserve">{plan.note}</p>}
@@ -165,7 +164,7 @@ function QuestionCard({ question, answered, openThread }: { question: Question; 
     <div className="meta">
       {question.id} · <button className="text-button" onClick={() => openThread({ kind: "agent", id: question.agent_id })}>{question.agent_id}</button>
       {question.task_id && <> · <button className="text-button" onClick={() => openThread({ kind: "task", id: question.task_id! })}>{question.task_id}</button></>}
-      {question.brief_id && <> · <Link href={`/briefs/${encodeURIComponent(question.brief_id)}`}>{question.brief_id}</Link></>}
+      {question.brief_id && <> · <EntityLink kind="brief" id={question.brief_id} /></>}
     </div>
     <h2 className="preserve">{question.question}</h2>
     {!!question.options?.length && <div className="actions">

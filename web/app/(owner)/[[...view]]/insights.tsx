@@ -1,8 +1,8 @@
 "use client";
 
-import Link from "next/link";
 import { label, optionalResource, useResource } from "../../../lib/client";
 import type { Insights } from "../../../lib/insights-types";
+import { EntityLink } from "./components";
 import { utc as since } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
@@ -37,6 +37,6 @@ export function InsightsTile({ revision }: { revision: number }) {
   return <div className={`panel ${insights?.high ? "needs-attention" : ""}`}>
     <span>Agent insights</span>
     <strong>{insights ? `${insights.high} high · ${insights.warning} warning` : "…"}</strong>
-    {insights && insights.findings.length > 0 && <Link href={`/agents/${encodeURIComponent(insights.findings[0].agent_id)}`}>{insights.findings[0].agent_id}</Link>}
+    {insights && insights.findings.length > 0 && <EntityLink kind="agent" id={insights.findings[0].agent_id} />}
   </div>;
 }

@@ -5,6 +5,7 @@ import { api, useResource, useSubmit, value } from "../../../lib/client";
 import type { Announcement, AnnouncementList, Published } from "../../../lib/announcement-types";
 import type { Brief } from "../../../lib/types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, PageHeading, ResourceState } from "./states";
 import { useAction, useConfirm, useToast } from "./ui";
 
@@ -68,7 +69,7 @@ export function AnnouncementsView({ embedded }: { embedded?: boolean }) {
           <strong>{announcement.id}</strong>
           <span className="meta">
             {announcement.brief_id || "every agent"} · {announcement.expires_at
-              ? <>expires <time dateTime={announcement.expires_at}>{new Date(announcement.expires_at).toLocaleString()}</time></>
+              ? <>expires {formatTime(announcement.expires_at)}</>
               : "no expiry"}
           </span>
           <button type="button" className="danger" data-write disabled={remove.busy === announcement.id} onClick={() => drop(announcement)}>Delete</button>

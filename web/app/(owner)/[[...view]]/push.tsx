@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import { api, ApiError, useResource, useSubmit } from "../../../lib/client";
 import type { PushDevice, PushDeviceList, PushKey } from "../../../lib/push-types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 type BrowserState = "checking" | "unsupported" | "denied" | "off" | "on";
@@ -50,10 +51,6 @@ async function forget(body: { id?: string; endpoint?: string }) {
   } catch (error) {
     if (!(error instanceof ApiError && error.status === 404)) throw error;
   }
-}
-
-function formatTime(iso: string | null) {
-  return iso ? <time dateTime={iso}>{new Date(iso).toLocaleString()}</time> : "—";
 }
 
 const stateLabels: Record<BrowserState, string> = {

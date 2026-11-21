@@ -5,6 +5,7 @@ import { api, useResource, useSubmit } from "../../../lib/client";
 import type { Candidate, CandidateList, CandidateState, EnqueueRequest } from "../../../lib/mergequeue-types";
 import type { Task } from "../../../lib/types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { useLive } from "./live";
 import { EmptyState, ResourceState } from "./states";
 import { PageShell } from "./shell";
@@ -113,7 +114,7 @@ export function MergeQueuePage() {
               <td>{item.repo}</td>
               <td>{item.head} → {item.base}</td>
               <td><span className="pill">{stateLabels[item.state]}</span></td>
-              <td><time dateTime={item.updated_at}>{new Date(item.updated_at).toLocaleString()}</time></td>
+              <td>{formatTime(item.updated_at)}</td>
             </tr>
           ))}</tbody>
         </table>

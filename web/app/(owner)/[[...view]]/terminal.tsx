@@ -1,12 +1,12 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type ReactNode, type UIEvent } from "react";
 import { api } from "../../../lib/client";
 import type { AgentOutput, LatestOutput, OutputChunk, OutputLine } from "../../../lib/output-types";
 import { ansiCss, parseAnsi, plainText } from "../../../lib/ansi";
 import { atEnd, freshLines, matchLines, mergeLatest, newest, retain, rowHeight, viewHeight, visibleRange } from "../../../lib/terminal";
 import "./terminal.css";
+import { EntityLink } from "./components";
 import { EmptyState, ResourceState } from "./states";
 
 const pageSize = 1000;
@@ -213,7 +213,7 @@ export function OutputTile() {
     {loaded && !agents.length && <EmptyState>No agent output yet.</EmptyState>}
     {!!agents.length && <ul className="terminal-tile">
       {agents.slice(0, tileSize).map((entry) => <li key={entry.agent_id}>
-        <Link href={`/agents/${encodeURIComponent(entry.agent_id)}`}>{entry.agent_id}</Link>
+        <EntityLink kind="agent" id={entry.agent_id} />
         <time dateTime={entry.updated_at} className="meta">{new Date(entry.updated_at).toLocaleTimeString()}</time>
         <code className="terminal-line" data-stream={entry.line.stream}><Styled text={entry.line.text} /></code>
       </li>)}

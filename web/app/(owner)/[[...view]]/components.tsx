@@ -1,11 +1,18 @@
 "use client";
 
+import Link from "next/link";
 import { createContext, useContext, useEffect, useRef } from "react";
 
 export const Clock = createContext(0);
 
 export function Feedback({ error }: { error?: string }) {
   return error ? <p className="error" role="alert">{error}</p> : null;
+}
+
+const entityPaths = { task: "tasks", brief: "briefs", agent: "agents" } as const;
+
+export function EntityLink({ kind, id }: { kind: keyof typeof entityPaths; id: string }) {
+  return <Link href={`/${entityPaths[kind]}/${encodeURIComponent(id)}`}>{id}</Link>;
 }
 
 export function LoadMore({ hasMore, loading, onMore }: { hasMore: boolean; loading: boolean; onMore: () => void }) {

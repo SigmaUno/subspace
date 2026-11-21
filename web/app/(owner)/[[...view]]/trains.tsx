@@ -1,9 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import { useState } from "react";
 import { optionalResource, useResource } from "../../../lib/client";
 import type { MemberResult, Train, TrainList, TrainState } from "../../../lib/trains-types";
+import { EntityLink } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 
 const stateLabels: Record<TrainState, string> = {
@@ -64,7 +65,7 @@ function TrainDetail({ train }: { train: Train }) {
         <tbody>{members.map((member) => (
           <tr key={member.candidate_id}>
             <th scope="row">{member.candidate_id}</th>
-            <td><Link href={`/tasks/${encodeURIComponent(member.task_id)}`}>{member.task_id}</Link></td>
+            <td><EntityLink kind="task" id={member.task_id} /></td>
             <td>#{member.pr}</td>
             <td className="break">{member.head}</td>
             <td>{member.sha ? <code title={member.sha}>{member.sha.slice(0, 7)}</code> : "—"}</td>
@@ -101,7 +102,7 @@ export function TrainsPanel({ repo, revision }: { repo: string; revision: number
             <td><span className={`pill ${stateClass[train.state] ?? ""}`}>{stateLabels[train.state] ?? train.state}</span></td>
             <td>{(train.members ?? []).length}</td>
             <td>{bisectState(train) ?? "—"}</td>
-            <td><time dateTime={train.updated_at}>{new Date(train.updated_at).toLocaleString()}</time></td>
+            <td>{formatTime(train.updated_at)}</td>
           </tr>
         ))}</tbody>
       </table>

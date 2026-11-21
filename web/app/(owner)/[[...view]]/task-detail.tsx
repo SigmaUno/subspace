@@ -1,11 +1,10 @@
 "use client";
 
-import Link from "next/link";
 import type { ReactNode } from "react";
 import { api, label, money, safeURL, usePagedResource, useResource, useSubmit, value } from "../../../lib/client";
 import type { AuditEvent, TaskDetail, TaskList, TimelineEntry } from "../../../lib/task-detail-types";
 import { statuses, type Message } from "../../../lib/types";
-import { Feedback, LoadMore } from "./components";
+import { EntityLink, Feedback, LoadMore } from "./components";
 import { TaskGates } from "./gates";
 import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
@@ -156,7 +155,7 @@ export function TaskDetailPage({ id }: { id: string }) {
     {current && <>
       <div className="heading">
         <div>
-          <p className="meta">{current.id} · <Link href={`/briefs/${encodeURIComponent(current.brief_id)}`}>{current.brief_id}</Link> · {current.role}</p>
+          <p className="meta">{current.id} · <EntityLink kind="brief" id={current.brief_id} /> · {current.role}</p>
           <h1>{current.title}</h1>
         </div>
         <span className="pill" data-status={current.status}>{statusName(current.status)}</span>
@@ -202,7 +201,7 @@ export function TaskDetailPage({ id }: { id: string }) {
           ? <ul>{current.depends_on.map((dependency) => {
             const other = known.get(dependency);
             return <li key={dependency}>
-              <Link href={`/tasks/${encodeURIComponent(dependency)}`}>{dependency}</Link>
+              <EntityLink kind="task" id={dependency} />
               {other && <> · {other.title} <span className="pill" data-status={other.status}>{statusName(other.status)}</span></>}
             </li>;
           })}</ul>

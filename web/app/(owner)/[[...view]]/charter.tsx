@@ -5,6 +5,7 @@ import { useEffect, useState } from "react";
 import { api, useResource, useSubmit } from "../../../lib/client";
 import type { Charter } from "../../../lib/charter-types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { PageHeading, ResourceState } from "./states";
 import { useConfirm, useToast } from "./ui";
 
@@ -49,7 +50,7 @@ export function CharterView({ embedded }: { embedded?: boolean }) {
 
   return <>
     <PageHeading title="Charter" embedded={embedded}>
-      {current?.updated_at && <span className="meta">Last updated <time dateTime={current.updated_at}>{new Date(current.updated_at).toLocaleString()}</time></span>}
+      {current?.updated_at && <span className="meta">Last updated {formatTime(current.updated_at)}</span>}
     </PageHeading>
     <ResourceState error={charter.error} loading={!current} retry={charter.refresh} rows={6} />
     {current && <form className="panel stack" onSubmit={(event) => form.submit(event, async () => {

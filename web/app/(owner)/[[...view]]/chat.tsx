@@ -6,6 +6,7 @@ import type { Component, Conversation } from "../../../lib/swarm";
 import type { Agent } from "../../../lib/types";
 import { agentRoles } from "../../../lib/types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, ResourceState } from "./states";
 import { useToast } from "./ui";
 
@@ -28,7 +29,7 @@ function ConversationPanel({ target, revision }: { target: string; revision: num
     <div className="chat-log" role="log" aria-label="Conversation" ref={log} tabIndex={0}>
       <ResourceState error={conversation.error} loading={!!id && conversation.data === undefined} retry={conversation.refresh} rows={2} />
       {conversation.data?.messages?.map((message) => <article key={message.id}>
-        <div className="message-meta"><strong>{message.author_id}</strong><time dateTime={message.created_at}>{new Date(message.created_at).toLocaleString()}</time></div>
+        <div className="message-meta"><strong>{message.author_id}</strong>{formatTime(message.created_at)}</div>
         <p className="preserve">{message.body}</p>
       </article>)}
       {!id && <EmptyState>No messages yet.</EmptyState>}

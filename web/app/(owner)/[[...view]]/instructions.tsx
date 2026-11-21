@@ -5,6 +5,7 @@ import { api, optionalResource, useResource, useSubmit, value } from "../../../l
 import type { Brief } from "../../../lib/types";
 import type { InstructionDiff, InstructionKind, InstructionLog, InstructionVersion } from "../../../lib/instructions-types";
 import { Feedback } from "./components";
+import { formatTime } from "./format";
 import { EmptyState, PageHeading, ResourceState } from "./states";
 import { PageShell } from "./shell";
 import { useAction, useConfirm, useToast } from "./ui";
@@ -93,7 +94,7 @@ function InstructionDocument({ scope, kind }: { scope: string; kind: Instruction
                 {item.version === head && <span className="pill">current</span>}</th>
               <td>{item.author}</td>
               <td>{item.message || "—"}</td>
-              <td><time dateTime={item.created_at}>{new Date(item.created_at).toLocaleString()}</time></td>
+              <td>{formatTime(item.created_at)}</td>
               <td>{item.version !== head && <button data-write disabled={action.busy !== ""} onClick={() => rollback(item.version)}>Roll back</button>}</td>
             </tr>
           ))}</tbody>

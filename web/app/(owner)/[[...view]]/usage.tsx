@@ -1,12 +1,11 @@
 "use client";
 
-import Link from "next/link";
 import { useContext, useState } from "react";
 import { money, useResource } from "../../../lib/client";
 import type {
   BriefBudget, ProviderStatus, UsageGroup, UsagePoint, UsageSeriesResponse, UsageSummary,
 } from "../../../lib/usage-types";
-import { Clock } from "./components";
+import { Clock, EntityLink } from "./components";
 import { OrgBudget } from "./org-budget";
 import { EmptyState, ResourceState, Skeleton } from "./states";
 import { count, usd } from "./format";
@@ -79,7 +78,7 @@ function BudgetBurn({ briefs }: { briefs: BriefBudget[] }) {
         const over = brief.budget_usd > 0 && brief.spent_usd > brief.budget_usd;
         return <tr key={brief.brief_id}>
           <th scope="row">
-            <Link href={`/briefs/${encodeURIComponent(brief.brief_id)}`}>{brief.brief_id}</Link>
+            <EntityLink kind="brief" id={brief.brief_id} />
             <div className="meta">{brief.title}</div>
           </th>
           <td><span className="pill">{brief.status}</span></td>

@@ -335,8 +335,8 @@ With `train` > 0 each repo processes one train at a time. Queued candidates of t
 |---|---|---|
 | GET | `/api/v1/agents?role=&status=&cursor=&limit=` | → `{"agents":[Agent],"next_cursor":null}` ordered by id. |
 | GET | `/api/v1/agents/{id}` | → Agent |
-| POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). Optional `callback_url` registers a wake-up callback, see Agent callbacks; the response then carries `callback`. `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
-| POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":"","expires_in":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic; `expires_in` applies to every agent. |
+| POST | `/api/v1/agents` | `{"id","role","kind","model","provider","expires_in":"","profile":""}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). Optional `profile` names an agent profile that supplies every field the body leaves out, see Agent profiles. Optional `callback_url` registers a wake-up callback, see Agent callbacks; the response then carries `callback`. `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek). `expires_in` is an optional positive Go duration (e.g. `720h`) after which the token stops working; empty = never expires; 400 otherwise. |
+| POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":"","expires_in":"","profile":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic; `expires_in` applies to every agent. `profile` as above; a profile's `count` is the default `count`. |
 | POST | `/api/v1/agents` | `{"id","role","kind","model","provider"}` → `{"agent":Agent,"connect":Connect}` (201; `connect.token` shown once). `provider` defaults from kind (claude-code→anthropic, codex→openai, opencode→deepseek); it must match `[a-z0-9][a-z0-9._-]{0,62}` and, for claude-code and codex, equal the kind's provider (400 otherwise). |
 | POST | `/api/v1/agents/bulk` | `{"prefix":"claude","count":50,"role":"worker","kind":"claude-code","model":"...","provider":""}` → `{"agents":[{"agent":Agent,"connect":Connect}]}`. Ids `<prefix>-001`…; max count 1000; atomic. |
 | GET | `/api/v1/agents/{id}/connect` | → Connect without token (snippets keep `<token>`). |
@@ -346,6 +346,34 @@ With `train` > 0 each repo processes one train at a time. Queued candidates of t
 | PUT | `/api/v1/agents/{id}/quota` | `{"max_cost_eur_per_day":5,"max_tasks_per_day":10,"max_concurrent_tasks":2}` → `{"agent_id","quota":Quota,"quota_usage":{...}}` (the same `quota` and `quota_usage` objects as in Agent). Replaces all three limits (`0` or absent = unlimited); 400 on a negative or oversized value or an unknown field, 404 for an unknown agent, 409 for a revoked one. Appends a `set_agent_quota` audit event. See Agent quotas. |
 | POST | `/api/v1/agents/quota-bulk` | `{"ids":["claude-1"],"quota":{...}}` → `{"results":[{"id","ok","error"?:{"code","message"}}],"succeeded","failed"}`. Applies the quota to up to 500 agents, one id at a time with its own audit event; duplicate ids are applied once and `ok:false` results carry the error the single endpoint would return. 400 for an empty or oversized `ids`, empty id values, or a missing or invalid `quota`; nothing is applied then. |
 | POST | `/api/v1/agents/bulk-action` | `{"ids":["claude-1"],"action":"pause","params":{}}` → `{"action","results":[{"id","ok","error"?,"connect"?}],"succeeded","failed"}`. See Bulk operations. |
+
+### Agent profiles
+Presets for fast registration. Owner scope writes, viewer scope reads. Every create, update and delete appends an audit event (`create_agent_profile`, `update_agent_profile`, `delete_agent_profile`).
+
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/agent-profiles` | → `{"profiles":[Profile]}` sorted by name. |
+| POST | `/api/v1/agent-profiles` | `{"name","role":"worker","kind","model","provider","expires_in":"","count":0,"callback_url":"","description":""}` → Profile (201). 400 on invalid fields or unknown fields, 409 if the name exists. |
+| GET | `/api/v1/agent-profiles/{name}` | → Profile. 404 for an unknown name. |
+| PUT | `/api/v1/agent-profiles/{name}` | Same fields as create, replaces the profile → Profile. The name cannot change (400), 404 for an unknown name. |
+| DELETE | `/api/v1/agent-profiles/{name}` | → 204. 404 for an unknown name, 409 while autopilot options of a brief reference the profile. |
+
+```jsonc
+// Profile
+{"name":"claude-code-worker","role":"worker","kind":"claude-code","model":"claude-sonnet-5-5","provider":"anthropic",
+ "expires_in":"","count":0,"callback_url":"","description":"Claude Code worker on Anthropic",
+ "created_at":"...","updated_at":"..."}
+```
+
+`name` matches `[a-z0-9][a-z0-9_-]{0,62}`. `kind` is required (`claude-code`, `codex`, `opencode` or `other`), `role` defaults to `worker`. `model` is optional and follows the agent registration rules, `provider` too (empty derives it from the kind). The quota defaults are `expires_in` (token lifetime, a positive Go duration; empty = never expires) and `count` (default size of a bulk registration, 0..1000). `callback_url` is an `http(s)` URL without credentials, at most 2048 bytes; the full callback rules (see Agent callbacks) apply when an agent is registered with it. `description` is at most 500 characters.
+
+Three profiles are created on the first start: `claude-code-worker`, `codex-worker` and `opencode-deepseek-worker`. They are ordinary profiles: the owner may edit or delete them, and deleted ones are not created again.
+
+A profile is used by name:
+
+- `POST /api/v1/agents` and `POST /api/v1/agents/bulk` accept `"profile":"<name>"`. Every field the body leaves out, sets to `null` or to an empty string (`role`, `kind`, `model`, `provider`, `expires_in`, `callback_url` for one agent, `count` for bulk) comes from the profile; explicit fields win. `provider` is only inherited while the resulting `kind` is the profile's kind, so overriding `kind` derives the provider from the new kind. An unknown profile is 400 `bad_request` and nothing is registered. `callback_url` is not applied to bulk registrations.
+- MCP `request_spawn` accepts `profile` and fills `worker_kind`, `model`, `role` and `provider` the same way.
+- With `SUBSPACE_AUTOPILOT=on`, `PUT /api/v1/autopilot/briefs/{id}/spawn` with `{"worker_kind":"","model":"","provider":"","profile":""}` sets what autopilot spawns for that brief; `profile` fills `worker_kind`, `model` and `provider` the same way. After resolving, `worker_kind` (`claude-code`, `codex` or `opencode`) and `model` are required (400), an unknown profile is 400, an empty body clears the options. `GET /api/v1/autopilot` shows the options as `spawn` per brief. Options survive restarts and a profile referenced by them cannot be deleted.
 
 ### Agent callbacks
 MCP is pull-only, so an idle agent can miss work. An agent can have one optional callback URL; the server then POSTs a small signed wake-up event to it. `POST /api/v1/agents` and `POST /api/v1/agents/{id}/rotate-token` accept `callback_url` (owner token only):
@@ -1099,7 +1127,7 @@ All tools return an object; `task` = Task object above.
 - `board {"brief_id?"}` → `{"columns":{status:[Task]}}`
 - `list_agents {"role?","status?"}` → `{"agents":[Agent]}`
 - `capacity {}` → `{"global_max_agents":n,"limits":[CapacityLimit],"agents_in_use":n,"paused":bool}`
-- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
+- `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?","profile?"}` → `{"spawns":[Spawn]}` (`worker_kind` and `model` may be left out when `profile` names an agent profile that sets them, see Agent profiles; 400 for an unknown profile; `provider` follows the agent registration rules; `model` must match `[A-Za-z0-9][A-Za-z0-9._:/@-]{0,127}`, 400 otherwise); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 - `request_spawn {"brief_id","worker_kind":"claude-code|codex|opencode","model","n":1-50,"role?":"worker|tester","provider?"}` → `{"spawns":[Spawn]}` (`provider` follows the agent registration rules); 409 `capacity` with the reason when capacity / max_parallel_agents / provider allow-list / budget / pause denies it.
 - `get_forecast {"brief_id"}` → `{"forecast":Forecast}`, the same object as `GET /api/v1/briefs/{id}/forecast`. 404 `not_found` for an unknown brief.
 - `get_report {"brief_id"}` → `{"report":Report,"truncated":bool}`, the same object as `GET /api/v1/briefs/{id}/report`; `tasks`, `outliers` and `throughput.hourly` are cut at 200 items.

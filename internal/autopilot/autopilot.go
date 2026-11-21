@@ -28,6 +28,7 @@ type Options struct {
 	Actor        model.Actor
 	DefaultSpawn SpawnConfig
 	Spawn        map[string]SpawnConfig
+	Profiles     func(ctx context.Context, name string) (SpawnConfig, error)
 	History      int
 	Scores       func(ctx context.Context) (map[string]float64, error)
 	Breaker      func(provider, model string) breaker.State
@@ -55,6 +56,7 @@ type Service struct {
 
 	mu       sync.Mutex
 	enabled  map[string]bool
+	spawn    map[string]SpawnConfig
 	running  bool
 	lastTick *time.Time
 	lastErr  string
@@ -76,7 +78,7 @@ func New(b Board, o Options) *Service {
 	if o.Log == nil {
 		o.Log = slog.Default()
 	}
-	return &Service{b: b, o: o, enabled: map[string]bool{}}
+	return &Service{b: b, o: o, enabled: map[string]bool{}, spawn: map[string]SpawnConfig{}}
 }
 
 func (s *Service) SetEnabled(briefID string, on bool) {
@@ -105,11 +107,61 @@ func (s *Service) enabledCopy() map[string]bool {
 	return out
 }
 
-func (s *Service) spawnConfig(briefID string) SpawnConfig {
+func (s *Service) SetSpawn(briefID string, c SpawnConfig) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if c == (SpawnConfig{}) {
+		delete(s.spawn, briefID)
+	} else {
+		s.spawn[briefID] = c
+	}
+}
+
+func (s *Service) Spawn(briefID string) SpawnConfig {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.spawn[briefID]
+}
+
+func (s *Service) ResolveProfile(ctx context.Context, c SpawnConfig) (SpawnConfig, error) {
+	if c.Profile == "" || s.o.Profiles == nil {
+		return c, nil
+	}
+	p, err := s.o.Profiles(ctx, c.Profile)
+	if err != nil {
+		return c, err
+	}
+	sameKind := c.Kind == "" || c.Kind == p.Kind
+	if c.Kind == "" {
+		c.Kind = p.Kind
+	}
+	if c.Model == "" {
+		c.Model = p.Model
+	}
+	if c.Provider == "" && sameKind {
+		c.Provider = p.Provider
+	}
+	return c, nil
+}
+
+func (s *Service) baseSpawn(briefID string) SpawnConfig {
+	if c := s.Spawn(briefID); c != (SpawnConfig{}) {
+		return c
+	}
 	if c, ok := s.o.Spawn[briefID]; ok {
 		return c
 	}
 	return s.o.DefaultSpawn
+}
+
+func (s *Service) spawnConfig(ctx context.Context, briefID string) SpawnConfig {
+	c := s.baseSpawn(briefID)
+	resolved, err := s.ResolveProfile(ctx, c)
+	if err != nil {
+		s.o.Log.Warn("autopilot spawn profile unavailable", "brief", briefID, "profile", c.Profile, "err", err)
+		return SpawnConfig{}
+	}
+	return resolved
 }
 
 func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
@@ -128,7 +180,7 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 		snap.Briefs = slices.DeleteFunc(snap.Briefs, func(b *model.Brief) bool { return !b.LedBy(s.o.Actor.ID) })
 	}
 	for _, b := range snap.Briefs {
-		snap.Spawn[b.ID] = s.spawnConfig(b.ID)
+		snap.Spawn[b.ID] = s.spawnConfig(ctx, b.ID)
 	}
 	statuses := model.StatusReady + "," + model.StatusAssigned + "," + model.StatusInProgress + "," +
 		model.StatusSubmitted + "," + model.StatusInReview

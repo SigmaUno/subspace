@@ -156,6 +156,29 @@ type BotInput struct {
 	Model    string `json:"model,omitempty"`
 }
 
+type AgentRegister struct {
+	board.AgentInput
+	Profile     string `json:"profile,omitempty"`
+	CallbackURL string `json:"callback_url,omitempty"`
+}
+
+type AgentRegisterBulk struct {
+	board.BulkInput
+	Profile string `json:"profile,omitempty"`
+}
+
+type ProfileInput struct {
+	Name        string `json:"name"`
+	Role        string `json:"role,omitempty"`
+	Kind        string `json:"kind"`
+	Model       string `json:"model,omitempty"`
+	Provider    string `json:"provider,omitempty"`
+	ExpiresIn   string `json:"expires_in,omitempty"`
+	Count       int    `json:"count,omitempty"`
+	CallbackURL string `json:"callback_url,omitempty"`
+	Description string `json:"description,omitempty"`
+}
+
 type BotSpawn struct {
 	BriefID  string `json:"brief_id"`
 	Kind     string `json:"kind"`
@@ -199,9 +222,10 @@ type NotifyStatus struct {
 }
 
 type AutopilotBrief struct {
-	ID      string `json:"id"`
-	Title   string `json:"title"`
-	Enabled bool   `json:"enabled"`
+	ID      string                 `json:"id"`
+	Title   string                 `json:"title"`
+	Enabled bool                   `json:"enabled"`
+	Spawn   *autopilot.SpawnConfig `json:"spawn,omitempty"`
 }
 
 type AutopilotView struct {

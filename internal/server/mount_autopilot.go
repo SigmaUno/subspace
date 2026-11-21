@@ -1,6 +1,8 @@
 package server
 
 import (
+	"context"
+	"encoding/json"
 	"net/http"
 	"os"
 	"strconv"
@@ -8,12 +10,16 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/agentstats"
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/autopilot"
+	"github.com/SigmaUno/subspace/internal/model"
+	"github.com/SigmaUno/subspace/internal/profiles"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
 const (
 	autopilotKVPrefix        = "autopilot.brief."
+	autopilotSpawnKVPrefix   = "autopilot.spawn."
 	autopilotDefaultInterval = 5 * time.Second
 )
 
@@ -31,9 +37,14 @@ func init() {
 			}
 		}
 		stats := agentstats.NewService(agentstats.StoreSource{Store: d.Store}, time.Now)
-		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Scores: stats.Scores, Breaker: d.Breakers.State})
+		profs := &profiles.Store{St: d.Store, Now: d.Cfg.Now}
+		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Scores: stats.Scores, Breaker: d.Breakers.State,
+			Profiles: func(ctx context.Context, name string) (autopilot.SpawnConfig, error) {
+				p, err := profs.Get(ctx, name)
+				return autopilot.SpawnConfig{Kind: p.Kind, Model: p.Model, Provider: p.Provider}, err
+			}})
 		restoreAutopilotFlags(d, ap)
-		h := persistAutopilotFlags(d, ap, autopilot.Handler(ap))
+		h := persistAutopilotSpawn(d, ap, persistAutopilotFlags(d, ap, autopilot.Handler(ap)))
 		d.API.Mount(d.Mux, "/api/v1/autopilot", h)
 		d.API.Mount(d.Mux, "/api/v1/autopilot/", h)
 		go ap.Run(d.Ctx, interval)
@@ -54,6 +65,14 @@ func restoreAutopilotFlags(d Deps, ap *autopilot.Service) {
 			}
 			if ok && v == "true" {
 				ap.SetEnabled(b.ID, true)
+			}
+			if raw, ok, err := tx.GetKV(autopilotSpawnKVPrefix + b.ID); err != nil {
+				return err
+			} else if ok && raw != "" {
+				var c autopilot.SpawnConfig
+				if json.Unmarshal([]byte(raw), &c) == nil {
+					ap.SetSpawn(b.ID, c)
+				}
 			}
 		}
 		return nil
@@ -78,6 +97,44 @@ func persistAutopilotFlags(d Deps, ap *autopilot.Service, next http.Handler) htt
 			d.Log.Error("autopilot persist flag", "brief", id, "err", err)
 		}
 	})
+}
+
+func persistAutopilotSpawn(d Deps, ap *autopilot.Service, next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		rec := &statusRecorder{ResponseWriter: w, code: http.StatusOK}
+		before := ""
+		id, ok := strings.CutSuffix(strings.TrimPrefix(r.URL.Path, "/autopilot/briefs/"), "/spawn")
+		isSet := ok && r.Method == http.MethodPut && id != "" && !strings.Contains(id, "/")
+		if isSet {
+			before = spawnJSON(ap.Spawn(id))
+		}
+		next.ServeHTTP(rec, r)
+		if !isSet || rec.code != http.StatusOK {
+			return
+		}
+		after := spawnJSON(ap.Spawn(id))
+		err := d.Store.Atomic(r.Context(), func(tx store.Tx) error {
+			if err := tx.SetKV(autopilotSpawnKVPrefix+id, after); err != nil {
+				return err
+			}
+			note := auth.AuditNote(r.Context(), "brief "+id)
+			return tx.InsertAudit(&model.AuditEvent{
+				TS: time.Now(), AgentID: model.Owner.ID, Role: model.Owner.Role, Tool: "set_autopilot_spawn",
+				Before: map[string]any{"brief_id": id, "spawn": before}, After: map[string]any{"brief_id": id, "spawn": after}, Note: &note,
+			})
+		})
+		if err != nil {
+			d.Log.Error("autopilot persist spawn", "brief", id, "err", err)
+		}
+	})
+}
+
+func spawnJSON(c autopilot.SpawnConfig) string {
+	if c == (autopilot.SpawnConfig{}) {
+		return ""
+	}
+	b, _ := json.Marshal(c)
+	return string(b)
 }
 
 type statusRecorder struct {

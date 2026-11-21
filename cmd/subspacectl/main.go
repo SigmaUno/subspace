@@ -70,13 +70,20 @@ Commands:
   tasks bulk done|cancel|reopen TASK_ID... [--note T] [--reason T] [--status ready|assigned]
   pause-all [--reason TEXT]
   resume-all
-  register-agent AGENT_ID --role ROLE --kind KIND --model MODEL [--provider NAME]
-  register-agents --prefix PREFIX --count N --role ROLE --kind KIND --model MODEL
+  register-agent AGENT_ID (--profile NAME | --role ROLE --kind KIND --model MODEL)
+                 [--provider NAME]
+  register-agents --prefix PREFIX --count N (--profile NAME | --role ROLE --kind KIND --model MODEL)
                   [--provider NAME]
   revoke-agent AGENT_ID [--reason TEXT]
   agents [--role ROLE] [--status STATUS] [--limit 1000]
   agents stats
   agents bulk-action pause|resume|revoke|kill AGENT_ID... [--reason TEXT]
+  agents register [AGENT_ID | --prefix PREFIX [--count N]] [--profile NAME] [--role ROLE]
+                  [--kind KIND] [--model MODEL] [--provider NAME]
+  profiles list
+  profiles create NAME --kind KIND [--role ROLE] [--model MODEL] [--provider NAME]
+                  [--expires-in 720h] [--count N] [--callback-url URL] [--description TEXT]
+  profiles delete NAME
   spawns list [--brief ID]
   spawns stop SPAWN_ID [--reason TEXT]
   autopilot status
@@ -215,6 +222,7 @@ func registry() map[string]entry {
 		}},
 		"revoke-agent": {parse: action("revoke-agent")},
 		"agents":       {parse: parseAgents, subs: names(agentCommands)},
+		"profiles":     {parse: grouped("profiles", profileCommands), subs: names(profileCommands)},
 		"spawns":       {parse: grouped("spawns", spawnCommands), subs: names(spawnCommands)},
 		"autopilot":    {parse: grouped("autopilot", autopilotCommands), subs: names(autopilotCommands)},
 		"mergequeue":   {parse: grouped("mergequeue", mergequeueCommands), subs: names(mergequeueCommands)},
@@ -415,33 +423,47 @@ func parseRegistration(command string, args []string) (request, error) {
 	kind := set.String("kind", "", "runtime kind")
 	model := set.String("model", "", "model name")
 	provider := set.String("provider", "", "override the provider for the kind")
-	bulk := command == "register-agents"
+	profile := set.String("profile", "", "agent profile supplying the fields left out")
 	var id, prefix string
 	var count int
-	if bulk {
+	if command != "register-agent" {
 		set.StringVar(&prefix, "prefix", "", "agent ID prefix")
 		set.IntVar(&count, "count", 0, "number of agents to register")
-	} else {
+	}
+	if command != "register-agents" {
 		set.StringVar(&id, "id", "", "agent ID (alternative to positional argument)")
 	}
 	maxArgs := 1
-	if bulk {
+	if command == "register-agents" {
 		maxArgs = 0
 	}
 	if err := parseFlags(set, args, 0, maxArgs); err != nil {
 		return request{}, err
 	}
-	if strings.TrimSpace(*role) == "" || strings.TrimSpace(*kind) == "" || strings.TrimSpace(*model) == "" {
-		return request{}, fmt.Errorf("%s requires --role, --kind and --model", command)
+	if *profile == "" && (strings.TrimSpace(*role) == "" || strings.TrimSpace(*kind) == "" || strings.TrimSpace(*model) == "") {
+		return request{}, fmt.Errorf("%s requires --role, --kind and --model, or --profile", command)
 	}
 	body := map[string]any{"role": *role, "kind": *kind, "model": *model, "provider": *provider}
+	if *profile != "" {
+		name, err := identifier(*profile)
+		if err != nil {
+			return request{}, err
+		}
+		body["profile"] = name
+	}
 	path := "agents"
-	if bulk {
-		if _, err := identifier(prefix); err != nil || count < 1 || count > 1000 {
-			return request{}, errors.New("register-agents requires a valid --prefix and --count in 1..1000")
+	if command == "register-agents" || prefix != "" {
+		if set.NArg() != 0 || id != "" {
+			return request{}, errors.New("specify either an agent ID or --prefix")
+		}
+		if _, err := identifier(prefix); err != nil || count > 1000 || count < 0 || (count == 0 && *profile == "") {
+			return request{}, errors.New("bulk registration requires a valid --prefix and --count in 1..1000 (--count may be left out with --profile)")
 		}
 		path = "agents/bulk"
-		body["prefix"], body["count"] = prefix, count
+		body["prefix"] = prefix
+		if count > 0 {
+			body["count"] = count
+		}
 	} else {
 		if id != "" && set.NArg() != 0 {
 			return request{}, errors.New("specify the agent ID once")

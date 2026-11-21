@@ -62,6 +62,9 @@ func bulk(act string, ids []string, build func(id string) request) command {
 }
 
 var agentCommands = table{
+	"register": func(args []string, _ io.Reader) (command, error) {
+		return single(parseRegistration("agents register", args))
+	},
 	"stats":       parseAgentStats,
 	"bulk-action": parseAgentBulk,
 }

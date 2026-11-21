@@ -5,6 +5,8 @@ import (
 	"math/rand/v2"
 	"strings"
 	"testing"
+
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
 
 var junk = []string{
@@ -84,7 +86,7 @@ func TestCleanCorpusMasksPlantedSecrets(t *testing.T) {
 	for _, seed := range []uint64{1, 2, 3} {
 		t.Run(fmt.Sprint(seed), func(t *testing.T) {
 			rng := rand.New(rand.NewPCG(seed, seed*7919))
-			for i := range 1500 {
+			for i := range testmode.Size(500, 1500) {
 				var in strings.Builder
 				var planted []string
 				for range 1 + rng.IntN(12) {

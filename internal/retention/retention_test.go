@@ -18,7 +18,11 @@ import (
 	"github.com/SigmaUno/subspace/internal/retention"
 	"github.com/SigmaUno/subspace/internal/store"
 	"github.com/SigmaUno/subspace/internal/store/sqlite"
+	"github.com/SigmaUno/subspace/internal/testmain"
+	"github.com/SigmaUno/subspace/internal/testmode"
 )
+
+func TestMain(m *testing.M) { testmain.Run(m) }
 
 var (
 	t0       = time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
@@ -210,7 +214,7 @@ func mustVerify(t *testing.T, svc *retention.Service) *retention.Verification {
 
 func TestCrashDuringArchivalResumesIdempotently(t *testing.T) {
 	ctx := context.Background()
-	for s := int64(1); s <= 10; s++ {
+	for s := int64(1); s <= int64(testmode.Size(4, 10)); s++ {
 		t.Run(fmt.Sprint("seed", s), func(t *testing.T) {
 			r := rand.New(rand.NewSource(s))
 			dir := t.TempDir()

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"sort"
 	"strings"
+	"time"
 )
 
 const DefaultHCCommand = "--name {agent_id} -- {kind} {join_line}"
@@ -133,7 +134,10 @@ func execRunner(token string) Runner {
 	}
 }
 
-const maxCapture = 64 << 10
+const (
+	maxCapture = 64 << 10
+	waitDelay  = time.Second
+)
 
 func childEnv() []string {
 	return slices.DeleteFunc(os.Environ(), func(kv string) bool { return strings.HasPrefix(kv, "SUBSPACE_") })
@@ -152,8 +156,9 @@ func runCmd(cmd *exec.Cmd, token string) error {
 	var out headBuffer
 	cmd.Stdout = &out
 	cmd.Stderr = &out
+	cmd.WaitDelay = waitDelay
 	err := cmd.Run()
-	if err == nil {
+	if err == nil || errors.Is(err, exec.ErrWaitDelay) {
 		return nil
 	}
 	raw := out.buf

@@ -288,6 +288,16 @@ func (w *chaosWorld) load(ctx context.Context) *sync.WaitGroup {
 	return &wg
 }
 
+func (w *chaosWorld) done() int {
+	n := 0
+	for _, tk := range w.tasks() {
+		if tk["status"] == "done" {
+			n++
+		}
+	}
+	return n
+}
+
 func (w *chaosWorld) tasks() []map[string]any {
 	var out []map[string]any
 	for _, x := range w.owner("GET", "/api/v1/tasks?limit=1000", nil)["tasks"].([]any) {
@@ -541,6 +551,14 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 		w.verify(fmt.Sprint("round ", round))
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	wg := w.load(ctx)
+	for deadline := time.Now().Add(60 * time.Second); w.done() == 0 && time.Now().Before(deadline); {
+		time.Sleep(50 * time.Millisecond)
+	}
+	cancel()
+	wg.Wait()
+
 	time.Sleep(chaosLease + 6*chaosSweep)
 	for _, tk := range w.tasks() {
 		if tk["status"] == "in_progress" {
@@ -548,12 +566,7 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 		}
 	}
 	w.verify("final")
-	done := 0
-	for _, tk := range w.tasks() {
-		if tk["status"] == "done" {
-			done++
-		}
-	}
+	done := w.done()
 	if done == 0 {
 		t.Fatal("workload made no progress: no task reached done")
 	}

@@ -21,6 +21,7 @@ type hub struct {
 	ring   []ringEntry
 	head   int
 	size   int
+	closed bool
 }
 
 type ringEntry struct {
@@ -35,7 +36,7 @@ type sub struct {
 	all     bool
 	mark    int64
 	dropped atomic.Int64
-	once    sync.Once
+	closed  bool
 }
 
 func NewHub() Hub {
@@ -88,6 +89,11 @@ func (h *hub) subscribe(topics []string) *sub {
 		s.topics = []string{TopicAll}
 	}
 	s.all = slices.Contains(s.topics, TopicAll)
+	if h.closed {
+		s.closed = true
+		close(s.ch)
+		return s
+	}
 	for _, t := range s.topics {
 		h.topics[t] = append(h.topics[t], s)
 	}
@@ -177,25 +183,42 @@ func (s *sub) C() <-chan Event { return s.ch }
 func (s *sub) TakeDropped() int { return int(s.dropped.Swap(0)) }
 
 func (s *sub) Close() {
-	s.once.Do(func() {
-		h := s.h
-		h.mu.Lock()
-		defer h.mu.Unlock()
-		for _, t := range s.topics {
-			set := h.topics[t]
-			if i := slices.Index(set, s); i >= 0 {
-				last := len(set) - 1
-				set[i] = set[last]
-				set[last] = nil
-				set = set[:last]
-			}
-			if len(set) == 0 {
-				delete(h.topics, t)
-			} else {
-				h.topics[t] = set
-			}
+	h := s.h
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.removeLocked(s)
+}
+
+func (h *hub) Close() {
+	h.mu.Lock()
+	defer h.mu.Unlock()
+	h.closed = true
+	for _, set := range h.topics {
+		for _, s := range slices.Clone(set) {
+			h.removeLocked(s)
 		}
-		h.count--
-		close(s.ch)
-	})
+	}
+}
+
+func (h *hub) removeLocked(s *sub) {
+	if s.closed {
+		return
+	}
+	s.closed = true
+	for _, t := range s.topics {
+		set := h.topics[t]
+		if i := slices.Index(set, s); i >= 0 {
+			last := len(set) - 1
+			set[i] = set[last]
+			set[last] = nil
+			set = set[:last]
+		}
+		if len(set) == 0 {
+			delete(h.topics, t)
+		} else {
+			h.topics[t] = set
+		}
+	}
+	h.count--
+	close(s.ch)
 }

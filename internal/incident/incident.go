@@ -271,7 +271,7 @@ func (s *Service) run(ctx context.Context, inc *Incident, action string, scope S
 		res.Detail = "published"
 	}
 	if err != nil {
-		res.Status, res.Error = StatusFailed, err.Error()
+		res.Status, res.Error = StatusFailed, s.errText(action, err)
 	}
 	if len(res.Failures) > 0 {
 		res.Status = StatusFailed
@@ -293,7 +293,7 @@ func (s *Service) revoke(ctx context.Context, inc *Incident, scope Scope, res *R
 	}
 	agents, err := s.o.Control.ListAgents(ctx, scope.Role, "")
 	if err != nil {
-		res.Status, res.Error = StatusFailed, err.Error()
+		res.Status, res.Error = StatusFailed, s.errText(RevokeAgents, err)
 		return
 	}
 	for _, a := range agents {
@@ -301,7 +301,7 @@ func (s *Service) revoke(ctx context.Context, inc *Incident, scope Scope, res *R
 			continue
 		}
 		if _, err := s.o.Control.RevokeAgent(ctx, a.ID, "incident "+inc.ID); err != nil {
-			res.Failures = append(res.Failures, Failure{AgentID: a.ID, Error: err.Error()})
+			res.Failures = append(res.Failures, Failure{AgentID: a.ID, Error: s.errText(RevokeAgents, err)})
 			continue
 		}
 		res.Agents = append(res.Agents, a.ID)
@@ -324,18 +324,23 @@ func scopeText(s Scope) string {
 }
 
 func (s *Service) rotate(ctx context.Context, inc *Incident, res *Result, out *StartOutcome) {
+	var done []string
+	if prev := inc.result(RotateLeaderTokens); prev != nil {
+		done = slices.Clone(prev.Agents)
+		res.Agents = slices.Clone(prev.Agents)
+	}
 	leaders, err := s.o.Control.ListAgents(ctx, model.RoleLeader, "")
 	if err != nil {
-		res.Status, res.Error = StatusFailed, err.Error()
+		res.Status, res.Error = StatusFailed, s.errText(RotateLeaderTokens, err)
 		return
 	}
 	for _, a := range leaders {
-		if a.Status == model.AgentRevoked {
+		if a.Status == model.AgentRevoked || slices.Contains(done, a.ID) {
 			continue
 		}
 		reg, err := s.o.Control.RotateToken(ctx, a.ID)
 		if err != nil {
-			res.Failures = append(res.Failures, Failure{AgentID: a.ID, Error: err.Error()})
+			res.Failures = append(res.Failures, Failure{AgentID: a.ID, Error: s.errText(RotateLeaderTokens, err)})
 			continue
 		}
 		res.Agents = append(res.Agents, a.ID)
@@ -413,7 +418,7 @@ func (s *Service) End(ctx context.Context, id string, req EndRequest) (*EndOutco
 func (s *Service) resumeAgents(ctx context.Context, out *EndOutcome) {
 	agents, err := s.o.Control.ListAgents(ctx, "", model.AgentPaused)
 	if err != nil {
-		out.Failures = append(out.Failures, Failure{Error: err.Error()})
+		out.Failures = append(out.Failures, Failure{Error: s.errText("resume_agents", err)})
 		return
 	}
 	for _, a := range agents {
@@ -421,9 +426,17 @@ func (s *Service) resumeAgents(ctx context.Context, out *EndOutcome) {
 			continue
 		}
 		if _, err := s.o.Control.ResumeAgent(ctx, a.ID); err != nil {
-			out.Failures = append(out.Failures, Failure{AgentID: a.ID, Error: err.Error()})
+			out.Failures = append(out.Failures, Failure{AgentID: a.ID, Error: s.errText("resume_agents", err)})
 			continue
 		}
 		out.ResumedAgents = append(out.ResumedAgents, a.ID)
 	}
+}
+
+func (s *Service) errText(action string, err error) string {
+	e := model.AsError(err)
+	if e.Code == "internal" {
+		s.o.Log.Error("incident action failed", "action", action, "err", err)
+	}
+	return e.Message
 }

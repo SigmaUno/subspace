@@ -57,6 +57,11 @@ func (s *Service) ReportUsage(ctx context.Context, c *mcp.Call) (any, error) {
 	if a.Model == "" {
 		return nil, model.BadRequest("model is required")
 	}
+	if s.Allow != nil && (a.TaskID != "" || a.BriefID != "") {
+		if err := s.Allow(ctx, c.Actor, a.TaskID, a.BriefID); err != nil {
+			return nil, err
+		}
+	}
 	r := Record{
 		AgentID: c.Actor.ID, TaskID: a.TaskID, BriefID: a.BriefID, Provider: a.Provider, Model: a.Model,
 		TokensIn: a.TokensIn, TokensOut: a.TokensOut, CacheRead: a.CacheRead, CacheWrite: a.CacheWrite,

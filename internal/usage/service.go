@@ -41,6 +41,7 @@ type Service struct {
 	Briefs   BriefSource
 	BriefOf  func(ctx context.Context, taskID string) (string, error)
 	Attrib   Attributor
+	Allow    func(ctx context.Context, a model.Actor, taskID, briefID string) error
 	Now      func() time.Time
 
 	seq atomic.Int64

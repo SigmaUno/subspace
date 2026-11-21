@@ -149,6 +149,9 @@ func parseItem(item string, f field) (uint64, error) {
 	var bits uint64
 	for v := lo; v <= hi; v += step {
 		bits |= 1 << v
+		if step > hi-v {
+			break
+		}
 	}
 	return bits, nil
 }

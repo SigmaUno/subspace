@@ -4,12 +4,12 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"math"
 	"os"
 	"path/filepath"
 
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
 
@@ -22,7 +22,7 @@ type line struct {
 
 func (s *Service) snapshot(ctx context.Context, inc *Incident) (string, error) {
 	if s.o.Dir == "" {
-		return "", errors.New("no data directory configured for snapshots")
+		return "", model.Conflict("no data directory configured for snapshots")
 	}
 	dir := filepath.Join(s.o.Dir, "incidents")
 	if err := os.MkdirAll(dir, 0o750); err != nil {

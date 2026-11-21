@@ -54,6 +54,11 @@ func TestCostsAttributionOverHTTP(t *testing.T) {
 	if code, _ := e.REST("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{}); code != 200 {
 		t.Fatal("approve")
 	}
+	e.Must(lead, "assign", map[string]any{"task_id": "T-1", "agent_id": "w1"})
+	e.Must(lead, "assign", map[string]any{"task_id": "T-2", "agent_id": "w1"})
+	e.Must(wk, "claim_task", map[string]any{"task_id": "T-2"})
+	e.Must(wk, "submit", map[string]any{"task_id": "T-2", "pr_url": "https://github.com/o/r/pull/2", "summary": "s"})
+	e.Must(lead, "assign", map[string]any{"task_id": "T-2", "agent_id": "r1", "as": "reviewer"})
 
 	e.Must(wk, "report_usage", map[string]any{"model": "claude-sonnet-5-5", "task_id": "T-1", "tokens_in": 100, "tokens_out": 50, "cost_usd": 1.5, "request_id": "r-1"})
 	e.Must(wk, "report_usage", map[string]any{"model": "claude-sonnet-5-5", "task_id": "T-1", "tokens_in": 10, "tokens_out": 5, "cost_usd": 0.5})

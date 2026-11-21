@@ -445,8 +445,8 @@ func (b *backend) finish(ctx context.Context) error {
 		return err
 	}
 	for _, c := range ids {
-		q := `SELECT setval(pg_get_serial_sequence('` + quote(c.table) + `', '` + c.column + `'), COALESCE(max(` + quote(c.column) + `), 1), max(` +
-			quote(c.column) + `) IS NOT NULL) FROM ` + quote(c.table) //nolint:gosec // identifiers come from information_schema
+		col, tbl := quote(c.column), quote(c.table)
+		q := `SELECT setval(pg_get_serial_sequence('` + tbl + `', '` + c.column + `'), COALESCE(max(` + col + `), 1), max(` + col + `) IS NOT NULL) FROM ` + tbl //nolint:gosec // identifiers come from information_schema
 		if _, err := b.db.ExecContext(ctx, q); err != nil {
 			return err
 		}

@@ -30,6 +30,8 @@ type Rule struct {
 	Slots []Slot
 }
 
+var ReloadKeys = []string{EnvAt, EnvWeekly, EnvTZ}
+
 type Config struct {
 	Rules []Rule
 }

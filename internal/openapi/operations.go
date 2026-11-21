@@ -25,6 +25,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/profiles"
 	"github.com/SigmaUno/subspace/internal/prompts"
 	"github.com/SigmaUno/subspace/internal/prsync"
+	"github.com/SigmaUno/subspace/internal/reload"
 	"github.com/SigmaUno/subspace/internal/report"
 	"github.com/SigmaUno/subspace/internal/search"
 	"github.com/SigmaUno/subspace/internal/spendguard"
@@ -62,6 +63,7 @@ var operations = []Op{
 	post("/api/v1/resume-all", "Clear the global pause", Free{}, Paused{}),
 	get("/api/v1/charter", "Read the owner charter", board.Charter{}),
 	put("/api/v1/charter", "Replace the owner charter", CharterText{}, board.Charter{}),
+	post("/api/v1/reload", "Re-read SUBSPACE_CONFIG_FILE and the capacity file and apply them atomically", Free{}, reload.Result{}),
 	post("/api/v1/backup", "Create a verified database backup", Free{}, BackupResult{}),
 	get("/api/v1/backups", "List backups, newest first", list[backup.Info]("backups")),
 	get("/api/v1/limits", "Organization spend caps and their windows", spendguard.View{}),

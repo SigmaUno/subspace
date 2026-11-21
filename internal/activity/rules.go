@@ -26,6 +26,7 @@ var rules = map[string]rule{
 	"retention_archive":     {icon: "archive", text: "{actor} archived old data ({a.rows} rows)"},
 	"retention_restore":     {icon: "archive", severity: SevWarning, text: "{actor} restored archived data"},
 	"set_agent_quota":       {icon: "gauge", text: "{actor} set quota for agent {a.agent}"},
+	"reload_config":         {icon: "settings", text: "{actor} reloaded the configuration{note?: }"},
 	"set_log_level":         {icon: "log", text: "{actor} set log level to {a.level}"},
 	"add_knowledge":         {icon: "book", text: "{actor} added knowledge entry {a.id}{note?: }"},
 	"approve_knowledge":     {icon: "check", text: "{actor} approved knowledge entry {a.id}"},

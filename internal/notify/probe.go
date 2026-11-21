@@ -29,9 +29,10 @@ func (s *Service) SendTest() []SinkResult {
 		Priority: 3,
 		TS:       now,
 	}
-	results := make([]SinkResult, len(s.lanes))
+	lanes := s.snapshot()
+	results := make([]SinkResult, len(lanes))
 	var wg sync.WaitGroup
-	for i, l := range s.lanes {
+	for i, l := range lanes {
 		wg.Go(func() {
 			r := SinkResult{Sink: l.sink.Name(), OK: true}
 			if err := l.sink.Send(ctx, n); err != nil {

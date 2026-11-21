@@ -1,14 +1,12 @@
 package server
 
 import (
-	"os"
-
 	"github.com/SigmaUno/subspace/internal/notify"
 )
 
 func init() {
 	registerMount(func(d Deps) {
-		cfg, err := notify.ConfigFromEnv(os.Getenv)
+		cfg, err := notify.ConfigFromEnv(d.getenv())
 		if err != nil {
 			d.Log.Error("notify disabled", "err", err)
 			cfg = notify.Config{}
@@ -17,6 +15,7 @@ func init() {
 		cfg.Mint = actionMinter(d)
 		svc := notify.New(cfg)
 		svc.Start(d.Ctx, d.Hub)
+		d.reloadable("notify", notify.ReloadKeys, svc)
 		d.API.Mount(d.Mux, "/api/v1/notify/", svc.Handler())
 	})
 }

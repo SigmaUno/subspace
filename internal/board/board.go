@@ -59,6 +59,7 @@ type Board struct {
 	capCfg  capacity.Config
 	capGate capacity.Gate
 	gate    Gate
+	capDB   bool
 
 	expiries map[string][]time.Time
 
@@ -116,6 +117,7 @@ func New(ctx context.Context, st store.Store, o Options) (*Board, error) {
 			var c capacity.Config
 			if json.Unmarshal([]byte(v), &c) == nil {
 				b.capCfg = c
+				b.capDB = true
 			}
 		}
 		return nil

@@ -26,7 +26,7 @@ func init() {
 
 func mountAgentOutput(d Deps) {
 	cfg := agentout.DefaultConfig()
-	cfg.Rate = envRate(d.Log, "SUBSPACE_OUTPUT_RATE", defaultRateOutput)
+	cfg.Rate = envRate(d.Log, d.getenv(), "SUBSPACE_OUTPUT_RATE", defaultRateOutput)
 	cfg.Limits.Lines = envInt(d.Log, "SUBSPACE_OUTPUT_LINES", cfg.Limits.Lines, 1)
 	cfg.Limits.Bytes = envInt(d.Log, "SUBSPACE_OUTPUT_AGENT_BYTES", cfg.Limits.Bytes, agentout.MaxChunk)
 	cfg.Limits.GlobalBytes = envInt(d.Log, "SUBSPACE_OUTPUT_MEMORY", cfg.Limits.GlobalBytes, cfg.Limits.Bytes)

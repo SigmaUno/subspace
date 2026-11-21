@@ -2,7 +2,6 @@ package server
 
 import (
 	"net/http"
-	"os"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/alerts"
@@ -11,7 +10,7 @@ import (
 
 func init() {
 	wraps = append(wraps, func(next http.Handler, d Deps) http.Handler {
-		th := alerts.FromEnv(os.Getenv, d.Log)
+		th := alerts.FromEnv(d.getenv(), d.Log)
 		mon := &alerts.SSEMonitor{}
 		eng := alerts.New(alerts.Options{
 			Source: &alerts.StoreSource{
@@ -21,6 +20,7 @@ func init() {
 			},
 			Thresholds: th, Publisher: d.Hub, Now: d.Cfg.Now, Log: d.Log,
 		})
+		d.reloadable("alerts", alerts.ReloadKeys, eng)
 		d.API.Mount(d.Mux, "GET /api/v1/alerts", alerts.Handler(eng))
 		detach := decisions.Attach(d.Store, eng)
 		go func() {

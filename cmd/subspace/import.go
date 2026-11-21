@@ -395,11 +395,21 @@ func (b *backend) clearAll(ctx context.Context, specs []tableSpec) error {
 				return err
 			}
 		}
+		if name == "retention_segments" && b.postgres {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE retention_segments DISABLE TRIGGER retention_segments_guard`); err != nil {
+				return err
+			}
+		}
 		if _, err := tx.ExecContext(ctx, `DELETE FROM `+quote(name)); err != nil { //nolint:gosec // identifier comes from the table registry
 			return fmt.Errorf("clear %s: %w", name, err)
 		}
 		if name == "audit" && b.postgres {
 			if _, err := tx.ExecContext(ctx, `ALTER TABLE audit ENABLE TRIGGER audit_no_delete`); err != nil {
+				return err
+			}
+		}
+		if name == "retention_segments" && b.postgres {
+			if _, err := tx.ExecContext(ctx, `ALTER TABLE retention_segments ENABLE TRIGGER retention_segments_guard`); err != nil {
 				return err
 			}
 		}
@@ -416,10 +426,27 @@ func (b *backend) finish(ctx context.Context) error {
 	if !b.postgres {
 		return nil
 	}
-	for _, q := range []string{
-		`SELECT setval(pg_get_serial_sequence('messages', 'id'), COALESCE(max(id), 1), max(id) IS NOT NULL) FROM messages`,
-		`SELECT setval(pg_get_serial_sequence('audit', 'id'), COALESCE(max(id), 1), max(id) IS NOT NULL) FROM audit`,
-	} {
+	rows, err := b.db.QueryContext(ctx, `SELECT table_name, column_name FROM information_schema.columns
+  WHERE table_schema = current_schema() AND is_identity = 'YES' ORDER BY table_name`)
+	if err != nil {
+		return err
+	}
+	type identity struct{ table, column string }
+	var ids []identity
+	for rows.Next() {
+		var c identity
+		if err := rows.Scan(&c.table, &c.column); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		ids = append(ids, c)
+	}
+	if err := errors.Join(rows.Err(), rows.Close()); err != nil {
+		return err
+	}
+	for _, c := range ids {
+		q := `SELECT setval(pg_get_serial_sequence('` + quote(c.table) + `', '` + c.column + `'), COALESCE(max(` + quote(c.column) + `), 1), max(` +
+			quote(c.column) + `) IS NOT NULL) FROM ` + quote(c.table) //nolint:gosec // identifiers come from information_schema
 		if _, err := b.db.ExecContext(ctx, q); err != nil {
 			return err
 		}

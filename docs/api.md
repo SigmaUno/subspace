@@ -1035,11 +1035,7 @@ Policy: `SUBSPACE_RETAIN_AUDIT_DAYS`, `SUBSPACE_RETAIN_MESSAGES_DAYS`, `SUBSPACE
 | GET | `/api/v1/events?topics=&last_event_id=` | → `text/event-stream` (owner token header) |
 
 (Browsers: proxy via the Next.js server; `EventSource` cannot set headers.)
-<<<<<<< HEAD
-Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, `activity`.
-=======
-Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, and the agent output topics `output`, `output:<id>` (see below).
->>>>>>> origin/ws/server/u-agent-terminal
+Query `topics=` comma list, default `all`: `all`, `board` (every task change), `brief:<id>`, `task:<id>`, `agents`, `agent:<id>`, `thread:<kind>:<id>`, `questions`, `plans`, `control`, `activity`, and the agent output topics `output`, `output:<id>` (see below).
 
 Response `text/event-stream`, a `: ping` comment every 15s. Each event:
 ```
@@ -1047,11 +1043,11 @@ id: 1234
 event: task.updated
 data: {"type":"task.updated","ts":"2026-11-20T21:04:05Z","data":{...}}
 ```
-`id` is a per-server monotonic sequence. First event is always `hello` (`{"seq":1234}`).
+`id` is a monotonic sequence that starts at the server's start time in microseconds since the Unix epoch, so ids keep increasing across restarts. First event is always `hello` (`{"seq":1234}`).
 
 Resume: the server keeps the last `SUBSPACE_SSE_REPLAY` published events (default `10000`, `0` disables) in memory. A client that reconnects with the `Last-Event-ID` header or `?last_event_id=<id>` (the query wins when both are set) first receives `hello`, then every retained event after that id that matches the requested topics, in order, then the live stream, without gaps or duplicates. On a resumed connection `hello` has no `id`, so the client's last id stays unchanged. A non-integer or negative id is a 400 `bad_request`.
 
-When the id is older than the oldest retained event, or newer than the server's current sequence (for example after a restart), nothing is replayed. The server sends one `resync` event (`{"seq":n}`, `id` = current sequence) right after `hello`, and the client must refetch its state before following the stream. Without a last id, refetch state on connect as before. The buffer is per process and not persisted. Events dropped by a `lagged` overflow can be recovered by reconnecting with the last received id.
+When the id is older than the oldest retained event (always the case after a restart), or newer than the server's current sequence, nothing is replayed. The server sends one `resync` event (`{"seq":n}`, `id` = current sequence) right after `hello`, and the client must refetch its state before following the stream. Without a last id, refetch state on connect as before. The buffer is per process and not persisted. Events dropped by a `lagged` overflow can be recovered by reconnecting with the last received id.
 
 | type | data | topics |
 |---|---|---|
@@ -1114,12 +1110,9 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | report_blocker | | ✓ | ✓ | |
 | list_help_requests, accept_split | ✓ | | | |
 | report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
-<<<<<<< HEAD
 | add_knowledge, search_knowledge, get_knowledge | ✓ | ✓ | ✓ | ✓ |
 | supersede_knowledge, pin_knowledge | ✓ | | | |
-=======
 | log_output | ✓ | ✓ | ✓ | ✓ |
->>>>>>> origin/ws/server/u-agent-terminal
 
 The leader information tools (`get_forecast` … `get_components`) are read-only and exempt from loop protection. Every list they return is cut at 200 items and flagged with `"truncated":true`.
 
@@ -1151,17 +1144,15 @@ All tools return an object; `task` = Task object above.
 - `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are held in memory.
 - `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
 
-<<<<<<< HEAD
 **Knowledge** (see Knowledge; every result carries `notice`)
 - `add_knowledge {"brief_id?","kind","title","body","tags?":["..."],"supersedes?"}` → `{"notice","entry":KnowledgeEntry}`. `brief_id` defaults to the brief of the caller's current task. Non-leader agents may only write to briefs of tasks where they are assignee or reviewer; `supersedes` is leader only (`forbidden` otherwise). Rate limited per agent (burst 10, then 6 per minute; `rate_limited`). Status `pending` while moderation is on.
 - `search_knowledge {"query?","kind?","brief_id?","limit?":1-100}` → `{"notice","entries":[KnowledgeEntry]}`. Non-leader agents see `active` entries of their briefs; the leader also sees `pending` entries of every brief. Superseded entries are not listed.
 - `get_knowledge {"id"}` → `{"notice","entry":KnowledgeEntry}`; `not_found` for entries the caller may not see.
 - `supersede_knowledge {"id","by?"}` (leader) → `{"notice","entry":KnowledgeEntry}`
 - `pin_knowledge {"id","pinned?":true}` (leader) → `{"notice","entry":KnowledgeEntry}`
-=======
+
 **Live output** (all roles)
 - `log_output {"task_id?","stream":"stdout|stderr|note","text","seq?":int}` → `{"ok":true,"seq":40,"lines":2,"truncated":false,"duplicate":false}`. Appends the text, split into lines, to your output buffer and pushes it to owners following `output:<you>` (see Agent output). `seq` in the result is the `seq` of your newest line. `task_id` must be a task you can see (404 otherwise). The optional `seq` argument is your own increasing chunk number: a chunk whose `seq` is not above the last accepted one is a retry and is ignored (`duplicate:true`). Text that is empty after cleaning adds no lines. The tool is exempt from loop protection (repeated identical lines are normal) and has its own per-agent rate limit, `SUBSPACE_OUTPUT_RATE` (default `10/s:60`, same syntax as `SUBSPACE_RATE_MCP`), answering `rate_limited` above it; paused agents may still call it.
->>>>>>> origin/ws/server/u-agent-terminal
 
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.

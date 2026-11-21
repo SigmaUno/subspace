@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -50,24 +51,41 @@ func (o *Owner) Do(ctx context.Context, op, method, path string, in, out any) er
 }
 
 func (o *Owner) send(ctx context.Context, method, path string, in, out any) error {
+	safe := method == http.MethodGet || method == http.MethodHead
+	for attempt := 0; ; attempt++ {
+		b, status, err := o.roundTrip(ctx, method, path, in)
+		if err == nil {
+			if status >= 300 {
+				return httpError(status, b)
+			}
+			return decodeInto(b, out, method+" "+path)
+		}
+		var te *TransportError
+		if !safe || !errors.As(err, &te) || attempt >= o.cfg.retries || ctx.Err() != nil {
+			return err
+		}
+		if o.cfg.sleep(ctx, min(100*time.Millisecond<<attempt, 5*time.Second)) != nil {
+			return err
+		}
+	}
+}
+
+func (o *Owner) roundTrip(ctx context.Context, method, path string, in any) ([]byte, int, error) {
 	req, err := newRequest(ctx, method, o.base+path, o.token, in)
 	if err != nil {
-		return err
+		return nil, 0, err
 	}
 	req.Header.Set("Accept", "application/json")
 	resp, err := o.cfg.hc.Do(req)
 	if err != nil {
-		return err
+		return nil, 0, &TransportError{Err: err}
 	}
 	defer func() { _ = resp.Body.Close() }()
 	b, err := readBody(resp)
 	if err != nil {
-		return err
+		return nil, 0, &TransportError{Err: err}
 	}
-	if resp.StatusCode >= 300 {
-		return httpError(resp.StatusCode, b)
-	}
-	return decodeInto(b, out, method+" "+path)
+	return b, resp.StatusCode, nil
 }
 
 func query(path string, kv ...string) string {

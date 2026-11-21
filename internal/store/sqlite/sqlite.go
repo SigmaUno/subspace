@@ -43,6 +43,8 @@ type Store struct {
 	quit  chan struct{}
 	wg    sync.WaitGroup
 	once  sync.Once
+
+	readOnly bool
 }
 
 var _ store.Store = (*Store)(nil)
@@ -62,7 +64,9 @@ func dsn(path string, immediate bool) string {
 	return "file:" + uriPathEscaper.Replace(path) + "?" + q.Encode()
 }
 
-func Open(path string) (*Store, error) {
+func Open(path string) (*Store, error) { return OpenWith(path, store.OpenOptions{}) }
+
+func OpenWith(path string, o store.OpenOptions) (*Store, error) {
 	if dir := filepath.Dir(path); dir != "" {
 		if err := os.MkdirAll(dir, 0o750); err != nil {
 			return nil, fmt.Errorf("create db dir: %w", err)
@@ -82,37 +86,18 @@ func Open(path string) (*Store, error) {
 	}
 	rdb.SetMaxOpenConns(16)
 	rdb.SetMaxIdleConns(16)
+	var readOnly bool
 	if !seeded {
-		if err := initSchema(wdb); err != nil {
+		if readOnly, err = initSchema(wdb, o); err != nil {
 			_ = wdb.Close()
 			_ = rdb.Close()
 			return nil, fmt.Errorf("migrate: %w", err)
 		}
 	}
-	if err := migrateAuditDeleteTrigger(wdb); err != nil {
-		_ = wdb.Close()
-		_ = rdb.Close()
-		return nil, fmt.Errorf("migrate: %w", err)
-	}
-	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{})}
+	s := &Store{wdb: wdb, rdb: rdb, ws: newStmtCache(), rq: &readQ{db: rdb, c: newStmtCache()}, reqs: make(chan *wreq, 1024), quit: make(chan struct{}), readOnly: readOnly}
 	s.wg.Add(1)
 	go s.writer()
 	return s, nil
-}
-
-func initSchema(wdb *sql.DB) error {
-	if _, err := wdb.Exec(schema); err != nil {
-		return err
-	}
-	if err := migrate(wdb); err != nil {
-		return err
-	}
-	for _, ddl := range extraSchemas {
-		if _, err := wdb.Exec(ddl); err != nil {
-			return err
-		}
-	}
-	return nil
 }
 
 func (s *Store) Close() error {
@@ -129,6 +114,8 @@ func (s *Store) Close() error {
 
 func (s *Store) Done() <-chan struct{} { return s.quit }
 
+func (s *Store) ReadOnly() bool { return s.readOnly }
+
 func (t *tx) Exec(q string, args ...any) (sql.Result, error) {
 	return t.q.ExecContext(t.ctx, q, args...)
 }
@@ -138,6 +125,9 @@ func (t *tx) Query(q string, args ...any) (*sql.Rows, error) {
 }
 
 func (s *Store) Atomic(ctx context.Context, fn func(store.Tx) error) error {
+	if s.readOnly {
+		return store.ErrReadOnly
+	}
 	r := &wreq{ctx: ctx, fn: fn, done: make(chan error, 1)}
 	select {
 	case s.reqs <- r:

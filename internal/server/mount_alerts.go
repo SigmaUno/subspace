@@ -14,7 +14,7 @@ func init() {
 		th := alerts.FromEnv(d.getenv(), d.Log)
 		mon := &alerts.SSEMonitor{}
 		src := &alerts.StoreSource{
-			Store: d.Store, DBPath: d.Cfg.DBPath, DataDir: d.Cfg.DataDir, BackupsEnabled: d.Cfg.BackupInterval > 0,
+			Store: d.Store, DBPath: d.Cfg.DBPath, DataDir: d.Cfg.DataDir, BackupsEnabled: d.Cfg.BackupInterval > 0, Offsite: d.Offsite != nil,
 			Backups: d.Board.ListBackups, Paused: func() bool { p, _ := d.Board.Paused(); return p },
 			SSE: mon, Started: d.Cfg.Now(),
 		}

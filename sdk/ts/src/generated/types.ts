@@ -427,6 +427,7 @@ export interface Brief {
   playbook: string;
   quality_gates: QualityGates;
   repos: string[] | null;
+  risky_paths: string[] | null;
   status: string;
   title: string;
 }
@@ -453,6 +454,7 @@ export interface BriefInput {
   playbook?: string;
   quality_gates?: QualityGates | null;
   repos?: string[] | null;
+  risky_paths?: string[] | null;
   title: string;
 }
 
@@ -468,6 +470,7 @@ export interface BriefPatch {
   max_cost_eur?: number | null;
   max_parallel_agents?: number | null;
   quality_gates?: QualityGates | null;
+  risky_paths?: string[] | null;
   status?: string | null;
 }
 
@@ -482,6 +485,7 @@ export interface BriefPreview {
   playbook: string;
   quality_gates: QualityGates | null;
   repos: string[] | null;
+  risky_paths: string[] | null;
   task_budget: BriefTaskBudget | null;
   title: string;
 }

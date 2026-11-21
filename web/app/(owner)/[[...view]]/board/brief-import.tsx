@@ -4,6 +4,7 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { api, money, useResource, useSubmit, value } from "../../../../lib/client";
 import type { BriefImport, BriefPreview, BriefTemplate, RenderedBriefTemplate } from "../../../../lib/brief-import-types";
+import { reviewLabel } from "../../../../lib/types";
 import { Feedback } from "../shared/components";
 import { PlaybookPicker, usePlaybooks } from "../playbooks";
 
@@ -48,7 +49,7 @@ function Preview({ preview }: { preview: BriefPreview }) {
     <h3>{preview.title}</h3>
     <span className="meta">{preview.repos.join(", ") || "No repositories"}</span>
     <span className="meta">
-      {money(preview.max_cost_eur)} · {preview.max_parallel_agents} parallel agents · {preview.allowed_providers.join(", ") || "All providers"} · Cross review {preview.cross_review ? "on" : "off"}
+      {money(preview.max_cost_eur)} · {preview.max_parallel_agents} parallel agents · {preview.allowed_providers.join(", ") || "All providers"} · {reviewLabel(preview)}
     </span>
     {preview.playbook && <span className="meta">Playbook {preview.playbook}</span>}
     {preview.task_budget && <span className="meta">

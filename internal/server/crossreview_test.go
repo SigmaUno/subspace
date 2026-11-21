@@ -73,3 +73,79 @@ func TestCrossReviewModes(t *testing.T) {
 		t.Fatalf("unrelated patch must keep cross_review: %v", same)
 	}
 }
+
+func TestCrossReviewOnlyForRiskyPaths(t *testing.T) {
+	e := newEnv(t)
+	lead := e.register("rex", "leader", "other")
+	wk := e.register("claude-1", "worker", "claude-code")
+	rev := e.register("codex-r", "reviewer", "codex")
+
+	code, brief := e.rest("POST", "/api/v1/briefs", map[string]any{"title": "Risky", "risky_paths": []string{"internal/auth/**", "migrations"}})
+	if code != 201 || brief["cross_review"] != true || len(brief["risky_paths"].([]any)) != 2 {
+		t.Fatalf("create: %d %v", code, brief)
+	}
+	briefID := brief["id"].(string)
+
+	for _, bad := range []map[string]any{
+		{"title": "x", "cross_review": false, "risky_paths": []string{"a"}},
+		{"title": "x", "risky_paths": []string{"/etc"}},
+		{"title": "x", "risky_paths": []string{"../up"}},
+	} {
+		if code, out := e.rest("POST", "/api/v1/briefs", bad); code != 400 {
+			t.Fatalf("create %v: %d %v", bad, code, out)
+		}
+	}
+
+	submit := func(paths ...any) (string, map[string]any) {
+		t.Helper()
+		task := map[string]any{"title": "Work", "spec": "do it", "repo": "o/r"}
+		if len(paths) > 0 {
+			task["paths"] = paths
+		}
+		plan := e.must(lead, "propose_plan", map[string]any{"brief_id": briefID, "tasks": []any{task}})["plan"].(map[string]any)
+		id := plan["tasks"].([]any)[0].(map[string]any)["id"].(string)
+		if code, out := e.rest("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{}); code != 200 {
+			t.Fatalf("approve: %d %v", code, out)
+		}
+		e.must(lead, "assign", map[string]any{"task_id": id, "agent_id": "claude-1"})
+		e.must(wk, "claim_task", map[string]any{"task_id": id})
+		return id, e.must(wk, "submit", map[string]any{"task_id": id, "pr_url": "https://git.example/o/r/pulls/1"})
+	}
+
+	risky, sub := submit("internal/auth/login.go")
+	if status(sub) != "submitted" {
+		t.Fatalf("task inside risky paths must wait for review: %v", sub)
+	}
+	if r := e.must(rev, "review", map[string]any{"task_id": risky, "verdict": "approve", "comments": "ok"}); status(r) != "approved" {
+		t.Fatal(r)
+	}
+	if _, sub = submit("docs/**"); status(sub) != "approved" {
+		t.Fatalf("task outside risky paths must skip review: %v", sub)
+	}
+	if _, sub = submit(); status(sub) != "submitted" {
+		t.Fatalf("task without paths must be reviewed: %v", sub)
+	}
+	if lr := e.must(rev, "list_reviews", nil)["tasks"].([]any); len(lr) != 1 {
+		t.Fatalf("list_reviews: %v", lr)
+	}
+
+	if code, out := e.rest("PATCH", "/api/v1/briefs/"+briefID, map[string]any{"risky_paths": []string{"x/../../y"}}); code != 400 {
+		t.Fatalf("bad patch: %d %v", code, out)
+	}
+	code, out := e.rest("PATCH", "/api/v1/briefs/"+briefID, map[string]any{"risky_paths": []string{}})
+	if code != 200 || len(out["risky_paths"].([]any)) != 0 {
+		t.Fatalf("clear: %d %v", code, out)
+	}
+	if _, sub = submit("docs/**"); status(sub) != "submitted" {
+		t.Fatalf("cross review on without risky paths covers every task: %v", sub)
+	}
+
+	e.rest("PATCH", "/api/v1/briefs/"+briefID, map[string]any{"risky_paths": []string{"internal/auth"}})
+	code, out = e.rest("PATCH", "/api/v1/briefs/"+briefID, map[string]any{"cross_review": false})
+	if code != 200 || out["cross_review"] != false || len(out["risky_paths"].([]any)) != 0 {
+		t.Fatalf("cross review off drops risky paths: %d %v", code, out)
+	}
+	if code, out = e.rest("PATCH", "/api/v1/briefs/"+briefID, map[string]any{"risky_paths": []string{"internal/auth"}}); code != 400 {
+		t.Fatalf("risky paths with cross review off: %d %v", code, out)
+	}
+}

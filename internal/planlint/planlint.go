@@ -88,7 +88,7 @@ func Lint(brief model.Brief, tasks []Task) []Finding {
 	}
 	graph(tasks, add)
 	duplicateTitles(tasks, add)
-	missingTester(tasks, brief.CrossReview, add)
+	missingTester(tasks, brief.ReviewsAll(), add)
 	if n := brief.Budget.MaxParallelAgent; n > 0 {
 		if ready := readyAtOnce(tasks); ready > n {
 			add(SeverityWarning, RuleParallelism, nil, "%d tasks are ready at once but max_parallel_agents is %d", ready, n)

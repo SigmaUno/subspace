@@ -25,7 +25,7 @@ func testBrief(id string, created time.Time) *model.Brief {
 	return &model.Brief{
 		ID: id, Title: "Title " + id, Body: "# body\nline", Repos: []string{"SigmaUno/foo", "SigmaUno/bar"},
 		Status: "open", Budget: model.BriefBudget{MaxCostEUR: 12.5, MaxParallelAgent: 7},
-		AllowedProviders: []string{"anthropic", "deepseek"}, PlanStatus: "none", CreatedAt: created,
+		AllowedProviders: []string{"anthropic", "deepseek"}, RiskyPaths: []string{"internal/auth/**", "db"}, PlanStatus: "none", CreatedAt: created,
 	}
 }
 

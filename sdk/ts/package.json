@@ -1,0 +1,33 @@
+{
+  "name": "@sigmauno/subspace-sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for the Subspace owner REST API and MCP endpoint",
+  "license": "UNLICENSED",
+  "type": "module",
+  "packageManager": "pnpm@10.34.9",
+  "engines": {
+    "node": ">=20"
+  },
+  "sideEffects": false,
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "default": "./dist/index.js"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "gen": "go run ../../cmd/gen-ts-sdk -o src/generated",
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "pnpm typecheck && node scripts/test.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "22.20.5",
+    "typescript": "5.9.3"
+  }
+}

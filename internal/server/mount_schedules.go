@@ -31,5 +31,5 @@ func mountSchedules(d Deps) {
 		Interval: envDuration(d.Log, "SUBSPACE_SCHEDULE_INTERVAL", schedule.DefaultInterval),
 		Grace:    envDuration(d.Log, "SUBSPACE_SCHEDULE_GRACE", schedule.DefaultGrace),
 	})
-	go runner.Run(d.Ctx)
+	d.Leader.Go(d.Ctx, runner.Run)
 }

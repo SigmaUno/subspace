@@ -1,17 +1,17 @@
 "use client";
 
-import Link from "next/link";
 import { useEffect, useMemo, useRef, useState, type FormEvent } from "react";
 import { api, optionalResource, useResource, value } from "../../../lib/client";
 import type { AuditEntry, AuditFilters, AuditList, AuditVerify } from "../../../lib/audit-types";
-import { Feedback } from "./components";
 import { useLive } from "./live";
 import { VirtualList } from "./virtual";
+import { PageShell } from "./shell";
+import { stamp } from "./format";
+import { EmptyState, ResourceState } from "./states";
 
 const pageSize = 1000;
 const maxPages = 10;
 const none: AuditFilters = { agent_id: "", task_id: "", tool: "", since: "" };
-const stamp = (time: string) => new Date(time).toLocaleString([], { dateStyle: "short", timeStyle: "medium" });
 const failure = (cause: unknown) => cause instanceof Error ? cause.message : "Request failed.";
 
 function filterQuery(filters: AuditFilters) {
@@ -182,48 +182,39 @@ export function AuditPage() {
     });
   }
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/audit" aria-current="page">Audit</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <h1>Audit log</h1>
-        <div className="actions">
-          <ChainBadge />
-          <label className="inline">
-            <input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />
-            Live tail
-          </label>
-          <button onClick={exportRows} disabled={busy || !ready}>Export NDJSON</button>
-        </div>
+  return <PageShell section="audit">
+    <div className="heading">
+      <h1>Audit log</h1>
+      <div className="actions">
+        <ChainBadge />
+        <label className="inline">
+          <input type="checkbox" checked={live} onChange={(event) => setLive(event.target.checked)} />
+          Live tail
+        </label>
+        <button onClick={exportRows} disabled={busy || !ready}>Export NDJSON</button>
       </div>
+    </div>
 
-      <form className="panel stack" onSubmit={apply}>
-        <div className="form-grid">
-          <label>Agent<input name="agent_id" /></label>
-          <label>Task<input name="task_id" placeholder="T-1" /></label>
-          <label>Tool<input name="tool" placeholder="claim_task" /></label>
-          <label>Since event id<input name="since" type="number" min="0" inputMode="numeric" /></label>
-        </div>
-        <div className="actions">
-          <button className="primary">Apply</button>
-          <button type="button" onClick={(event) => reset(event.currentTarget.form as HTMLFormElement)}>Reset</button>
-        </div>
-      </form>
+    <form className="panel stack" onSubmit={apply}>
+      <div className="form-grid">
+        <label>Agent<input name="agent_id" /></label>
+        <label>Task<input name="task_id" placeholder="T-1" /></label>
+        <label>Tool<input name="tool" placeholder="claim_task" /></label>
+        <label>Since event id<input name="since" type="number" min="0" inputMode="numeric" /></label>
+      </div>
+      <div className="actions">
+        <button className="primary">Apply</button>
+        <button type="button" onClick={(event) => reset(event.currentTarget.form as HTMLFormElement)}>Reset</button>
+      </div>
+    </form>
 
-      <Feedback error={error} loading={!ready && !error} />
-      {ready && !items.length && <p className="empty">No audit events.</p>}
-      {!!items.length && <section className="stack">
-        <p className="meta" role="status">{items.length} events loaded, newest first.</p>
-        <VirtualList name="Audit events" items={items} estimate={72} className="agent-list"
-          render={(entry) => <AuditRow entry={entry} expanded={expanded.has(entry.id)} toggle={() => toggle(entry.id)} />} />
-        {loaded?.more && <div className="actions"><button onClick={loadMore}>Load newer</button></div>}
-      </section>}
-    </main>
-  </>;
+    <ResourceState error={error} loading={!ready && !error} />
+    {ready && !items.length && <EmptyState>No audit events.</EmptyState>}
+    {!!items.length && <section className="stack">
+      <p className="meta" role="status">{items.length} events loaded, newest first.</p>
+      <VirtualList name="Audit events" items={items} estimate={72} className="agent-list"
+        render={(entry) => <AuditRow entry={entry} expanded={expanded.has(entry.id)} toggle={() => toggle(entry.id)} />} />
+      {loaded?.more && <div className="actions"><button onClick={loadMore}>Load newer</button></div>}
+    </section>}
+  </PageShell>;
 }

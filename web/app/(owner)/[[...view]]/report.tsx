@@ -3,8 +3,9 @@
 import Link from "next/link";
 import { money, label, useResource } from "../../../lib/client";
 import type { BriefReport, TaskReport } from "../../../lib/report-types";
-import { Feedback } from "./components";
 import { useLive } from "./live";
+import { PageShell } from "./shell";
+import { EmptyState, ResourceState } from "./states";
 
 const closed = new Set(["done", "cancelled"]);
 
@@ -127,7 +128,7 @@ function CostBars({ title, values, limit }: { title: string; values: Record<stri
           <text className="tick" x={bars.left + (amount / high) * inner + 6} y={y + bars.row / 2} dominantBaseline="middle">{money(amount)}</text>
         </g>;
       })}
-    </svg> : <p className="empty">No cost recorded.</p>}
+    </svg> : <EmptyState>No cost recorded.</EmptyState>}
   </section>;
 }
 
@@ -163,54 +164,45 @@ export function ReportPage({ id }: { id: string }) {
   const done = data?.counts?.done ?? 0;
   const briefPath = `/briefs/${encodeURIComponent(id)}`;
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/briefs">Briefs</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <div>
-          <div className="meta"><Link href={briefPath}>{id}</Link> · report</div>
-          <h1>{data?.title ?? "Brief report"}</h1>
-        </div>
-        {data && <div className="actions">
-          <a href={`data:text/markdown;charset=utf-8,${encodeURIComponent(markdown(data))}`} download="report.md">Download report.md</a>
-        </div>}
+  return <PageShell section="briefs">
+    <div className="heading">
+      <div>
+        <div className="meta"><Link href={briefPath}>{id}</Link> · report</div>
+        <h1>{data?.title ?? "Brief report"}</h1>
       </div>
-      <Feedback error={report.error} loading={!data} />
-      {data && <>
-        <div className="stat-grid">
-          <Tile name="Tasks" value={String(data.total)} note={entries(data.counts).map(([status, count]) => `${count} ${label(status)}`).join(" · ")} />
-          <Tile name="Done" value={`${done} / ${data.total}`} />
-          <Tile name="Cost" value={money(data.cost.total_eur)} />
-          <Tile name="Blocked time" value={duration(data.blocked_seconds)} hot={data.blocked_seconds > 0} />
-          <Tile name="Throughput" value={`${data.throughput.per_hour.toFixed(2)} / h`} note={`${data.throughput.done} done in ${data.throughput.window_hours.toFixed(1)} h`} />
-          <Tile name="Critical path" value={duration(data.critical_path.seconds)} note={path.join(" → ") || undefined} />
+      {data && <div className="actions">
+        <a href={`data:text/markdown;charset=utf-8,${encodeURIComponent(markdown(data))}`} download="report.md">Download report.md</a>
+      </div>}
+    </div>
+    <ResourceState error={report.error} loading={!data} retry={report.refresh} rows={4} />
+    {data && <>
+      <div className="stat-grid">
+        <Tile name="Tasks" value={String(data.total)} note={entries(data.counts).map(([status, count]) => `${count} ${label(status)}`).join(" · ")} />
+        <Tile name="Done" value={`${done} / ${data.total}`} />
+        <Tile name="Cost" value={money(data.cost.total_eur)} />
+        <Tile name="Blocked time" value={duration(data.blocked_seconds)} hot={data.blocked_seconds > 0} />
+        <Tile name="Throughput" value={`${data.throughput.per_hour.toFixed(2)} / h`} note={`${data.throughput.done} done in ${data.throughput.window_hours.toFixed(1)} h`} />
+        <Tile name="Critical path" value={duration(data.critical_path.seconds)} note={path.join(" → ") || undefined} />
+      </div>
+
+      <section className="panel stack">
+        <h2>Timeline</h2>
+        {data.tasks?.length ? <Gantt report={data} /> : <EmptyState>This brief has no tasks.</EmptyState>}
+      </section>
+
+      <section className="stack">
+        <h2>Cost breakdown</h2>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))", gap: ".8rem" }}>
+          <CostBars title="By provider" values={data.cost.by_provider} />
+          <CostBars title="By agent" values={data.cost.by_agent} />
+          <CostBars title="By task" values={data.cost.by_task} limit={10} />
         </div>
+      </section>
 
-        <section className="panel stack">
-          <h2>Timeline</h2>
-          {data.tasks?.length ? <Gantt report={data} /> : <p className="empty">This brief has no tasks.</p>}
-        </section>
-
-        <section className="stack">
-          <h2>Cost breakdown</h2>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))", gap: ".8rem" }}>
-            <CostBars title="By provider" values={data.cost.by_provider} />
-            <CostBars title="By agent" values={data.cost.by_agent} />
-            <CostBars title="By task" values={data.cost.by_task} limit={10} />
-          </div>
-        </section>
-
-        <section className="panel stack">
-          <h2>Throughput</h2>
-          {data.throughput.done ? <Sparkline report={data} /> : <p className="empty">No tasks completed yet.</p>}
-        </section>
-      </>}
-    </main>
-  </>;
+      <section className="panel stack">
+        <h2>Throughput</h2>
+        {data.throughput.done ? <Sparkline report={data} /> : <EmptyState>No tasks completed yet.</EmptyState>}
+      </section>
+    </>}
+  </PageShell>;
 }

@@ -5,8 +5,8 @@ import { useEffect, useMemo, useRef, useState, type CSSProperties, type ReactNod
 import { api } from "../../../lib/client";
 import type { AgentOutput, LatestOutput, OutputChunk, OutputLine } from "../../../lib/output-types";
 import { parseAnsi, plainText, type AnsiStyle } from "./ansi";
-import { Feedback } from "./components";
 import "./terminal.css";
+import { EmptyState, ResourceState } from "./states";
 
 const rowHeight = 18;
 const viewHeight = 360;
@@ -169,8 +169,8 @@ function TerminalView({ agent, taskID }: { agent: string; taskID?: string }) {
         <button type="button" onClick={copy} disabled={!shown.length}>{copied ? "Copied" : "Copy"}</button>
       </div>
     </div>
-    <Feedback error={error} loading={!loaded && !error} />
-    {loaded && !lines.length && <p className="empty">No output yet.</p>}
+    <ResourceState error={error} loading={!loaded && !error} />
+    {loaded && !lines.length && <EmptyState>No output yet.</EmptyState>}
     {!!lines.length && <div ref={box} className="terminal" role="log" aria-label={`Output of ${agent}`} tabIndex={0}
       onScroll={onScroll} style={{ height: viewHeight }}>
       <div className="terminal-range" style={{ height: shown.length * rowHeight }}>
@@ -237,8 +237,8 @@ export function OutputTile() {
 
   return <section className="panel stack" aria-label="Agent activity">
     <div className="heading"><h2>Agent activity</h2><span className="meta">Latest output line per active agent</span></div>
-    <Feedback error={error} loading={!loaded && !error} />
-    {loaded && !agents.length && <p className="empty">No agent output yet.</p>}
+    <ResourceState error={error} loading={!loaded && !error} />
+    {loaded && !agents.length && <EmptyState>No agent output yet.</EmptyState>}
     {!!agents.length && <ul className="terminal-tile">
       {agents.slice(0, tileSize).map((entry) => <li key={entry.agent_id}>
         <Link href={`/agents/${encodeURIComponent(entry.agent_id)}`}>{entry.agent_id}</Link>

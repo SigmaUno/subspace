@@ -3,22 +3,40 @@
 import { useRouter } from "next/navigation";
 import { Fragment, useEffect, useId, useRef, useState } from "react";
 
-const destinations: Record<string, string> = { b: "/briefs", a: "/agents", d: "/", c: "/capacity" };
+const destinations: Record<string, { href: string; action: string }> = {
+  b: { href: "/briefs", action: "Go to briefs" },
+  a: { href: "/agents", action: "Go to agents" },
+  d: { href: "/", action: "Go to decisions" },
+  c: { href: "/capacity", action: "Go to capacity" },
+  o: { href: "/costs", action: "Go to costs" },
+  u: { href: "/usage", action: "Go to usage" },
+  t: { href: "/trends", action: "Go to trends" },
+  p: { href: "/plans", action: "Go to plan approvals" },
+  q: { href: "/questions", action: "Go to questions" },
+  k: { href: "/knowledge", action: "Go to knowledge" },
+  f: { href: "/files", action: "Go to files" },
+  i: { href: "/instructions", action: "Go to instructions" },
+  l: { href: "/logs", action: "Go to server logs" },
+  s: { href: "/settings", action: "Go to settings, schedules and announcements" },
+};
 
 const shortcuts = [
-  { sequence: ["g", "b"], action: "Go to briefs" },
-  { sequence: ["g", "a"], action: "Go to agents" },
-  { sequence: ["g", "d"], action: "Go to decisions" },
-  { sequence: ["g", "c"], action: "Go to capacity" },
+  ...Object.entries(destinations).map(([key, { action }]) => ({ sequence: ["g", key], action })),
   { sequence: ["/"], action: "Focus the search field on this page" },
   { sequence: ["Ctrl+K"], action: "Open the command palette" },
   { sequence: ["?"], action: "Show or hide this list" },
-  { sequence: ["Esc"], action: "Close dialogs" },
+  { sequence: ["Esc"], action: "Close dialogs, menus and panels" },
   { sequence: ["Shift+B"], action: "Board: toggle blocked tasks" },
   { sequence: ["Shift+S"], action: "Board: toggle stale-heartbeat tasks" },
   { sequence: ["Shift+M"], action: "Board: toggle merge-ready tasks" },
   { sequence: ["Shift+D"], action: "Board: toggle compact cards" },
   { sequence: ["Shift+X"], action: "Board: clear filters" },
+  { sequence: ["A"], action: "Decision inbox (focus inside it): approve or answer the selected decision" },
+  { sequence: ["R"], action: "Decision inbox (focus inside it): reject the selected decision" },
+  { sequence: ["S"], action: "Decision inbox (focus inside it): skip to the next decision" },
+  { sequence: ["T"], action: "Decision inbox (focus inside it): open the thread" },
+  { sequence: ["Arrows, + / - / 0"], action: "Task graph: pan, zoom, reset the view" },
+  { sequence: ["← / →"], action: "Trends: move the cursor between data points" },
 ];
 
 export function typing(target: EventTarget | null) {
@@ -45,7 +63,7 @@ export function KeyboardShortcuts() {
       chord = 0;
       if (awaiting && destinations[event.key]) {
         event.preventDefault();
-        router.push(destinations[event.key]);
+        router.push(destinations[event.key].href);
       } else if (event.key === "g") {
         chord = Date.now() + 1500;
       } else if (event.key === "?") {

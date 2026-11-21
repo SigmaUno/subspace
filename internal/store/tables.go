@@ -26,6 +26,7 @@ var Briefs = &Table[model.Brief]{Name: "briefs", Cols: []Column[model.Brief]{
 		func(b *model.Brief) (any, error) { return gatesJSON(b.QualityGates) },
 		func(b *model.Brief, v string) (err error) { b.QualityGates, err = parseGates(v); return err },
 	).withDefault("'{}'"),
+	field("playbook", KindText, func(b *model.Brief) *string { return &b.Playbook }),
 }}
 
 var Tasks = &Table[model.Task]{Name: "tasks", Cols: []Column[model.Task]{

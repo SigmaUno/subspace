@@ -65,8 +65,11 @@ var agentCommands = table{
 	"register": func(args []string, _ io.Reader) (command, error) {
 		return single(parseRegistration("agents register", args))
 	},
-	"stats":       parseAgentStats,
-	"bulk-action": parseAgentBulk,
+	"stats":        parseAgentStats,
+	"bulk-action":  parseAgentBulk,
+	"show":         byID("agents show", "agents/%s"),
+	"performance":  parsePerformance,
+	"rotate-token": parseRotateToken,
 }
 
 func parseAgents(args []string, stdin io.Reader) (command, error) {
@@ -212,6 +215,8 @@ var autopilotCommands = table{
 }
 
 var mergequeueCommands = table{
+	"trains": listing("mergequeue trains", "mergequeue/trains", 500, "repo"),
+	"train":  byID("mergequeue train", "mergequeue/trains/%s"),
 	"list": func(args []string, _ io.Reader) (command, error) {
 		set := flags("mergequeue list")
 		repo := set.String("repo", "", "filter by repository")

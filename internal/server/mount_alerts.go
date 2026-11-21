@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"net/http"
 	"time"
 
@@ -28,11 +29,11 @@ func init() {
 			detach()
 		}()
 		if th.Interval > 0 {
-			tk := time.NewTicker(th.Interval)
-			go func() {
+			d.Leader.Go(d.Ctx, func(ctx context.Context) {
+				tk := time.NewTicker(th.Interval)
 				defer tk.Stop()
-				eng.Run(d.Ctx, tk.C)
-			}()
+				eng.Run(ctx, tk.C)
+			})
 		}
 		return mon.Middleware(next)
 	})

@@ -9,6 +9,7 @@ import type {
 import { Clock } from "./components";
 import { OrgBudget } from "./org-budget";
 import { EmptyState, ResourceState, Skeleton } from "./states";
+import { count, usd } from "./format";
 
 const groupings = [
   { id: "provider", name: "Provider" },
@@ -20,8 +21,6 @@ const groupings = [
 const dayMs = 86_400_000;
 const days = 14;
 
-const usd = new Intl.NumberFormat("en", { style: "currency", currency: "USD", minimumFractionDigits: 2, maximumFractionDigits: 4 });
-const count = new Intl.NumberFormat("en", { notation: "compact", maximumFractionDigits: 1 });
 
 function span(now: number) {
   const to = (Math.floor(now / dayMs) + 1) * dayMs;

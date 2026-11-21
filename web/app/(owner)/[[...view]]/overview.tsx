@@ -11,13 +11,14 @@ import { Architecture } from "./architecture";
 import { AutopilotPanel } from "./autopilot";
 import { Kanban } from "./board";
 import { OwnerChat } from "./chat";
-import { Clock, Feedback, Heartbeat, staleAt } from "./components";
+import { Clock, Heartbeat, staleAt } from "./components";
 import { ForecastPanel } from "./forecast";
 import { InsightsTile } from "./insights";
 import { IncidentButton } from "./incident";
 import type { Revisions } from "./live";
 import { Metrics } from "./metrics";
 import { VirtualList } from "./virtual";
+import { EmptyState, ResourceState } from "./states";
 
 const emptyComponents: Component[] = [];
 const emptyAgents: Agent[] = [];
@@ -124,7 +125,7 @@ function Workload({ agents, tasks, recent, openThread, openChat }: {
     {items.length ? <VirtualList name="Agent workload" items={items} estimate={78} className="agent-list"
       render={({ agent, task }) => <AgentRow agent={agent} task={task} agentMessage={recent[`agent:${agent.id}`]}
         taskMessage={task && recent[`task:${task.id}`]} openThread={openThread} openChat={openChat} />} />
-      : <p className="empty">No agents match this view.</p>}
+      : <EmptyState>No agents match this view.</EmptyState>}
   </section>;
 }
 
@@ -133,14 +134,14 @@ function CapacitySummary({ revision }: { revision: number }) {
   const items = (capacity.data?.limits ?? []).map((item) => ({ ...item, id: `${item.provider}:${item.model}` }));
   return <section className="panel stack">
     <div className="heading"><h2>Inference capacity</h2><Link href="/capacity">Settings</Link></div>
-    <Feedback error={capacity.error} loading={!capacity.data} />
+    <ResourceState error={capacity.error} loading={!capacity.data} retry={capacity.refresh} rows={2} />
     {capacity.data && <p className="meta">{capacity.data.agents_in_use} / {capacity.data.global_max_agents} agents in use</p>}
     {items.length ? <VirtualList name="Provider and model capacity" estimate={56} items={items} className="capacity-list"
       render={(item) => <div className="capacity-usage">
         <strong>{item.provider} · {item.model}</strong>
         <progress max={Math.max(1, item.max_concurrency)} value={item.in_use} aria-label={`${item.provider} ${item.model} in use`} />
         <span className={item.available <= 0 ? "stale" : "meta"}>{item.in_use} / {item.max_concurrency} · {item.available} free</span>
-      </div>} /> : capacity.data && <p className="empty">No provider or model limits.</p>}
+      </div>} /> : capacity.data && <EmptyState>No provider or model limits.</EmptyState>}
   </section>;
 }
 
@@ -172,7 +173,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
   const path = `/briefs/${encodeURIComponent(id)}`;
 
   return <section className="stack project-view">
-    <Feedback error={board.error || registry.error} loading={!board.data} />
+    <ResourceState error={board.error || registry.error} loading={!board.data} retry={() => { board.refresh(); registry.refresh(); }} rows={4} />
     {brief && <>
       <div className="heading">
         <div><div className="meta">{brief.id} · {brief.status} · plan {brief.plan_status}</div><h2 className="project-name">{brief.title}</h2></div>
@@ -233,7 +234,7 @@ export const SwarmOverview = memo(function SwarmOverview({ id, architecture, rev
         {items.map((brief) => <option key={brief.id} value={brief.id}>{brief.title}</option>)}
       </select></label>}
     </div>
-    <Feedback error={briefs.error} loading={!briefs.data && !selected} />
+    <ResourceState error={briefs.error} loading={!briefs.data && !selected} retry={briefs.refresh} />
     {!selected && briefs.data && <div className="panel stack"><p>No briefs yet.</p><Link href="/briefs">Create a brief</Link></div>}
     {selected && <SwarmProject key={selected} id={selected} architecture={architecture} revisions={revisions} recent={recent} openThread={openThread} />}
   </>;

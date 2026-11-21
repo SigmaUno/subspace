@@ -1,14 +1,14 @@
 "use client";
 
-import { useState } from "react";
 import { api, money, useResource, useSubmit, value } from "../../../lib/client";
 import type { SpendLimits, SpendWindow } from "../../../lib/usage-types";
 import { Feedback } from "./components";
 import { ResourceState } from "./states";
+import { utc as when } from "./format";
+import { useToast } from "./ui";
 
 const levelClass = { off: "", ok: "active", warning: "paused", exceeded: "revoked" } as const;
 
-const when = (iso: string) => `${new Date(iso).toLocaleString([], { dateStyle: "short", timeStyle: "short", timeZone: "UTC" })} UTC`;
 
 function outlook(spend: SpendWindow) {
   if (spend.level === "off") return "No cap set.";
@@ -38,8 +38,8 @@ function cap(form: FormData, key: string) {
 
 export function OrgBudget({ revision }: { revision: number }) {
   const limits = useResource<SpendLimits>("limits", revision);
-  const [saved, setSaved] = useState(false);
   const form = useSubmit();
+  const toast = useToast();
   const current = limits.data;
 
   return <section className="panel stack">
@@ -54,20 +54,19 @@ export function OrgBudget({ revision }: { revision: number }) {
         const response = await api<SpendLimits>("limits", "PUT", { daily_cost_eur: cap(fields, "daily_cost_eur"), weekly_cost_eur: cap(fields, "weekly_cost_eur") });
         limits.setData(response);
         limits.refresh();
-        setSaved(true);
+        toast("Saved the spend caps.");
       })}>
         <fieldset className="actions" disabled={form.busy}>
           <label>Daily cap (EUR, 0 = off)
-            <input name="daily_cost_eur" type="number" min="0" step="0.01" defaultValue={current.daily_cost_eur} onChange={() => setSaved(false)} />
+            <input name="daily_cost_eur" type="number" min="0" step="0.01" defaultValue={current.daily_cost_eur} />
           </label>
           <label>Weekly cap (EUR, 0 = off)
-            <input name="weekly_cost_eur" type="number" min="0" step="0.01" defaultValue={current.weekly_cost_eur} onChange={() => setSaved(false)} />
+            <input name="weekly_cost_eur" type="number" min="0" step="0.01" defaultValue={current.weekly_cost_eur} />
           </label>
           <button className="primary">Save caps</button>
         </fieldset>
       </form>
       <Feedback error={form.error} />
-      {saved && <span className="meta" role="status">Caps saved.</span>}
       <p className="meta">Windows are UTC. At 80% a decision and notification are raised; at 100% everything pauses with reason org_budget.</p>
     </>}
   </section>;

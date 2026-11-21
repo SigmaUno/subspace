@@ -6,13 +6,14 @@ import { useEffect, useState, type MouseEvent } from "react";
 import { label, money, useResource } from "../../../lib/client";
 import type { ReplayKeyEvent, ReplayPoint, ReplaySnapshot, ReplayTask, ReplayTimeline } from "../../../lib/replay-types";
 import { statuses } from "../../../lib/types";
-import { Feedback } from "./components";
 import { useLive } from "./live";
+import { PageShell } from "./shell";
+import { stamp } from "./format";
+import { EmptyState, ResourceState } from "./states";
 
 const speeds = [1, 2, 5, 10, 25];
 const strip = { width: 1000, height: 72, keys: 10 };
 
-const stamp = (time: string | null | undefined) => time ? new Date(time).toLocaleString() : "—";
 
 function same(a: ReplayTask, b: ReplayTask) {
   return a.status === b.status && a.assignee === b.assignee && a.reviewer === b.reviewer &&
@@ -115,86 +116,77 @@ export function ReplayPage({ id }: { id: string }) {
   const briefPath = `/briefs/${encodeURIComponent(id)}`;
   const recent = keys.filter((key) => point && key.audit_id <= point.audit_id).slice(-30).reverse();
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/briefs">Briefs</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <div>
-          <div className="meta"><Link href={briefPath}>{id}</Link> · replay</div>
-          <h1>Replay</h1>
-        </div>
-        <div className="actions">
-          <Link href={`${briefPath}/report`}>Report</Link>
-        </div>
+  return <PageShell section="briefs">
+    <div className="heading">
+      <div>
+        <div className="meta"><Link href={briefPath}>{id}</Link> · replay</div>
+        <h1>Replay</h1>
       </div>
-      <Feedback error={timeline.error || snapshot.error} loading={!timeline.data} />
-      {timeline.data && !points.length && <p className="empty">This brief has no recorded events yet.</p>}
-      {points.length > 0 && <section className="panel stack">
-        <Strip points={points} keys={keys} index={index} seek={seek} />
-        <div className="replay-controls">
-          <button type="button" onClick={() => seek(index - 1)} disabled={index <= 0} aria-label="Previous step">◀</button>
-          <button type="button" className="primary" onClick={toggle} aria-pressed={playing}>{playing ? "Pause" : "Play"}</button>
-          <button type="button" onClick={() => seek(index + 1)} disabled={index >= last} aria-label="Next step">▶</button>
-          <input type="range" min={0} max={last} value={index} aria-label="Replay position"
-            aria-valuetext={point ? `audit ${point.audit_id}, ${stamp(point.at)}` : undefined}
-            onChange={(event) => seek(Number(event.target.value))} />
-          <select className="filter-input" aria-label="Playback speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
-            {speeds.map((n) => <option key={n} value={n}>{n} steps/s</option>)}
-          </select>
-          <button type="button" onClick={() => { setPlaying(false); setPicked(null); }} disabled={picked === null}>Live</button>
-        </div>
-        <div className="meta">
-          Step {index + 1} of {points.length} · audit {point?.audit_id} · <time dateTime={point?.at}>{stamp(point?.at)}</time>
-          {(timeline.data?.events ?? 0) > points.length && ` · ${timeline.data?.events} events sampled`}
-        </div>
-      </section>}
+      <div className="actions">
+        <Link href={`${briefPath}/report`}>Report</Link>
+      </div>
+    </div>
+    <ResourceState error={timeline.error || snapshot.error} loading={!timeline.data} retry={() => { timeline.refresh(); snapshot.refresh(); }} rows={4} />
+    {timeline.data && !points.length && <EmptyState>This brief has no recorded events yet.</EmptyState>}
+    {points.length > 0 && <section className="panel stack">
+      <Strip points={points} keys={keys} index={index} seek={seek} />
+      <div className="replay-controls">
+        <button type="button" onClick={() => seek(index - 1)} disabled={index <= 0} aria-label="Previous step">◀</button>
+        <button type="button" className="primary" onClick={toggle} aria-pressed={playing}>{playing ? "Pause" : "Play"}</button>
+        <button type="button" onClick={() => seek(index + 1)} disabled={index >= last} aria-label="Next step">▶</button>
+        <input type="range" min={0} max={last} value={index} aria-label="Replay position"
+          aria-valuetext={point ? `audit ${point.audit_id}, ${stamp(point.at)}` : undefined}
+          onChange={(event) => seek(Number(event.target.value))} />
+        <select className="filter-input" aria-label="Playback speed" value={speed} onChange={(event) => setSpeed(Number(event.target.value))}>
+          {speeds.map((n) => <option key={n} value={n}>{n} steps/s</option>)}
+        </select>
+        <button type="button" onClick={() => { setPlaying(false); setPicked(null); }} disabled={picked === null}>Live</button>
+      </div>
+      <div className="meta">
+        Step {index + 1} of {points.length} · audit {point?.audit_id} · <time dateTime={point?.at}>{stamp(point?.at)}</time>
+        {(timeline.data?.events ?? 0) > points.length && ` · ${timeline.data?.events} events sampled`}
+      </div>
+    </section>}
 
-      {view && <>
-        <div className="actions">
-          {statuses.filter(([status]) => view.counts?.[status]).map(([status, name]) =>
-            <span key={status} className="pill" data-status={status}>{name} {view.counts?.[status]}</span>)}
-          {changed.size > 0 && <span className="meta">{changed.size} changed since the previous frame</span>}
-        </div>
-        <section className="board" aria-label="Board at the replay position" tabIndex={0}>
-          {statuses.map(([status, name]) => {
-            const tasks = view.columns[status] ?? [];
-            return <section className="column stack" aria-label={name} key={status} data-status={status}>
-              <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
-              {tasks.map((task) => <Card key={task.id} task={task} changed={changed.has(task.id)} />)}
-            </section>;
-          })}
+    {view && <>
+      <div className="actions">
+        {statuses.filter(([status]) => view.counts?.[status]).map(([status, name]) =>
+          <span key={status} className="pill" data-status={status}>{name} {view.counts?.[status]}</span>)}
+        {changed.size > 0 && <span className="meta">{changed.size} changed since the previous frame</span>}
+      </div>
+      <section className="board" aria-label="Board at the replay position" tabIndex={0}>
+        {statuses.map(([status, name]) => {
+          const tasks = view.columns[status] ?? [];
+          return <section className="column stack" aria-label={name} key={status} data-status={status}>
+            <h3><span className="pill" data-status={status}>{name}</span><span className="meta">{tasks.length}</span></h3>
+            {tasks.map((task) => <Card key={task.id} task={task} changed={changed.has(task.id)} />)}
+          </section>;
+        })}
+      </section>
+      <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))", gap: ".8rem" }}>
+        <section className="panel stack">
+          <h2>Agents</h2>
+          {view.agents?.length ? <ul className="replay-events">
+            {view.agents.map((agent) => <li key={agent.id}>
+              <strong>{agent.id}</strong> <span className="meta">{agent.role || "agent"} · {agent.events} events</span>
+              <div className="meta">
+                {agent.assigned?.length ? `Working on ${agent.assigned.join(", ")}` : "No open tasks"}
+                {agent.reviewing?.length ? ` · reviewing ${agent.reviewing.join(", ")}` : ""}
+              </div>
+            </li>)}
+          </ul> : <EmptyState>No agents involved yet.</EmptyState>}
         </section>
-        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(22rem, 1fr))", gap: ".8rem" }}>
-          <section className="panel stack">
-            <h2>Agents</h2>
-            {view.agents?.length ? <ul className="replay-events">
-              {view.agents.map((agent) => <li key={agent.id}>
-                <strong>{agent.id}</strong> <span className="meta">{agent.role || "agent"} · {agent.events} events</span>
-                <div className="meta">
-                  {agent.assigned?.length ? `Working on ${agent.assigned.join(", ")}` : "No open tasks"}
-                  {agent.reviewing?.length ? ` · reviewing ${agent.reviewing.join(", ")}` : ""}
-                </div>
-              </li>)}
-            </ul> : <p className="empty">No agents involved yet.</p>}
-          </section>
-          <section className="panel stack">
-            <h2>Key events</h2>
-            {recent.length ? <ul className="replay-events">
-              {recent.map((key) => <li key={`${key.audit_id}-${key.task_id}`}>
-                <button type="button" onClick={() => seek(nearest(points, key.audit_id))} aria-current={point?.audit_id === key.audit_id ? "step" : undefined}>
-                  <time dateTime={key.at}>{stamp(key.at)}</time> · {describe(key)}
-                </button>
-              </li>)}
-            </ul> : <p className="empty">No key events up to this point.</p>}
-          </section>
-        </div>
-      </>}
-    </main>
-  </>;
+        <section className="panel stack">
+          <h2>Key events</h2>
+          {recent.length ? <ul className="replay-events">
+            {recent.map((key) => <li key={`${key.audit_id}-${key.task_id}`}>
+              <button type="button" onClick={() => seek(nearest(points, key.audit_id))} aria-current={point?.audit_id === key.audit_id ? "step" : undefined}>
+                <time dateTime={key.at}>{stamp(key.at)}</time> · {describe(key)}
+              </button>
+            </li>)}
+          </ul> : <EmptyState>No key events up to this point.</EmptyState>}
+        </section>
+      </div>
+    </>}
+  </PageShell>;
 }

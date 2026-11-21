@@ -3,10 +3,11 @@
 import { useContext, useState } from "react";
 import { api, useSubmit, value } from "../../../lib/client";
 import type { CreatedToken, OwnerToken, TokenList } from "../../../lib/settings-types";
-import { formatTime } from "./admin-shared";
-import { CopyBlock } from "./bots";
+import { formatTime } from "./format";
+import { CopyBlock } from "./copy";
 import { Clock, Feedback } from "./components";
 import { EmptyState } from "./states";
+import { useAction, useConfirm, useToast } from "./ui";
 
 function tokenState(token: OwnerToken, now: number) {
   if (token.revoked_at) return "revoked";
@@ -18,18 +19,18 @@ export function TokensPanel({ list, refresh }: { list: TokenList; refresh: () =>
   const tokens: OwnerToken[] = list.tokens ?? [];
   const now = useContext(Clock);
   const [created, setCreated] = useState<CreatedToken>();
-  const [revokeError, setRevokeError] = useState("");
+  const action = useAction();
+  const confirm = useConfirm();
+  const toast = useToast();
   const form = useSubmit();
 
   async function revoke(token: OwnerToken) {
-    if (!window.confirm(`Revoke token ${token.id} (${token.name})? Clients using it stop working immediately.`)) return;
-    setRevokeError("");
-    try {
-      await api<OwnerToken>(`tokens/${encodeURIComponent(token.id)}/revoke`, "POST", {});
-      refresh();
-    } catch (cause) {
-      setRevokeError(cause instanceof Error ? cause.message : "Revoke failed.");
-    }
+    const accepted = await confirm({
+      title: `Revoke token ${token.id}?`,
+      message: `Clients using ${token.name} stop working immediately.`,
+      confirm: "Revoke",
+    });
+    if (accepted && await action.run(token.id, () => api<OwnerToken>(`tokens/${encodeURIComponent(token.id)}/revoke`, "POST", {}), `Revoked token ${token.id}.`)) refresh();
   }
 
   return <section className="panel stack">
@@ -42,6 +43,7 @@ export function TokensPanel({ list, refresh }: { list: TokenList; refresh: () =>
         expires_at: expires ? new Date(expires).toISOString() : null,
       });
       setCreated(result);
+      toast(`Created token ${result.token.id}.`);
       element.reset();
       refresh();
     })}>
@@ -61,7 +63,6 @@ export function TokensPanel({ list, refresh }: { list: TokenList; refresh: () =>
       <CopyBlock label="API token" text={created.secret} />
       <div className="actions"><button type="button" onClick={() => setCreated(undefined)}>Dismiss secret</button></div>
     </div>}
-    <Feedback error={revokeError} />
     {!tokens.length && <EmptyState>No owner API tokens.</EmptyState>}
     {!!tokens.length && <div className="table-wrap">
       <table>
@@ -75,7 +76,7 @@ export function TokensPanel({ list, refresh }: { list: TokenList; refresh: () =>
             <td>{formatTime(token.created_at)}</td>
             <td>{token.expires_at ? formatTime(token.expires_at) : "never"}</td>
             <td>{formatTime(token.last_used_at)}</td>
-            <td>{!token.revoked_at && <button type="button" className="danger" data-write onClick={() => revoke(token)}
+            <td>{!token.revoked_at && <button type="button" className="danger" data-write disabled={action.busy === token.id} onClick={() => revoke(token)}
               aria-label={`Revoke token ${token.name}`}>Revoke</button>}</td>
           </tr>;
         })}</tbody>

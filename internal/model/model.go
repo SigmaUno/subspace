@@ -115,6 +115,7 @@ type Brief struct {
 	PlanStatus       string       `json:"plan_status"`
 	LeaderID         *string      `json:"leader_id"`
 	QualityGates     QualityGates `json:"quality_gates"`
+	Playbook         string       `json:"playbook"`
 	CreatedAt        time.Time    `json:"created_at"`
 }
 

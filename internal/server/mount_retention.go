@@ -35,6 +35,6 @@ func init() {
 		d.API.Mount(d.Mux, "POST /api/v1/retention/run", h)
 		d.API.Mount(d.Mux, "GET /api/v1/retention/verify", h)
 		d.API.Mount(d.Mux, "POST /api/v1/retention/segments/{id}/restore", h)
-		go svc.Run(d.Ctx)
+		d.Leader.Go(d.Ctx, svc.Run)
 	})
 }

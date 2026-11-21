@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import { api, ApiError, label, optionalResource, useResource } from "../../../lib/client";
-import { Feedback } from "./components";
+import { EmptyState, ResourceState } from "./states";
 
 interface AutopilotState {
   state: string;
@@ -73,8 +73,8 @@ function Spawns({ revision }: { revision: number }) {
 
   return <div className="stack">
     <h3>Spawns</h3>
-    <Feedback error={error || feed.error} loading={feed.data === undefined && !feed.error} />
-    {feed.data !== undefined && !spawns.length && <p className="empty">No spawns yet.</p>}
+    <ResourceState error={error || feed.error} loading={feed.data === undefined && !feed.error} retry={feed.refresh} />
+    {feed.data !== undefined && !spawns.length && <EmptyState>No spawns yet.</EmptyState>}
     {spawns.map((spawn) => <div className="attempt-row" key={spawn.id}>
       <span>{spawn.id}</span>
       <span><span className="pill" data-status={spawn.status === "failed" ? "blocked" : spawn.status === "spawned" ? "in_progress" : "assigned"}>{spawn.status}</span></span>
@@ -110,7 +110,7 @@ export function AutopilotPanel({ revision, spawnRevision }: { revision: number; 
   return <section className="panel stack">
     <div className="heading"><h2>Autopilot</h2>
       {state && <span className="pill" data-status={state.state === "running" ? "in_progress" : state.state === "paused" ? "changes_requested" : "backlog"}>{state.state}</span>}</div>
-    <Feedback error={error || feed.error} loading={!state && !feed.error} />
+    <ResourceState error={error || feed.error} loading={!state && !feed.error} retry={feed.refresh} />
     {state && <>
       <p className="meta">{state.last_tick ? `Last tick ${stamp(state.last_tick)}` : "No tick yet"}</p>
       {state.last_error && <p className="error" role="alert">{state.last_error}</p>}
@@ -119,7 +119,7 @@ export function AutopilotPanel({ revision, spawnRevision }: { revision: number; 
           <input type="checkbox" data-write checked={brief.enabled} disabled={busy === brief.id}
             onChange={(event) => toggle(brief.id, event.target.checked)} />
           <span>{brief.title}</span><span className="meta">{brief.id}</span></label>)}</div>
-        : <p className="empty">No open briefs.</p>}
+        : <EmptyState>No open briefs.</EmptyState>}
       <h3>Last actions</h3>
       {actions.length
         ? <ul className="stack" aria-label="Autopilot actions">
@@ -127,7 +127,7 @@ export function AutopilotPanel({ revision, spawnRevision }: { revision: number; 
             <time className="meta" dateTime={action.at}>{stamp(action.at)}</time> {describe(action)}
             {action.error && <span className="stale"> · {action.error}</span>}</li>)}
         </ul>
-        : <p className="empty">No actions yet.</p>}
+        : <EmptyState>No actions yet.</EmptyState>}
       <Spawns revision={spawnRevision} />
     </>}
   </section>;

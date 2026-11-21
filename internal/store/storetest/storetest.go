@@ -95,6 +95,8 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 	b2 := testBrief("B-2", time.UnixMilli(1000).UTC())
 	b2.Repos, b2.AllowedProviders, b2.Status, b2.CrossReview = nil, nil, "closed", false
 	b10 := testBrief("B-10", time.UnixMilli(1000).UTC())
+	b1.Playbook, b1.QualityGates = "hotfix", model.QualityGates{Tests: true, MinTestsPassed: 3, MaxPRAgeHours: 12}
+	b10.Playbook, b10.QualityGates = "careful", model.QualityGates{Scope: true}
 	write(t, s, func(tx store.Tx) error {
 		for _, b := range []*model.Brief{b1, b2, b10} {
 			if err := tx.InsertBrief(b); err != nil {
@@ -107,14 +109,15 @@ func scenarioBriefs(t *testing.T, s store.Store) {
 	wantErr(t, store.ErrDuplicate, s.Atomic(context.Background(), func(tx store.Tx) error { return tx.InsertBrief(b1) }))
 
 	b1.Title, b1.Budget.MaxCostEUR, b1.AllowedProviders, b1.Status, b1.AutoDoneOnMerge = "new", 99.25, []string{"openai"}, "closed", true
-	b1.LeaderID, b1.QualityGates = ptr("rex"), model.QualityGates{Tests: true, MinTestsPassed: 3, MaxPRAgeHours: 1.5}
+	b1.Playbook, b1.QualityGates.Review = "", true
+	b1.LeaderID = ptr("rex")
 	write(t, s, func(tx store.Tx) error { return tx.UpdateBrief(b1) })
 	wantErr(t, store.ErrNotFound, s.Atomic(context.Background(), func(tx store.Tx) error {
 		return tx.UpdateBrief(testBrief("B-404", time.Now()))
 	}))
 
 	read(t, s, func(tx store.Tx) error {
-		for _, want := range []*model.Brief{b1, b2} {
+		for _, want := range []*model.Brief{b1, b2, b10} {
 			got, err := tx.GetBrief(want.ID)
 			if err != nil {
 				return err

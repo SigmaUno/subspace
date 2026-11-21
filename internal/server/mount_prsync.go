@@ -38,5 +38,5 @@ func mountPRStatus(d Deps) {
 		d.Log.Error("pr status sync disabled", "err", err)
 		return
 	}
-	go p.Run(d.Ctx)
+	d.Leader.Go(d.Ctx, p.Run)
 }

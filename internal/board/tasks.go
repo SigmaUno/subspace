@@ -172,6 +172,13 @@ func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*m
 		if br.PlanStatus == model.PlanApproved {
 			status = model.StatusReady
 		}
+		rules, err := b.rulesFor(tx, br.Playbook)
+		if err != nil {
+			return err
+		}
+		if rules != nil {
+			in.Budget = rules.ApplyDefaults(in.Budget)
+		}
 		deps := in.DependsOn
 		in.DependsOn = nil
 		t, err := b.newTask(tx, br, in, "", status, nil)
@@ -715,6 +722,7 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 	now := b.now()
 	lease := now.Add(b.o.Lease)
 	res := &HeartbeatResult{OK: true}
+	var urgent []store.LeaseRow
 	b.mu.Lock()
 	for _, t := range mine {
 		if taskID != "" && t.ID != taskID {
@@ -730,8 +738,16 @@ func (b *Board) Heartbeat(ctx context.Context, a model.Actor, taskID string) (*H
 		b.tasks[t.ID] = hotTask{hb: now, lease: l, assignee: a.ID}
 		b.dirtyT[t.ID] = struct{}{}
 		res.LeaseExpiresAt = &l
+		if b.o.Shared && (t.LeaseExpiresAt == nil || t.LeaseExpiresAt.Before(now.Add(b.syncWindow()))) {
+			urgent = append(urgent, store.LeaseRow{TaskID: t.ID, Assignee: a.ID, Heartbeat: now.UnixMilli(), Lease: l.UnixMilli()})
+		}
 	}
 	b.mu.Unlock()
+	if len(urgent) > 0 {
+		if err := b.st.Atomic(ctx, func(tx store.Tx) error { return tx.ExtendLeases(urgent) }); err != nil {
+			b.log.Error("flush expiring leases", "err", err)
+		}
+	}
 	if taskID != "" && res.LeaseExpiresAt == nil {
 		return nil, model.Errf("not_assigned", "task %s is not an in_progress task of yours", taskID)
 	}

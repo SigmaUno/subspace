@@ -50,7 +50,7 @@ func mountCallbacks(d Deps) {
 		Timeout:  callbackTimeout,
 	})
 	w := &callback.Watcher{D: disp, Tasks: callbackOwners{d.Board}}
-	activate := func() { w.Activate(d.Ctx, d.Hub) }
+	activate := func() { w.Activate(d.Ctx, d.Leader.Gate(d.Hub)) }
 	if has, err := targets.Any(d.Ctx); err != nil {
 		d.Log.Error("agent callbacks: reading existing callbacks", "err", err)
 	} else if has {

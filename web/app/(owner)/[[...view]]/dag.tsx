@@ -6,9 +6,10 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState, type KeyboardE
 import { label, optionalResource, useResource } from "../../../lib/client";
 import type { BriefReport } from "../../../lib/report-types";
 import { statuses, type Board, type Task } from "../../../lib/types";
-import { Feedback } from "./components";
 import { defaultOptions, layoutDag, type Layout, type Point } from "./dag-layout";
 import { useLive } from "./live";
+import { PageShell } from "./shell";
+import { EmptyState, ResourceState } from "./states";
 
 interface View {
   x: number;
@@ -218,31 +219,22 @@ export function DagPage({ id }: { id: string }) {
   const criticalEdges = useMemo(() => new Set(path.slice(1).map((to, i) => `${path[i]}>${to}`)), [path]);
   const present = statuses.filter(([status]) => tasks.some((task) => task.status === status));
 
-  return <>
-    <header className="topbar">
-      <Link className="brand" href="/"><span className="brand-mark" aria-hidden="true" />Subspace</Link>
-      <nav aria-label="Workspace">
-        <Link href="/">Swarm</Link>
-        <Link href="/briefs">Briefs</Link>
-      </nav>
-    </header>
-    <main className="workspace">
-      <div className="heading">
-        <div>
-          <div className="meta"><Link href={briefPath}>{id}</Link> · graph</div>
-          <h1>{board.data?.brief.title ?? "Task graph"}</h1>
-        </div>
-        <span className="meta">{tasks.length} tasks · {layout.layers} layers</span>
+  return <PageShell section="briefs">
+    <div className="heading">
+      <div>
+        <div className="meta"><Link href={briefPath}>{id}</Link> · graph</div>
+        <h1>{board.data?.brief.title ?? "Task graph"}</h1>
       </div>
-      <Feedback error={board.error} loading={!board.data} />
-      {board.data && !tasks.length && <p className="empty">This brief has no tasks.</p>}
-      {tasks.length > 0 && <section className="panel stack">
-        <Graph layout={layout} tasks={byID} criticalNodes={criticalNodes} criticalEdges={criticalEdges} />
-        <div className="actions">
-          {present.map(([status, name]) => <span key={status} className="pill" data-status={status}>{name}</span>)}
-          <span className="meta">{path.length ? `Critical path highlighted: ${path.join(" → ")}` : "No critical path data yet"}</span>
-        </div>
-      </section>}
-    </main>
-  </>;
+      <span className="meta">{tasks.length} tasks · {layout.layers} layers</span>
+    </div>
+    <ResourceState error={board.error} loading={!board.data} retry={board.refresh} rows={5} />
+    {board.data && !tasks.length && <EmptyState>This brief has no tasks.</EmptyState>}
+    {tasks.length > 0 && <section className="panel stack">
+      <Graph layout={layout} tasks={byID} criticalNodes={criticalNodes} criticalEdges={criticalEdges} />
+      <div className="actions">
+        {present.map(([status, name]) => <span key={status} className="pill" data-status={status}>{name}</span>)}
+        <span className="meta">{path.length ? `Critical path highlighted: ${path.join(" → ")}` : "No critical path data yet"}</span>
+      </div>
+    </section>}
+  </PageShell>;
 }

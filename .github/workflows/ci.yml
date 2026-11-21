@@ -76,11 +76,15 @@ jobs:
           version: v2.15.0
 
   test:
-    name: Go test (race)
+    name: Go test (race) shard ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.go == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
       - uses: actions/setup-go@40f1582b2485089dde7abd97c1529aa768e1baff
@@ -88,12 +92,16 @@ jobs:
           go-version-file: go.mod
           cache-dependency-path: go.sum
       - name: go test -race
-        run: go test -race -count=1 ./... 2>&1 | tee test.log
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          pkgs="$(go list ./... | awk -v s="$SHARD" 'NR % 4 == s')"
+          go test -race -count=1 -timeout 20m $pkgs 2>&1 | tee test.log
       - name: Upload test log
         if: failure()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: go-test-log
+          name: go-test-log-${{ matrix.shard }}
           path: test.log
           retention-days: 7
 

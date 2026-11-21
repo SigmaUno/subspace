@@ -1,7 +1,7 @@
 "use client";
 
 import type { Alert, AlertList } from "../../../lib/settings-types";
-import { formatTime } from "./admin-shared";
+import { formatTime } from "./format";
 import { EmptyState } from "./states";
 
 const severityClass = { warning: "paused", critical: "revoked" } as const;

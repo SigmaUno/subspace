@@ -1,6 +1,9 @@
+import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import { notFound, redirect } from "next/navigation";
 import { ownerCookie, ownerSession, type OwnerSession } from "../../../lib/upstream";
+import { pageTitle } from "./nav";
+import { UiProvider } from "./ui";
 import { AgentDetailPage } from "./agent-detail";
 import { AuditPage } from "./audit";
 import { DagPage } from "./dag";
@@ -15,6 +18,11 @@ import { ReportPage } from "./report";
 import { TaskDetailPage } from "./task-detail";
 import { Workspace } from "./workspace";
 
+export async function generateMetadata({ params }: PageProps<"/[[...view]]">): Promise<Metadata> {
+  const { view = [] } = await params;
+  return { title: pageTitle(view) };
+}
+
 export default async function Page({ params }: PageProps<"/[[...view]]">) {
   const { view = [] } = await params;
   const token = (await cookies()).get(ownerCookie)?.value;
@@ -23,7 +31,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (session.status === 401 || session.status === 403) redirect("/login");
   if (session.status !== 200) redirect("/login?error=unavailable");
 
-  return <div className="scope" data-scope={session.scope === "owner" ? "owner" : "viewer"}>{content(view)}</div>;
+  return <div className="scope" data-scope={session.scope === "owner" ? "owner" : "viewer"}><UiProvider>{content(view)}</UiProvider></div>;
 }
 
 function content(view: string[]) {

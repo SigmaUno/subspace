@@ -3,6 +3,8 @@ package client
 import (
 	"context"
 	"encoding/json"
+
+	"github.com/SigmaUno/subspace/internal/components"
 )
 
 func (m *MCP) info(ctx context.Context, tool string, args map[string]any) (json.RawMessage, error) {
@@ -52,4 +54,8 @@ func (m *MCP) ListSpawns(ctx context.Context, briefID string) (json.RawMessage, 
 
 func (m *MCP) GetComponents(ctx context.Context, briefID string) (json.RawMessage, error) {
 	return m.info(ctx, "get_components", map[string]any{"brief_id": briefID})
+}
+
+func (m *MCP) SetComponents(ctx context.Context, briefID string, specs []components.Spec) (json.RawMessage, error) {
+	return m.info(ctx, "set_components", map[string]any{"brief_id": briefID, "components": specs})
 }

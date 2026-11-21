@@ -11,6 +11,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/agentout"
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/client"
+	"github.com/SigmaUno/subspace/internal/components"
 	"github.com/SigmaUno/subspace/internal/helpreq"
 	"github.com/SigmaUno/subspace/internal/knowledge"
 	"github.com/SigmaUno/subspace/internal/mcp"
@@ -252,6 +253,9 @@ func TestToolMethodsAgainstServer(t *testing.T) {
 		func() (json.RawMessage, error) { return tm.leader.AgentStats(ctx, "wally") },
 		func() (json.RawMessage, error) { return tm.leader.ListDecisions(ctx) },
 		func() (json.RawMessage, error) { return tm.leader.ListSpawns(ctx, br.ID) },
+		func() (json.RawMessage, error) {
+			return tm.leader.SetComponents(ctx, br.ID, []components.Spec{{Name: "core"}, {Name: "api", DependsOn: []string{"core"}}})
+		},
 		func() (json.RawMessage, error) { return tm.leader.GetComponents(ctx, br.ID) },
 	} {
 		_ = must(call())

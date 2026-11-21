@@ -170,6 +170,7 @@ function SwarmProject({ id, architecture, revisions, recent, openThread }: {
       <nav className="view-tabs" aria-label="Project view">
         <Link href={path} aria-current={architecture ? undefined : "page"}>Overview</Link>
         <Link href={path + "/architecture"} aria-current={architecture ? "page" : undefined}>Architecture</Link>
+        <Link href={path + "/graph"}>Graph</Link>
         <Link href={path + "/report"}>Report</Link>
       </nav>
       <div className={`project-layout ${chat ? "has-chat" : ""}`}>

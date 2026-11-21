@@ -3,6 +3,7 @@ import { notFound, redirect } from "next/navigation";
 import { ownerCookie, ownerStatus } from "../../../lib/upstream";
 import { AgentDetailPage } from "./agent-detail";
 import { AuditPage } from "./audit";
+import { DagPage } from "./dag";
 import { HillclimbPage } from "./hillclimb";
 import { MergeQueuePage } from "./mergequeue";
 import { InstructionsPage } from "./instructions";
@@ -27,6 +28,7 @@ export default async function Page({ params }: PageProps<"/[[...view]]">) {
   if (root === "instructions" && view.length === 1) return <InstructionsPage />;
   if (root === "charter" && view.length === 1) return <Workspace section="charter" architecture={false} />;
   if (root === "briefs" && id && subview === "report" && view.length === 3) return <ReportPage id={id} />;
+  if (root === "briefs" && id && subview === "graph" && view.length === 3) return <DagPage id={id} />;
   if (root === "agents" && id && view.length === 2) return <AgentDetailPage id={id} />;
   if (root === "tasks" && id && view.length === 2) return <TaskDetailPage id={id} />;
   const architecture = subview === "architecture";

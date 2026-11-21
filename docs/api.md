@@ -681,6 +681,12 @@ Alerts are held in memory per server process. Every threshold is an env var; a d
 | `db_size` | the SQLite file is larger than the limit | `SUBSPACE_ALERTS_DB_MAX_BYTES` (`8589934592`) |
 | `wal_size` | the SQLite `-wal` file is larger than the limit | `SUBSPACE_ALERTS_WAL_MAX_BYTES` (`536870912`) |
 | `sse_lagging` | the share of open event streams that received `lagged` since the last evaluation reaches the limit | `SUBSPACE_ALERTS_SSE_LAGGED_RATIO` (`0.25`) |
+### OpenAPI
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/openapi.json` | → the OpenAPI 3.1 document of this API (`application/json`). Owner token required. |
+
+The document is built on first request from the schema registry in `internal/openapi`, keeping only the operations the running server has mounted: routes that depend on configuration (webhooks, autopilot, merge queue) appear only when enabled. Every operation has a unique `operationId` (method plus path), the success response and a shared `Error` response (`{"error":{"code","message"}}`). Request and response schemas are derived from the Go types by reflection; nullable fields use `null` in `type`. `bearer` is the only security scheme (owner token on `/api/v1`, agent token on `/mcp`); `/healthz`, action links and webhooks opt out or use `webhookSignature`. The `x-mcp-tools` extension lists every MCP tool with its `name`, `description`, the `roles` that may call it and its JSON Schema `inputSchema`. The server URL is `SUBSPACE_PUBLIC_URL`.
 
 ### Notifications
 | Method | Path | Body → Response |

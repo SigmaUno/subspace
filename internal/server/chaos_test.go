@@ -32,10 +32,18 @@ type chaosNode struct {
 	done   chan struct{}
 }
 
-func startChaosNode(t *testing.T, db string) *chaosNode {
+type chaosClock struct{ skew atomic.Int64 }
+
+func (c *chaosClock) now() time.Time {
+	return time.Now().UTC().Add(time.Duration(c.skew.Load()))
+}
+
+func (c *chaosClock) advance(d time.Duration) { c.skew.Add(int64(d)) }
+
+func startChaosNode(t *testing.T, db string, clock *chaosClock) *chaosNode {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
-	s, err := New(ctx, Config{DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease,
+	s, err := New(ctx, Config{DBPath: db, OwnerToken: ownerTok, PublicURL: "http://sub.test", Lease: chaosLease, Now: clock.now,
 		FlushEvery: chaosSweep, SweepEvery: chaosSweep, Log: slog.New(slog.DiscardHandler)})
 	if err != nil {
 		cancel()
@@ -129,6 +137,8 @@ type chaosWorld struct {
 	t       *testing.T
 	c       *chaosClient
 	db      string
+	clock   *chaosClock
+	node    *chaosNode
 	brief   string
 	agents  []*chaosAgent
 	workers []string
@@ -383,6 +393,13 @@ func (w *chaosWorld) replay(label string) (map[string]string, map[string]int, in
 	return state, seen, creates
 }
 
+func (w *chaosWorld) sweep() {
+	w.t.Helper()
+	if err := w.node.srv.Board.Sweep(context.Background()); err != nil {
+		w.t.Fatalf("sweep: %v", err)
+	}
+}
+
 func (w *chaosWorld) verify(label string) {
 	t := w.t
 	t.Helper()
@@ -398,9 +415,9 @@ func (w *chaosWorld) verify(label string) {
 		}
 	}
 
-	t0 := time.Now()
+	t0 := w.clock.now()
 	before := w.tasks()
-	time.Sleep(6 * chaosSweep)
+	w.sweep()
 	ts := w.tasks()
 	byID := map[string]map[string]any{}
 	for _, tk := range ts {
@@ -497,10 +514,12 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "chaos.db")
 	rng := rand.New(rand.NewPCG(chaosSeed, 0))
 	t.Logf("seed %d", chaosSeed)
-	w := &chaosWorld{t: t, c: newChaosClient(), db: db, created: map[string]bool{}, acked: map[string]int{},
+	clock := &chaosClock{}
+	w := &chaosWorld{t: t, c: newChaosClient(), db: db, clock: clock, created: map[string]bool{}, acked: map[string]int{},
 		maxRR: map[string]float64{}, maxCost: map[string]float64{}}
 
-	node := startChaosNode(t, db)
+	node := startChaosNode(t, db, clock)
+	w.node = node
 	w.c.point(node)
 	defer func() { node.crash() }()
 
@@ -546,7 +565,8 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 		node.crash()
 		cancel()
 		wg.Wait()
-		node = startChaosNode(t, db)
+		node = startChaosNode(t, db, clock)
+		w.node = node
 		w.c.point(node)
 		w.verify(fmt.Sprint("round ", round))
 	}
@@ -559,7 +579,8 @@ func TestChaosRestartUnderLoad(t *testing.T) {
 	cancel()
 	wg.Wait()
 
-	time.Sleep(chaosLease + 6*chaosSweep)
+	clock.advance(chaosLease + chaosSweep)
+	w.sweep()
 	for _, tk := range w.tasks() {
 		if tk["status"] == "in_progress" {
 			t.Fatalf("%s still in_progress after every lease expired: %v", tk["id"], tk["lease_expires_at"])
@@ -577,9 +598,10 @@ func TestChaosBulkRegistrationCrash(t *testing.T) {
 	db := filepath.Join(t.TempDir(), "bulk.db")
 	rng := rand.New(rand.NewPCG(chaosSeed, 1))
 	c := newChaosClient()
+	clock := &chaosClock{}
 	const count = 200
 	for i := range 5 {
-		node := startChaosNode(t, db)
+		node := startChaosNode(t, db, clock)
 		c.point(node)
 		prefix := fmt.Sprintf("bulk%d", i)
 		type result struct {
@@ -597,7 +619,7 @@ func TestChaosBulkRegistrationCrash(t *testing.T) {
 		node.crash()
 		r := <-res
 
-		node = startChaosNode(t, db)
+		node = startChaosNode(t, db, clock)
 		c.point(node)
 		_, list, err := c.do(context.Background(), ownerTok, "GET", "/api/v1/agents?limit=1000", nil)
 		if err != nil {

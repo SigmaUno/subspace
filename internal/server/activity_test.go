@@ -59,6 +59,17 @@ func wantText(t *testing.T, items []activity.Item, want string) activity.Item {
 	return activity.Item{}
 }
 
+func wantTextPrefix(t *testing.T, items []activity.Item, prefix string) activity.Item {
+	t.Helper()
+	for _, it := range items {
+		if strings.HasPrefix(it.Text, prefix) {
+			return it
+		}
+	}
+	t.Fatalf("no activity starting with %q in:\n%s", prefix, strings.Join(texts(items), "\n"))
+	return activity.Item{}
+}
+
 func collectActivityEvents(t *testing.T, e *servertest.Env) (func() []activity.Item, context.CancelFunc) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
@@ -130,7 +141,8 @@ func TestActivityFeed(t *testing.T) {
 	b1, b2 := mkBrief(), mkBrief()
 	plan := e.Must(lead, "propose_plan", map[string]any{"brief_id": b1, "tasks": []any{spec(), spec()}})["plan"].(map[string]any)
 	pid := plan["id"].(string)
-	if code, out := e.REST("POST", "/api/v1/plans/"+pid+"/approve", map[string]any{}); code != 200 {
+	const planted = "hunter2hunter2hunter2"
+	if code, out := e.REST("POST", "/api/v1/plans/"+pid+"/approve", map[string]any{"note": "looks fine token=" + planted}); code != 200 {
 		t.Fatalf("approve: %d %v", code, out)
 	}
 	tid := plan["tasks"].([]any)[0].(map[string]any)["id"].(string)
@@ -154,7 +166,10 @@ func TestActivityFeed(t *testing.T) {
 	if !slices.Contains(prop.Targets, activity.Ref{Kind: "plan", ID: pid}) {
 		t.Errorf("propose targets = %v", prop.Targets)
 	}
-	appr := wantText(t, all.Items, "owner approved plan "+pid)
+	appr := wantTextPrefix(t, all.Items, "owner approved plan "+pid+": looks fine token=")
+	if strings.Contains(appr.Text, planted) || !strings.HasSuffix(appr.Text, "****") {
+		t.Errorf("approve note is not redacted: %q", appr.Text)
+	}
 	if appr.Severity != "success" || appr.Actor.Kind != "owner" {
 		t.Errorf("approve item = %+v", appr)
 	}
@@ -289,8 +304,12 @@ func TestActivityFeed(t *testing.T) {
 			}
 			time.Sleep(50 * time.Millisecond)
 		}
-		for _, w := range []string{"owner approved plan " + pid, "claude-3 submitted " + tid + " (PR #45)"} {
-			wantText(t, got, w)
+		wantTextPrefix(t, got, "owner approved plan "+pid+": looks fine token=")
+		wantText(t, got, "claude-3 submitted "+tid+" (PR #45)")
+		for _, it := range got {
+			if strings.Contains(it.Text, planted) {
+				t.Errorf("event leaks the planted secret: %q", it.Text)
+			}
 		}
 		seen := map[string]bool{}
 		for _, it := range got {

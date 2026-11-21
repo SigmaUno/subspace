@@ -157,6 +157,10 @@ func TestReportOverHTTP(t *testing.T) {
 	if r.Cost.TotalEUR != 0.5 || r.Cost.ByAgent["claude-1"] != 0.5 || r.Cost.ByProvider["anthropic"] != 0.5 || r.Cost.ByTask[t1] != 0.5 {
 		t.Fatalf("cost: %+v", r.Cost)
 	}
+	if ef := r.Efficiency; ef.DoneTasks != 1 || ef.CostPerDoneTask == nil || *ef.CostPerDoneTask != 0.5 || ef.CostPerAcceptedLine != nil ||
+		ef.ReworkedEUR != 0.5 || ef.ReviewOverheadEUR != 0 || ef.CostByStatus["done"] != 0.5 {
+		t.Fatalf("efficiency: %+v", ef)
+	}
 	if !reflect.DeepEqual(r.CriticalPath.TaskIDs, []string{t1, t2}) || r.Throughput.Done != 1 {
 		t.Fatalf("flow: %+v %+v", r.CriticalPath, r.Throughput)
 	}
@@ -165,7 +169,7 @@ func TestReportOverHTTP(t *testing.T) {
 	if code != 200 || !strings.HasPrefix(hdr.Get("Content-Type"), "text/markdown") {
 		t.Fatalf("markdown: %d %s", code, hdr.Get("Content-Type"))
 	}
-	for _, want := range []string{"# " + bid + " — Demo", "### " + t1 + " Add login", "`in_progress → submitted`", "Critical path: " + t1 + " → " + t2} {
+	for _, want := range []string{"# " + bid + " — Demo", "### " + t1 + " Add login", "`in_progress → submitted`", "Critical path: " + t1 + " → " + t2, "## Efficiency", "Cost per done task: 0.5000 €"} {
 		if !strings.Contains(string(body), want) {
 			t.Errorf("markdown missing %q:\n%s", want, body)
 		}

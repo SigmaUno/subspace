@@ -52,6 +52,8 @@ func Markdown(r Report) string {
 	costTable(&b, "Agent", r.Cost.ByAgent)
 	costTable(&b, "Provider", r.Cost.ByProvider)
 
+	efficiencyMarkdown(&b, r.Efficiency)
+
 	fmt.Fprintf(&b, "## Flow\n\n- Blocked time: %s\n- Done: %d in %.2f h (%.2f per hour)\n", duration(r.BlockedSeconds), r.Throughput.Done, r.Throughput.WindowHours, r.Throughput.PerHour)
 	if len(r.CriticalPath.TaskIDs) > 0 {
 		fmt.Fprintf(&b, "- Critical path: %s (%s)\n", strings.Join(r.CriticalPath.TaskIDs, " → "), duration(r.CriticalPath.Seconds))
@@ -66,6 +68,23 @@ func Markdown(r Report) string {
 		fmt.Fprintf(&b, "- %s %s: %g (threshold %g)\n", o.TaskID, o.Metric, o.Value, o.Threshold)
 	}
 	return b.String()
+}
+
+func efficiencyMarkdown(b *strings.Builder, e Efficiency) {
+	b.WriteString("## Efficiency\n\n")
+	fmt.Fprintf(b, "- Cost per done task: %s (%d done)\n", euro(e.CostPerDoneTask), e.DoneTasks)
+	fmt.Fprintf(b, "- Cost per merged task: %s (%d merged)\n", euro(e.CostPerMergedTask), e.MergedTasks)
+	fmt.Fprintf(b, "- Cost per accepted line: %s (%d lines)\n", euro(e.CostPerAcceptedLine), e.AcceptedLines)
+	fmt.Fprintf(b, "- Review round overhead: %.2f € (%.1f%% of cost)\n", e.ReviewOverheadEUR, e.ReviewOverheadPct)
+	fmt.Fprintf(b, "- Wasted: %.2f € (cancelled %.2f €, reworked %.2f €)\n\n", e.WastedEUR, e.CancelledEUR, e.ReworkedEUR)
+	costTable(b, "Status", e.CostByStatus)
+}
+
+func euro(v *float64) string {
+	if v == nil {
+		return "n/a"
+	}
+	return fmt.Sprintf("%.4f €", *v)
 }
 
 func costTable(b *strings.Builder, label string, m map[string]float64) {

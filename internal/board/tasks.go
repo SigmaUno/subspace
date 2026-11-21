@@ -110,6 +110,7 @@ func (b *Board) ListMyTasks(ctx context.Context, a model.Actor, statuses []strin
 }
 
 func (b *Board) CreateTask(ctx context.Context, a model.Actor, in TaskInput) (*model.Task, error) {
+	in = b.scrubTask(ctx, a, in)
 	var out *model.Task
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)
@@ -152,6 +153,16 @@ type TaskPatch struct {
 }
 
 func (b *Board) UpdateTask(ctx context.Context, a model.Actor, id string, p TaskPatch) (*model.Task, error) {
+	if p.Title != nil {
+		p.Title = strp(b.scrub(ctx, a, ChannelTask, *p.Title))
+	}
+	if p.Spec != nil {
+		p.Spec = strp(b.scrub(ctx, a, ChannelTask, *p.Spec))
+	}
+	if p.AcceptanceCriteria != nil {
+		ac := b.scrubAll(ctx, a, ChannelTask, *p.AcceptanceCriteria)
+		p.AcceptanceCriteria = &ac
+	}
 	var out *model.Task
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		t, err := tx.GetTask(id)

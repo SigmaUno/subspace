@@ -19,6 +19,7 @@ const (
 	ChannelReview   = "review"
 	ChannelPR       = "pr_text"
 	ChannelOutput   = "log_output"
+	ChannelTask     = "task_text"
 )
 
 type LeakSource struct {
@@ -60,6 +61,13 @@ func (b *Board) scrubAll(ctx context.Context, a model.Actor, channel string, xs 
 		out[i] = b.scrub(ctx, a, channel, x)
 	}
 	return out
+}
+
+func (b *Board) scrubTask(ctx context.Context, a model.Actor, in TaskInput) TaskInput {
+	in.Title = b.scrub(ctx, a, ChannelTask, in.Title)
+	in.Spec = b.scrub(ctx, a, ChannelTask, in.Spec)
+	in.AcceptanceCriteria = b.scrubAll(ctx, a, ChannelTask, in.AcceptanceCriteria)
+	return in
 }
 
 func messageChannel(kind string) string {

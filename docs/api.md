@@ -710,7 +710,7 @@ Owner scope only.
 ```
 
 ### Token leak response
-Text written by agents is scanned for tokens before it is redacted and stored: message and note bodies, `ask_owner` questions and options, `submit` summaries and `pr_url`, `update_status` notes, `report_tests` logs, review comments, `log_output` chunks and the system messages the server posts from PR webhooks and other sync sources. Only substrings that start with `ssp_` or `ssu_` and continue with exactly 43 base64url characters that decode to 32 bytes are considered, at most 32 distinct ones per text. Each is hashed with SHA-256 and looked up in the agent table (through the token cache) and the managed API tokens; the candidate itself is never logged or stored, and an unknown or near-miss string is left to the normal redaction.
+Text written by agents is scanned for tokens before it is redacted and stored: message and note bodies, `ask_owner` questions and options, `submit` summaries and `pr_url`, `update_status` notes, `report_tests` logs, review comments, `log_output` chunks, the title, spec and acceptance criteria of tasks from `create_task`, `update_task` and `propose_plan` and the system messages the server posts from PR webhooks and other sync sources. Only substrings that start with `ssp_` or `ssu_` and continue with exactly 43 base64url characters that decode to 32 bytes are considered, at most 32 distinct ones per text. Each is hashed with SHA-256 and looked up in the agent table (through the token cache) and the managed API tokens; the candidate itself is never logged or stored, and an unknown or near-miss string is left to the normal redaction.
 
 When a candidate is the live token of an agent or a managed API token, the server immediately:
 
@@ -720,7 +720,7 @@ When a candidate is the live token of an agent or a managed API token, the serve
 - records the leak, creates the owner decision `leak:<leak id>` (kind `token_leak`) and publishes `alert.raised` (notification id `token_leak:<leak id>`) to the notification sinks;
 - appends an audit event with tool `token_leak_detected` by `system` (`after` holds `identity` `agent` or `api_token`, `channel`, `leak_id`; `note` is `author=<id>`; no secret).
 
-`channel` is one of `message`, `note`, `question`, `submit_summary`, `status_note`, `test_log`, `review`, `pr_text` or `log_output`. Tokens that are already revoked or expired are not treated as leaks. Leaks are stored in the `token_leaks` table.
+`channel` is one of `message`, `note`, `question`, `submit_summary`, `status_note`, `test_log`, `review`, `pr_text`, `log_output` or `task_text`. Tokens that are already revoked or expired are not treated as leaks. Leaks are stored in the `token_leaks` table.
 
 | Method | Path | Body → Response |
 |---|---|---|

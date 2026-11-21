@@ -278,6 +278,18 @@ func TestLeakInEveryChannelRevokesOnlyThatIdentity(t *testing.T) {
 			f.Must(f.lead, "assign", map[string]any{"task_id": task, "agent_id": rid, "as": "reviewer"})
 			f.Must(rtok, "review", map[string]any{"task_id": task, "verdict": "changes_requested", "comments": "do not commit " + v})
 		}},
+		{"task_text", func(v string) {
+			f.Must(f.lead, "create_task", map[string]any{"brief_id": f.brief, "title": "rotate keys", "spec": "use " + v, "repo": "o/r"})
+		}},
+		{"task_text", func(v string) {
+			_, task := f.claimed("worker", "claude-code")
+			f.Must(f.lead, "update_task", map[string]any{"task_id": task, "acceptance_criteria": []string{"works with " + v}})
+		}},
+		{"task_text", func(v string) {
+			f.Must(f.lead, "propose_plan", map[string]any{"brief_id": f.brief, "tasks": []any{
+				map[string]any{"title": "t " + v, "spec": "s", "repo": "o/r", "role": "worker", "acceptance_criteria": []string{"ok"}},
+			}})
+		}},
 		{"log_output", func(v string) {
 			tok, _ := f.claimed("worker", "claude-code")
 			f.Must(tok, "log_output", map[string]any{"stream": "stdout", "text": "$ env\nTOKEN_X=" + v + "\n"})

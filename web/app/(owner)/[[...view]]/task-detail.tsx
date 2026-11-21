@@ -8,6 +8,7 @@ import { statuses, type Message } from "../../../lib/types";
 import { Feedback, LoadMore } from "./components";
 import { useLive } from "./live";
 import { PRBadges, usePR } from "./pr-status";
+import { AgentTerminal } from "./terminal";
 
 const statusNames = new Map<string, string>(statuses);
 const settled = ["done", "cancelled"];
@@ -210,6 +211,8 @@ export function TaskDetailPage({ id }: { id: string }) {
         </section>
 
         <OwnerActions task={current} changed={changed} />
+
+        {current.assignee && <AgentTerminal agent={current.assignee} taskID={current.id} />}
 
         <section className="panel stack">
           <h2>Timeline</h2>

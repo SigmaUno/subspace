@@ -14,6 +14,7 @@ import { TrendsView } from "./trends";
 import { UsageView } from "./usage";
 import { useLive } from "./live";
 import { SettingsView } from "./settings";
+import { OutputTile } from "./terminal";
 
 import { DecisionInbox, type DecisionFeed } from "./decisions";
 import { FilesView } from "./files";
@@ -129,6 +130,7 @@ export function Workspace({ section, briefID, architecture }: { section: string;
           <div className="stack workspace-content">
             {section === "swarm" && !briefID && <Onboarding revisions={revisions} />}
             {section === "swarm" && <SwarmOverview id={briefID} architecture={architecture} revisions={revisions} recent={recent} openThread={setThread} />}
+            {section === "swarm" && <OutputTile />}
             {section === "briefs" && <BriefsView revision={revisions.briefs} />}
             {section === "agents" && <AgentsView revision={revisions.agents} openThread={setThread} />}
             {section === "agents" && <Leaderboard revision={revisions.board} />}

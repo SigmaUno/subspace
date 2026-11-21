@@ -2,6 +2,7 @@ package drill
 
 import (
 	"context"
+	"database/sql"
 	"encoding/json"
 	"time"
 
@@ -40,29 +41,24 @@ func query(tx store.Tx, tail string, args ...any) ([]*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(`SELECT `+cols+` FROM restore_drills `+tail, args...)
-	if err != nil {
+	return store.QueryAll(q, scanResult, `SELECT `+cols+` FROM restore_drills `+tail, args...)
+}
+
+func scanResult(rows *sql.Rows) (*Result, error) {
+	var (
+		r                 Result
+		checks            string
+		started, finished int64
+	)
+	if err := rows.Scan(&r.ID, &r.Status, &r.Trigger, &r.Backup, &r.BackupBytes, &r.Error, &checks, &started, &finished); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []*Result{}
-	for rows.Next() {
-		var (
-			r                 Result
-			checks            string
-			started, finished int64
-		)
-		if err := rows.Scan(&r.ID, &r.Status, &r.Trigger, &r.Backup, &r.BackupBytes, &r.Error, &checks, &started, &finished); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(checks), &r.Checks); err != nil {
-			return nil, err
-		}
-		r.StartedAt = time.UnixMilli(started).UTC()
-		r.FinishedAt = time.UnixMilli(finished).UTC()
-		out = append(out, &r)
+	if err := json.Unmarshal([]byte(checks), &r.Checks); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	r.StartedAt = time.UnixMilli(started).UTC()
+	r.FinishedAt = time.UnixMilli(finished).UTC()
+	return &r, nil
 }
 
 func insert(tx store.Tx, r *Result) error {

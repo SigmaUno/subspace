@@ -93,12 +93,9 @@ func copyFile(from, to string) (err error) {
 func prunedMarker(path string) string { return path + ".pruned" }
 
 func (s *Service) manifestRowExists(ctx context.Context, r row) (bool, error) {
-	var n int64
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		n, err = scalar(q, `SELECT COUNT(*) FROM task_transcripts WHERE id = ?`, r.int("id"))
-		return err
-	}))
+	n, err := store.ViewSQL(ctx, s.st, func(q store.SQL) (int64, error) {
+		return scalar(q, `SELECT COUNT(*) FROM task_transcripts WHERE id = ?`, r.int("id"))
+	})
 	return n > 0, err
 }
 

@@ -251,6 +251,20 @@ func Millis(t time.Time) int64 {
 	return t.UnixMilli()
 }
 
+func NullMillis(t *time.Time) any {
+	if t == nil {
+		return nil
+	}
+	return t.UnixMilli()
+}
+
+func Flag(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
+}
+
 func millisPtr(t *time.Time) int64 {
 	if t == nil {
 		return 0

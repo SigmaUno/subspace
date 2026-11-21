@@ -63,46 +63,23 @@ type Segment struct {
 	CreatedAt   time.Time `json:"created_at"`
 }
 
-func scanSegments(rows *sql.Rows) ([]Segment, error) {
-	defer func() { _ = rows.Close() }()
-	var out []Segment
-	for rows.Next() {
-		var (
-			s                      Segment
-			firstTS, lastTS, begun int64
-		)
-		if err := rows.Scan(&s.ID, &s.TaskID, &s.BriefID, &s.FirstOffset, &s.LastOffset, &s.Lines, &s.RawBytes, &s.Bytes,
-			&s.SHA256, &s.File, &firstTS, &lastTS, &begun); err != nil {
-			return nil, err
-		}
-		s.FirstTS, s.LastTS, s.CreatedAt = time.UnixMilli(firstTS).UTC(), time.UnixMilli(lastTS).UTC(), time.UnixMilli(begun).UTC()
-		out = append(out, s)
+func scanSegment(rows *sql.Rows) (Segment, error) {
+	var (
+		s                      Segment
+		firstTS, lastTS, begun int64
+	)
+	if err := rows.Scan(&s.ID, &s.TaskID, &s.BriefID, &s.FirstOffset, &s.LastOffset, &s.Lines, &s.RawBytes, &s.Bytes,
+		&s.SHA256, &s.File, &firstTS, &lastTS, &begun); err != nil {
+		return Segment{}, err
 	}
-	return out, rows.Err()
-}
-
-func scalar(q store.SQL, query string, args ...any) (int64, error) {
-	rows, err := q.Query(query, args...)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	var n int64
-	if rows.Next() {
-		if err := rows.Scan(&n); err != nil {
-			return 0, err
-		}
-	}
-	return n, rows.Err()
+	s.FirstTS, s.LastTS, s.CreatedAt = time.UnixMilli(firstTS).UTC(), time.UnixMilli(lastTS).UTC(), time.UnixMilli(begun).UTC()
+	return s, nil
 }
 
 func loadHead(ctx context.Context, st store.Store, task string) (int64, error) {
-	var n int64
-	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) (e error) {
-		n, e = scalar(q, `SELECT next_offset FROM task_transcript_heads WHERE task_id = ?`, task)
-		return
-	}))
-	return n, err
+	return store.ViewSQL(ctx, st, func(q store.SQL) (int64, error) {
+		return store.Scalar[int64](q, `SELECT next_offset FROM task_transcript_heads WHERE task_id = ?`, task)
+	})
 }
 
 func insertSegment(ctx context.Context, st store.Store, seg *Segment) error {
@@ -112,7 +89,7 @@ func insertSegment(ctx context.Context, st store.Store, seg *Segment) error {
 			seg.FirstTS.UnixMilli(), seg.LastTS.UnixMilli(), seg.CreatedAt.UnixMilli()); err != nil {
 			return err
 		}
-		id, err := scalar(q, `SELECT id FROM task_transcripts WHERE task_id = ? AND first_offset = ?`, seg.TaskID, seg.FirstOffset)
+		id, err := store.Scalar[int64](q, `SELECT id FROM task_transcripts WHERE task_id = ? AND first_offset = ?`, seg.TaskID, seg.FirstOffset)
 		if err != nil {
 			return err
 		}
@@ -124,29 +101,15 @@ func insertSegment(ctx context.Context, st store.Store, seg *Segment) error {
 }
 
 func taskSegments(ctx context.Context, st store.Store, task string, after int64) ([]Segment, error) {
-	var out []Segment
-	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+segmentCols+` FROM task_transcripts WHERE task_id = ? AND last_offset > ? ORDER BY first_offset`, task, after)
-		if err != nil {
-			return err
-		}
-		out, err = scanSegments(rows)
-		return err
-	}))
-	return out, err
+	return store.ViewSQL(ctx, st, func(q store.SQL) ([]Segment, error) {
+		return store.QueryAll(q, scanSegment, `SELECT `+segmentCols+` FROM task_transcripts WHERE task_id = ? AND last_offset > ? ORDER BY first_offset`, task, after)
+	})
 }
 
 func briefSegments(ctx context.Context, st store.Store, brief string) ([]Segment, error) {
-	var out []Segment
-	err := st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		rows, err := q.Query(`SELECT `+segmentCols+` FROM task_transcripts WHERE brief_id = ? ORDER BY created_at, id`, brief)
-		if err != nil {
-			return err
-		}
-		out, err = scanSegments(rows)
-		return err
-	}))
-	return out, err
+	return store.ViewSQL(ctx, st, func(q store.SQL) ([]Segment, error) {
+		return store.QueryAll(q, scanSegment, `SELECT `+segmentCols+` FROM task_transcripts WHERE brief_id = ? ORDER BY created_at, id`, brief)
+	})
 }
 
 func deleteSegments(ctx context.Context, st store.Store, segs []Segment, reason string, at time.Time) error {

@@ -62,13 +62,6 @@ func loadVAPID(ctx context.Context, st store.Store) (*VAPID, error) {
 	return v, err
 }
 
-func ms(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.UnixMilli()
-}
-
 func fromMS(n sql.NullInt64) *time.Time {
 	if !n.Valid {
 		return nil
@@ -109,13 +102,7 @@ func query(q store.SQL, where string, args ...any) ([]*Subscription, error) {
 }
 
 func (d db) list(ctx context.Context) ([]*Subscription, error) {
-	var out []*Subscription
-	err := d.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = query(q, `ORDER BY length(id), id`)
-		return err
-	}))
-	return out, err
+	return store.ViewSQL(ctx, d.st, func(q store.SQL) ([]*Subscription, error) { return query(q, `ORDER BY length(id), id`) })
 }
 
 func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditFn) (bool, error) {
@@ -128,7 +115,7 @@ func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditF
 		if len(cur) > 0 {
 			s.ID, s.CreatedAt = cur[0].ID, cur[0].CreatedAt
 			if _, err := q.Exec(`UPDATE push_subscriptions SET p256dh = ?, auth = ?, name = ?, expires_at = ?, failures = 0 WHERE id = ?`,
-				s.p256dh, s.auth, s.Name, ms(s.ExpiresAt), s.ID); err != nil {
+				s.p256dh, s.auth, s.Name, store.NullMillis(s.ExpiresAt), s.ID); err != nil {
 				return err
 			}
 			s.LastSuccessAt = cur[0].LastSuccessAt
@@ -145,7 +132,7 @@ func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditF
 			return err
 		}
 		if _, err := q.Exec(`INSERT INTO push_subscriptions (`+cols+`) VALUES (?, ?, ?, ?, ?, ?, ?, NULL, 0)`,
-			s.ID, s.Endpoint, s.p256dh, s.auth, s.Name, ms(s.ExpiresAt), s.CreatedAt.UnixMilli()); err != nil {
+			s.ID, s.Endpoint, s.p256dh, s.auth, s.Name, store.NullMillis(s.ExpiresAt), s.CreatedAt.UnixMilli()); err != nil {
 			return err
 		}
 		created = true

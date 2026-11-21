@@ -162,12 +162,7 @@ func (s *Service) validate(d *Document) error {
 }
 
 func (s *Service) List(ctx context.Context) ([]*Policy, error) {
-	var out []*Policy
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = listPolicies(q)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Policy, error) { return listPolicies(q) })
 	for _, p := range out {
 		s.decorate(p)
 	}
@@ -175,12 +170,7 @@ func (s *Service) List(ctx context.Context) ([]*Policy, error) {
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*Policy, error) {
-	var out *Policy
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = getPolicy(q, id)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) (*Policy, error) { return getPolicy(q, id) })
 	if err != nil {
 		return nil, err
 	}
@@ -303,12 +293,7 @@ func (s *Service) Decisions(ctx context.Context, f DecisionFilter) ([]*Decision,
 		f.Limit = defaultDecisions
 	}
 	f.Limit = min(f.Limit, maxList)
-	var out []*Decision
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = listDecisions(q, f)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Decision, error) { return listDecisions(q, f) })
 	for _, d := range out {
 		if d.Matched == nil {
 			d.Matched = []Match{}
@@ -357,12 +342,7 @@ func (s *Service) view(h *Hold) {
 }
 
 func (s *Service) GetHold(ctx context.Context, id string) (*Hold, error) {
-	var out *Hold
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = getHold(q, id)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) (*Hold, error) { return getHold(q, id) })
 	if err != nil {
 		return nil, err
 	}
@@ -481,7 +461,7 @@ func (s *Service) Sweep(ctx context.Context) (int, error) {
 	now := s.now().UTC()
 	var expired []*Hold
 	err := s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		hs, err := queryHolds(q, `WHERE status=? AND expires_at<=? ORDER BY seq`, HoldPending, millis(now))
+		hs, err := queryHolds(q, `WHERE status=? AND expires_at<=? ORDER BY seq`, HoldPending, store.Millis(now))
 		if err != nil {
 			return err
 		}

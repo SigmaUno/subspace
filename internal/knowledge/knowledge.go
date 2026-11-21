@@ -292,7 +292,7 @@ func (s *Service) Search(ctx context.Context, a model.Actor, q Query) ([]*Entry,
 		if c := cmp.Compare(y.score, x.score); c != 0 {
 			return c
 		}
-		return cmp.Compare(btoi(y.e.Pinned), btoi(x.e.Pinned))
+		return cmp.Compare(store.Flag(y.e.Pinned), store.Flag(x.e.Pinned))
 	})
 	out := make([]*Entry, 0, min(len(hits), q.Limit))
 	for _, h := range hits[:min(len(hits), q.Limit)] {
@@ -566,7 +566,7 @@ func (s *Service) Titles(ctx context.Context, a model.Actor) ([]Title, error) {
 	if err != nil {
 		return nil, err
 	}
-	slices.SortStableFunc(es, func(x, y *Entry) int { return cmp.Compare(btoi(y.Pinned), btoi(x.Pinned)) })
+	slices.SortStableFunc(es, func(x, y *Entry) int { return cmp.Compare(store.Flag(y.Pinned), store.Flag(x.Pinned)) })
 	out := []Title{}
 	for _, e := range es[:min(len(es), maxTitles)] {
 		out = append(out, Title{ID: e.ID, BriefID: e.BriefID, Kind: e.Kind, Title: e.Title, Pinned: e.Pinned})
@@ -660,11 +660,4 @@ func briefErr(err error, id string) error {
 		return model.NotFound("brief %s not found", id)
 	}
 	return err
-}
-
-func btoi(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }

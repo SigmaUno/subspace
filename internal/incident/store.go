@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"errors"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -13,32 +14,24 @@ import (
 
 const cols = `id, reason, actions, results, started_at, ended_at, actor`
 
-func scan(rows *sql.Rows) ([]*Incident, error) {
-	defer func() { _ = rows.Close() }()
-	out := []*Incident{}
-	for rows.Next() {
-		var (
-			in               Incident
-			actions, results string
-			started, ended   int64
-		)
-		if err := rows.Scan(&in.ID, &in.Reason, &actions, &results, &started, &ended, &in.Actor); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(actions), &in.Actions); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(results), &in.Results); err != nil {
-			return nil, err
-		}
-		in.StartedAt = time.UnixMilli(started).UTC()
-		if ended > 0 {
-			t := time.UnixMilli(ended).UTC()
-			in.EndedAt = &t
-		}
-		out = append(out, &in)
+func scan(rows *sql.Rows) (*Incident, error) {
+	var (
+		in               Incident
+		actions, results string
+		started, ended   int64
+	)
+	if err := rows.Scan(&in.ID, &in.Reason, &actions, &results, &started, &ended, &in.Actor); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	if err := errors.Join(json.Unmarshal([]byte(actions), &in.Actions), json.Unmarshal([]byte(results), &in.Results)); err != nil {
+		return nil, err
+	}
+	in.StartedAt = time.UnixMilli(started).UTC()
+	if ended > 0 {
+		t := time.UnixMilli(ended).UTC()
+		in.EndedAt = &t
+	}
+	return &in, nil
 }
 
 func query(tx store.Tx, where string, args ...any) ([]*Incident, error) {
@@ -46,11 +39,7 @@ func query(tx store.Tx, where string, args ...any) ([]*Incident, error) {
 	if err != nil {
 		return nil, err
 	}
-	rows, err := q.Query(`SELECT `+cols+` FROM incidents `+where, args...)
-	if err != nil {
-		return nil, err
-	}
-	return scan(rows)
+	return store.QueryAll(q, scan, `SELECT `+cols+` FROM incidents `+where, args...)
 }
 
 func loadTx(tx store.Tx, id string) (*Incident, error) {

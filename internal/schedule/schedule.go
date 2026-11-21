@@ -322,12 +322,7 @@ func checkVars(where string, vars map[string]string) error {
 }
 
 func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
-	var out []*Schedule
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = list(q)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) ([]*Schedule, error) { return list(q) })
 	if err != nil {
 		return nil, err
 	}
@@ -338,12 +333,7 @@ func (s *Service) List(ctx context.Context) ([]*Schedule, error) {
 }
 
 func (s *Service) Get(ctx context.Context, id string) (*Schedule, error) {
-	var out *Schedule
-	err := s.st.View(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		out, err = get(q, id)
-		return err
-	}))
+	out, err := store.ViewSQL(ctx, s.st, func(q store.SQL) (*Schedule, error) { return get(q, id) })
 	if err != nil {
 		return nil, err
 	}

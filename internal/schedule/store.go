@@ -57,21 +57,7 @@ type specJSON struct {
 	Tasks   []TaskSpec `json:"tasks"`
 }
 
-func millis(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
 func fromMillis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
-
-func flag(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
-}
 
 func insert(t store.Tx, q store.SQL, s *Schedule) error {
 	id, err := t.NextID("SC")
@@ -83,8 +69,8 @@ func insert(t store.Tx, q store.SQL, s *Schedule) error {
 		return err
 	}
 	if _, err := q.Exec(`INSERT INTO schedules(id,name,cron,timezone,action,spec,enabled,max_active,catch_up,cursor_at,created_at,updated_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, s.Name, s.Cron, s.Timezone, s.Action, string(spec), flag(s.Enabled), s.MaxActive, s.CatchUp,
-		millis(s.cursor), millis(s.CreatedAt), millis(s.UpdatedAt)); err != nil {
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, id, s.Name, s.Cron, s.Timezone, s.Action, string(spec), store.Flag(s.Enabled), s.MaxActive, s.CatchUp,
+		store.Millis(s.cursor), store.Millis(s.CreatedAt), store.Millis(s.UpdatedAt)); err != nil {
 		return err
 	}
 	s.ID = id
@@ -97,7 +83,7 @@ func update(q store.SQL, s *Schedule) error {
 		return err
 	}
 	res, err := q.Exec(`UPDATE schedules SET name=?,cron=?,timezone=?,action=?,spec=?,enabled=?,max_active=?,catch_up=?,cursor_at=?,updated_at=? WHERE id=?`,
-		s.Name, s.Cron, s.Timezone, s.Action, string(spec), flag(s.Enabled), s.MaxActive, s.CatchUp, millis(s.cursor), millis(s.UpdatedAt), s.ID)
+		s.Name, s.Cron, s.Timezone, s.Action, string(spec), store.Flag(s.Enabled), s.MaxActive, s.CatchUp, store.Millis(s.cursor), store.Millis(s.UpdatedAt), s.ID)
 	if err != nil {
 		return err
 	}
@@ -123,53 +109,39 @@ func remove(q store.SQL, id string) error {
 }
 
 func count(q store.SQL) (int, error) {
-	rows, err := q.Query(`SELECT COUNT(*) FROM schedules`)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	var n int
-	if rows.Next() {
-		err = rows.Scan(&n)
-	}
-	return n, errors.Join(err, rows.Err())
+	return store.Scalar[int](q, `SELECT COUNT(*) FROM schedules`)
 }
 
 func query(q store.SQL, where string, args ...any) ([]*Schedule, error) {
-	rows, err := q.Query(`SELECT `+scheduleCols+` FROM schedules s `+where, args...)
-	if err != nil {
+	return store.QueryAll(q, scanSchedule, `SELECT `+scheduleCols+` FROM schedules s `+where, args...)
+}
+
+func scanSchedule(rows *sql.Rows) (*Schedule, error) {
+	var (
+		s                                     Schedule
+		spec                                  string
+		enabled                               int
+		cursor, created, updated, lastRunTime int64
+	)
+	if err := rows.Scan(&s.ID, &s.Name, &s.Cron, &s.Timezone, &s.Action, &spec, &enabled, &s.MaxActive, &s.CatchUp,
+		&cursor, &created, &updated, &lastRunTime); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []*Schedule{}
-	for rows.Next() {
-		var (
-			s                                     Schedule
-			spec                                  string
-			enabled                               int
-			cursor, created, updated, lastRunTime int64
-		)
-		if err := rows.Scan(&s.ID, &s.Name, &s.Cron, &s.Timezone, &s.Action, &spec, &enabled, &s.MaxActive, &s.CatchUp,
-			&cursor, &created, &updated, &lastRunTime); err != nil {
-			return nil, err
-		}
-		var sp specJSON
-		if err := json.Unmarshal([]byte(spec), &sp); err != nil {
-			return nil, err
-		}
-		s.Brief, s.BriefID, s.Tasks = sp.Brief, sp.BriefID, sp.Tasks
-		if s.Tasks == nil {
-			s.Tasks = []TaskSpec{}
-		}
-		s.Enabled = enabled != 0
-		s.cursor, s.CreatedAt, s.UpdatedAt = fromMillis(cursor), fromMillis(created), fromMillis(updated)
-		if lastRunTime > 0 {
-			t := fromMillis(lastRunTime)
-			s.LastRunAt = &t
-		}
-		out = append(out, &s)
+	var sp specJSON
+	if err := json.Unmarshal([]byte(spec), &sp); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	s.Brief, s.BriefID, s.Tasks = sp.Brief, sp.BriefID, sp.Tasks
+	if s.Tasks == nil {
+		s.Tasks = []TaskSpec{}
+	}
+	s.Enabled = enabled != 0
+	s.cursor, s.CreatedAt, s.UpdatedAt = fromMillis(cursor), fromMillis(created), fromMillis(updated)
+	if lastRunTime > 0 {
+		t := fromMillis(lastRunTime)
+		s.LastRunAt = &t
+	}
+	return &s, nil
 }
 
 func list(q store.SQL) ([]*Schedule, error) {
@@ -177,43 +149,31 @@ func list(q store.SQL) ([]*Schedule, error) {
 }
 
 func get(q store.SQL, id string) (*Schedule, error) {
-	out, err := query(q, `WHERE s.id=?`, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(out) == 0 {
-		return nil, model.NotFound("schedule %s not found", id)
-	}
-	return out[0], nil
+	return store.QueryOne(q, scanSchedule, model.NotFound("schedule %s not found", id), `SELECT `+scheduleCols+` FROM schedules s WHERE s.id=?`, id)
 }
 
 func queryRuns(q store.SQL, where string, args ...any) ([]Run, error) {
-	rows, err := q.Query(`SELECT `+runCols+` FROM schedule_runs `+where, args...)
-	if err != nil {
-		return nil, err
+	return store.QueryAll(q, scanRun, `SELECT `+runCols+` FROM schedule_runs `+where, args...)
+}
+
+func scanRun(rows *sql.Rows) (Run, error) {
+	var (
+		r                     Run
+		instant, start, ended int64
+		ids                   string
+	)
+	if err := rows.Scan(&r.ScheduleID, &instant, &r.Status, &r.Missed, &r.Detail, &r.BriefID, &ids, &start, &ended); err != nil {
+		return Run{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []Run{}
-	for rows.Next() {
-		var (
-			r                     Run
-			instant, start, ended int64
-			ids                   string
-		)
-		if err := rows.Scan(&r.ScheduleID, &instant, &r.Status, &r.Missed, &r.Detail, &r.BriefID, &ids, &start, &ended); err != nil {
-			return nil, err
-		}
-		r.ScheduledFor, r.StartedAt = fromMillis(instant), fromMillis(start)
-		if ended > 0 {
-			t := fromMillis(ended)
-			r.FinishedAt = &t
-		}
-		if err := json.Unmarshal([]byte(ids), &r.TaskIDs); err != nil || r.TaskIDs == nil {
-			r.TaskIDs = []string{}
-		}
-		out = append(out, r)
+	r.ScheduledFor, r.StartedAt = fromMillis(instant), fromMillis(start)
+	if ended > 0 {
+		t := fromMillis(ended)
+		r.FinishedAt = &t
 	}
-	return out, rows.Err()
+	if err := json.Unmarshal([]byte(ids), &r.TaskIDs); err != nil || r.TaskIDs == nil {
+		r.TaskIDs = []string{}
+	}
+	return r, nil
 }
 
 func runs(q store.SQL, id string, limit int) ([]Run, error) {
@@ -223,10 +183,10 @@ func runs(q store.SQL, id string, limit int) ([]Run, error) {
 func claim(q store.SQL, s *Schedule, instant, now time.Time, status string, missed int, detail string) (bool, error) {
 	var finished int64
 	if status != RunRunning {
-		finished = millis(now)
+		finished = store.Millis(now)
 	}
 	res, err := q.Exec(`INSERT INTO schedule_runs(`+runCols+`) VALUES(?,?,?,?,?,?,?,?,?) ON CONFLICT(schedule_id, instant) DO NOTHING`,
-		s.ID, millis(instant), status, missed, detail, "", "[]", millis(now), finished)
+		s.ID, store.Millis(instant), status, missed, detail, "", "[]", store.Millis(now), finished)
 	if err != nil {
 		return false, err
 	}
@@ -234,7 +194,7 @@ func claim(q store.SQL, s *Schedule, instant, now time.Time, status string, miss
 	if err != nil {
 		return false, err
 	}
-	_, err = q.Exec(`UPDATE schedules SET cursor_at=? WHERE id=? AND cursor_at<?`, millis(instant), s.ID, millis(instant))
+	_, err = q.Exec(`UPDATE schedules SET cursor_at=? WHERE id=? AND cursor_at<?`, store.Millis(instant), s.ID, store.Millis(instant))
 	return n > 0, err
 }
 
@@ -244,13 +204,13 @@ func finish(q store.SQL, id string, instant, now time.Time, status, detail, brie
 		return err
 	}
 	_, err = q.Exec(`UPDATE schedule_runs SET status=?,detail=?,brief_id=?,task_ids=?,finished_at=? WHERE schedule_id=? AND instant=?`,
-		status, detail, briefID, string(ids), millis(now), id, millis(instant))
+		status, detail, briefID, string(ids), store.Millis(now), id, store.Millis(instant))
 	return err
 }
 
 func interrupt(q store.SQL, now time.Time) (int64, error) {
 	res, err := q.Exec(`UPDATE schedule_runs SET status=?,detail=?,finished_at=? WHERE status=?`,
-		RunInterrupted, "the server stopped before the run finished", millis(now), RunRunning)
+		RunInterrupted, "the server stopped before the run finished", store.Millis(now), RunRunning)
 	if err != nil {
 		return 0, err
 	}

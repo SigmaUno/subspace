@@ -39,3 +39,63 @@ func SupportsSQL(ctx context.Context, st Store) bool {
 	})
 	return ok
 }
+
+func QueryAll[T any](q SQL, scan func(*sql.Rows) (T, error), query string, args ...any) ([]T, error) {
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return nil, err
+	}
+	defer func() { _ = rows.Close() }()
+	out := []T{}
+	for rows.Next() {
+		v, err := scan(rows)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, v)
+	}
+	return out, rows.Err()
+}
+
+func Scalar[T any](q SQL, query string, args ...any) (T, error) {
+	var v T
+	rows, err := q.Query(query, args...)
+	if err != nil {
+		return v, err
+	}
+	defer func() { _ = rows.Close() }()
+	if rows.Next() {
+		err = rows.Scan(&v)
+	}
+	return v, errors.Join(err, rows.Err())
+}
+
+func ViewSQL[T any](ctx context.Context, st Store, fn func(SQL) (T, error)) (T, error) {
+	var out T
+	err := st.View(ctx, WithSQL(func(_ Tx, q SQL) (err error) {
+		out, err = fn(q)
+		return err
+	}))
+	return out, err
+}
+
+func AtomicSQL[T any](ctx context.Context, st Store, fn func(SQL) (T, error)) (T, error) {
+	var out T
+	err := st.Atomic(ctx, WithSQL(func(_ Tx, q SQL) (err error) {
+		out, err = fn(q)
+		return err
+	}))
+	return out, err
+}
+
+func QueryOne[T any](q SQL, scan func(*sql.Rows) (T, error), missing error, query string, args ...any) (T, error) {
+	var zero T
+	all, err := QueryAll(q, scan, query, args...)
+	if err != nil {
+		return zero, err
+	}
+	if len(all) == 0 {
+		return zero, missing
+	}
+	return all[0], nil
+}

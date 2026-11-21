@@ -278,7 +278,7 @@ func (s *SQLStore) Complete(ctx context.Context, d *Delivery, keep int) error {
 	return s.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
 		res, err := q.Exec(`UPDATE outbound_webhook_deliveries SET state = ?, attempts = ?, next_at = ?, last_status = ?, last_error = ?, updated_at = ?, delivered_at = ?
 			WHERE id = ? AND state = 'pending'`,
-			d.State, d.Attempts, nextMS(d.NextAttemptAt), status, d.LastError, d.UpdatedAt.UnixMilli(), msPtr(d.DeliveredAt), d.ID)
+			d.State, d.Attempts, nextMS(d.NextAttemptAt), status, d.LastError, d.UpdatedAt.UnixMilli(), store.NullMillis(d.DeliveredAt), d.ID)
 		if err != nil {
 			return err
 		}
@@ -290,13 +290,6 @@ func (s *SQLStore) Complete(ctx context.Context, d *Delivery, keep int) error {
 			d.WebhookID, d.WebhookID, keep)
 		return err
 	}))
-}
-
-func msPtr(t *time.Time) any {
-	if t == nil {
-		return nil
-	}
-	return t.UnixMilli()
 }
 
 func (s *SQLStore) Deliveries(ctx context.Context, subID, state string, limit int) ([]*Delivery, error) {

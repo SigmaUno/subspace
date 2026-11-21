@@ -152,12 +152,7 @@ func (r *Runner) record(ctx context.Context, s *Schedule, at, now time.Time, mis
 }
 
 func (r *Runner) execute(ctx context.Context, s *Schedule, at, now time.Time, missed int) error {
-	var claimed bool
-	err := r.st.Atomic(ctx, store.WithSQL(func(_ store.Tx, q store.SQL) error {
-		var err error
-		claimed, err = claim(q, s, at, now, RunRunning, missed, "")
-		return err
-	}))
+	claimed, err := store.AtomicSQL(ctx, r.st, func(q store.SQL) (bool, error) { return claim(q, s, at, now, RunRunning, missed, "") })
 	if err != nil || !claimed {
 		return err
 	}

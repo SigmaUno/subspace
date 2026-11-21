@@ -378,25 +378,9 @@ func (w *workspace) rowCounts(ctx context.Context) (string, error) {
 }
 
 func countRows(ctx context.Context, st store.Store, table string) (int64, error) {
-	var n int64
-	err := st.View(ctx, func(tx store.Tx) error {
-		q, err := store.SQLOf(tx)
-		if err != nil {
-			return err
-		}
-		rows, err := q.Query(`SELECT count(*) FROM ` + table)
-		if err != nil {
-			return err
-		}
-		defer func() { _ = rows.Close() }()
-		if rows.Next() {
-			if err := rows.Scan(&n); err != nil {
-				return err
-			}
-		}
-		return rows.Err()
+	return store.ViewSQL(ctx, st, func(q store.SQL) (int64, error) {
+		return store.Scalar[int64](q, `SELECT count(*) FROM `+table)
 	})
-	return n, err
 }
 
 func (w *workspace) boot(ctx context.Context) (string, error) {

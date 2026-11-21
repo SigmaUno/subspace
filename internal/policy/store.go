@@ -1,6 +1,7 @@
 package policy
 
 import (
+	"database/sql"
 	"encoding/json"
 	"errors"
 	"strconv"
@@ -74,13 +75,6 @@ func init() {
 	postgres.RegisterSchema(pgSchema, "policies", "policy_versions", "policy_holds", "policy_decisions")
 }
 
-func millis(t time.Time) int64 {
-	if t.IsZero() {
-		return 0
-	}
-	return t.UnixMilli()
-}
-
 func fromMillis(ms int64) time.Time { return time.UnixMilli(ms).UTC() }
 
 func optTime(ms int64) *time.Time {
@@ -89,18 +83,6 @@ func optTime(ms int64) *time.Time {
 	}
 	t := fromMillis(ms)
 	return &t
-}
-
-func seqOf(id string) int64 {
-	n, _ := strconv.ParseInt(id[strings.LastIndexByte(id, '-')+1:], 10, 64)
-	return n
-}
-
-func flag(b bool) int {
-	if b {
-		return 1
-	}
-	return 0
 }
 
 func bumpRev(t store.Tx) error {
@@ -113,30 +95,25 @@ func bumpRev(t store.Tx) error {
 }
 
 func queryPolicies(q store.SQL, where string, args ...any) ([]*Policy, error) {
-	rows, err := q.Query(`SELECT `+policyCols+` FROM policies `+where, args...)
-	if err != nil {
+	return store.QueryAll(q, scanPolicy, `SELECT `+policyCols+` FROM policies `+where, args...)
+}
+
+func scanPolicy(rows *sql.Rows) (*Policy, error) {
+	var (
+		p                Policy
+		doc              string
+		enabled          int
+		created, updated int64
+	)
+	if err := rows.Scan(&p.ID, &p.Name, &p.Version, &enabled, &doc, &created, &updated); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []*Policy{}
-	for rows.Next() {
-		var (
-			p                Policy
-			doc              string
-			enabled          int
-			created, updated int64
-		)
-		if err := rows.Scan(&p.ID, &p.Name, &p.Version, &enabled, &doc, &created, &updated); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(doc), &p.Document); err != nil {
-			return nil, err
-		}
-		p.Enabled = enabled != 0
-		p.CreatedAt, p.UpdatedAt = fromMillis(created), fromMillis(updated)
-		out = append(out, &p)
+	if err := json.Unmarshal([]byte(doc), &p.Document); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	p.Enabled = enabled != 0
+	p.CreatedAt, p.UpdatedAt = fromMillis(created), fromMillis(updated)
+	return &p, nil
 }
 
 func listPolicies(q store.SQL) ([]*Policy, error) {
@@ -144,27 +121,11 @@ func listPolicies(q store.SQL) ([]*Policy, error) {
 }
 
 func getPolicy(q store.SQL, id string) (*Policy, error) {
-	ps, err := queryPolicies(q, `WHERE id=?`, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(ps) == 0 {
-		return nil, model.NotFound("policy %s not found", id)
-	}
-	return ps[0], nil
+	return store.QueryOne(q, scanPolicy, model.NotFound("policy %s not found", id), `SELECT `+policyCols+` FROM policies WHERE id=?`, id)
 }
 
 func countPolicies(q store.SQL) (int, error) {
-	rows, err := q.Query(`SELECT COUNT(*) FROM policies`)
-	if err != nil {
-		return 0, err
-	}
-	defer func() { _ = rows.Close() }()
-	n := 0
-	if rows.Next() {
-		err = rows.Scan(&n)
-	}
-	return n, errors.Join(err, rows.Err())
+	return store.Scalar[int](q, `SELECT COUNT(*) FROM policies`)
 }
 
 func insertPolicy(t store.Tx, q store.SQL, p *Policy) error {
@@ -178,14 +139,14 @@ func insertPolicy(t store.Tx, q store.SQL, p *Policy) error {
 		return err
 	}
 	if _, err := q.Exec(`INSERT INTO policies(id,seq,name,version,enabled,doc,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?)`,
-		p.ID, seqOf(p.ID), p.Name, p.Version, flag(p.Enabled), string(doc), millis(p.CreatedAt), millis(p.UpdatedAt)); err != nil {
+		p.ID, store.IDNum(p.ID), p.Name, p.Version, store.Flag(p.Enabled), string(doc), store.Millis(p.CreatedAt), store.Millis(p.UpdatedAt)); err != nil {
 		return err
 	}
 	return insertVersion(q, p, string(doc))
 }
 
 func insertVersion(q store.SQL, p *Policy, doc string) error {
-	_, err := q.Exec(`INSERT INTO policy_versions(policy_id,version,doc,created_at) VALUES(?,?,?,?)`, p.ID, p.Version, doc, millis(p.UpdatedAt))
+	_, err := q.Exec(`INSERT INTO policy_versions(policy_id,version,doc,created_at) VALUES(?,?,?,?)`, p.ID, p.Version, doc, store.Millis(p.UpdatedAt))
 	return err
 }
 
@@ -195,7 +156,7 @@ func updatePolicy(q store.SQL, p *Policy) error {
 		return err
 	}
 	res, err := q.Exec(`UPDATE policies SET name=?,version=?,enabled=?,doc=?,updated_at=? WHERE id=?`,
-		p.Name, p.Version, flag(p.Enabled), string(doc), millis(p.UpdatedAt), p.ID)
+		p.Name, p.Version, store.Flag(p.Enabled), string(doc), store.Millis(p.UpdatedAt), p.ID)
 	if err != nil {
 		return err
 	}
@@ -214,68 +175,48 @@ func deletePolicy(q store.SQL, id string) error {
 }
 
 func listVersions(q store.SQL, id string) ([]Version, error) {
-	rows, err := q.Query(`SELECT version,doc,created_at FROM policy_versions WHERE policy_id=? ORDER BY version DESC`, id)
-	if err != nil {
-		return nil, err
+	return store.QueryAll(q, scanVersion, `SELECT version,doc,created_at FROM policy_versions WHERE policy_id=? ORDER BY version DESC`, id)
+}
+
+func scanVersion(rows *sql.Rows) (Version, error) {
+	var (
+		v   Version
+		doc string
+		at  int64
+	)
+	if err := rows.Scan(&v.Version, &doc, &at); err != nil {
+		return Version{}, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []Version{}
-	for rows.Next() {
-		var (
-			v   Version
-			doc string
-			at  int64
-		)
-		if err := rows.Scan(&v.Version, &doc, &at); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(doc), &v.Document); err != nil {
-			return nil, err
-		}
-		v.CreatedAt = fromMillis(at)
-		out = append(out, v)
+	if err := json.Unmarshal([]byte(doc), &v.Document); err != nil {
+		return Version{}, err
 	}
-	return out, rows.Err()
+	v.CreatedAt = fromMillis(at)
+	return v, nil
 }
 
 func queryHolds(q store.SQL, where string, args ...any) ([]*Hold, error) {
-	rows, err := q.Query(`SELECT `+holdCols+` FROM policy_holds `+where, args...)
-	if err != nil {
+	return store.QueryAll(q, scanHold, `SELECT `+holdCols+` FROM policy_holds `+where, args...)
+}
+
+func scanHold(rows *sql.Rows) (*Hold, error) {
+	var (
+		h                           Hold
+		argsJSON, matched           string
+		created, expires, decidedAt int64
+	)
+	if err := rows.Scan(&h.ID, &h.key, &h.Status, &h.Action, &h.ActorID, &h.ActorRole, &h.TaskID, &h.BriefID, &h.PlanID,
+		&h.Target, &argsJSON, &h.Message, &matched, &created, &expires, &decidedAt, &h.Note, &h.Result); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []*Hold{}
-	for rows.Next() {
-		var (
-			h                           Hold
-			argsJSON, matched           string
-			created, expires, decidedAt int64
-		)
-		if err := rows.Scan(&h.ID, &h.key, &h.Status, &h.Action, &h.ActorID, &h.ActorRole, &h.TaskID, &h.BriefID, &h.PlanID,
-			&h.Target, &argsJSON, &h.Message, &matched, &created, &expires, &decidedAt, &h.Note, &h.Result); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(argsJSON), &h.Args); err != nil {
-			return nil, err
-		}
-		if err := json.Unmarshal([]byte(matched), &h.Matched); err != nil {
-			return nil, err
-		}
-		h.CreatedAt, h.ExpiresAt, h.DecidedAt = fromMillis(created), fromMillis(expires), optTime(decidedAt)
-		out = append(out, &h)
+	if err := errors.Join(json.Unmarshal([]byte(argsJSON), &h.Args), json.Unmarshal([]byte(matched), &h.Matched)); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	h.CreatedAt, h.ExpiresAt, h.DecidedAt = fromMillis(created), fromMillis(expires), optTime(decidedAt)
+	return &h, nil
 }
 
 func getHold(q store.SQL, id string) (*Hold, error) {
-	hs, err := queryHolds(q, `WHERE id=?`, id)
-	if err != nil {
-		return nil, err
-	}
-	if len(hs) == 0 {
-		return nil, model.NotFound("hold %s not found", id)
-	}
-	return hs[0], nil
+	return store.QueryOne(q, scanHold, model.NotFound("hold %s not found", id), `SELECT `+holdCols+` FROM policy_holds WHERE id=?`, id)
 }
 
 func openHold(q store.SQL, key string) (*Hold, error) {
@@ -301,14 +242,14 @@ func insertHold(t store.Tx, q store.SQL, h *Hold) error {
 		return err
 	}
 	_, err = q.Exec(`INSERT INTO policy_holds(id,seq,hold_key,status,action,actor_id,actor_role,task_id,brief_id,plan_id,target,args,message,matched,created_at,expires_at)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, h.ID, seqOf(h.ID), h.key, h.Status, h.Action, h.ActorID, h.ActorRole, h.TaskID, h.BriefID,
-		h.PlanID, h.Target, string(args), h.Message, string(matched), millis(h.CreatedAt), millis(h.ExpiresAt))
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, h.ID, store.IDNum(h.ID), h.key, h.Status, h.Action, h.ActorID, h.ActorRole, h.TaskID, h.BriefID,
+		h.PlanID, h.Target, string(args), h.Message, string(matched), store.Millis(h.CreatedAt), store.Millis(h.ExpiresAt))
 	return err
 }
 
 func setHold(q store.SQL, h *Hold) error {
 	_, err := q.Exec(`UPDATE policy_holds SET status=?,decided_at=?,note=?,result=? WHERE id=?`,
-		h.Status, millis(derefTime(h.DecidedAt)), h.Note, h.Result, h.ID)
+		h.Status, store.Millis(derefTime(h.DecidedAt)), h.Note, h.Result, h.ID)
 	return err
 }
 
@@ -337,9 +278,9 @@ func insertDecision(t store.Tx, q store.SQL, d *Decision) error {
 	if err != nil {
 		return err
 	}
-	seq := seqOf(id)
+	seq := store.IDNum(id)
 	if _, err := q.Exec(`INSERT INTO policy_decisions(id,seq,ts,action,actor_id,actor_role,task_id,brief_id,target,outcome,message,hold_id,matched,facts,errors)
-		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, d.ID, seq, millis(d.TS), d.Action, d.ActorID, d.ActorRole, d.TaskID, d.BriefID, d.Target,
+		VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`, d.ID, seq, store.Millis(d.TS), d.Action, d.ActorID, d.ActorRole, d.TaskID, d.BriefID, d.Target,
 		d.Outcome, d.Message, d.HoldID, string(matched), string(facts), string(errs)); err != nil {
 		return err
 	}
@@ -367,28 +308,23 @@ func listDecisions(q store.SQL, f DecisionFilter) ([]*Decision, error) {
 	if len(where) > 0 {
 		sqlWhere = "WHERE " + strings.Join(where, " AND ")
 	}
-	rows, err := q.Query(`SELECT `+decisionCols+` FROM policy_decisions `+sqlWhere+` ORDER BY seq DESC LIMIT ?`, append(args, f.Limit)...)
-	if err != nil {
+	return store.QueryAll(q, scanDecision, `SELECT `+decisionCols+` FROM policy_decisions `+sqlWhere+` ORDER BY seq DESC LIMIT ?`, append(args, f.Limit)...)
+}
+
+func scanDecision(rows *sql.Rows) (*Decision, error) {
+	var (
+		d                     Decision
+		ts                    int64
+		matched, facts, errsJ string
+	)
+	if err := rows.Scan(&d.ID, &ts, &d.Action, &d.ActorID, &d.ActorRole, &d.TaskID, &d.BriefID, &d.Target, &d.Outcome,
+		&d.Message, &d.HoldID, &matched, &facts, &errsJ); err != nil {
 		return nil, err
 	}
-	defer func() { _ = rows.Close() }()
-	out := []*Decision{}
-	for rows.Next() {
-		var (
-			d                     Decision
-			ts                    int64
-			matched, facts, errsJ string
-		)
-		if err := rows.Scan(&d.ID, &ts, &d.Action, &d.ActorID, &d.ActorRole, &d.TaskID, &d.BriefID, &d.Target, &d.Outcome,
-			&d.Message, &d.HoldID, &matched, &facts, &errsJ); err != nil {
-			return nil, err
-		}
-		d.TS = fromMillis(ts)
-		if err := errors.Join(json.Unmarshal([]byte(matched), &d.Matched), json.Unmarshal([]byte(facts), &d.Facts),
-			json.Unmarshal([]byte(errsJ), &d.Errors)); err != nil {
-			return nil, err
-		}
-		out = append(out, &d)
+	d.TS = fromMillis(ts)
+	if err := errors.Join(json.Unmarshal([]byte(matched), &d.Matched), json.Unmarshal([]byte(facts), &d.Facts),
+		json.Unmarshal([]byte(errsJ), &d.Errors)); err != nil {
+		return nil, err
 	}
-	return out, rows.Err()
+	return &d, nil
 }

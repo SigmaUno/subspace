@@ -4,7 +4,9 @@ import (
 	"fmt"
 	"slices"
 	"testing"
+	"time"
 
+	"github.com/SigmaUno/subspace/internal/server"
 	"github.com/SigmaUno/subspace/internal/servertest"
 )
 
@@ -117,6 +119,28 @@ func TestLeaderInfoToolsOverMCP(t *testing.T) {
 	cs := list(t, e.Must(e.lead, "get_components", map[string]any{"brief_id": e.brief}), "components")
 	if len(cs) != 2 || cs[1].(map[string]any)["depends_on"].([]any)[0] != "C-1" {
 		t.Fatalf("components %v", cs)
+	}
+}
+
+func TestListDecisionsIgnoresUnflushedActivityAsStale(t *testing.T) {
+	e := servertest.Start(t, server.Config{PublicURL: "http://sub.test",
+		FlushEvery: time.Hour, SweepEvery: time.Hour, Lease: time.Minute})
+	lead := e.Register("rex", "leader", "other")
+	worker := e.Register("w1", "worker", "claude-code")
+	_, br := e.REST("POST", "/api/v1/briefs", map[string]any{"title": "Info", "repos": []string{"o/r"}})
+	brief := br["id"].(string)
+	plan := e.Must(lead, "propose_plan", map[string]any{"brief_id": brief, "tasks": []any{
+		map[string]any{"title": "implement frobnicator", "spec": "s", "repo": "o/r"},
+	}})["plan"].(map[string]any)
+	if code, _ := e.REST("POST", "/api/v1/plans/"+plan["id"].(string)+"/approve", map[string]any{}); code != 200 {
+		t.Fatalf("approve: %d", code)
+	}
+	task := plan["tasks"].([]any)[0].(map[string]any)["id"].(string)
+	e.Must(lead, "assign", map[string]any{"task_id": task, "agent_id": "w1"})
+	e.Must(worker, "claim_task", map[string]any{"task_id": task})
+
+	if ds := list(t, e.Must(lead, "list_decisions", map[string]any{}), "decisions"); len(ds) != 0 {
+		t.Fatalf("active agent reported as stale: %v", ds)
 	}
 }
 

@@ -189,7 +189,7 @@ func (b *Board) GetAgent(ctx context.Context, id string) (*model.Agent, error) {
 	err := b.read(ctx, func(tx store.Tx) error {
 		a, err := tx.GetAgent(id)
 		if err == nil {
-			out = b.overlayAgent(a)
+			out = b.OverlayAgent(a)
 		}
 		return err
 	})

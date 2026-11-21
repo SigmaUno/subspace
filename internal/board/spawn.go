@@ -43,7 +43,7 @@ func (b *Board) usage(tx store.Tx) (capacity.Usage, map[string]bool, error) {
 		if a.Status == model.AgentRevoked {
 			continue
 		}
-		a = b.overlayAgent(a)
+		a = b.OverlayAgent(a)
 		live := a.Spawned && (now.Sub(a.CreatedAt) < spawnGrace || (a.LastSeenAt != nil && now.Sub(*a.LastSeenAt) < 2*b.o.Lease))
 		if busy[a.ID] || live {
 			u[[2]string{a.Provider, a.Model}]++

@@ -68,3 +68,21 @@ export interface ProviderStatus {
   requests_per_min: number;
   rpm_headroom: number;
 }
+
+export interface SpendWindow {
+  window: "daily" | "weekly";
+  cap_eur: number;
+  spent_eur: number;
+  percent: number;
+  level: "off" | "ok" | "warning" | "exceeded";
+  starts_at: string;
+  resets_at: string;
+  projected_exhaustion_at: string | null;
+}
+
+export interface SpendLimits {
+  daily_cost_eur: number;
+  weekly_cost_eur: number;
+  org_budget_paused: boolean;
+  windows: SpendWindow[];
+}

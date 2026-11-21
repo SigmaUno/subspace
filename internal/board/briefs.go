@@ -417,6 +417,11 @@ func (b *Board) ProposePlan(ctx context.Context, a model.Actor, in PlanInput) (*
 	if len(in.Tasks) == 0 || len(in.Tasks) > maxPlanTasks {
 		return nil, model.BadRequest("a plan needs 1..%d tasks", maxPlanTasks)
 	}
+	tasks := make([]TaskInput, len(in.Tasks))
+	for i, t := range in.Tasks {
+		tasks[i] = b.scrubTask(ctx, a, t)
+	}
+	in.Tasks = tasks
 	var out *model.Plan
 	err := b.writeAs(ctx, a, func(tx store.Tx, w *wctx) error {
 		br, err := tx.GetBrief(in.BriefID)

@@ -1093,8 +1093,10 @@ export interface HillclimbPoint {
   attempt_id: number;
   best: number | null;
   branch: string;
+  branch_url?: string;
   measured_at: string;
   n: number;
+  status: string;
   value: number | null;
 }
 

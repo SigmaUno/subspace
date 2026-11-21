@@ -5,6 +5,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -68,6 +69,16 @@ func TestMeasureToolOverMCP(t *testing.T) {
 	pushEval(t, work, bare, branch+"-v2", "0.3")
 	pushEval(t, work, bare, "main", "0.01")
 
+	for body, want := range map[string]int{
+		`B-99|o/r`:    404,
+		`B-1|other/x`: 400,
+	} {
+		parts := strings.Split(body, "|")
+		if code, _ := e.REST("POST", "/api/v1/hillclimb/jobs", map[string]any{
+			"brief_id": parts[0], "repo": parts[1], "metric_cmd": "sh eval.sh", "direction": "min"}); code != want {
+			t.Fatalf("create job %s: %d, want %d", body, code, want)
+		}
+	}
 	code, job := e.REST("POST", "/api/v1/hillclimb/jobs", map[string]any{
 		"brief_id": br["id"], "repo": "o/r", "metric_cmd": "sh eval.sh", "direction": "min", "budget": 2})
 	if code != 201 {
@@ -101,6 +112,11 @@ func TestMeasureToolOverMCP(t *testing.T) {
 
 	if code, s := e.REST("GET", "/api/v1/hillclimb/jobs/"+jid+"/series", nil); code != 200 || len(s["points"].([]any)) != 2 {
 		t.Fatalf("series: %d %v", code, s)
+	}
+	for q, want := range map[string]int{"brief_id=" + br["id"].(string): 1, "brief_id=B-99": 0} {
+		if code, l := e.REST("GET", "/api/v1/hillclimb/jobs?"+q, nil); code != 200 || len(l["jobs"].([]any)) != want {
+			t.Fatalf("list %s: %d %v", q, code, l)
+		}
 	}
 	_ = e.Srv.Close()
 	e2 := servertest.Start(t, cfg)

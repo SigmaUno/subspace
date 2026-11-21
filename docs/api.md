@@ -1236,8 +1236,8 @@ Library files stay backwards compatible: the added front matter keys are optiona
 ### Hillclimb
 | Method | Path | Body → Response |
 |---|---|---|
-| POST | `/api/v1/hillclimb/jobs` | `{"brief_id","repo","metric_cmd","direction":"min or max","target":null,"budget":0,"plateau_n":0}` → Job (201). `brief_id`, `repo`, `metric_cmd` and `direction` are required; `budget` and `plateau_n` must not be negative. |
-| GET | `/api/v1/hillclimb/jobs` | → `{"jobs":[Job]}` (no filters). |
+| POST | `/api/v1/hillclimb/jobs` | `{"brief_id","repo","metric_cmd","direction":"min or max","target":null,"budget":0,"plateau_n":0}` → Job (201). `brief_id`, `repo`, `metric_cmd` and `direction` are required; `budget` and `plateau_n` must not be negative. 404 for an unknown brief, 400 for a repo outside a brief that lists repos. Publishes `hillclimb.updated`. |
+| GET | `/api/v1/hillclimb/jobs?brief_id=` | → `{"jobs":[Job]}`, optionally only the jobs of one brief. |
 | GET | `/api/v1/hillclimb/jobs/{id}/series` | → `{"job":Job,"points":[Point]}`, oldest attempt first. 404 for an unknown id. |
 
 ```jsonc
@@ -1248,10 +1248,11 @@ Library files stay backwards compatible: the added front matter keys are optiona
  "best":null,"best_attempt_id":null,"attempts":0,"since_best":0,"created_at":"..."}
 
 // Point
-{"n":1,"attempt_id":1,"agent_id":"claude-1","branch":"sub/t-3-speedup","value":12.5,"best":12.5,"measured_at":"..."}   // value null when the attempt failed
+{"n":1,"attempt_id":1,"agent_id":"claude-1","branch":"sub/t-3-speedup","branch_url":"https://github.com/SigmaUno/foo/tree/sub/t-3-speedup",
+ "value":12.5,"best":12.5,"status":"ok","measured_at":"..."}   // value null and status failed when the attempt failed; branch_url omitted unless the repo's SUBSPACE_HILLCLIMB_REPOS entry is an http(s) URL (github.com: /tree/<branch>, any other host: /src/branch/<branch>)
 ```
 
-Jobs and attempts are stored in the database. Attempts are recorded by the MCP `measure` tool, which exists only when `SUBSPACE_HILLCLIMB_WORKDIR` is set; without it jobs stay `running` with no attempts. The runner fetches the branch into a fresh git worktree under that directory and runs `metric_cmd` with `/bin/sh -c`, using only repos listed in `SUBSPACE_HILLCLIMB_REPOS` (JSON object `{"<repo>":"<git url>"}`). Other settings: `SUBSPACE_HILLCLIMB_TIMEOUT` (default `10m`), `SUBSPACE_HILLCLIMB_MAX_OUTPUT` (bytes, default 1 MiB), `SUBSPACE_HILLCLIMB_ENV` (comma list of extra env names passed through; `PATH`, `LANG`, `LC_ALL`, `TZ` always are), `SUBSPACE_HILLCLIMB_RLIMIT_CPU` (seconds), `SUBSPACE_HILLCLIMB_RLIMIT_MEM` (bytes), `SUBSPACE_HILLCLIMB_RLIMIT_NOFILE`. A timeout, an exceeded output cap, a symlink escaping the worktree or a non-zero exit records a failed attempt (`value` null).
+Jobs and attempts are stored in the database. Attempts are recorded by the MCP `measure` tool, which exists only when `SUBSPACE_HILLCLIMB_WORKDIR` is set; without it jobs stay `running` with no attempts. The runner fetches the branch into a fresh git worktree under that directory and runs `metric_cmd` with `/bin/sh -c`, using only repos listed in `SUBSPACE_HILLCLIMB_REPOS` (JSON object `{"<repo>":"<git url>"}`). Other settings: `SUBSPACE_HILLCLIMB_TIMEOUT` (default `10m`), `SUBSPACE_HILLCLIMB_MAX_OUTPUT` (bytes, default 1 MiB), `SUBSPACE_HILLCLIMB_ENV` (comma list of extra env names passed through; `PATH`, `LANG`, `LC_ALL`, `TZ` always are), `SUBSPACE_HILLCLIMB_RLIMIT_CPU` (seconds), `SUBSPACE_HILLCLIMB_RLIMIT_MEM` (bytes), `SUBSPACE_HILLCLIMB_RLIMIT_NOFILE`. A timeout, an exceeded output cap, a symlink escaping the worktree or a non-zero exit records a failed attempt (`value` null). Every recorded attempt publishes `hillclimb.attempt` on topics `brief:<id>` and `hillclimb`.
 
 ### Artifacts
 Owner access is unrestricted. Scopes are `agent:<id>`, `task:<id>` and `project:<brief id>`. Agents use the MCP artifact tools. Secrets in file names are masked before the name is stored.

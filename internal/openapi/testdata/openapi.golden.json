@@ -4455,12 +4455,18 @@
           "branch": {
             "type": "string"
           },
+          "branch_url": {
+            "type": "string"
+          },
           "measured_at": {
             "format": "date-time",
             "type": "string"
           },
           "n": {
             "type": "integer"
+          },
+          "status": {
+            "type": "string"
           },
           "value": {
             "type": [
@@ -4476,6 +4482,7 @@
           "branch",
           "measured_at",
           "n",
+          "status",
           "value"
         ],
         "type": "object"
@@ -13678,7 +13685,15 @@
     "/api/v1/hillclimb/jobs": {
       "get": {
         "operationId": "getHillclimbJobs",
-        "parameters": [],
+        "parameters": [
+          {
+            "in": "query",
+            "name": "brief_id",
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {

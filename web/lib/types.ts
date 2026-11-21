@@ -26,7 +26,7 @@ export interface Brief {
   cost_used: number;
   plan_status: string;
   playbook?: string;
-  hillclimb_jobs?: import("./swarm").HillclimbJob[];
+  hillclimb_jobs?: import("./hillclimb-types").HillclimbJob[];
 }
 
 export interface Task {

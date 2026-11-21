@@ -5,12 +5,14 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"slices"
 	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
 	"github.com/SigmaUno/subspace/internal/chat"
 	"github.com/SigmaUno/subspace/internal/components"
+	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/hillclimb"
 	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/model"
@@ -138,15 +140,29 @@ type noRunner struct{}
 
 func (noRunner) Run(context.Context, string, string, string) (string, error) { return "", errNoRunner }
 
-func newHillclimb(st store.Store, b *board.Board, reg *mcp.Registry, log *slog.Logger) *hillclimb.Measurer {
+func newHillclimb(st store.Store, b *board.Board, reg *mcp.Registry, pub events.Publisher, log *slog.Logger) *hillclimb.Measurer {
 	r, err := hillclimb.RunnerFromEnv()
 	if err != nil {
 		log.Error("hillclimb runner disabled", "err", err)
 	}
+	var m *hillclimb.Measurer
 	if r == nil {
-		return hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), noRunner{})
+		m = hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), noRunner{})
+	} else {
+		m = hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), r)
+		m.BranchURL = r.BranchURL
+		mcp.RegisterHillclimb(reg, b, m)
 	}
-	m := hillclimb.NewMeasurer(hillclimb.NewSQLStore(st), r)
-	mcp.RegisterHillclimb(reg, b, m)
+	m.Publish = pub.Publish
+	m.Check = func(ctx context.Context, j *hillclimb.Job) error {
+		br, err := b.GetBrief(ctx, j.BriefID)
+		if err != nil {
+			return err
+		}
+		if len(br.Repos) > 0 && !slices.Contains(br.Repos, j.Repo) {
+			return model.BadRequest("repo %s is not part of brief %s", j.Repo, br.ID)
+		}
+		return nil
+	}
 	return m
 }

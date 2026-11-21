@@ -101,4 +101,8 @@ var rules = map[string]rule{
 	"suggest_split":    {icon: "split", text: "{actor} suggested splitting {task} into {a.tasks} tasks"},
 	"update_status":    {icon: "activity", text: "{actor} updated {task}{a.progress_pct?: |% done}{status?: now |}{note?: }"},
 	"update_task":      {icon: "edit", text: "{actor} updated {task}{status?: now |}"},
+
+	"create_push_subscription": {icon: "send", text: "{actor} subscribed a device to push notifications as {a.id}"},
+	"delete_push_subscription": {icon: "x", severity: SevWarning, text: "{actor} removed push subscription {b.id}"},
+	"expire_push_subscription": {icon: "x", severity: SevWarning, text: "{actor} removed dead push subscription {b.id}{note?: }"},
 }

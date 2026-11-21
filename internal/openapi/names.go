@@ -31,6 +31,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
 	"github.com/SigmaUno/subspace/internal/tokens"
+	"github.com/SigmaUno/subspace/internal/webpush"
 )
 
 var componentNames = map[reflect.Type]string{
@@ -118,4 +119,9 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[tokens.CreateInput]():     "APITokenInput",
 	reflect.TypeFor[tokens.Created]():         "APITokenCreated",
 	reflect.TypeFor[tokens.Token]():           "APIToken",
+	reflect.TypeFor[webpush.Input]():          "PushSubscriptionInput",
+	reflect.TypeFor[webpush.InputKeys]():      "PushSubscriptionKeys",
+	reflect.TypeFor[webpush.Key]():            "PushVAPIDKey",
+	reflect.TypeFor[webpush.Remove]():         "PushSubscriptionRemove",
+	reflect.TypeFor[webpush.Subscription]():   "PushSubscription",
 }

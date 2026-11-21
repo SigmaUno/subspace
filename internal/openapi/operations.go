@@ -38,6 +38,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
 	"github.com/SigmaUno/subspace/internal/tokens"
+	"github.com/SigmaUno/subspace/internal/webpush"
 )
 
 const (
@@ -206,6 +207,10 @@ var operations = []Op{
 	get("/api/v1/notify/status", "Notification sink status", NotifyStatus{}),
 	post("/api/v1/notify/test", "Send one test notification through every sink", Free{}, list[notify.SinkResult]("results")),
 	get("/api/v1/digest/preview", "Preview the digest of a recent window", digest.Preview{}).Q("window"),
+	get("/api/v1/push/vapid-key", "VAPID public key for browser push subscriptions", webpush.Key{}),
+	get("/api/v1/push/subscriptions", "List Web Push subscriptions", list[webpush.Subscription]("subscriptions")),
+	post("/api/v1/push/subscriptions", "Subscribe a browser to Web Push notifications; 200 when the endpoint was already subscribed", webpush.Input{}, webpush.Subscription{}).S(created),
+	send(http.MethodDelete, "/api/v1/push/subscriptions", "Remove a Web Push subscription by id or endpoint", webpush.Remove{}, nil).S(gone),
 
 	get("/api/v1/tokens", "List managed API tokens, revoked ones included", list[tokens.Token]("tokens")),
 	post("/api/v1/tokens", "Create a managed API token; the secret is shown once", tokens.CreateInput{}, tokens.Created{}).S(created),

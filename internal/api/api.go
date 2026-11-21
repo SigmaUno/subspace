@@ -1,11 +1,14 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"io"
 	"log/slog"
 	"net/http"
+	"slices"
 	"strconv"
+	"strings"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/auth"
@@ -21,8 +24,11 @@ type API struct {
 	Hub        events.Hub
 	OwnerToken string
 	Agents     auth.AgentLookup
+	Tokens     TokenLookup
 	Log        *slog.Logger
 	PingEvery  time.Duration
+
+	patterns []string
 }
 
 type errBody struct {
@@ -82,6 +88,37 @@ func qint64(r *http.Request, name string) int64 {
 	return n
 }
 
+type TokenLookup interface {
+	LookupOwnerToken(ctx context.Context, token string) (*auth.Principal, error)
+}
+
+var ownerOnlyPaths = []string{"/api/v1/tokens"}
+
+func permits(p auth.Principal, r *http.Request) bool {
+	if p.Scope == auth.ScopeOwner {
+		return true
+	}
+	if p.Scope != auth.ScopeViewer || (r.Method != http.MethodGet && r.Method != http.MethodHead) {
+		return false
+	}
+	for _, x := range ownerOnlyPaths {
+		if r.URL.Path == x || strings.HasPrefix(r.URL.Path, x+"/") {
+			return false
+		}
+	}
+	return true
+}
+
+func (a *API) principal(ctx context.Context, tok string) (*auth.Principal, error) {
+	if auth.OwnerMatch(tok, a.OwnerToken) {
+		return &auth.Principal{TokenID: auth.RootTokenID, Scope: auth.ScopeOwner}, nil
+	}
+	if a.Tokens == nil {
+		return nil, nil
+	}
+	return a.Tokens.LookupOwnerToken(ctx, tok)
+}
+
 func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		const p = "Bearer "
@@ -92,7 +129,12 @@ func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 			return
 		}
 		tok := hd[len(p):]
-		if !auth.OwnerMatch(tok, a.OwnerToken) {
+		pr, err := a.principal(r.Context(), tok)
+		if err != nil {
+			a.fail(w, err)
+			return
+		}
+		if pr == nil {
 			if a.Agents != nil {
 				if ag, _ := a.Agents.LookupToken(tok); ag != nil {
 					a.fail(w, model.Forbidden("agent tokens are not valid on /api/v1"))
@@ -103,7 +145,11 @@ func (a *API) guard(h http.HandlerFunc) http.HandlerFunc {
 			a.fail(w, model.Errf("unauthorized", "invalid token"))
 			return
 		}
-		h(w, r)
+		if !permits(*pr, r) {
+			a.fail(w, model.Forbidden("%s token may not %s %s", pr.Scope, r.Method, r.URL.Path))
+			return
+		}
+		h(w, r.WithContext(auth.WithPrincipal(r.Context(), *pr)))
 	}
 }
 
@@ -120,8 +166,15 @@ func (a *API) do(status int, f func(r *http.Request) (any, error)) http.HandlerF
 
 func (a *API) Register(mux *http.ServeMux) {
 	B := a.B
-	m := func(p string, h http.HandlerFunc) { mux.HandleFunc(p, h) }
+	m := func(p string, h http.HandlerFunc) {
+		a.patterns = append(a.patterns, p)
+		mux.HandleFunc(p, h)
+	}
 
+	m("GET /api/v1/me", a.guard(func(w http.ResponseWriter, r *http.Request) {
+		p, _ := auth.PrincipalFrom(r.Context())
+		writeJSON(w, http.StatusOK, map[string]string{"role": model.RoleOwner, "scope": p.Scope})
+	}))
 	m("GET /api/v1/state", a.do(200, func(r *http.Request) (any, error) { return B.State(r.Context()) }))
 	m("POST /api/v1/pause-all", a.do(200, func(r *http.Request) (any, error) {
 		var in struct{ Reason string }
@@ -306,11 +359,14 @@ func (a *API) Register(mux *http.ServeMux) {
 
 	m("GET /api/v1/events", a.guard(events.NewSSEHandler(a.Hub, events.TopicsFromQuery, a.PingEvery).ServeHTTP))
 
-	mux.HandleFunc("/api/v1/", a.guard(func(w http.ResponseWriter, r *http.Request) {
+	m("/api/v1/", a.guard(func(w http.ResponseWriter, r *http.Request) {
 		a.fail(w, model.NotFound("no such endpoint"))
 	}))
 }
 
 func (a *API) Mount(mux *http.ServeMux, pattern string, h http.Handler) {
+	a.patterns = append(a.patterns, pattern)
 	mux.HandleFunc(pattern, a.guard(http.StripPrefix("/api/v1", h).ServeHTTP))
 }
+
+func (a *API) Patterns() []string { return slices.Clone(a.patterns) }

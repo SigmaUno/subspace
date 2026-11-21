@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/store"
 )
@@ -49,6 +50,9 @@ func (a StoreAuditor) Record(ctx context.Context, e Event) error {
 	note := e.Scope + " " + e.Kind
 	if e.Message != "" {
 		note += ": " + e.Message
+	}
+	if e.Actor.Role == model.RoleOwner {
+		note = auth.AuditNote(ctx, note)
 	}
 	return a.Store.Atomic(ctx, func(tx store.Tx) error {
 		return tx.InsertAudit(&model.AuditEvent{

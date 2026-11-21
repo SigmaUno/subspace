@@ -53,6 +53,7 @@ type Server struct {
 	Store   store.Store
 	Board   *board.Board
 	Hub     events.Hub
+	api     *api.API
 	handler http.Handler
 	backups *backup.Scheduler
 }
@@ -156,7 +157,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 	for _, w := range wraps {
 		h = w(h, deps)
 	}
-	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, backups: backups, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
+	return &Server{cfg: cfg, Store: st, Board: b, Hub: hub, api: rest, backups: backups, handler: bodyDeadline(h, cfg.BodyTimeout)}, nil
 }
 
 type deadlineBody struct {

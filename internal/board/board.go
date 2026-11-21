@@ -7,6 +7,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/auth"
 	"github.com/SigmaUno/subspace/internal/backup"
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
@@ -121,6 +122,7 @@ func (b *Board) now() time.Time { return b.o.Now() }
 
 type wctx struct {
 	b      *Board
+	ctx    context.Context
 	events []pending
 	inval  []string
 }
@@ -168,6 +170,9 @@ func (w *wctx) post(tx store.Tx, kind, id string, author model.Actor, mk, body s
 
 func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, after map[string]any, note string) error {
 	e := &model.AuditEvent{TS: w.b.now(), AgentID: a.ID, Role: a.Role, Tool: tool, Before: before, After: after}
+	if a.Role == model.RoleOwner {
+		note = auth.AuditNote(w.ctx, note)
+	}
 	if taskID != "" {
 		e.TaskID = &taskID
 	}
@@ -178,7 +183,7 @@ func (w *wctx) audit(tx store.Tx, a model.Actor, tool, taskID string, before, af
 }
 
 func (b *Board) write(ctx context.Context, fn func(tx store.Tx, w *wctx) error) error {
-	w := &wctx{b: b}
+	w := &wctx{b: b, ctx: ctx}
 	if err := b.st.Atomic(ctx, func(tx store.Tx) error { w.events, w.inval = nil, nil; return fn(tx, w) }); err != nil {
 		return mapStoreErr(err)
 	}

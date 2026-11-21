@@ -162,6 +162,10 @@ func (o Op) String() string {
 		fmt.Fprintf(&b, " text=%q", o.Text)
 	case OpModerate, OpIncidentEnd:
 		fmt.Fprintf(&b, " approve=%t", o.Approve)
+	case OpLogOutput:
+		fmt.Fprintf(&b, " seq=%d text=%q", o.N, o.Text)
+	case OpLeak:
+		fmt.Fprintf(&b, " channel=%s victim_token=#%d", o.Text, o.N)
 	case OpSchedule:
 		fmt.Fprintf(&b, " catch_up=%s max_active=%d", o.Text, o.N)
 	case OpBatch:
@@ -179,7 +183,8 @@ func (o Op) Mutating() bool {
 	case OpAdvance, OpSweep, OpFlush, OpHeartbeat, OpRestart, OpBatch, OpSubscribe, OpUnsubscribe, OpDrain,
 		OpEnqueue, OpMergeTick, OpAutopilotTick, OpWebhook, OpWebhookRace, OpSearch,
 		OpInstructions, OpGetTask, OpLeaderRead, OpReadKnowledge, OpEstimate, OpIncidentStart, OpIncidentEnd, OpResumeAgent,
-		OpScheduleTick, OpRetention, OpSetGates:
+		OpScheduleTick, OpRetention, OpSetGates,
+		OpGatewayList, OpLogOutput, OpTranscriptRead, OpLeak, OpDrill, OpPushCut, OpPushSettle:
 		return false
 	}
 	return true
@@ -189,7 +194,8 @@ func (o Op) Authenticated() bool {
 	switch o.Kind {
 	case OpAssign, OpAssignReviewer, OpReassign, OpSpawn, OpPropose, OpClaim, OpHeartbeat, OpUpdate, OpBlock,
 		OpSubmit, OpRelease, OpReview, OpAskOwner, OpReportTests,
-		OpInstructions, OpGetTask, OpLeaderRead, OpRequestHelp, OpSuggestSplit, OpAcceptSplit, OpAddKnowledge, OpReadKnowledge:
+		OpInstructions, OpGetTask, OpLeaderRead, OpRequestHelp, OpSuggestSplit, OpAcceptSplit, OpAddKnowledge, OpReadKnowledge,
+		OpGatewayCall, OpGatewayList, OpLogOutput, OpLeak:
 		return true
 	}
 	return false
@@ -230,6 +236,8 @@ type Result struct {
 	Estimate  *estimate.Report
 	Forecast  *forecast.Forecast
 	Stable    bool
+	Upstream  int
+	Seq       int64
 }
 
 func (r Result) Code() string {

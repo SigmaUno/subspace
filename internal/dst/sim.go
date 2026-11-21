@@ -47,11 +47,12 @@ func (o *Outcome) WriteTrace(w io.Writer) {
 }
 
 type Runner struct {
-	Factory Factory
-	World   func(seed int64) World
-	Dir     string
-	Serial  bool
-	Leaders bool
+	Factory    Factory
+	World      func(seed int64) World
+	Dir        string
+	Serial     bool
+	Leaders    bool
+	Subsystems bool
 }
 
 type Settler interface {
@@ -60,6 +61,12 @@ type Settler interface {
 
 func ServerRunner(dir string) *Runner {
 	return &Runner{Factory: NewServerSystem, World: NewServerWorld, Dir: dir}
+}
+
+func SubsystemsRunner(dir string) *Runner {
+	r := ServerRunner(dir)
+	r.Subsystems = true
+	return r
 }
 
 func (r *Runner) Run(ctx context.Context, seed int64, steps int) (*Outcome, error) {
@@ -87,6 +94,9 @@ func (r *Runner) exec(ctx context.Context, seed int64, steps int, ops []Op) (out
 	w := world(seed)
 	if r.Leaders {
 		w.Rival = "lead2"
+	}
+	if r.Subsystems && w.Server != nil {
+		w.Server.V4 = newV4World(seed, w)
 	}
 	clock := NewClock(Epoch)
 	sys, err := r.Factory(dir, clock, w.Lease)

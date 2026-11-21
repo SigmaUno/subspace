@@ -35,6 +35,7 @@ type MCPSystem struct {
 	faults  *faultTransport
 	clients map[string]*client.MCP
 	extend  func(*mcp.Registry)
+	server  func(*mcp.Server)
 }
 
 type tokenLookup struct{ b *board.Board }
@@ -68,6 +69,9 @@ func (s *MCPSystem) wire() {
 	}
 	srv := mcp.NewServer(lookup, reg)
 	srv.Now = s.clock.Now
+	if s.server != nil {
+		s.server(srv)
+	}
 	var h http.Handler = srv
 	if !s.o.NoIdempotency {
 		h = idempotency.Wrap(h, idempotency.Options{Store: s.st, Agents: lookup, Now: s.clock.Now, Log: discard})

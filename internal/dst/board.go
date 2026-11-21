@@ -71,7 +71,7 @@ func (s *BoardSystem) touch(op Op) {
 		mark("capacity")
 	case OpHandoff, OpSetGates:
 		mark("briefs")
-	case OpIncidentStart, OpIncidentEnd, OpResumeAgent:
+	case OpIncidentStart, OpIncidentEnd, OpResumeAgent, OpLeak, OpReissue:
 		mark("agents", "tasks")
 	case OpScheduleTick, OpAcceptSplit:
 		mark("briefs", "tasks")

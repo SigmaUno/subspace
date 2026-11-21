@@ -30,7 +30,10 @@ func mcpRunner(dir string, o MCPOptions) *Runner {
 func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 	t.Helper()
 	mode := ModeBoard
-	if r.World != nil {
+	switch {
+	case r.Subsystems:
+		mode = ModeSubsystems
+	case r.World != nil:
 		mode = ModeServer
 	}
 	ctx := context.Background()
@@ -50,6 +53,7 @@ func runSeed(t *testing.T, r *Runner, seed int64, steps int) {
 }
 
 func TestSimulation(t *testing.T) {
+	t.Parallel()
 	seeds, steps, fresh := 5, 300, freshSeeds
 	if !testmode.Full() {
 		seeds, steps, fresh = 3, 200, 4
@@ -72,6 +76,7 @@ func TestSimulation(t *testing.T) {
 }
 
 func TestServerSimulation(t *testing.T) {
+	t.Parallel()
 	seeds, steps := 4, 400
 	if !testmode.Full() {
 		seeds, steps = 4, 300
@@ -85,7 +90,23 @@ func TestServerSimulation(t *testing.T) {
 	}
 }
 
+func TestSubsystemSimulation(t *testing.T) {
+	t.Parallel()
+	seeds, steps := 4, 300
+	if !testmode.Full() {
+		seeds, steps = 3, 250
+	}
+	r := SubsystemsRunner(t.TempDir())
+	for seed := int64(1); seed <= int64(seeds); seed++ {
+		t.Run(fmt.Sprint(seed), func(t *testing.T) {
+			t.Parallel()
+			runSeed(t, r, seed, steps)
+		})
+	}
+}
+
 func TestSimulationWithLeaderHandoffs(t *testing.T) {
+	t.Parallel()
 	seeds, steps := 3, 300
 	if !testmode.Full() {
 		seeds, steps = 3, 200
@@ -107,13 +128,15 @@ func TestSimulationWithLeaderHandoffs(t *testing.T) {
 }
 
 func TestRegressions(t *testing.T) {
+	t.Parallel()
 	regs, err := LoadRegressions(regressionsFile)
 	if err != nil {
 		t.Fatal(err)
 	}
 	runners := map[string]*Runner{
-		ModeBoard:  {Factory: NewBoardSystem, Dir: t.TempDir()},
-		ModeServer: ServerRunner(t.TempDir()),
+		ModeBoard:      {Factory: NewBoardSystem, Dir: t.TempDir()},
+		ModeServer:     ServerRunner(t.TempDir()),
+		ModeSubsystems: SubsystemsRunner(t.TempDir()),
 	}
 	for _, reg := range regs {
 		t.Run(fmt.Sprintf("%s/%d", reg.Mode, reg.Seed), func(t *testing.T) {
@@ -124,6 +147,7 @@ func TestRegressions(t *testing.T) {
 }
 
 func TestDeterministic(t *testing.T) {
+	t.Parallel()
 	runners := map[string]*Runner{
 		ModeBoard:    {Factory: NewBoardSystem, Dir: t.TempDir(), Serial: true},
 		"mcp_faults": mcpRunner(t.TempDir(), mcpFaults),
@@ -156,6 +180,7 @@ func TestDeterministic(t *testing.T) {
 }
 
 func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
+	t.Parallel()
 	seeds, steps := 4, 300
 	if !testmode.Full() {
 		seeds, steps = 3, 200
@@ -170,6 +195,7 @@ func TestSimulationOverMCPWithDuplicateAndDroppedResponses(t *testing.T) {
 }
 
 func TestIdempotencyRegressions(t *testing.T) {
+	t.Parallel()
 	regs, err := LoadRegressions(idempotencyFile)
 	if err != nil {
 		t.Fatal(err)
@@ -197,6 +223,7 @@ func TestIdempotencyRegressions(t *testing.T) {
 }
 
 func TestDetectsServerFaults(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name string
 		o    ServerOptions
@@ -264,6 +291,7 @@ func (s *staleTokens) Do(ctx context.Context, op Op) Result {
 }
 
 func TestDetectsInjectedBugs(t *testing.T) {
+	t.Parallel()
 	for _, tc := range []struct {
 		name   string
 		wrap   func(System, *Clock) System

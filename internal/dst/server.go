@@ -30,6 +30,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/capacity"
 	"github.com/SigmaUno/subspace/internal/events"
 	"github.com/SigmaUno/subspace/internal/instructions"
+	"github.com/SigmaUno/subspace/internal/mcp"
 	"github.com/SigmaUno/subspace/internal/mergequeue"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/notify"
@@ -64,6 +65,7 @@ type ServerWorld struct {
 	NotifyFail  int
 	BackupEvery time.Duration
 	BackupKeep  int
+	V4          *V4World
 }
 
 func NewServerWorld(seed int64) World {
@@ -157,6 +159,7 @@ type ServerState struct {
 	Splits        map[string]string
 	Announcements []string
 	Knowledge     []string
+	V4            *V4State
 }
 
 type ServerOptions struct {
@@ -192,6 +195,8 @@ type ServerSystem struct {
 	lastOp   Kind
 	heads    map[string]InstrHead
 	hooks    int
+	v        *subsystems
+	settled  bool
 
 	mu     sync.Mutex
 	head   string
@@ -212,6 +217,7 @@ func NewServerFactory(o ServerOptions) Factory {
 		}
 		s := &ServerSystem{o: o, dir: dir, hub: hub, sigs: map[string]string{}, eps: map[string]int{}, runs: map[string]int{}}
 		s.MCPSystem = newMCP(bs, MCPOptions{}, s.extendRegistry)
+		s.server = s.hookServer
 		return s, nil
 	}
 }
@@ -236,6 +242,9 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 		if _, err := s.b.UpdateBrief(ctx, s.brief, board.BriefPatch{QualityGates: &g}); err != nil {
 			return out, err
 		}
+	}
+	if sw.V4 != nil {
+		s.v = newSubsystems(s, sw.V4)
 	}
 	if err := s.wire(ctx); err != nil {
 		return out, err
@@ -271,7 +280,18 @@ func (s *ServerSystem) Setup(ctx context.Context, w World) (Setup, error) {
 	nctx, cancel := context.WithCancel(context.Background())
 	s.stop = cancel
 	s.nt.Start(nctx, s.hub)
+	if s.v != nil {
+		if err := s.v.setup(ctx); err != nil {
+			return out, err
+		}
+	}
 	return out, nil
+}
+
+func (s *ServerSystem) hookServer(srv *mcp.Server) {
+	if s.v != nil {
+		s.v.hook(srv)
+	}
 }
 
 func (s *ServerSystem) wire(ctx context.Context) error {
@@ -283,6 +303,11 @@ func (s *ServerSystem) wire(ctx context.Context) error {
 	if err := s.wireFeatures(ctx); err != nil {
 		return err
 	}
+	if s.v != nil {
+		if err := s.v.wire(ctx); err != nil {
+			return err
+		}
+	}
 	s.MCPSystem.wire()
 	return nil
 }
@@ -290,6 +315,13 @@ func (s *ServerSystem) wire(ctx context.Context) error {
 func (s *ServerSystem) Do(ctx context.Context, op Op) Result {
 	s.lastOp = op.Kind
 	s.touch(op)
+	if s.v != nil {
+		s.v.mark()
+		if res, ok := s.v.do(ctx, op); ok {
+			s.drain()
+			return res
+		}
+	}
 	if res, ok := s.doFeature(ctx, op); ok {
 		s.drain()
 		return res
@@ -297,9 +329,15 @@ func (s *ServerSystem) Do(ctx context.Context, op Op) Result {
 	var res Result
 	switch op.Kind {
 	case OpRestart:
+		if s.v != nil {
+			s.v.down(ctx, op.Crash)
+		}
 		res = s.BoardSystem.Do(ctx, op)
 		if res.Err == nil {
 			res.Err = s.wire(ctx)
+		}
+		if res.Err == nil && s.v != nil {
+			res.Err = s.v.restart(ctx, op.Crash)
 		}
 	case OpEnqueue:
 		res.Err = s.enqueue(ctx, op.Task)
@@ -719,6 +757,7 @@ func notifyKey(ev events.Event) (id, sig, kind string) {
 }
 
 func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
+	prev := s.last
 	out, err := s.BoardSystem.Snapshot(ctx)
 	if err != nil {
 		return nil, err
@@ -774,6 +813,12 @@ func (s *ServerSystem) Snapshot(ctx context.Context) (*State, error) {
 	s.mu.Unlock()
 	sv.Sent = s.sink.counts()
 	sv.Episodes = maps.Clone(s.eps)
+	if s.v != nil {
+		quotas := s.lastOp == OpClaim || s.lastOp == OpUpdate || s.lastOp == OpBatch || s.lastOp == OpLeak || s.lastOp == OpRestart
+		if sv.V4, err = s.v.snapshot(ctx, prev, out, quotas); err != nil {
+			return nil, err
+		}
+	}
 	out.Server = sv
 	return out, nil
 }
@@ -795,6 +840,10 @@ func (s *ServerSystem) instrHeads(ctx context.Context) (map[string]InstrHead, er
 }
 
 func (s *ServerSystem) Settle() {
+	if s.v != nil && !s.settled {
+		s.settled = true
+		s.v.settlePush(context.Background())
+	}
 	if s.stop != nil {
 		s.stop()
 		s.nt.Wait()
@@ -805,6 +854,9 @@ func (s *ServerSystem) Close() error {
 	s.Settle()
 	if s.watch != nil {
 		s.watch.Close()
+	}
+	if s.v != nil {
+		s.v.close()
 	}
 	return s.BoardSystem.Close()
 }

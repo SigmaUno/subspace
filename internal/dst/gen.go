@@ -72,6 +72,8 @@ type Gen struct {
 	queue   []Op
 	last    Op
 	hasLast bool
+	v4r     *rand.Rand
+	seqs    map[string]int
 }
 
 func NewGen(seed int64, w World, s Setup, serial bool) *Gen {
@@ -81,6 +83,9 @@ func NewGen(seed int64, w World, s Setup, serial bool) *Gen {
 	}
 	if w.Server != nil {
 		g.queue = append(g.queue, Op{Kind: OpApprove, Target: s.PlanID})
+		if w.Server.V4 != nil {
+			g.v4r, g.seqs = rand.New(rand.NewSource(seed^0x4e4e)), map[string]int{} //nolint:gosec // deterministic simulation
+		}
 	}
 	g.leader = &agentSim{spec: AgentSpec{ID: w.Leader, Role: model.RoleLeader}}
 	if w.Rival != "" {
@@ -149,6 +154,9 @@ func (g *Gen) next(s *State) Op {
 	}
 	if op, ok := g.handoff(s); ok {
 		return op
+	}
+	if g.v4r != nil && g.v4r.Intn(100) < 30 {
+		return g.v4op(s)
 	}
 	if g.hasLast && g.last.Mutating() && g.chance(5) {
 		return g.last

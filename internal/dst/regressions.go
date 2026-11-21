@@ -12,8 +12,9 @@ import (
 )
 
 const (
-	ModeBoard  = "board"
-	ModeServer = "server"
+	ModeBoard      = "board"
+	ModeServer     = "server"
+	ModeSubsystems = "subsystems"
 )
 
 type Regression struct {
@@ -41,7 +42,7 @@ func LoadRegressions(path string) ([]Regression, error) {
 		}
 		r, err := parseRegression(f)
 		if err != nil {
-			return nil, fmt.Errorf("%s:%d: want \"<seed> <steps> [board|server]\": %w", path, n, err)
+			return nil, fmt.Errorf("%s:%d: want \"<seed> <steps> [board|server|subsystems]\": %w", path, n, err)
 		}
 		out = append(out, r)
 	}
@@ -56,7 +57,7 @@ func parseRegression(f []string) (Regression, error) {
 	if len(f) == 3 {
 		r.Mode = f[2]
 	}
-	if r.Mode != ModeBoard && r.Mode != ModeServer {
+	if r.Mode != ModeBoard && r.Mode != ModeServer && r.Mode != ModeSubsystems {
 		return r, fmt.Errorf("unknown mode %q", r.Mode)
 	}
 	var err error

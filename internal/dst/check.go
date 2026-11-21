@@ -106,10 +106,11 @@ type Checker struct {
 	auditLen int
 	faults   int
 	fm       *featureModel
+	v4       *v4Model
 }
 
 func NewChecker(d time.Duration) *Checker {
-	return &Checker{lease: d, leases: map[string]lease{}, tokens: map[string]int{}, instr: map[string][]string{}, fm: newFeatureModel()}
+	return &Checker{lease: d, leases: map[string]lease{}, tokens: map[string]int{}, instr: map[string][]string{}, fm: newFeatureModel(), v4: newV4Model()}
 }
 
 func (c *Checker) checkFaults(_ *step, _, post *State) *Violation {
@@ -169,7 +170,7 @@ func (c *Checker) Check(op Op, res Result, pre, post *State) *Violation {
 	} else {
 		checks = append(checks, c.checkAtomic, c.checkTransitions, c.checkClaim, c.checkLeases, c.checkRestart)
 	}
-	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkLeaderScope, c.checkServer, c.checkFeatures)
+	checks = append(checks, c.checkTokens, c.checkReviewers, c.checkRegistration, c.checkCapacity, c.checkPlans, c.checkSSE, c.checkState, c.checkLeaderScope, c.checkServer, c.checkFeatures, c.checkV4)
 	for _, f := range checks {
 		if v := f(st, pre, post); v != nil {
 			return v
@@ -399,7 +400,8 @@ func (c *Checker) checkAtomic(st *step, pre, post *State) *Violation {
 		return nil
 	}
 	switch op.Kind {
-	case OpAcceptSplit, OpScheduleTick, OpIncidentStart, OpIncidentEnd, OpRetention, OpRestore, OpAnnounce:
+	case OpAcceptSplit, OpScheduleTick, OpIncidentStart, OpIncidentEnd, OpRetention, OpRestore, OpAnnounce,
+		OpGatewayCall, OpLeak, OpDrill:
 		return nil
 	}
 	if ch := changed(pre, post); len(ch) > 0 {
@@ -571,6 +573,9 @@ func (c *Checker) checkLeases(st *step, pre, post *State) *Violation {
 			continue
 		}
 		if op.Kind == OpSweep && budgetBlocked(t) {
+			continue
+		}
+		if a := post.Agent(l.agent); op.Kind == OpLeak && a != nil && a.Status == model.AgentRevoked {
 			continue
 		}
 		return violation(InvLeaseHonored, "task %s left %s's lease (valid until %s) via %s, now %s/%s",

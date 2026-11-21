@@ -159,6 +159,9 @@ func (s *ServerSystem) extendRegistry(r *mcp.Registry) {
 	if s.f.ann != nil {
 		mcp.AppendToInstructions(r, s.f.ann.Instructions)
 	}
+	if s.v != nil {
+		s.v.extend(r)
+	}
 }
 
 func (s *ServerSystem) runner() *schedule.Runner {

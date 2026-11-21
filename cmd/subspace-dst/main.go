@@ -23,7 +23,7 @@ func run() int {
 	parallel := flag.Int("parallel", runtime.GOMAXPROCS(0), "seeds run concurrently")
 	shrink := flag.Int("shrink", 400, "max replays when minimizing a failing step log (0 = off)")
 	regressions := flag.String("regressions", "testdata/dst/regressions.txt", "file failing seeds are appended to (empty = off)")
-	mode := flag.String("mode", dst.ModeBoard, "system under test: board or server (full wired server)")
+	mode := flag.String("mode", dst.ModeBoard, "system under test: board, server (full wired server) or subsystems (server plus gateway, transcripts, output, leak scanner, drills and push)")
 	logDir := flag.String("log", "", "directory minimal failing step logs are written to (empty = off)")
 	minimize := flag.String("minimize", "", "step log to minimize, replayed with seed -start")
 	serial := flag.Bool("serial", false, "disable concurrent batches")
@@ -41,6 +41,8 @@ func run() int {
 		r = &dst.Runner{Factory: dst.NewBoardSystem}
 	case dst.ModeServer:
 		r = dst.ServerRunner("")
+	case dst.ModeSubsystems:
+		r = dst.SubsystemsRunner("")
 	default:
 		fmt.Fprintf(os.Stderr, "unknown mode %q\n", *mode)
 		return 2

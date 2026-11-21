@@ -3,3 +3,4 @@
 614 400 server # review_rounds_to_owner: reopening a cancelled task kept 3 review rounds
 4 400 server # allowed_transition: accept_split audited the original's transition again after update_task had cancelled it
 11 400 server # announcement_reaches_audience_once: brief announcements and broadcasts reached revoked agents
+8 210 subsystems # push_wakeups_survive_reconnects: a push client that re-initialized after a server restart got no resync and missed assignments made while it was disconnected

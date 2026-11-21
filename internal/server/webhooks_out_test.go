@@ -153,10 +153,10 @@ func TestOutboundWebhookFlow(t *testing.T) {
 	}
 
 	did := dead["id"].(string)
+	rcv.setStatus(http.StatusOK)
 	if code, _ := e.REST("POST", "/api/v1/webhooks-out/"+id+"/deliveries/"+did+"/redeliver", map[string]any{}); code != 200 {
 		t.Fatalf("redeliver: %d", code)
 	}
-	rcv.setStatus(http.StatusOK)
 	waitOut(t, "redelivery", func() bool {
 		return len(outDeliveries(e, id, "dead")) == 0 && len(outDeliveries(e, id, "delivered")) == 2
 	})

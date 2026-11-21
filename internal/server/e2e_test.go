@@ -141,8 +141,8 @@ func TestLoopProtectionPausesAgent(t *testing.T) {
 	}
 	e.MustFail(wk, "add_note", map[string]any{"task_id": "T-99", "body": "x"}, "agent_paused")
 	_, a := e.REST("GET", "/api/v1/agents/w1", nil)
-	if a["status"] != "paused" {
-		t.Fatalf("agent not paused: %v", a)
+	if a["status"] != "paused" || a["pause_reason"] != "loop" {
+		t.Fatalf("agent not paused for loop: %v", a)
 	}
 	e.MustFail(wk, "add_note", map[string]any{"body": "other"}, "agent_paused")
 	e.REST("POST", "/api/v1/agents/w1/resume", nil)

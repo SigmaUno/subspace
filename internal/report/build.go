@@ -53,6 +53,7 @@ func Build(s Snapshot) Report {
 	r.Throughput = throughput(r.Tasks, s.Now)
 	r.CriticalPath = criticalPath(tasks, r.Tasks)
 	r.Outliers = outliers(r.Tasks)
+	r.Efficiency = efficiency(tasks, r.Tasks, events, s.PRs)
 	return r
 }
 

@@ -33,6 +33,7 @@ import (
 	"github.com/SigmaUno/subspace/internal/spendguard"
 	"github.com/SigmaUno/subspace/internal/timeseries"
 	"github.com/SigmaUno/subspace/internal/tokens"
+	"github.com/SigmaUno/subspace/internal/usage"
 )
 
 var componentNames = map[reflect.Type]string{
@@ -85,6 +86,7 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[prsync.Status]():          "PRStatus",
 	reflect.TypeFor[report.Bucket]():          "ReportBucket",
 	reflect.TypeFor[report.Cost]():            "ReportCost",
+	reflect.TypeFor[report.Efficiency]():      "ReportEfficiency",
 	reflect.TypeFor[report.CriticalPath]():    "ReportCriticalPath",
 	reflect.TypeFor[report.Outlier]():         "ReportOutlier",
 	reflect.TypeFor[report.Report]():          "BriefReport",
@@ -95,6 +97,10 @@ var componentNames = map[reflect.Type]string{
 	reflect.TypeFor[spendguard.Status]():      "SpendWindow",
 	reflect.TypeFor[spendguard.View]():        "SpendLimits",
 	reflect.TypeFor[timeseries.Point]():       "TimeseriesPoint",
+	reflect.TypeFor[usage.CostBreakdown]():    "CostBreakdown",
+	reflect.TypeFor[usage.CostGroup]():        "CostGroup",
+	reflect.TypeFor[usage.CostPart]():         "CostPart",
+	reflect.TypeFor[usage.CostTotals]():       "CostTotals",
 	reflect.TypeFor[timeseries.Series]():      "TimeseriesSeries",
 	reflect.TypeFor[artifacts.Artifact]():     "Artifact",
 	reflect.TypeFor[Agent]():                  "Agent",

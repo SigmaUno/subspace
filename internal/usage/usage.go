@@ -18,6 +18,9 @@ type Record struct {
 	AgentID     string    `json:"agent_id"`
 	TaskID      string    `json:"task_id"`
 	BriefID     string    `json:"brief_id"`
+	ComponentID string    `json:"component_id"`
+	Kind        string    `json:"kind"`
+	Role        string    `json:"role"`
 	Provider    string    `json:"provider"`
 	Model       string    `json:"model"`
 	TokensIn    int64     `json:"tokens_in"`

@@ -21,7 +21,7 @@ const (
 	budget   = 1700 * time.Millisecond
 	backstop = 1950 * time.Millisecond
 	redacted = "<redacted>"
-	usage    = "usage: subspace-hook heartbeat|log|status|note|instructions [flags] [text]"
+	usage    = "usage: subspace-hook heartbeat|log|status|note|notify|instructions [flags] [text]"
 )
 
 type config struct {
@@ -49,7 +49,7 @@ func run(ctx context.Context, args []string, getenv func(string) string, stdin i
 	}
 	cmd, args := args[0], args[1:]
 	switch cmd {
-	case "heartbeat", "log", "status", "note", "instructions":
+	case "heartbeat", "log", "status", "note", "notify", "instructions":
 	default:
 		_, _ = fmt.Fprintln(stderr, usage)
 		return exitUsage
@@ -134,6 +134,8 @@ func (h *hook) dispatch(ctx context.Context, cmd string, args []string, stderr i
 		return h.status(ctx, *task, *status, *progress, text)
 	case "note":
 		return h.note(ctx, *task, text)
+	case "notify":
+		return h.notify(ctx, *task, text)
 	}
 	return h.instructions(ctx)
 }
@@ -206,6 +208,16 @@ func (h *hook) note(ctx context.Context, task, text string) error {
 	}
 	_, err := h.client().AddNote(ctx, task, strings.ReplaceAll(clip(text, maxNote), h.cfg.token, redacted))
 	return err
+}
+
+func (h *hook) notify(ctx context.Context, task, event string) error {
+	if err := h.heartbeat(ctx, task); err != nil {
+		return err
+	}
+	if parseCodexEvent(event).Type != codexTurnComplete {
+		return nil
+	}
+	return h.status(ctx, task, "in_progress", -1, "Codex finished responding")
 }
 
 func (h *hook) instructions(ctx context.Context) error {

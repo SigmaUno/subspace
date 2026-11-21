@@ -81,7 +81,15 @@ func (h *Handler) series(w http.ResponseWriter, r *http.Request) {
 		fail(w, err)
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"from": q.From, "to": q.To, "bucket": bucket, "group_by": by, "series": ss})
+	writeJSON(w, http.StatusOK, SeriesResponse{From: q.From, To: q.To, Bucket: bucket, GroupBy: by, Series: ss})
+}
+
+type SeriesResponse struct {
+	From    time.Time `json:"from"`
+	To      time.Time `json:"to"`
+	Bucket  string    `json:"bucket"`
+	GroupBy string    `json:"group_by"`
+	Series  []Series  `json:"series"`
 }
 
 func (h *Handler) providers(w http.ResponseWriter, r *http.Request) {

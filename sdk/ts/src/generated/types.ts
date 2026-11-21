@@ -2288,16 +2288,6 @@ export interface Tools {
   tools: Discovered[] | null;
 }
 
-export interface Totals {
-  cache_read: number;
-  cache_write: number;
-  cost_usd: number;
-  rate_limited: number;
-  requests: number;
-  tokens_in: number;
-  tokens_out: number;
-}
-
 export interface Train {
   base: string;
   base_sha: string;
@@ -2415,6 +2405,14 @@ export interface UsageSeries {
   points: UsagePoint[] | null;
 }
 
+export interface UsageSeriesResponse {
+  bucket: string;
+  from: string;
+  group_by: string;
+  series: UsageSeries[] | null;
+  to: string;
+}
+
 export interface UsageSummary {
   briefs: UsageBriefBudget[] | null;
   credits: UsageCredits;
@@ -2422,7 +2420,17 @@ export interface UsageSummary {
   group_by: string;
   groups: UsageGroup[] | null;
   to: string;
-  totals: Totals;
+  totals: UsageTotals;
+}
+
+export interface UsageTotals {
+  cache_read: number;
+  cache_write: number;
+  cost_usd: number;
+  rate_limited: number;
+  requests: number;
+  tokens_in: number;
+  tokens_out: number;
 }
 
 export interface Version {

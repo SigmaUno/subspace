@@ -42,6 +42,8 @@ type Service struct {
 	BriefOf  func(ctx context.Context, taskID string) (string, error)
 	Attrib   Attributor
 	Allow    func(ctx context.Context, a model.Actor, taskID, briefID string) error
+	Breaker  func(provider, model string) string
+	Paused   func() bool
 	Now      func() time.Time
 
 	seq atomic.Int64
@@ -235,19 +237,35 @@ func (s *Service) Summary(ctx context.Context, q Query, by string) (*Summary, er
 	return out, nil
 }
 
-func (s *Service) budgets(ctx context.Context) (Credits, []BriefBudget, error) {
+type Spender interface {
+	Spent(ctx context.Context) (total float64, byBrief map[string]float64, err error)
+}
+
+func (s *Service) spent(ctx context.Context) (float64, map[string]float64, error) {
+	if sp, ok := s.Store.(Spender); ok {
+		return sp.Spent(ctx)
+	}
 	all, err := s.Store.Query(ctx, Query{})
 	if err != nil {
-		return Credits{}, nil, err
+		return 0, nil, err
 	}
-	var c Credits
+	var total float64
 	byBrief := map[string]float64{}
 	for _, r := range all {
-		c.SpentUSD += r.CostUSD
+		total += r.CostUSD
 		if r.BriefID != "" {
 			byBrief[r.BriefID] += r.CostUSD
 		}
 	}
+	return total, byBrief, nil
+}
+
+func (s *Service) budgets(ctx context.Context) (Credits, []BriefBudget, error) {
+	total, byBrief, err := s.spent(ctx)
+	if err != nil {
+		return Credits{}, nil, err
+	}
+	c := Credits{SpentUSD: total}
 	if t := s.Config.TotalCreditsUSD; t > 0 {
 		rem := t - c.SpentUSD
 		c.TotalUSD, c.RemainingUSD = &t, &rem
@@ -530,6 +548,17 @@ func (s *Service) spawnable(cfg capacity.Config, u capacity.Usage, recs []Record
 	}
 	if credits.RemainingUSD != nil && *credits.RemainingUSD <= 0 {
 		limit(0, "credits")
+	}
+	if s.Paused != nil && s.Paused() {
+		limit(0, "paused")
+	}
+	if s.Breaker != nil {
+		switch s.Breaker(k[0], k[1]) {
+		case "open":
+			limit(0, "breaker")
+		case "half_open":
+			limit(1, "breaker")
+		}
 	}
 	for _, r := range recs {
 		if r.RateLimited && r.Provider == k[0] && (r.Model == "" || r.Model == k[1]) && now.Sub(r.TS) < s.Config.ThrottleWindow {

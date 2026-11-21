@@ -109,6 +109,10 @@ func main() {
 		log.Error("spawner", "err", err)
 		os.Exit(2)
 	}
+	if n, ok := cfg.Spawner.(spawner.Noop); ok {
+		n.Log = log
+		cfg.Spawner = n
+	}
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	s, err := server.New(ctx, cfg)

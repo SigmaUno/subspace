@@ -31,7 +31,7 @@ func init() {
 			}
 		}
 		stats := agentstats.NewService(agentstats.StoreSource{Store: d.Store}, time.Now)
-		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Scores: stats.Scores})
+		ap := autopilot.New(d.Board, autopilot.Options{Log: d.Log, Scores: stats.Scores, Breaker: d.Breakers.State})
 		restoreAutopilotFlags(d, ap)
 		h := persistAutopilotFlags(d, ap, autopilot.Handler(ap))
 		d.API.Mount(d.Mux, "/api/v1/autopilot", h)

@@ -53,7 +53,15 @@ func (b *Board) usage(tx store.Tx) (capacity.Usage, map[string]bool, error) {
 func (b *Board) capConfig() capacity.Config {
 	b.mu.Lock()
 	defer b.mu.Unlock()
-	return b.capCfg
+	cfg := b.capCfg
+	cfg.Gate = b.capGate
+	return cfg
+}
+
+func (b *Board) SetCapacityGate(g capacity.Gate) {
+	b.mu.Lock()
+	b.capGate = g
+	b.mu.Unlock()
 }
 
 func (b *Board) Capacity(ctx context.Context) (*CapacityView, error) {

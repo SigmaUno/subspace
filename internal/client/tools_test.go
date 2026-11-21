@@ -226,6 +226,8 @@ func TestListToolsMatchesRoles(t *testing.T) {
 		for _, tl := range mcp.DefaultRegistry().List(role) {
 			want = append(want, tl.Name)
 		}
+		want = append(want, "report_provider_error", "report_usage")
+		slices.Sort(want)
 		if !slices.Equal(names, want) {
 			t.Errorf("%s tools = %v, want %v", role, names, want)
 		}

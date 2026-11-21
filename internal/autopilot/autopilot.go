@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
+	"github.com/SigmaUno/subspace/internal/breaker"
 	"github.com/SigmaUno/subspace/internal/model"
 )
 
@@ -27,6 +28,7 @@ type Options struct {
 	Spawn        map[string]SpawnConfig
 	History      int
 	Scores       func(ctx context.Context) (map[string]float64, error)
+	Breaker      func(provider, model string) breaker.State
 	Now          func() time.Time
 	Log          *slog.Logger
 }
@@ -138,6 +140,7 @@ func (s *Service) Snapshot(ctx context.Context) (Snapshot, error) {
 			s.o.Log.Warn("autopilot agent scores unavailable", "err", err)
 		}
 	}
+	snap.Breaker = s.o.Breaker
 	return snap, nil
 }
 

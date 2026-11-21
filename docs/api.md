@@ -309,6 +309,21 @@ A reaper checks `spawned` spawns every `SUBSPACE_SPAWN_REAP_INTERVAL` (default `
 
 Durations use Go syntax; `0` disables a rule. The `noop` and `hc` spawners cannot stop or inspect processes: spawns are still marked stopped and their agents revoked, and `process` stays `unknown`.
 
+### Provider circuit breakers
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/breakers` | → `{"breakers":[Breaker]}` sorted by provider, then model. Only provider/model pairs that reported at least one sample appear. |
+| POST | `/api/v1/breakers/{provider}/reset` | `{}` → `{"breakers":[Breaker]}`. Closes every breaker of the provider and clears its samples. 404 when the provider has no breaker. |
+
+```jsonc
+// Breaker
+{"provider":"anthropic","model":"claude-sonnet-5-5","state":"open",   // closed|open|half_open
+ "error_rate":0.62,"samples":13,"errors":8,"threshold":0.5,           // closed: current window; open/half_open: the window that tripped it
+ "opened_at":null,"half_open_at":null}                                // opened_at null when closed; half_open_at only while open
+```
+
+Samples are usage reports (`report_usage`; `rate_limited: true` counts as an error) and `report_provider_error` calls, kept per provider/model in memory for a rolling window. A breaker opens when the window holds at least `SUBSPACE_BREAKER_MIN_SAMPLES` samples (default 10) and the error rate is above `SUBSPACE_BREAKER_ERROR_RATE` (default `0.5`, window `SUBSPACE_BREAKER_WINDOW`, default `5m`). While open, `request_spawn`, `POST /api/v1/bots/spawn` and autopilot start no agents of that provider/model (409 `capacity`) and autopilot assigns it no tasks; running agents continue. After `SUBSPACE_BREAKER_COOLDOWN` (default `1m`) it half-opens: one probe agent (`n` = 1) may be spawned and autopilot assigns one task when no agent of that provider/model has work. The next sample decides: a success closes the breaker, an error opens it again. An unused probe grant expires after another cooldown. Breakers are held in memory per server process. An open or half-open breaker appears in the decision inbox as `breaker:<provider>:<model>` (`skip` only); resetting or closing removes it.
+
 ### Audit
 | Method | Path | Body → Response |
 |---|---|---|
@@ -352,15 +367,14 @@ The owner inbox. Decisions are derived from open questions, proposed plans, `app
 
 ```jsonc
 // Decision
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry
-{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|merge-ready
+{"id":"q:Q-1","kind":"question",               // question|plan|merge|unblock|stale_agent|token_expiry|merge-ready|breaker
  "title":"...","summary":"...","brief_id":"B-1","task_id":"T-3","agent_id":"claude-1",   // brief_id, task_id, agent_id omitted when empty
  "links":{"thread":"task:T-3","pr":"https://..."},   // keys omitted when empty
  "priority":70,"created_at":"...","actions":["answer","skip"]}
 ```
 
-Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`. Priority is the base for the kind (plan 80, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
-Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status). Priority is the base for the kind (plan 80, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `token:<agent id>`, `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, token_expiry 55, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
+Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task id>`, `stale:<agent id>`, `merge-ready:<task id>` (see Pull request status), `breaker:<provider>:<model>`. Priority is the base for the kind (plan 80, breaker 75, question 70, merge 60, unblock 50, stale_agent 40) plus 1 per 5 minutes of age (at most 60) plus 15 for `needs_owner` tasks.
 
 | kind | actions | payload → `result` |
 |---|---|---|
@@ -369,6 +383,7 @@ Ids are `q:<question id>`, `plan:<plan id>`, `merge:<task id>`, `unblock:<task i
 | `merge` | `merge`, `skip` | `merge` `{"note":""}` → Task (marks it `done`, like `POST /api/v1/tasks/{id}/done`) |
 | `unblock` | `unblock`, `skip` | `unblock` `{"status":"ready or assigned","note":""}` → Task (default `assigned` when the task has an assignee, else `ready`) |
 | `stale_agent` | `skip` | – |
+| `breaker` | `skip` | – |
 | `token_expiry` | `rotate`, `skip` | `rotate` `{"expires_in":"720h"}` (optional, default `720h`) → `{"agent":Agent,"connect":Connect}` (same as `POST /api/v1/agents/{id}/rotate-token`; `connect.token` shown once). `created_at` is 24h before the expiry. |
 
 `skip` takes `{"snooze":"1h"}` (Go duration, above 0 and up to 168h, default 1h) and returns `{"snoozed_until":"..."}`. Snoozes are held in memory.
@@ -587,6 +602,7 @@ Streamable HTTP, JSON-RPC 2.0, protocol version `2025-06-18` (older `2025-03-26`
 | list_reviews, review | | | | ✓ |
 | get_brief, list_briefs, propose_plan, create_task, update_task, assign, reassign, board, list_agents, capacity, request_spawn | ✓ | | | |
 | list_artifacts, get_artifact, put_artifact | ✓ | ✓ | ✓ | ✓ |
+| report_usage, report_provider_error | ✓ | ✓ | ✓ | ✓ |
 
 Owner-only actions (approve_plan, reject_plan, answer_question, set_budget, register_agent(s), revoke_agent, pause_all, resume_all, edit_charter, create_brief, set_capacity, mark done) are REST/CLI only.
 
@@ -610,6 +626,10 @@ All tools return an object; `task` = Task object above.
 - `list_artifacts {"scope?","limit?":1-1000}` → `{"artifacts":[Artifact]}`
 - `get_artifact {"id"}` → `{"artifact":Artifact,"content_base64":"..."}` for files up to 256 KiB, otherwise `{"artifact":Artifact,"url":"...","url_expires_at":"..."}`
 - `put_artifact {"scope","name","content_base64","content_type?"}` → `{"artifact":Artifact}`
+
+**Usage and provider health** (all roles; never loop-protected)
+- `report_usage {"model","provider?","tokens_in?","tokens_out?","cache_read?","cache_write?","cost_usd?","task_id?","brief_id?","rate_limited?":bool,"request_id?"}` → `{"ok":true,"record":{...}}`. `provider` is derived from well-known model names when omitted (400 otherwise). Every report is a sample for the provider circuit breaker (see Provider circuit breakers); usage records are held in memory.
+- `report_provider_error {"provider?","model?","status?":int}` → `{"ok":true,"provider","model","state":"closed|open|half_open"}`. Counts one failed request; `provider` and `model` default to the calling agent's.
 
 **Worker/tester**
 - `claim_task {"task_id"}` → `{"task":Task,"lease_expires_at":"...","context?":TaskContext}`. Requires: assigned to me, status `assigned` or `changes_requested`, dependencies `done`, not paused, within brief max_parallel_agents/budget.

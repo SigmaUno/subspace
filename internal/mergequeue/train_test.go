@@ -58,7 +58,9 @@ func (d fakeDeps) Task(_ context.Context, id string) (TaskInfo, error) { return 
 
 type fakeChecks map[string]*CheckStatus
 
-func (f fakeChecks) Statuses(_ context.Context, c Candidate) (*CheckStatus, error) { return f[c.TaskID], nil }
+func (f fakeChecks) Statuses(_ context.Context, c Candidate) (*CheckStatus, error) {
+	return f[c.TaskID], nil
+}
 
 type trainOpts struct {
 	max      int
@@ -415,7 +417,7 @@ func TestTrainRecoversAfterCrash(t *testing.T) {
 		q := e.trainQueue(trainOpts{max: 3, auto: true, runner: crashing})
 		enqueue(e, q)
 		crashOn(t, q)
-		trains, _ := e.store.ListTrains(context.Background(), repo)
+		trains, _ := e.store.ListTrains(context.Background(), repo, 0)
 		if len(trains) != 1 || trains[0].State != TrainBuilding || e.ref("main") != oldMain {
 			t.Fatalf("after crash: %+v", trains)
 		}
@@ -444,7 +446,7 @@ func TestTrainRecoversAfterCrash(t *testing.T) {
 		q := e.trainQueue(trainOpts{max: 3, auto: true, runner: crashing})
 		enqueue(e, q)
 		crashOn(t, q)
-		trains, _ := e.store.ListTrains(context.Background(), repo)
+		trains, _ := e.store.ListTrains(context.Background(), repo, 0)
 		if len(trains) != 1 || trains[0].State != TrainMerging || e.ref("main") != trains[0].Tip {
 			t.Fatalf("after crash: %+v", trains)
 		}

@@ -60,7 +60,8 @@ type TrainStore interface {
 	InsertTrain(ctx context.Context, t *Train) error
 	UpdateTrain(ctx context.Context, t *Train) error
 	GetTrain(ctx context.Context, id string) (*Train, error)
-	ListTrains(ctx context.Context, repo string) ([]*Train, error)
+	ListTrains(ctx context.Context, repo string, limit int) ([]*Train, error)
+	ActiveTrains(ctx context.Context, repo string) ([]*Train, error)
 }
 
 type TaskInfo struct {
@@ -552,15 +553,11 @@ func (r *trainRun) save(ctx context.Context, state string) error {
 }
 
 func (q *Queue) recoverTrain(ctx context.Context, repo string, rc RepoConfig) (*Train, error) {
-	ts, err := q.cfg.Trains.ListTrains(ctx, repo)
-	if err != nil {
+	ts, err := q.cfg.Trains.ActiveTrains(ctx, repo)
+	if err != nil || len(ts) == 0 {
 		return nil, err
 	}
-	i := slices.IndexFunc(ts, (*Train).Active)
-	if i < 0 {
-		return nil, nil
-	}
-	t := ts[i]
+	t := ts[0]
 	r := q.newRun(rc, t)
 	r.log.WriteString(t.Log)
 	fmt.Fprintf(&r.log, "recovering merge train %s interrupted while %s\n", t.ID, t.State)

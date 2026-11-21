@@ -181,4 +181,6 @@ var operations = []Op{
 	get("/api/v1/mergequeue/candidates", "Merge queue candidates", list[mergequeue.Candidate]("candidates")).Q("repo"),
 	get("/api/v1/mergequeue/candidates/{id}", "Get a merge queue candidate", mergequeue.Candidate{}),
 	post("/api/v1/mergequeue/candidates", "Enqueue an approved task's pull request", MergeEnqueue{}, mergequeue.Candidate{}).S(created),
+	get("/api/v1/mergequeue/trains", "Merge trains, newest first", list[mergequeue.Train]("trains")).Q("repo limit:integer"),
+	get("/api/v1/mergequeue/trains/{id}", "Get a merge train", mergequeue.Train{}),
 }

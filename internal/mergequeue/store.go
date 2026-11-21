@@ -104,12 +104,24 @@ func (s *MemStore) GetTrain(_ context.Context, id string) (*Train, error) {
 	return nil, store.ErrNotFound
 }
 
-func (s *MemStore) ListTrains(_ context.Context, repo string) ([]*Train, error) {
+func (s *MemStore) ListTrains(_ context.Context, repo string, limit int) ([]*Train, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	var out []*Train
+	for _, x := range slices.Backward(s.trains) {
+		if (repo == "" || x.Repo == repo) && (limit <= 0 || len(out) < limit) {
+			out = append(out, cloneTrain(x))
+		}
+	}
+	return out, nil
+}
+
+func (s *MemStore) ActiveTrains(_ context.Context, repo string) ([]*Train, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	var out []*Train
 	for _, x := range s.trains {
-		if repo == "" || x.Repo == repo {
+		if x.Repo == repo && x.Active() {
 			out = append(out, cloneTrain(x))
 		}
 	}

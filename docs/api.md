@@ -261,6 +261,33 @@ When a snapshot changes the server emits `task.pr` (data PRStatus, topics `board
 
 Task `paths` are the repo-relative files or directories the task will touch (`[]` = unknown). A path claims itself and everything below it; `*` and `?` match within one segment and a `**` segment matches any number of segments; every other character is literal. Paths are normalized (`./a//b/` → `a/b`) and rejected with 400 when empty, absolute (`/x`, `C:/x`), containing a `..` segment, a backslash, control characters or surrounding whitespace, naming the repository root (use `**`), longer than 512 bytes, or when a task lists more than 100. When `paths` is omitted and `component_id` names a component of the brief, the component's paths are used.
 
+### Merge queue
+| Method | Path | Body → Response |
+|---|---|---|
+| GET | `/api/v1/mergequeue/trains?repo=&limit=` | → `{"trains":[Train]}` newest first; `limit` default 50, max 500, 400 if not a positive integer. Empty when the merge queue is off. |
+| GET | `/api/v1/mergequeue/trains/{id}` | → Train. 404 for an unknown train. |
+
+```jsonc
+// Train
+{"id":"MQT-3","repo":"o/r","base":"main",
+ "state":"merged",                                 // building|testing|merging|merged|failed|aborted
+ "base_sha":"0a1b...","tip":"9f8e...",             // tip: the merge commit pushed to base
+ "members":[{"candidate_id":"MQ-7","task_id":"T-4","pr":12,"head":"sub/T-4-x","sha":"3c4d...",
+             "result":"merged"}],                  // pending|merging|merged|ejected|requeued
+ "runs":1,"log":"$ git fetch ...","created_at":"...","updated_at":"..."}
+```
+
+The merge queue runs when `SUBSPACE_MQ_CONFIG` names a JSON file; only then are `GET /api/v1/mergequeue/candidates?repo=`, `GET /api/v1/mergequeue/candidates/{id}` and `POST /api/v1/mergequeue/candidates` (`{"task_id","pr?","base?"}` → 201 Candidate) served. Enqueueing requires an `approved` task without failing tests whose reviewer's provider differs from the worker's; a task that loses that state waits (`waiting`) and is never merged.
+
+```jsonc
+{"workdir":"/data/mergequeue","interval":"30s",
+ "repos":{"o/r":{"remote":"https://git.example/o/r.git","verify":["make","test"],"base":"main",
+                 "train":4,                        // max PRs per merge train; 0 = one PR at a time (rebase + fast-forward)
+                 "required":["checks"]}}}          // required status contexts
+```
+
+With `train` > 0 each repo processes one train at a time. Queued candidates of the same base are ordered by task priority (higher first), then enqueue order, and a PR never goes ahead of a task it `depends_on`: a dependency must be `done` or earlier in the same train, otherwise the PR stays queued. The first `train` PRs are merged with `git merge --no-ff` onto the base in a scratch worktree and `verify` runs once on the result. If it passes, the base is pushed to the last merge commit (lease on the old base) and every member is `merged` with its own merge commit. If it fails, the train is bisected over its prefixes (at most ⌈log2 n⌉ further runs for a single culprit): the first failing PR is `ejected`, the passing prefix is merged and the PRs after the culprit return to the queue for the next train. A PR that conflicts with the base or the PRs ahead of it is ejected with the conflicting PRs named. Required contexts come from the task's PR status snapshot (context `checks`); when a snapshot exists every required context must be `success` for its current head, `failure` or `error` ejects the PR and anything else keeps it queued. Ejections post a `system` message with the log tail to the task thread and tell the worker in their agent thread; merges post to the task thread and mark the task `done`. Trains are stored, so a restart resumes: a train interrupted after its push completes as merged, any other unfinished train is `aborted` and its PRs return to the queue.
+
 ### Agents
 | Method | Path | Body → Response |
 |---|---|---|

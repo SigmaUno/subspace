@@ -1,0 +1,18 @@
+{
+  "id": "r13-timing-compare",
+  "title": "Compare owner tokens in constant time",
+  "spec": "Replace the string comparison of the owner token with a constant-time comparison of SHA-256 hashes.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "the owner token is compared with crypto/subtle on SHA-256 hashes",
+    "an empty configured token never matches",
+    "a test covers match, mismatch and empty token"
+  ],
+  "tests": {"passed": 12, "failed": 0},
+  "pr_title": "Constant-time owner token check",
+  "pr_body": "Compares hashes now, which is constant time.",
+  "defects": [
+    {"file": "internal/auth/owner.go", "match": "return a == b", "kind": "timing_leak", "note": "array equality is not constant time; use subtle.ConstantTimeCompare", "criterion": 0},
+    {"file": "internal/auth/owner_test.go", "match": "ownerMatches(tok, tok+\"x\")", "kind": "missing_test_case", "note": "no test for an empty configured token", "criterion": 2}
+  ]
+}

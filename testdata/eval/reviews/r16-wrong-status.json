@@ -1,0 +1,18 @@
+{
+  "id": "r16-wrong-status",
+  "title": "GET /api/v1/hillclimb/jobs/{id}",
+  "spec": "Add the single-job endpoint. Unknown ids return 404 not_found with the standard error body.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "an existing job is returned as JSON with status 200",
+    "an unknown id returns 404 with code not_found",
+    "an HTTP test through servertest covers both cases"
+  ],
+  "tests": {"passed": 51, "failed": 0},
+  "pr_title": "Single hillclimb job endpoint",
+  "pr_body": "Handler, route and test.",
+  "defects": [
+    {"file": "internal/server/mount_hillclimb_job.go", "match": "writeError(w, err)", "kind": "wrong_status", "note": "hillclimb.ErrNotFound is not mapped to model.NotFound, so an unknown id returns 500 internal", "criterion": 1},
+    {"file": "internal/server/mount_hillclimb_job_test.go", "match": "ts.Owner(t, http.MethodGet, \"/api/v1/hillclimb/jobs/\"+", "kind": "missing_test_case", "note": "the test only covers the existing job, not an unknown id", "criterion": 2}
+  ]
+}

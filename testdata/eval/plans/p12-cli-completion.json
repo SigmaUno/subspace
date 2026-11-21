@@ -1,0 +1,17 @@
+{
+  "id": "p12-cli-completion",
+  "title": "Shell completion for subspacectl",
+  "body": "Typing task ids is slow.\n\n- `subspacectl completion bash|zsh|fish` prints a completion script.\n- Completion of task and agent ids queries the server (owner token from the usual config) with a 300 ms timeout and falls back to no suggestions.\n- Golden-file tests for the three generated scripts.",
+  "repos": [
+    {"name": "SigmaUno/subspace", "description": "Go server and cmd/subspacectl, a flag-based CLI without third-party dependencies"}
+  ],
+  "max_cost_eur": 15,
+  "max_parallel_agents": 2,
+  "cross_review": true,
+  "min_tasks": 1,
+  "max_tasks": 3,
+  "requirements": [
+    {"id": "scripts", "title": "Generate bash, zsh and fish completion scripts", "keywords": ["bash", "zsh", "fish"], "checks": ["golden"]},
+    {"id": "dynamic", "title": "Complete task and agent ids from the server with a timeout", "keywords": ["300", "id"], "checks": ["timeout|fall back|fallback"], "after": ["scripts"]}
+  ]
+}

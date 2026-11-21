@@ -1,0 +1,15 @@
+{
+  "id": "r01-limit-clean",
+  "title": "Validate limit and offset on GET /api/v1/tasks",
+  "spec": "Add a helper that parses `limit` (default 100, max 1000) and `offset` (default 0) from the query string and use it in the task list handler. Invalid values return 400 bad_request.",
+  "repo": "SigmaUno/subspace",
+  "acceptance_criteria": [
+    "limit defaults to 100 and values above 1000 are rejected with 400",
+    "negative or non-numeric offset is rejected with 400",
+    "a table test covers defaults and boundaries"
+  ],
+  "tests": {"passed": 14, "failed": 0},
+  "pr_title": "Validate pagination parameters",
+  "pr_body": "Adds parsePage and a table test. The handler uses it.",
+  "defects": []
+}

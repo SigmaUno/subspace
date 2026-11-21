@@ -1,0 +1,19 @@
+{
+  "id": "p10-i18n-german",
+  "title": "German translation of the owner UI",
+  "body": "Several owners asked for a German UI.\n\n- Extract all user-visible strings of the web app into message catalogs (next-intl), English stays the default.\n- Add a complete German catalog; dates and numbers use the de-DE locale.\n- The language follows the Accept-Language header and can be overridden in the settings page.\n- CI fails when a key exists in English but not in German.",
+  "repos": [
+    {"name": "SigmaUno/subspace-web", "description": "Next.js app; components under components/, settings page under app/settings"}
+  ],
+  "max_cost_eur": 30,
+  "max_parallel_agents": 3,
+  "cross_review": true,
+  "min_tasks": 2,
+  "max_tasks": 5,
+  "requirements": [
+    {"id": "extract", "title": "Extract user-visible strings into next-intl message catalogs", "keywords": ["next-intl|catalog", "extract|strings"], "checks": ["english|default|en"]},
+    {"id": "german", "title": "Add the German catalog with de-DE dates and numbers", "keywords": ["german|de-de"], "checks": ["de-de|date"], "after": ["extract"]},
+    {"id": "switch", "title": "Select the language from Accept-Language with a settings override", "keywords": ["accept-language", "settings"], "checks": ["override|settings", "test"], "after": ["extract"]},
+    {"id": "keycheck", "title": "Fail CI when a German key is missing", "keywords": ["missing", "key"], "checks": ["fail"], "after": ["german"]}
+  ]
+}

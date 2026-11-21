@@ -1,0 +1,15 @@
+{
+  "id": "r19-theme-toggle-clean",
+  "title": "Theme toggle in the header",
+  "spec": "Add a header toggle cycling system, light and dark. Store the choice in localStorage under subspace.theme and apply it on load before first paint. Unknown stored values fall back to system.",
+  "repo": "SigmaUno/subspace-web",
+  "acceptance_criteria": [
+    "the toggle cycles system, light and dark and stores the choice in localStorage under subspace.theme",
+    "an unknown stored value falls back to system",
+    "a vitest test covers cycling and the fallback"
+  ],
+  "tests": {"passed": 88, "failed": 0},
+  "pr_title": "Theme toggle",
+  "pr_body": "Adds lib/theme.ts and ThemeToggle.",
+  "defects": []
+}

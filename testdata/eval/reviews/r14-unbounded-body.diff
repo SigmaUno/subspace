@@ -1,0 +1,78 @@
+diff --git a/internal/webhook/forgejo.go b/internal/webhook/forgejo.go
+new file mode 100644
+--- /dev/null
++++ b/internal/webhook/forgejo.go
+@@ -0,0 +1,38 @@
++package webhook
++
++import (
++	"crypto/hmac"
++	"crypto/sha256"
++	"encoding/hex"
++	"encoding/json"
++	"io"
++	"net/http"
++)
++
++const maxBody = 1 << 20
++
++func (h *Handler) forgejo(w http.ResponseWriter, r *http.Request) {
++	body, err := io.ReadAll(r.Body)
++	if err != nil {
++		http.Error(w, "read error", http.StatusBadRequest)
++		return
++	}
++	if len(body) > maxBody {
++		http.Error(w, "too large", http.StatusRequestEntityTooLarge)
++		return
++	}
++	mac := hmac.New(sha256.New, h.secret)
++	mac.Write(body)
++	want := hex.EncodeToString(mac.Sum(nil))
++	if !hmac.Equal([]byte(want), []byte(r.Header.Get("X-Forgejo-Signature"))) {
++		http.Error(w, "bad signature", http.StatusUnauthorized)
++		return
++	}
++	var ev pullRequestEvent
++	if err := json.Unmarshal(body, &ev); err != nil {
++		http.Error(w, "bad json", http.StatusBadRequest)
++		return
++	}
++	h.apply(r.Context(), ev)
++	w.WriteHeader(http.StatusAccepted)
++}
+diff --git a/internal/webhook/forgejo_test.go b/internal/webhook/forgejo_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/webhook/forgejo_test.go
+@@ -0,0 +1,29 @@
++package webhook
++
++import (
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++func TestForgejoValidSignature(t *testing.T) {
++	h := newTestHandler(t, "s3cret-for-tests")
++	body := `{"action":"opened","pull_request":{"number":1}}`
++	req := httptest.NewRequest(http.MethodPost, "/hooks/forgejo", strings.NewReader(body))
++	req.Header.Set("X-Forgejo-Signature", sign("s3cret-for-tests", body))
++	rec := httptest.NewRecorder()
++	h.forgejo(rec, req)
++	if rec.Code != http.StatusAccepted {
++		t.Fatalf("status %d", rec.Code)
++	}
++}
++
++func TestForgejoInvalidSignature(t *testing.T) {
++	h := newTestHandler(t, "s3cret-for-tests")
++	req := httptest.NewRequest(http.MethodPost, "/hooks/forgejo", strings.NewReader(`{}`))
++	req.Header.Set("X-Forgejo-Signature", "00")
++	rec := httptest.NewRecorder()
++	if h.forgejo(rec, req); rec.Code != http.StatusUnauthorized {
++		t.Fatalf("status %d", rec.Code)
++	}
++}

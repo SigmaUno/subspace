@@ -1,0 +1,36 @@
+diff --git a/internal/auth/owner.go b/internal/auth/owner.go
+new file mode 100644
+--- /dev/null
++++ b/internal/auth/owner.go
+@@ -0,0 +1,12 @@
++package auth
++
++import "crypto/sha256"
++
++func ownerMatches(configured, presented string) bool {
++	if configured == "" {
++		return false
++	}
++	a := sha256.Sum256([]byte(configured))
++	b := sha256.Sum256([]byte(presented))
++	return a == b
++}
+diff --git a/internal/auth/owner_test.go b/internal/auth/owner_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/auth/owner_test.go
+@@ -0,0 +1,14 @@
++package auth
++
++import "testing"
++
++func TestOwnerMatches(t *testing.T) {
++	const tok = "0123456789abcdefghijklmnop"
++	if !ownerMatches(tok, tok) {
++		t.Fatal("same token rejected")
++	}
++	if ownerMatches(tok, tok+"x") {
++		t.Fatal("different token accepted")
++	}
++}
++

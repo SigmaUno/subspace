@@ -1,0 +1,74 @@
+diff --git a/internal/server/page.go b/internal/server/page.go
+new file mode 100644
+--- /dev/null
++++ b/internal/server/page.go
+@@ -0,0 +1,33 @@
++package server
++
++import (
++	"net/url"
++	"strconv"
++
++	"github.com/SigmaUno/subspace/internal/model"
++)
++
++const (
++	defaultLimit = 100
++	maxLimit     = 1000
++)
++
++func parsePage(q url.Values) (limit, offset int, err error) {
++	limit, offset = defaultLimit, 0
++	if v := q.Get("limit"); v != "" {
++		n, perr := strconv.Atoi(v)
++		if perr != nil || n < 1 || n > maxLimit {
++			return 0, 0, model.BadRequest("limit must be 1..%d", maxLimit)
++		}
++		limit = n
++	}
++	if v := q.Get("offset"); v != "" {
++		n, perr := strconv.Atoi(v)
++		if perr != nil || n < 0 {
++			return 0, 0, model.BadRequest("offset must be a non-negative integer")
++		}
++		offset = n
++	}
++	return limit, offset, nil
++}
++
+diff --git a/internal/server/page_test.go b/internal/server/page_test.go
+new file mode 100644
+--- /dev/null
++++ b/internal/server/page_test.go
+@@ -0,0 +1,34 @@
++package server
++
++import (
++	"net/url"
++	"testing"
++)
++
++func TestParsePage(t *testing.T) {
++	cases := []struct {
++		q             string
++		limit, offset int
++		bad           bool
++	}{
++		{"", 100, 0, false},
++		{"limit=1", 1, 0, false},
++		{"limit=1000", 1000, 0, false},
++		{"limit=1001", 0, 0, true},
++		{"limit=0", 0, 0, true},
++		{"limit=x", 0, 0, true},
++		{"offset=5", 100, 5, false},
++		{"offset=-1", 0, 0, true},
++		{"offset=abc", 0, 0, true},
++	}
++	for _, c := range cases {
++		q, _ := url.ParseQuery(c.q)
++		limit, offset, err := parsePage(q)
++		if (err != nil) != c.bad || limit != c.limit || offset != c.offset {
++			t.Errorf("%q: got %d %d %v", c.q, limit, offset, err)
++		}
++	}
++}

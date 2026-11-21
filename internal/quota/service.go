@@ -5,6 +5,7 @@ import (
 	"database/sql"
 	"errors"
 	"fmt"
+	"sync"
 	"time"
 
 	"github.com/SigmaUno/subspace/internal/board"
@@ -66,13 +67,68 @@ type Service struct {
 	st  store.Store
 	pub events.Publisher
 	now func() time.Time
+
+	mu      sync.Mutex
+	gen     uint64
+	setting int
+	limits  map[string]Quota
+	pruned  map[string]int64
 }
 
 func New(o Options) *Service {
 	if o.Now == nil {
 		o.Now = func() time.Time { return time.Now().UTC() }
 	}
-	return &Service{st: o.Store, pub: o.Pub, now: o.Now}
+	return &Service{st: o.Store, pub: o.Pub, now: o.Now, pruned: map[string]int64{}}
+}
+
+func (s *Service) limit(q sqlTx, agent string) (Quota, error) {
+	s.mu.Lock()
+	if s.setting > 0 {
+		s.mu.Unlock()
+		return loadQuota(q, agent)
+	}
+	if s.limits != nil {
+		lim := s.limits[agent]
+		s.mu.Unlock()
+		return lim, nil
+	}
+	gen := s.gen
+	s.mu.Unlock()
+	all, err := loadQuotas(q)
+	if err != nil {
+		return Quota{}, err
+	}
+	s.mu.Lock()
+	if s.gen == gen && s.setting == 0 {
+		s.limits = all
+	}
+	s.mu.Unlock()
+	return all[agent], nil
+}
+
+func (s *Service) invalidate(delta int) {
+	s.mu.Lock()
+	s.setting += delta
+	s.gen++
+	s.limits = nil
+	s.mu.Unlock()
+}
+
+func (s *Service) prune(q sqlTx, agent string, day int64) error {
+	s.mu.Lock()
+	done := s.pruned[agent] == day
+	s.mu.Unlock()
+	if done {
+		return nil
+	}
+	if err := prune(q, agent, day); err != nil {
+		return err
+	}
+	s.mu.Lock()
+	s.pruned[agent] = day
+	s.mu.Unlock()
+	return nil
 }
 
 func (s *Service) Gate(tx store.Tx, ev board.GateEvent) (*board.Notice, error) {
@@ -80,7 +136,7 @@ func (s *Service) Gate(tx store.Tx, ev board.GateEvent) (*board.Notice, error) {
 	if err != nil {
 		return nil, err
 	}
-	lim, err := loadQuota(q, ev.AgentID)
+	lim, err := s.limit(q, ev.AgentID)
 	if err != nil {
 		return nil, err
 	}
@@ -92,7 +148,7 @@ func (s *Service) Gate(tx store.Tx, ev board.GateEvent) (*board.Notice, error) {
 		if _, err := q.Exec(`INSERT INTO agent_quota_tasks(agent_id,day,task_id) VALUES(?,?,?) ON CONFLICT DO NOTHING`, ev.AgentID, day, ev.Task.ID); err != nil {
 			return nil, err
 		}
-		if err := prune(q, ev.AgentID, day); err != nil {
+		if err := s.prune(q, ev.AgentID, day); err != nil {
 			return nil, err
 		}
 	case board.GateCost:
@@ -193,6 +249,20 @@ func loadQuota(q sqlTx, agent string) (Quota, error) {
 	return lim, err
 }
 
+func loadQuotas(q sqlTx) (map[string]Quota, error) {
+	out := map[string]Quota{}
+	err := each(q, func(r *sql.Rows) error {
+		var id string
+		var lim Quota
+		if err := r.Scan(&id, &lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks); err != nil {
+			return err
+		}
+		out[id] = lim
+		return nil
+	}, `SELECT agent_id,max_cost_eur_per_day,max_tasks_per_day,max_concurrent_tasks FROM agent_quotas`)
+	return out, err
+}
+
 func prune(q sqlTx, agent string, day int64) error {
 	old := day - retainDays*int64(24*time.Hour/time.Second)
 	for _, table := range []string{"agent_quota_days", "agent_quota_tasks"} {
@@ -240,6 +310,8 @@ func (s *Service) Set(ctx context.Context, id string, lim Quota) error {
 		return err
 	}
 	var notice *board.Notice
+	s.invalidate(1)
+	defer s.invalidate(-1)
 	err := s.st.Atomic(ctx, func(tx store.Tx) error {
 		ag, err := tx.GetAgent(id)
 		if errors.Is(err, store.ErrNotFound) {
@@ -306,7 +378,7 @@ func (sn *Snapshot) Of(id string) (Quota, Today) {
 func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 	now := s.now()
 	day := DayStart(now).Unix()
-	sn := &Snapshot{now: now, quotas: map[string]Quota{}, usage: map[string]*Usage{}}
+	sn := &Snapshot{now: now, usage: map[string]*Usage{}}
 	at := func(id string) *Usage {
 		if sn.usage[id] == nil {
 			sn.usage[id] = &Usage{}
@@ -318,15 +390,7 @@ func (s *Service) Snapshot(ctx context.Context) (*Snapshot, error) {
 		if err != nil {
 			return err
 		}
-		if err := each(q, func(r *sql.Rows) error {
-			var id string
-			var lim Quota
-			if err := r.Scan(&id, &lim.MaxCostEURPerDay, &lim.MaxTasksPerDay, &lim.MaxConcurrentTasks); err != nil {
-				return err
-			}
-			sn.quotas[id] = lim
-			return nil
-		}, `SELECT agent_id,max_cost_eur_per_day,max_tasks_per_day,max_concurrent_tasks FROM agent_quotas`); err != nil {
+		if sn.quotas, err = loadQuotas(q); err != nil {
 			return err
 		}
 		if err := each(q, func(r *sql.Rows) error {

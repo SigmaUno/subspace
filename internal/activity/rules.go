@@ -48,6 +48,7 @@ var rules = map[string]rule{
 	"create_repo":           {icon: "git", text: "{actor} registered repository {a.name}"},
 	"delete_repo":           {icon: "git", severity: SevWarning, text: "{actor} removed repository {b.name}"},
 	"update_repo":           {icon: "git", text: "{actor} updated repository {a.name}"},
+	"enqueue_merge":         {icon: "git", text: "{actor} queued {a.repo}#{a.pr} for merge{task? for }"},
 	"create_gateway":        {icon: "plug", text: "{actor} added MCP gateway {a.name}"},
 	"update_gateway":        {icon: "plug", text: "{actor} updated MCP gateway {a.name}"},
 	"delete_gateway":        {icon: "plug", severity: SevWarning, text: "{actor} removed MCP gateway {b.name}"},

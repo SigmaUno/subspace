@@ -40,9 +40,5 @@ func (m *MCP) ListHelpRequests(ctx context.Context, f helpreq.Filter) ([]*helpre
 }
 
 func (m *MCP) AcceptSplit(ctx context.Context, requestID string) (*helpreq.SplitResult, error) {
-	var out helpreq.SplitResult
-	if err := m.Call(ctx, "accept_split", map[string]any{"request_id": requestID}, &out); err != nil {
-		return nil, err
-	}
-	return &out, nil
+	return callTool[helpreq.SplitResult](ctx, m, "accept_split", map[string]any{"request_id": requestID})
 }

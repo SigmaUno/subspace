@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -14,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
 	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/ratelimit"
 	"github.com/SigmaUno/subspace/internal/reload"
@@ -218,9 +218,7 @@ func clientIP(r *http.Request) string {
 func deny(w http.ResponseWriter, wait time.Duration) {
 	secs := max(int(math.Ceil(wait.Seconds())), 1)
 	w.Header().Set("Retry-After", strconv.Itoa(secs))
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusTooManyRequests)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "rate_limited", "message": "too many requests"}})
+	httpx.WriteError(w, model.Errf("rate_limited", "too many requests"))
 }
 
 type failWatcher struct {

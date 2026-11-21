@@ -113,7 +113,7 @@ func sum(stats []Stat) Range {
 
 func spread(med, sumSquares float64) Range {
 	half := math.Sqrt(sumSquares)
-	return Range{Low: round(max(med-half, 0), 2), Expected: round(med, 2), High: round(med+half, 2)}
+	return Range{Low: round2(max(med-half, 0)), Expected: round2(med), High: round2(med + half)}
 }
 
 func criticalPath(tasks []*model.Task, estimates map[string]Estimate) Range {

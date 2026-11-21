@@ -1,7 +1,6 @@
 package server
 
 import (
-	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
@@ -11,6 +10,8 @@ import (
 	"strings"
 	"sync/atomic"
 
+	"github.com/SigmaUno/subspace/internal/httpx"
+	"github.com/SigmaUno/subspace/internal/model"
 	"github.com/SigmaUno/subspace/internal/reload"
 )
 
@@ -216,7 +217,5 @@ func inPrefixes(nets []netip.Prefix, a netip.Addr) bool {
 }
 
 func forbid(w http.ResponseWriter) {
-	w.Header().Set("Content-Type", "application/json")
-	w.WriteHeader(http.StatusForbidden)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]string{"code": "forbidden", "message": "request not allowed from this address"}})
+	httpx.WriteError(w, model.Forbidden("request not allowed from this address"))
 }

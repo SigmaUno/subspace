@@ -172,9 +172,8 @@ func (d db) upsert(ctx context.Context, s *Subscription, limit int, audit auditF
 	return created, err
 }
 
-func (d db) delete(ctx context.Context, where string, arg string, audit func(*Subscription) *model.AuditEvent) (*Subscription, error) {
-	var out *Subscription
-	err := d.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
+func (d db) delete(ctx context.Context, where string, arg string, audit func(*Subscription) *model.AuditEvent) error {
+	return d.st.Atomic(ctx, withSQL(func(t store.Tx, q sqlTx) error {
 		cur, err := query(q, `WHERE `+where+` = ?`, arg)
 		if err != nil {
 			return err
@@ -182,13 +181,11 @@ func (d db) delete(ctx context.Context, where string, arg string, audit func(*Su
 		if len(cur) == 0 {
 			return model.NotFound("push subscription not found")
 		}
-		out = cur[0]
-		if _, err := q.Exec(`DELETE FROM push_subscriptions WHERE id = ?`, out.ID); err != nil {
+		if _, err := q.Exec(`DELETE FROM push_subscriptions WHERE id = ?`, cur[0].ID); err != nil {
 			return err
 		}
-		return t.InsertAudit(audit(out))
+		return t.InsertAudit(audit(cur[0]))
 	}))
-	return out, err
 }
 
 func (d db) result(ctx context.Context, id string, ok bool, at time.Time) error {

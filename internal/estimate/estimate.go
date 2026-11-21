@@ -176,7 +176,7 @@ func (m *Model) shrink(pools [][]Sample, mt metric) Stat {
 		out.Median = w*med + (1-w)*out.Median
 		out.P80 = max(w*p80+(1-w)*out.P80, out.Median)
 	}
-	return Stat{Median: round(out.Median, 2), P80: round(out.P80, 2)}
+	return Stat{Median: round2(out.Median), P80: round2(out.P80)}
 }
 
 func confidence(deepest, levels int) string {
@@ -217,9 +217,8 @@ func percentile(sorted []float64, q float64) float64 {
 	return sorted[lo] + (sorted[hi]-sorted[lo])*(pos-float64(lo))
 }
 
-func round(v float64, places int) float64 {
-	p := math.Pow10(places)
-	return math.Round(v*p) / p
+func round2(v float64) float64 {
+	return math.Round(v*100) / 100
 }
 
 func compareIDs(a, b string) int {

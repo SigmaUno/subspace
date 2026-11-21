@@ -17,7 +17,10 @@ import (
 	"github.com/SigmaUno/subspace/internal/schedule"
 )
 
-const costSlack = 1e-6
+const (
+	costSlack  = 1e-6
+	pauseOwned = "pause_owned"
+)
 
 type quotaDay struct {
 	agent string
@@ -510,6 +513,9 @@ func (m *featureModel) checkEstimate(st *step, pre, _ *State) *Violation {
 
 func (m *featureModel) checkIncident(st *step, pre, post *State) *Violation {
 	op, r := st.op, st.res
+	if st.succeeded(OpPauseAll) {
+		delete(m.incDone, pauseOwned)
+	}
 	if r.Err != nil {
 		return nil
 	}
@@ -532,7 +538,7 @@ func (m *featureModel) checkIncident(st *step, pre, post *State) *Violation {
 			if !post.Paused {
 				return violation(InvIncident, "%s paused nothing", r.ID)
 			}
-			m.incDone[incident.PauseAll] = true
+			m.incDone[incident.PauseAll], m.incDone[pauseOwned] = true, !pre.Paused
 		}
 		if slices.Contains(acts, incident.RotateLeaderTokens) {
 			var want []string
@@ -567,7 +573,7 @@ func (m *featureModel) checkIncident(st *step, pre, post *State) *Violation {
 		if r.ID != m.incident || m.incident == "" {
 			return violation(InvIncident, "ended %s, active is %q", r.ID, m.incident)
 		}
-		if m.incDone[incident.PauseAll] && pre.Paused && (post.Paused || r.Status != "resumed") {
+		if m.incDone[pauseOwned] && pre.Paused && (post.Paused || r.Status != "resumed") {
 			return violation(InvIncident, "%s ended without resuming its pause", r.ID)
 		}
 		if op.Approve {

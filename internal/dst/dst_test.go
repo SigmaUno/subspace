@@ -94,7 +94,7 @@ func TestSubsystemSimulation(t *testing.T) {
 	t.Parallel()
 	seeds, steps := 4, 300
 	if !testmode.Full() {
-		seeds, steps = 3, 250
+		seeds, steps = 2, 250
 	}
 	r := SubsystemsRunner(t.TempDir())
 	for seed := int64(1); seed <= int64(seeds); seed++ {

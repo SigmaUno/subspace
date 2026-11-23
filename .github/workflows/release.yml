@@ -9,7 +9,7 @@ permissions: {}
 jobs:
   binaries:
     name: Binaries and GitHub release
-    runs-on: runners
+    runs-on: self-hosted
     timeout-minutes: 20
     permissions:
       contents: write
@@ -36,7 +36,7 @@ jobs:
 
   images:
     name: Images (${{ matrix.image }})
-    runs-on: runners
+    runs-on: self-hosted
     timeout-minutes: 60
     permissions:
       contents: read

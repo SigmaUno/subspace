@@ -19,7 +19,7 @@ defaults:
 jobs:
   changes:
     name: Detect changes
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 3
     outputs:
       go: ${{ steps.filter.outputs.go }}
@@ -57,7 +57,7 @@ jobs:
     name: Go lint
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -79,7 +79,7 @@ jobs:
     name: Go test (race) shard ${{ matrix.shard }}
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 25
     strategy:
       fail-fast: false
@@ -109,7 +109,7 @@ jobs:
     name: Short loadtest (50 agents, 20s)
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -131,7 +131,7 @@ jobs:
     name: govulncheck
     needs: changes
     if: needs.changes.outputs.go == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 8
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -146,7 +146,7 @@ jobs:
     name: Web (lint, typecheck, build)
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 10
     defaults:
       run:
@@ -178,7 +178,7 @@ jobs:
     name: pnpm audit
     needs: changes
     if: needs.changes.outputs.web == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 5
     defaults:
       run:
@@ -201,7 +201,7 @@ jobs:
     name: Docker build
     needs: changes
     if: needs.changes.outputs.docker == 'true'
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 15
     steps:
       - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
@@ -222,7 +222,7 @@ jobs:
     name: ci-ok
     needs: [changes, lint, test, loadtest-short, govulncheck, web, web-audit, docker]
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: runners
     timeout-minutes: 2
     steps:
       - name: Check results
